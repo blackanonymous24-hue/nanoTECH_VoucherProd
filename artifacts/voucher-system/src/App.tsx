@@ -10,6 +10,8 @@ import POS from "@/pages/pos";
 import Vouchers from "@/pages/vouchers";
 import Profiles from "@/pages/profiles";
 import Sales from "@/pages/sales";
+import Distributors from "@/pages/distributors";
+import DistributorsDaily from "@/pages/distributors-daily";
 
 const queryClient = new QueryClient();
 
@@ -25,6 +27,8 @@ function Router() {
         <Route path="/vouchers" component={Vouchers} />
         <Route path="/profils" component={Profiles} />
         <Route path="/ventes" component={Sales} />
+        <Route path="/distributeurs" component={Distributors} />
+        <Route path="/distributeurs/journalier" component={DistributorsDaily} />
         <Route component={NotFound} />
       </Switch>
     </Shell>

@@ -13,4 +13,6 @@ export interface CreateSaleBody {
   operatorName?: string | null;
   /** @nullable */
   customerName?: string | null;
+  /** @nullable */
+  distributorId?: number | null;
 }

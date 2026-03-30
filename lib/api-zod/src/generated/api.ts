@@ -16,6 +16,91 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
+ * @summary Lister tous les distributeurs
+ */
+export const GetDistributorsResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  phone: zod.string().nullable(),
+  email: zod.string().nullable(),
+  status: zod.enum(["active", "inactive"]),
+  createdAt: zod.coerce.date(),
+});
+export const GetDistributorsResponse = zod.array(GetDistributorsResponseItem);
+
+/**
+ * @summary Créer un distributeur
+ */
+export const CreateDistributorBody = zod.object({
+  name: zod.string(),
+  phone: zod.string().nullish(),
+  email: zod.string().nullish(),
+  status: zod.enum(["active", "inactive"]).optional(),
+});
+
+/**
+ * @summary Obtenir un distributeur
+ */
+export const GetDistributorParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetDistributorResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  phone: zod.string().nullable(),
+  email: zod.string().nullable(),
+  status: zod.enum(["active", "inactive"]),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Modifier un distributeur
+ */
+export const UpdateDistributorParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateDistributorBody = zod.object({
+  name: zod.string().optional(),
+  phone: zod.string().nullish(),
+  email: zod.string().nullish(),
+  status: zod.enum(["active", "inactive"]).optional(),
+});
+
+export const UpdateDistributorResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  phone: zod.string().nullable(),
+  email: zod.string().nullable(),
+  status: zod.enum(["active", "inactive"]),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Supprimer un distributeur
+ */
+export const DeleteDistributorParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary Statistiques journalières d'un distributeur
+ */
+export const GetDistributorDailyStatsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetDistributorDailyStatsResponse = zod.object({
+  distributorId: zod.number(),
+  distributorName: zod.string(),
+  vouchersSoldToday: zod.number(),
+  revenueToday: zod.number(),
+  vouchersSoldTotal: zod.number(),
+  revenueTotal: zod.number(),
+});
+
+/**
  * @summary Lister tous les profils
  */
 export const GetProfilesResponseItem = zod.object({
@@ -151,6 +236,8 @@ export const GetSalesResponseItem = zod.object({
   paymentMethod: zod.string(),
   operatorName: zod.string().nullable(),
   customerName: zod.string().nullable(),
+  distributorId: zod.number().nullable(),
+  distributorName: zod.string().nullable(),
   createdAt: zod.coerce.date(),
 });
 export const GetSalesResponse = zod.array(GetSalesResponseItem);
@@ -163,6 +250,7 @@ export const CreateSaleBody = zod.object({
   paymentMethod: zod.string(),
   operatorName: zod.string().nullish(),
   customerName: zod.string().nullish(),
+  distributorId: zod.number().nullish(),
 });
 
 /**
@@ -182,6 +270,8 @@ export const GetSaleResponse = zod.object({
   paymentMethod: zod.string(),
   operatorName: zod.string().nullable(),
   customerName: zod.string().nullable(),
+  distributorId: zod.number().nullable(),
+  distributorName: zod.string().nullable(),
   createdAt: zod.coerce.date(),
 });
 
@@ -210,6 +300,8 @@ export const GetRecentSalesResponseItem = zod.object({
   paymentMethod: zod.string(),
   operatorName: zod.string().nullable(),
   customerName: zod.string().nullable(),
+  distributorId: zod.number().nullable(),
+  distributorName: zod.string().nullable(),
   createdAt: zod.coerce.date(),
 });
 export const GetRecentSalesResponse = zod.array(GetRecentSalesResponseItem);
@@ -227,4 +319,22 @@ export const GetVouchersByProfileResponseItem = zod.object({
 });
 export const GetVouchersByProfileResponse = zod.array(
   GetVouchersByProfileResponseItem,
+);
+
+/**
+ * @summary Rapport de ventes journalières de tous les distributeurs
+ */
+export const GetDistributorsDailyReportResponseItem = zod.object({
+  distributorId: zod.number(),
+  distributorName: zod.string(),
+  phone: zod.string().nullable(),
+  status: zod.string(),
+  vouchersSoldToday: zod.number(),
+  revenueToday: zod.number(),
+  vouchersSoldTotal: zod.number(),
+  revenueTotal: zod.number(),
+  lastSaleAt: zod.coerce.date().nullable(),
+});
+export const GetDistributorsDailyReportResponse = zod.array(
+  GetDistributorsDailyReportResponseItem,
 );

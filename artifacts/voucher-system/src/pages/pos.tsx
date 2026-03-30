@@ -10,7 +10,9 @@ import {
   getGetVouchersQueryKey,
   getGetDashboardStatsQueryKey,
   getGetRecentSalesQueryKey,
-  getGetVouchersByProfileQueryKey
+  getGetVouchersByProfileQueryKey,
+  useGetDistributors,
+  getGetDistributorsQueryKey
 } from "@workspace/api-client-react";
 import { formatCurrency, formatDuration, formatBytes } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -18,8 +20,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Wifi, CreditCard, Banknote, Printer, CheckCircle2 } from "lucide-react";
+import { Wifi, CreditCard, Banknote, Printer, CheckCircle2, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const saleFormSchema = z.object({
@@ -27,6 +30,7 @@ const saleFormSchema = z.object({
   paymentMethod: z.string().min(1, "Mode de paiement requis"),
   customerName: z.string().optional(),
   operatorName: z.string().optional(),
+  distributorId: z.string().optional(),
 });
 
 type SaleFormValues = z.infer<typeof saleFormSchema>;
@@ -40,6 +44,12 @@ export default function POS() {
     query: { queryKey: getGetProfilesQueryKey() }
   });
 
+  const { data: distributors, isLoading: isLoadingDistributors } = useGetDistributors({
+    query: { queryKey: getGetDistributorsQueryKey() }
+  });
+
+  const activeDistributors = distributors?.filter(d => d.status === "active") || [];
+
   const createSale = useCreateSale();
 
   const form = useForm<SaleFormValues>({
@@ -48,11 +58,20 @@ export default function POS() {
       paymentMethod: "Espèces",
       customerName: "",
       operatorName: "Admin",
+      distributorId: "none",
     },
   });
 
   const onSubmit = (data: SaleFormValues) => {
-    createSale.mutate({ data }, {
+    const payload = {
+      profileId: data.profileId,
+      paymentMethod: data.paymentMethod,
+      customerName: data.customerName,
+      operatorName: data.operatorName,
+      distributorId: data.distributorId && data.distributorId !== "none" ? Number(data.distributorId) : undefined,
+    };
+
+    createSale.mutate({ data: payload }, {
       onSuccess: (sale) => {
         setSuccessSale({
           voucherCode: sale.voucherCode,
@@ -64,17 +83,17 @@ export default function POS() {
           description: "Le voucher a été généré et assigné avec succès.",
         });
         
-        // Invalidate queries to refresh dashboard and lists
         queryClient.invalidateQueries({ queryKey: getGetVouchersQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetRecentSalesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetVouchersByProfileQueryKey() });
         
         form.reset({
-          profileId: data.profileId, // Keep same profile selected
+          profileId: data.profileId,
           paymentMethod: data.paymentMethod,
           operatorName: data.operatorName,
-          customerName: ""
+          customerName: "",
+          distributorId: data.distributorId,
         });
       },
       onError: (error: any) => {
@@ -200,6 +219,38 @@ export default function POS() {
                   <CardTitle>2. Détails & Paiement</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="distributorId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <User className="w-4 h-4" /> Distributeur (Optionnel)
+                        </FormLabel>
+                        <Select 
+                          disabled={isLoadingDistributors} 
+                          onValueChange={field.onChange} 
+                          defaultValue={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Aucun distributeur sélectionné" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">Vente directe (Aucun)</SelectItem>
+                            {activeDistributors.map((dist) => (
+                              <SelectItem key={dist.id} value={dist.id.toString()}>
+                                {dist.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
                   <FormField
                     control={form.control}
                     name="customerName"

@@ -94,3 +94,40 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+
+## VoucherNet Application
+
+French-language Wi-Fi voucher sales system for MikroTik hotspot operators.
+
+### Frontend (`artifacts/voucher-system`, `@workspace/voucher-system`)
+
+React + Vite + Tailwind + shadcn/ui. All text in French, currency in Ariary (e.g. "2 500 Ar"). Routes:
+- `/dashboard` — Tableau de bord (stats, recent sales, vouchers by profile chart)
+- `/vente` — Point de Vente (POS with profile selector, distributor selector, payment method)
+- `/vouchers` — Gestion Vouchers (list, import, delete)
+- `/profils` — Forfaits & Profils (CRUD for hotspot profiles)
+- `/ventes` — Historique des ventes
+- `/distributeurs` — Gestion des distributeurs (CRUD)
+- `/distributeurs/journalier` — Rapport journalier des distributeurs (daily rankings)
+
+### Backend Routes (`artifacts/api-server/src/routes/`)
+
+- `profiles.ts` — CRUD for hotspot profiles (duration, bandwidth, price)
+- `vouchers.ts` — list/generate/delete vouchers
+- `sales.ts` — create/list sales (supports `distributorId`)
+- `distributors.ts` — full CRUD + daily stats per distributor + GET /dashboard/distributors-daily
+- `dashboard.ts` — stats, recent sales, vouchers-by-profile
+
+### Database Schema (`lib/db/src/schema/`)
+
+- `profiles` — id, name, duration (mins), bandwidth (bytes), price (Ar), createdAt
+- `vouchers` — id, code, profileId, profileName, status (available/sold), soldAt, createdAt
+- `sales` — id, voucherId, voucherCode, profileId, profileName, amount, paymentMethod, operatorName, customerName, distributorId (nullable), distributorName (nullable), createdAt
+- `distributors` — id, name, phone (nullable), email (nullable), status (active/inactive), createdAt
+
+### Codegen Workflow
+
+After modifying `lib/api-spec/openapi.yaml`:
+1. `pnpm --filter @workspace/api-spec run codegen` — regenerates `lib/api-client-react/src/generated/` and `lib/api-zod/src/generated/`
+2. `pnpm run typecheck` — rebuilds all `.d.ts` files (required for cross-package type resolution)
+3. Restart workflows

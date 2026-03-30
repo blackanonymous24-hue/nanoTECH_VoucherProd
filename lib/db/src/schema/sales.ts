@@ -3,6 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { vouchersTable } from "./vouchers";
 import { profilesTable } from "./profiles";
+import { distributorsTable } from "./distributors";
 
 export const salesTable = pgTable("sales", {
   id: serial("id").primaryKey(),
@@ -14,6 +15,8 @@ export const salesTable = pgTable("sales", {
   paymentMethod: text("payment_method").notNull(),
   operatorName: text("operator_name"),
   customerName: text("customer_name"),
+  distributorId: integer("distributor_id").references(() => distributorsTable.id),
+  distributorName: text("distributor_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

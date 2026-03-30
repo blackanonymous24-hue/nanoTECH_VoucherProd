@@ -18,5 +18,9 @@ export interface Sale {
   operatorName: string | null;
   /** @nullable */
   customerName: string | null;
+  /** @nullable */
+  distributorId: number | null;
+  /** @nullable */
+  distributorName: string | null;
   createdAt: Date;
 }

@@ -6,9 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./createDistributorBody";
+export * from "./createDistributorBodyStatus";
 export * from "./createProfileBody";
 export * from "./createSaleBody";
 export * from "./dashboardStats";
+export * from "./distributor";
+export * from "./distributorDailyReport";
+export * from "./distributorDailyStats";
+export * from "./distributorStatus";
 export * from "./generateVouchersBody";
 export * from "./generateVouchersResponse";
 export * from "./getSalesParams";
@@ -17,6 +23,8 @@ export * from "./getVouchersStatus";
 export * from "./healthStatus";
 export * from "./profile";
 export * from "./sale";
+export * from "./updateDistributorBody";
+export * from "./updateDistributorBodyStatus";
 export * from "./updateProfileBody";
 export * from "./voucher";
 export * from "./vouchersByProfile";

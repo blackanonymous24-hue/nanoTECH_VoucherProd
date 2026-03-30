@@ -9,6 +9,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: distributors
+    description: Gestion des distributeurs
   - name: profiles
     description: Profils de connexion (forfaits)
   - name: vouchers
@@ -31,6 +33,120 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /distributors:
+    get:
+      operationId: getDistributors
+      tags: [distributors]
+      summary: Lister tous les distributeurs
+      responses:
+        "200":
+          description: Liste des distributeurs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Distributor"
+    post:
+      operationId: createDistributor
+      tags: [distributors]
+      summary: Créer un distributeur
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDistributorBody"
+      responses:
+        "201":
+          description: Distributeur créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Distributor"
+
+  /distributors/{id}:
+    get:
+      operationId: getDistributor
+      tags: [distributors]
+      summary: Obtenir un distributeur
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Distributeur trouvé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Distributor"
+        "404":
+          description: Distributeur introuvable
+    patch:
+      operationId: updateDistributor
+      tags: [distributors]
+      summary: Modifier un distributeur
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDistributorBody"
+      responses:
+        "200":
+          description: Distributeur mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Distributor"
+        "404":
+          description: Distributeur introuvable
+    delete:
+      operationId: deleteDistributor
+      tags: [distributors]
+      summary: Supprimer un distributeur
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Distributeur supprimé
+        "404":
+          description: Distributeur introuvable
+
+  /distributors/{id}/daily-stats:
+    get:
+      operationId: getDistributorDailyStats
+      tags: [distributors]
+      summary: Statistiques journalières d'un distributeur
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Stats du distributeur
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistributorDailyStats"
+        "404":
+          description: Distributeur introuvable
 
   /profiles:
     get:
@@ -293,6 +409,21 @@ paths:
                 items:
                   $ref: "#/components/schemas/VouchersByProfile"
 
+  /dashboard/distributors-daily:
+    get:
+      operationId: getDistributorsDailyReport
+      tags: [dashboard]
+      summary: Rapport de ventes journalières de tous les distributeurs
+      responses:
+        "200":
+          description: Rapport journalier par distributeur
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DistributorDailyReport"
+
 components:
   schemas:
     HealthStatus:
@@ -452,6 +583,10 @@ components:
           type: ["string", "null"]
         customerName:
           type: ["string", "null"]
+        distributorId:
+          type: ["integer", "null"]
+        distributorName:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -465,6 +600,8 @@ components:
         - paymentMethod
         - operatorName
         - customerName
+        - distributorId
+        - distributorName
         - createdAt
 
     CreateSaleBody:
@@ -478,9 +615,120 @@ components:
           type: ["string", "null"]
         customerName:
           type: ["string", "null"]
+        distributorId:
+          type: ["integer", "null"]
       required:
         - profileId
         - paymentMethod
+
+    Distributor:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [active, inactive]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - phone
+        - email
+        - status
+        - createdAt
+
+    CreateDistributorBody:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [active, inactive]
+      required:
+        - name
+
+    UpdateDistributorBody:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [active, inactive]
+
+    DistributorDailyStats:
+      type: object
+      properties:
+        distributorId:
+          type: integer
+        distributorName:
+          type: string
+        vouchersSoldToday:
+          type: integer
+        revenueToday:
+          type: number
+        vouchersSoldTotal:
+          type: integer
+        revenueTotal:
+          type: number
+      required:
+        - distributorId
+        - distributorName
+        - vouchersSoldToday
+        - revenueToday
+        - vouchersSoldTotal
+        - revenueTotal
+
+    DistributorDailyReport:
+      type: object
+      properties:
+        distributorId:
+          type: integer
+        distributorName:
+          type: string
+        phone:
+          type: ["string", "null"]
+        status:
+          type: string
+        vouchersSoldToday:
+          type: integer
+        revenueToday:
+          type: number
+        vouchersSoldTotal:
+          type: integer
+        revenueTotal:
+          type: number
+        lastSaleAt:
+          type: ["string", "null"]
+          format: date-time
+      required:
+        - distributorId
+        - distributorName
+        - phone
+        - status
+        - vouchersSoldToday
+        - revenueToday
+        - vouchersSoldTotal
+        - revenueTotal
+        - lastSaleAt
 
     DashboardStats:
       type: object

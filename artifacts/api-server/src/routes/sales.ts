@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc } from "drizzle-orm";
-import { db, salesTable, vouchersTable, profilesTable } from "@workspace/db";
+import { db, salesTable, vouchersTable, profilesTable, distributorsTable } from "@workspace/db";
 import {
   CreateSaleBody,
   GetSalesQueryParams,
@@ -38,7 +38,7 @@ router.post("/sales", async (req, res): Promise<void> => {
     return;
   }
 
-  const { profileId, paymentMethod, operatorName, customerName } = parsed.data;
+  const { profileId, paymentMethod, operatorName, customerName, distributorId } = parsed.data;
 
   const [profile] = await db.select().from(profilesTable).where(eq(profilesTable.id, profileId));
   if (!profile) {
@@ -60,6 +60,12 @@ router.post("/sales", async (req, res): Promise<void> => {
     return;
   }
 
+  let distributorName: string | null = null;
+  if (distributorId) {
+    const [dist] = await db.select().from(distributorsTable).where(eq(distributorsTable.id, distributorId));
+    distributorName = dist?.name ?? null;
+  }
+
   await db
     .update(vouchersTable)
     .set({ status: "sold", soldAt: new Date() })
@@ -76,6 +82,8 @@ router.post("/sales", async (req, res): Promise<void> => {
       paymentMethod,
       operatorName: operatorName ?? null,
       customerName: customerName ?? null,
+      distributorId: distributorId ?? null,
+      distributorName,
     })
     .returning();
 

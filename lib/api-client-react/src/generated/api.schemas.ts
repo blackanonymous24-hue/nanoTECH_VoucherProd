@@ -89,6 +89,10 @@ export interface Sale {
   operatorName: string | null;
   /** @nullable */
   customerName: string | null;
+  /** @nullable */
+  distributorId: number | null;
+  /** @nullable */
+  distributorName: string | null;
   createdAt: string;
 }
 
@@ -99,6 +103,84 @@ export interface CreateSaleBody {
   operatorName?: string | null;
   /** @nullable */
   customerName?: string | null;
+  /** @nullable */
+  distributorId?: number | null;
+}
+
+export type DistributorStatus =
+  (typeof DistributorStatus)[keyof typeof DistributorStatus];
+
+export const DistributorStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export interface Distributor {
+  id: number;
+  name: string;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  email: string | null;
+  status: DistributorStatus;
+  createdAt: string;
+}
+
+export type CreateDistributorBodyStatus =
+  (typeof CreateDistributorBodyStatus)[keyof typeof CreateDistributorBodyStatus];
+
+export const CreateDistributorBodyStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export interface CreateDistributorBody {
+  name: string;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  status?: CreateDistributorBodyStatus;
+}
+
+export type UpdateDistributorBodyStatus =
+  (typeof UpdateDistributorBodyStatus)[keyof typeof UpdateDistributorBodyStatus];
+
+export const UpdateDistributorBodyStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export interface UpdateDistributorBody {
+  name?: string;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  status?: UpdateDistributorBodyStatus;
+}
+
+export interface DistributorDailyStats {
+  distributorId: number;
+  distributorName: string;
+  vouchersSoldToday: number;
+  revenueToday: number;
+  vouchersSoldTotal: number;
+  revenueTotal: number;
+}
+
+export interface DistributorDailyReport {
+  distributorId: number;
+  distributorName: string;
+  /** @nullable */
+  phone: string | null;
+  status: string;
+  vouchersSoldToday: number;
+  revenueToday: number;
+  vouchersSoldTotal: number;
+  revenueTotal: number;
+  /** @nullable */
+  lastSaleAt: string | null;
 }
 
 export interface DashboardStats {

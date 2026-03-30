@@ -17,9 +17,13 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  CreateDistributorBody,
   CreateProfileBody,
   CreateSaleBody,
   DashboardStats,
+  Distributor,
+  DistributorDailyReport,
+  DistributorDailyStats,
   GenerateVouchersBody,
   GenerateVouchersResponse,
   GetSalesParams,
@@ -27,6 +31,7 @@ import type {
   HealthStatus,
   Profile,
   Sale,
+  UpdateDistributorBody,
   UpdateProfileBody,
   Voucher,
   VouchersByProfile,
@@ -109,6 +114,517 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Lister tous les distributeurs
+ */
+export const getGetDistributorsUrl = () => {
+  return `/api/distributors`;
+};
+
+export const getDistributors = async (
+  options?: RequestInit,
+): Promise<Distributor[]> => {
+  return customFetch<Distributor[]>(getGetDistributorsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDistributorsQueryKey = () => {
+  return [`/api/distributors`] as const;
+};
+
+export const getGetDistributorsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDistributors>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDistributors>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDistributorsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getDistributors>>> = ({
+    signal,
+  }) => getDistributors({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDistributors>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDistributorsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDistributors>>
+>;
+export type GetDistributorsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Lister tous les distributeurs
+ */
+
+export function useGetDistributors<
+  TData = Awaited<ReturnType<typeof getDistributors>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDistributors>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDistributorsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Créer un distributeur
+ */
+export const getCreateDistributorUrl = () => {
+  return `/api/distributors`;
+};
+
+export const createDistributor = async (
+  createDistributorBody: CreateDistributorBody,
+  options?: RequestInit,
+): Promise<Distributor> => {
+  return customFetch<Distributor>(getCreateDistributorUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createDistributorBody),
+  });
+};
+
+export const getCreateDistributorMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDistributor>>,
+    TError,
+    { data: BodyType<CreateDistributorBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createDistributor>>,
+  TError,
+  { data: BodyType<CreateDistributorBody> },
+  TContext
+> => {
+  const mutationKey = ["createDistributor"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createDistributor>>,
+    { data: BodyType<CreateDistributorBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createDistributor(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateDistributorMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createDistributor>>
+>;
+export type CreateDistributorMutationBody = BodyType<CreateDistributorBody>;
+export type CreateDistributorMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Créer un distributeur
+ */
+export const useCreateDistributor = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDistributor>>,
+    TError,
+    { data: BodyType<CreateDistributorBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createDistributor>>,
+  TError,
+  { data: BodyType<CreateDistributorBody> },
+  TContext
+> => {
+  return useMutation(getCreateDistributorMutationOptions(options));
+};
+
+/**
+ * @summary Obtenir un distributeur
+ */
+export const getGetDistributorUrl = (id: number) => {
+  return `/api/distributors/${id}`;
+};
+
+export const getDistributor = async (
+  id: number,
+  options?: RequestInit,
+): Promise<Distributor> => {
+  return customFetch<Distributor>(getGetDistributorUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDistributorQueryKey = (id: number) => {
+  return [`/api/distributors/${id}`] as const;
+};
+
+export const getGetDistributorQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDistributor>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDistributor>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDistributorQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getDistributor>>> = ({
+    signal,
+  }) => getDistributor(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDistributor>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDistributorQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDistributor>>
+>;
+export type GetDistributorQueryError = ErrorType<void>;
+
+/**
+ * @summary Obtenir un distributeur
+ */
+
+export function useGetDistributor<
+  TData = Awaited<ReturnType<typeof getDistributor>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDistributor>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDistributorQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Modifier un distributeur
+ */
+export const getUpdateDistributorUrl = (id: number) => {
+  return `/api/distributors/${id}`;
+};
+
+export const updateDistributor = async (
+  id: number,
+  updateDistributorBody: UpdateDistributorBody,
+  options?: RequestInit,
+): Promise<Distributor> => {
+  return customFetch<Distributor>(getUpdateDistributorUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateDistributorBody),
+  });
+};
+
+export const getUpdateDistributorMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDistributor>>,
+    TError,
+    { id: number; data: BodyType<UpdateDistributorBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateDistributor>>,
+  TError,
+  { id: number; data: BodyType<UpdateDistributorBody> },
+  TContext
+> => {
+  const mutationKey = ["updateDistributor"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateDistributor>>,
+    { id: number; data: BodyType<UpdateDistributorBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateDistributor(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateDistributorMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateDistributor>>
+>;
+export type UpdateDistributorMutationBody = BodyType<UpdateDistributorBody>;
+export type UpdateDistributorMutationError = ErrorType<void>;
+
+/**
+ * @summary Modifier un distributeur
+ */
+export const useUpdateDistributor = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDistributor>>,
+    TError,
+    { id: number; data: BodyType<UpdateDistributorBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateDistributor>>,
+  TError,
+  { id: number; data: BodyType<UpdateDistributorBody> },
+  TContext
+> => {
+  return useMutation(getUpdateDistributorMutationOptions(options));
+};
+
+/**
+ * @summary Supprimer un distributeur
+ */
+export const getDeleteDistributorUrl = (id: number) => {
+  return `/api/distributors/${id}`;
+};
+
+export const deleteDistributor = async (
+  id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteDistributorUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteDistributorMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteDistributor>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteDistributor>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteDistributor"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteDistributor>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteDistributor(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteDistributorMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteDistributor>>
+>;
+
+export type DeleteDistributorMutationError = ErrorType<void>;
+
+/**
+ * @summary Supprimer un distributeur
+ */
+export const useDeleteDistributor = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteDistributor>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteDistributor>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteDistributorMutationOptions(options));
+};
+
+/**
+ * @summary Statistiques journalières d'un distributeur
+ */
+export const getGetDistributorDailyStatsUrl = (id: number) => {
+  return `/api/distributors/${id}/daily-stats`;
+};
+
+export const getDistributorDailyStats = async (
+  id: number,
+  options?: RequestInit,
+): Promise<DistributorDailyStats> => {
+  return customFetch<DistributorDailyStats>(
+    getGetDistributorDailyStatsUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDistributorDailyStatsQueryKey = (id: number) => {
+  return [`/api/distributors/${id}/daily-stats`] as const;
+};
+
+export const getGetDistributorDailyStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDistributorDailyStats>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDistributorDailyStats>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDistributorDailyStatsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDistributorDailyStats>>
+  > = ({ signal }) =>
+    getDistributorDailyStats(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDistributorDailyStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDistributorDailyStatsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDistributorDailyStats>>
+>;
+export type GetDistributorDailyStatsQueryError = ErrorType<void>;
+
+/**
+ * @summary Statistiques journalières d'un distributeur
+ */
+
+export function useGetDistributorDailyStats<
+  TData = Awaited<ReturnType<typeof getDistributorDailyStats>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDistributorDailyStats>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDistributorDailyStatsQueryOptions(id, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -1274,6 +1790,85 @@ export function useGetVouchersByProfile<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetVouchersByProfileQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Rapport de ventes journalières de tous les distributeurs
+ */
+export const getGetDistributorsDailyReportUrl = () => {
+  return `/api/dashboard/distributors-daily`;
+};
+
+export const getDistributorsDailyReport = async (
+  options?: RequestInit,
+): Promise<DistributorDailyReport[]> => {
+  return customFetch<DistributorDailyReport[]>(
+    getGetDistributorsDailyReportUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDistributorsDailyReportQueryKey = () => {
+  return [`/api/dashboard/distributors-daily`] as const;
+};
+
+export const getGetDistributorsDailyReportQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDistributorsDailyReport>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDistributorsDailyReport>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDistributorsDailyReportQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDistributorsDailyReport>>
+  > = ({ signal }) => getDistributorsDailyReport({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDistributorsDailyReport>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDistributorsDailyReportQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDistributorsDailyReport>>
+>;
+export type GetDistributorsDailyReportQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Rapport de ventes journalières de tous les distributeurs
+ */
+
+export function useGetDistributorsDailyReport<
+  TData = Awaited<ReturnType<typeof getDistributorsDailyReport>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDistributorsDailyReport>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDistributorsDailyReportQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
