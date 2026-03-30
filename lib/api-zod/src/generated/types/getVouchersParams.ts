@@ -5,7 +5,9 @@
  * API specification - Système de vente de vouchers MikroTik
  * OpenAPI spec version: 0.1.0
  */
+import type { GetVouchersStatus } from "./getVouchersStatus";
 
-export interface HealthStatus {
-  status: string;
-}
+export type GetVouchersParams = {
+  status?: GetVouchersStatus;
+  profileId?: number;
+};

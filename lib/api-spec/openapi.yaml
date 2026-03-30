@@ -1,15 +1,22 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API specification - Système de vente de vouchers MikroTik
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: profiles
+    description: Profils de connexion (forfaits)
+  - name: vouchers
+    description: Gestion des vouchers
+  - name: sales
+    description: Ventes de vouchers
+  - name: dashboard
+    description: Statistiques du tableau de bord
 paths:
   /healthz:
     get:
@@ -24,6 +31,268 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /profiles:
+    get:
+      operationId: getProfiles
+      tags: [profiles]
+      summary: Lister tous les profils
+      responses:
+        "200":
+          description: Liste des profils
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Profile"
+    post:
+      operationId: createProfile
+      tags: [profiles]
+      summary: Créer un profil
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProfileBody"
+      responses:
+        "201":
+          description: Profil créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+
+  /profiles/{id}:
+    get:
+      operationId: getProfile
+      tags: [profiles]
+      summary: Obtenir un profil
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Profil trouvé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "404":
+          description: Profil introuvable
+    patch:
+      operationId: updateProfile
+      tags: [profiles]
+      summary: Modifier un profil
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileBody"
+      responses:
+        "200":
+          description: Profil mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "404":
+          description: Profil introuvable
+    delete:
+      operationId: deleteProfile
+      tags: [profiles]
+      summary: Supprimer un profil
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Profil supprimé
+        "404":
+          description: Profil introuvable
+
+  /vouchers:
+    get:
+      operationId: getVouchers
+      tags: [vouchers]
+      summary: Lister les vouchers
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [available, sold, used, expired]
+        - name: profileId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Liste des vouchers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Voucher"
+
+  /vouchers/generate:
+    post:
+      operationId: generateVouchers
+      tags: [vouchers]
+      summary: Générer des vouchers en lot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateVouchersBody"
+      responses:
+        "201":
+          description: Vouchers générés
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateVouchersResponse"
+
+  /vouchers/{id}:
+    delete:
+      operationId: deleteVoucher
+      tags: [vouchers]
+      summary: Supprimer un voucher
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Voucher supprimé
+        "404":
+          description: Voucher introuvable
+
+  /sales:
+    get:
+      operationId: getSales
+      tags: [sales]
+      summary: Lister les ventes
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Liste des ventes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Sale"
+    post:
+      operationId: createSale
+      tags: [sales]
+      summary: Vendre un voucher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSaleBody"
+      responses:
+        "201":
+          description: Vente créée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+        "400":
+          description: Requête invalide
+
+  /sales/{id}:
+    get:
+      operationId: getSale
+      tags: [sales]
+      summary: Obtenir une vente
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vente trouvée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+        "404":
+          description: Vente introuvable
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Statistiques générales du tableau de bord
+      responses:
+        "200":
+          description: Statistiques
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /dashboard/recent-sales:
+    get:
+      operationId: getRecentSales
+      tags: [dashboard]
+      summary: Dernières ventes (tableau de bord)
+      responses:
+        "200":
+          description: 10 dernières ventes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Sale"
+
+  /dashboard/vouchers-by-profile:
+    get:
+      operationId: getVouchersByProfile
+      tags: [dashboard]
+      summary: Répartition des vouchers disponibles par profil
+      responses:
+        "200":
+          description: Vouchers par profil
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VouchersByProfile"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +303,227 @@ components:
       required:
         - status
 
+    Profile:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        price:
+          type: number
+        durationMinutes:
+          type: integer
+        speedDownload:
+          type: integer
+        speedUpload:
+          type: integer
+        dataLimitMb:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - price
+        - durationMinutes
+        - speedDownload
+        - speedUpload
+        - dataLimitMb
+        - description
+        - createdAt
+
+    CreateProfileBody:
+      type: object
+      properties:
+        name:
+          type: string
+        price:
+          type: number
+        durationMinutes:
+          type: integer
+        speedDownload:
+          type: integer
+        speedUpload:
+          type: integer
+        dataLimitMb:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+      required:
+        - name
+        - price
+        - durationMinutes
+        - speedDownload
+        - speedUpload
+
+    UpdateProfileBody:
+      type: object
+      properties:
+        name:
+          type: string
+        price:
+          type: number
+        durationMinutes:
+          type: integer
+        speedDownload:
+          type: integer
+        speedUpload:
+          type: integer
+        dataLimitMb:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+
+    Voucher:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        profileId:
+          type: integer
+        profileName:
+          type: string
+        status:
+          type: string
+          enum: [available, sold, used, expired]
+        createdAt:
+          type: string
+          format: date-time
+        soldAt:
+          type: ["string", "null"]
+          format: date-time
+      required:
+        - id
+        - code
+        - profileId
+        - profileName
+        - status
+        - createdAt
+        - soldAt
+
+    GenerateVouchersBody:
+      type: object
+      properties:
+        profileId:
+          type: integer
+        quantity:
+          type: integer
+      required:
+        - profileId
+        - quantity
+
+    GenerateVouchersResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        vouchers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Voucher"
+      required:
+        - count
+        - vouchers
+
+    Sale:
+      type: object
+      properties:
+        id:
+          type: integer
+        voucherId:
+          type: integer
+        voucherCode:
+          type: string
+        profileId:
+          type: integer
+        profileName:
+          type: string
+        amount:
+          type: number
+        paymentMethod:
+          type: string
+        operatorName:
+          type: ["string", "null"]
+        customerName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - voucherId
+        - voucherCode
+        - profileId
+        - profileName
+        - amount
+        - paymentMethod
+        - operatorName
+        - customerName
+        - createdAt
+
+    CreateSaleBody:
+      type: object
+      properties:
+        profileId:
+          type: integer
+        paymentMethod:
+          type: string
+        operatorName:
+          type: ["string", "null"]
+        customerName:
+          type: ["string", "null"]
+      required:
+        - profileId
+        - paymentMethod
+
+    DashboardStats:
+      type: object
+      properties:
+        totalRevenue:
+          type: number
+        revenueToday:
+          type: number
+        vouchersSoldTotal:
+          type: integer
+        vouchersSoldToday:
+          type: integer
+        vouchersAvailable:
+          type: integer
+        totalProfiles:
+          type: integer
+      required:
+        - totalRevenue
+        - revenueToday
+        - vouchersSoldTotal
+        - vouchersSoldToday
+        - vouchersAvailable
+        - totalProfiles
+
+    VouchersByProfile:
+      type: object
+      properties:
+        profileId:
+          type: integer
+        profileName:
+          type: string
+        price:
+          type: number
+        durationMinutes:
+          type: integer
+        available:
+          type: integer
+        sold:
+          type: integer
+      required:
+        - profileId
+        - profileName
+        - price
+        - durationMinutes
+        - available
+        - sold

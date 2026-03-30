@@ -6,6 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface VouchersByProfile {
+  profileId: number;
+  profileName: string;
+  price: number;
+  durationMinutes: number;
+  available: number;
+  sold: number;
 }
