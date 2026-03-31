@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { eq, and, isNotNull, gte, inArray } from "drizzle-orm";
+import { eq, and, isNotNull, inArray } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, type SalesReport } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -381,44 +381,55 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
   }
 });
 
+// ─── Sales cache ─────────────────────────────────────────────────────────────
+interface SalesCacheEntry { data: SalesReport; updatedAt: number; }
+const salesCache = new Map<number, SalesCacheEntry>();
+const salesRefreshing = new Set<number>();
+const SALES_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function triggerSalesRefresh(id: number, host: string, port: number, username: string, password: string) {
+  if (salesRefreshing.has(id)) return;
+  salesRefreshing.add(id);
+  try {
+    const conn = { host, port, username, password };
+    // Use 90s timeout — background, not constrained by Replit proxy
+    const data = await fetchSalesFromScripts(conn, 90_000);
+    salesCache.set(id, { data, updatedAt: Date.now() });
+  } catch { /* keep stale cache on error */ } finally {
+    salesRefreshing.delete(id);
+  }
+}
+
 router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const isoDateLabel = `${now.getFullYear()}-${mm}-${dd}`;
-  const isoOwner = `${mm}${now.getFullYear()}`;
+  const cached = salesCache.get(id);
+  const now = Date.now();
 
-  const rows = await db
-    .select({ price: vouchersTable.price, printedAt: vouchersTable.printedAt })
-    .from(vouchersTable)
-    .where(and(
-      eq(vouchersTable.routerId, id),
-      isNotNull(vouchersTable.printedAt),
-      gte(vouchersTable.printedAt, startOfMonth),
-    ));
-
-  let dailyCount = 0;
-  let dailyAmount = 0;
-  let monthlyCount = rows.length;
-  let monthlyAmount = 0;
-
-  for (const row of rows) {
-    const price = parseFloat(row.price) || 0;
-    monthlyAmount += price;
-    if (row.printedAt && row.printedAt >= startOfDay) {
-      dailyCount++;
-      dailyAmount += price;
-    }
+  // Trigger background refresh if cache is absent, stale (> TTL), or aging (> 2min)
+  const needsRefresh = !cached || (now - cached.updatedAt) > SALES_TTL;
+  const agingRefresh = cached && (now - cached.updatedAt) > 2 * 60 * 1000;
+  if (needsRefresh || agingRefresh) {
+    triggerSalesRefresh(id, r.host, r.port, r.username, r.password);
   }
 
-  res.json({ dailyCount, dailyAmount, monthlyCount, monthlyAmount, dateLabel: isoDateLabel, monthLabel: isoOwner });
+  if (cached) {
+    res.json({ ...cached.data, _cachedAt: cached.updatedAt });
+  } else {
+    // No cache yet — return zeros, data will arrive on next poll
+    const mm = String(new Date().getMonth() + 1).padStart(2, "0");
+    const y  = new Date().getFullYear();
+    const d  = String(new Date().getDate()).padStart(2, "0");
+    res.json({
+      dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0,
+      dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`, _cachedAt: null,
+    });
+  }
 });
 
 router.get("/routers/:id/logs", async (req, res): Promise<void> => {

@@ -424,7 +424,7 @@ export interface SalesReport {
  *
  *  Price is always at index 3.
  */
-export async function fetchSalesFromScripts(conn: RouterConnection): Promise<SalesReport> {
+export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 12000): Promise<SalesReport> {
   return withRouter(conn, async (api) => {
     const now = new Date();
     const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
@@ -441,10 +441,10 @@ export async function fetchSalesFromScripts(conn: RouterConnection): Promise<Sal
     const isoDateLabel     = `${y}-${mm}-${d}`;   // "2026-03-31"
     const isoOwner         = `${mm}${y}`;          // "032026"
 
-    // Try new (7.10+) owner first, fall back to legacy if empty
-    let allScripts = await api.write("/system/script/print", [`?owner=${isoOwner}`]).catch(() => []);
+    // Only fetch the name field — avoids transferring large script source bodies
+    let allScripts = await api.write("/system/script/print", ["=.proplist=name", `?owner=${isoOwner}`]).catch(() => []);
     if (allScripts.length === 0) {
-      allScripts = await api.write("/system/script/print", [`?owner=${legacyOwner}`]).catch(() => []);
+      allScripts = await api.write("/system/script/print", ["=.proplist=name", `?owner=${legacyOwner}`]).catch(() => []);
     }
 
     let dailyCount = 0;
@@ -479,7 +479,7 @@ export async function fetchSalesFromScripts(conn: RouterConnection): Promise<Sal
       dateLabel: isoDateLabel,
       monthLabel: isoOwner,
     };
-  });
+  }, timeoutMs);
 }
 
 export interface LogEntry {
