@@ -9,7 +9,7 @@ type LogEntry = { id: string; time: string; topics: string; message: string };
 
 function formatAmount(amount: number): string {
   if (amount === 0) return "";
-  return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " HTG";
+  return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " FCFA";
 }
 
 function classifyLog(entry: LogEntry): {
