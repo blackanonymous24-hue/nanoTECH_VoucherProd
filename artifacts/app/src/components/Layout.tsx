@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Router, Ticket, Zap, Wifi, PackageOpen, Activity, Users, BarChart3, Loader2 } from "lucide-react";
+import { LayoutDashboard, Router, Ticket, Zap, Wifi, PackageOpen, Activity, Users, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
 import {
@@ -23,7 +23,7 @@ const navItems = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { selectedRouterId, setSelectedRouterId, routers, routersLoading, pinging, routerOnline } = useRouterContext();
+  const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline } = useRouterContext();
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -39,19 +39,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="px-3 pt-4 pb-2">
           <div className="flex items-center justify-between mb-1.5 px-1">
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Routeur actif</p>
-            {selectedRouterId && (
-              pinging ? (
-                <Loader2 className="h-3 w-3 text-gray-500 animate-spin" />
-              ) : routerOnline === true ? (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-                </span>
-              ) : routerOnline === false ? (
-                <span className="relative flex h-2 w-2">
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-                </span>
-              ) : null
+            {selectedRouterId && routerOnline === true && (
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+              </span>
+            )}
+            {selectedRouterId && routerOnline === false && (
+              <span className="relative flex h-2 w-2">
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+              </span>
             )}
           </div>
           {routersLoading && routers.length === 0 ? (
