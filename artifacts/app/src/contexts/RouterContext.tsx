@@ -7,6 +7,7 @@ interface RouterContextValue {
   setSelectedRouterId: (id: number | null) => void;
   selectedRouter: Router | undefined;
   routers: Router[];
+  routersLoading: boolean;
 }
 
 const RouterContext = createContext<RouterContextValue>({
@@ -14,12 +15,19 @@ const RouterContext = createContext<RouterContextValue>({
   setSelectedRouterId: () => {},
   selectedRouter: undefined,
   routers: [],
+  routersLoading: false,
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const { data: routers = [] } = useListRouters();
+  const { data: routers = [], isLoading: routersLoading } = useListRouters({
+    query: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      placeholderData: (prev: Router[] | undefined) => prev,
+    },
+  });
 
   const [selectedRouterId, setSelectedRouterIdState] = useState<number | null>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -44,7 +52,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const selectedRouter = routers.find((r) => r.id === selectedRouterId);
 
   return (
-    <RouterContext.Provider value={{ selectedRouterId, setSelectedRouterId, selectedRouter, routers }}>
+    <RouterContext.Provider value={{ selectedRouterId, setSelectedRouterId, selectedRouter, routers, routersLoading }}>
       {children}
     </RouterContext.Provider>
   );

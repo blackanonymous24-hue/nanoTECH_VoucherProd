@@ -23,7 +23,7 @@ const navItems = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { selectedRouterId, setSelectedRouterId, routers } = useRouterContext();
+  const { selectedRouterId, setSelectedRouterId, routers, routersLoading } = useRouterContext();
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -36,14 +36,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <p className="text-xs text-gray-400 mt-0.5">Gestion Hotspot MikroTik</p>
         </div>
 
-        {routers.length > 0 && (
-          <div className="px-3 pt-4 pb-2">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 px-1">Routeur actif</p>
+        <div className="px-3 pt-4 pb-2">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 px-1">Routeur actif</p>
+          {routersLoading && routers.length === 0 ? (
+            <div className="h-8 bg-gray-800 rounded-md animate-pulse" />
+          ) : (
             <Select
               value={selectedRouterId ? String(selectedRouterId) : ""}
               onValueChange={(v) => setSelectedRouterId(v ? parseInt(v, 10) : null)}
+              disabled={routers.length === 0}
             >
-              <SelectTrigger className="h-8 text-xs bg-gray-800 border-gray-700 text-white hover:bg-gray-700 focus:ring-0 focus:ring-offset-0">
+              <SelectTrigger className="h-8 text-xs bg-gray-800 border-gray-700 text-white hover:bg-gray-700 focus:ring-0 focus:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed">
                 <SelectValue placeholder="Sélectionner..." />
               </SelectTrigger>
               <SelectContent>
@@ -54,8 +57,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        )}
+          )}
+        </div>
 
         <nav className="flex-1 px-3 py-2 space-y-1">
           {navItems.map(({ href, label, icon: Icon }) => {
