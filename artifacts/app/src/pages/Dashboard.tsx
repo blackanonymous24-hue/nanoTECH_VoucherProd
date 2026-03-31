@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info } from "lucide-react";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type LogEntry = { id: string; time: string; topics: string; message: string };
 
@@ -65,6 +68,23 @@ export default function Dashboard() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const {
+    data: activeSessions,
+    isFetching: sessionsFetching,
+    refetch: refetchSessions,
+  } = useQuery({
+    queryKey: ["router-sessions", selectedRouterId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions`);
+      if (!res.ok) throw new Error("Erreur sessions");
+      const data: unknown[] = await res.json();
+      return data.length;
+    },
+    enabled: !!selectedRouterId,
+    refetchInterval: 10_000,
+    staleTime: 9_000,
+  });
+
+  const {
     data: sales,
     isFetching: salesFetching,
     refetch: refetchSales,
@@ -113,6 +133,7 @@ export default function Dashboard() {
     if (selectedRouterId) {
       refetchLogs();
       refetchSales();
+      refetchSessions();
     }
   };
 
@@ -143,9 +164,11 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           title="Clients actifs"
-          value={data?.routerCount ?? 0}
-          icon={<Router className="h-5 w-5 text-purple-500" />}
-          loading={isLoading}
+          value={selectedRouterId ? (activeSessions ?? 0) : 0}
+          live={!!selectedRouterId}
+          fetching={sessionsFetching}
+          icon={<Wifi className="h-5 w-5 text-purple-500" />}
+          loading={!!selectedRouterId && activeSessions === undefined}
         />
         <StatCard
           title="Vente journalière"
