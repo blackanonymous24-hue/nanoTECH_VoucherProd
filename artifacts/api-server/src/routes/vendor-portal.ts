@@ -182,8 +182,8 @@ router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
     .from(vouchersTable)
     .where(and(
       eq(vouchersTable.vendorId, payload.vendorId),
-      gte(vouchersTable.usedAt, start.toISOString()),
-      lt(vouchersTable.usedAt, end.toISOString()),
+      gte(vouchersTable.usedAt, start),
+      lt(vouchersTable.usedAt, end),
     ))
     .orderBy(desc(vouchersTable.usedAt));
 
