@@ -1,0 +1,542 @@
+openapi: "3.1.0"
+info:
+  title: VoucherNet API
+  version: "1.0.0"
+servers:
+  - url: /api
+
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /routers:
+    get:
+      operationId: listRouters
+      summary: List all routers
+      responses:
+        "200":
+          description: List of routers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Router"
+    post:
+      operationId: createRouter
+      summary: Add a router
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRouterBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Router"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /routers/{id}:
+    get:
+      operationId: getRouter
+      summary: Get a router
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Router"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateRouter
+      summary: Update a router
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRouterBody"
+      responses:
+        "200":
+          description: Updated router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Router"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteRouter
+      summary: Delete a router
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /routers/{id}/test:
+    post:
+      operationId: testRouterConnection
+      summary: Test connection to a router
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestResult"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /routers/{id}/profiles:
+    get:
+      operationId: listRouterProfiles
+      summary: List hotspot profiles from a router
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of hotspot profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HotspotProfile"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /routers/{id}/sessions:
+    get:
+      operationId: listRouterSessions
+      summary: List active hotspot sessions
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of active sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HotspotSession"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vouchers:
+    get:
+      operationId: listVouchers
+      summary: List generated vouchers
+      parameters:
+        - in: query
+          name: routerId
+          schema:
+            type: ["integer", "null"]
+        - in: query
+          name: profile
+          schema:
+            type: ["string", "null"]
+        - in: query
+          name: printed
+          schema:
+            type: ["string", "null"]
+            enum: ["true", "false", null]
+        - in: query
+          name: limit
+          schema:
+            type: ["integer", "null"]
+        - in: query
+          name: offset
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of vouchers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherListResponse"
+
+  /vouchers/generate:
+    post:
+      operationId: generateVouchers
+      summary: Generate vouchers on MikroTik
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateVouchersBody"
+      responses:
+        "201":
+          description: Generated vouchers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Voucher"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vouchers/{id}:
+    delete:
+      operationId: deleteVoucher
+      summary: Delete a voucher
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vouchers/{id}/mark-printed:
+    post:
+      operationId: markVoucherPrinted
+      summary: Mark a voucher as printed
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated voucher
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Voucher"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /dashboard:
+    get:
+      operationId: getDashboard
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    Router:
+      type: object
+      required: [id, name, host, port, username, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        username:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRouterBody:
+      type: object
+      required: [name, host, username, password]
+      properties:
+        name:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+          default: 8728
+        username:
+          type: string
+        password:
+          type: string
+        isActive:
+          type: boolean
+          default: true
+
+    UpdateRouterBody:
+      type: object
+      properties:
+        name:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        username:
+          type: string
+        password:
+          type: string
+        isActive:
+          type: boolean
+
+    TestResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        routerBoard:
+          type: ["string", "null"]
+        version:
+          type: ["string", "null"]
+
+    HotspotProfile:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        rateLimit:
+          type: ["string", "null"]
+        validity:
+          type: ["string", "null"]
+        price:
+          type: ["string", "null"]
+        sharedUsers:
+          type: ["string", "null"]
+        addrPool:
+          type: ["string", "null"]
+        lockMac:
+          type: boolean
+
+    HotspotSession:
+      type: object
+      required: [user, address, uptime]
+      properties:
+        user:
+          type: string
+        address:
+          type: string
+        macAddress:
+          type: ["string", "null"]
+        uptime:
+          type: string
+        bytesIn:
+          type: ["string", "null"]
+        bytesOut:
+          type: ["string", "null"]
+        server:
+          type: ["string", "null"]
+
+    Voucher:
+      type: object
+      required: [id, routerId, username, password, profileName, price, validity, createdAt]
+      properties:
+        id:
+          type: integer
+        routerId:
+          type: integer
+        username:
+          type: string
+        password:
+          type: string
+        profileName:
+          type: string
+        price:
+          type: string
+        validity:
+          type: string
+        comment:
+          type: ["string", "null"]
+        printedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    VoucherListResponse:
+      type: object
+      required: [vouchers, total]
+      properties:
+        vouchers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Voucher"
+        total:
+          type: integer
+
+    GenerateVouchersBody:
+      type: object
+      required: [routerId, profile, qty]
+      properties:
+        routerId:
+          type: integer
+        profile:
+          type: string
+        qty:
+          type: integer
+          minimum: 1
+          maximum: 200
+        prefix:
+          type: ["string", "null"]
+        comment:
+          type: ["string", "null"]
+        server:
+          type: ["string", "null"]
+
+    DashboardStats:
+      type: object
+      required: [totalVouchers, unprintedVouchers, printedVouchers, routerCount, activeRouters]
+      properties:
+        totalVouchers:
+          type: integer
+        unprintedVouchers:
+          type: integer
+        printedVouchers:
+          type: integer
+        routerCount:
+          type: integer
+        activeRouters:
+          type: integer
+        recentVouchers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Voucher"

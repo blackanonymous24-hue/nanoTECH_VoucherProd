@@ -1,0 +1,22 @@
+kind = "web"
+previewPath = "/api"
+title = "VoucherNet API"
+version = "1.0.0"
+id = "artifacts/api-server"
+router = "path"
+
+[[services]]
+name = "api"
+paths = ["/api"]
+localPort = 3001
+
+[services.development]
+run = "pnpm --filter @workspace/api-server run dev"
+
+[services.production]
+run = "pnpm --filter @workspace/api-server run start"
+build = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
+
+[services.env]
+PORT = "3001"
+NODE_ENV = "development"
