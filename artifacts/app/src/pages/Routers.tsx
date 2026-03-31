@@ -109,13 +109,19 @@ export default function Routers() {
   };
 
   const handleTest = async (id: number) => {
-    const result = await testMutation.mutateAsync({ id });
-    setTestResults((prev) => ({ ...prev, [id]: result }));
-    toast({
-      title: result.success ? "Connexion réussie" : "Connexion échouée",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
+    try {
+      const result = await testMutation.mutateAsync({ id });
+      setTestResults((prev) => ({ ...prev, [id]: result }));
+      toast({
+        title: result.success ? "Connexion réussie" : "Connexion échouée",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erreur de connexion";
+      setTestResults((prev) => ({ ...prev, [id]: { success: false, message } }));
+      toast({ title: "Connexion échouée", description: message, variant: "destructive" });
+    }
   };
 
   return (

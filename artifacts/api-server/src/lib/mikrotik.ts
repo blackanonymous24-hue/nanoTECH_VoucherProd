@@ -85,14 +85,17 @@ export async function withRouter<T>(
     timeout,
   });
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("RouterOS operation timed out")), timeout),
-  );
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("RouterOS operation timed out")), timeout);
+  });
 
-  await api.connect();
   try {
-    return await Promise.race([fn(api), timeoutPromise]);
+    await Promise.race([api.connect(), timeoutPromise]);
+    const result = await Promise.race([fn(api), timeoutPromise]);
+    return result;
   } finally {
+    if (timer !== null) clearTimeout(timer);
     try { api.close(); } catch { /* ignore close errors */ }
   }
 }
@@ -108,7 +111,7 @@ export async function testConnection(conn: RouterConnection): Promise<{ success:
         routerBoard: (board?.["model"] as string) ?? null,
         version: (res?.["version"] as string) ?? null,
       };
-    });
+    }, 8000);
   } catch (err) {
     return {
       success: false,
