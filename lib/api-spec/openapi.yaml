@@ -19,6 +19,8 @@ tags:
     description: Ventes de vouchers
   - name: dashboard
     description: Statistiques du tableau de bord
+  - name: settings
+    description: Configuration de l'application
 paths:
   /healthz:
     get:
@@ -406,6 +408,49 @@ paths:
         "404":
           description: Voucher introuvable
 
+  /settings/routeros:
+    get:
+      operationId: getRouterOSConfig
+      tags: [settings]
+      summary: Obtenir la configuration RouterOS
+      responses:
+        "200":
+          description: Configuration RouterOS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterOSConfig"
+    put:
+      operationId: updateRouterOSConfig
+      tags: [settings]
+      summary: Mettre à jour la configuration RouterOS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouterOSConfig"
+      responses:
+        "200":
+          description: Configuration mise à jour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterOSConfig"
+
+  /settings/routeros/test:
+    get:
+      operationId: testRouterOSConnection
+      tags: [settings]
+      summary: Tester la connexion RouterOS
+      responses:
+        "200":
+          description: Résultat du test de connexion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterOSTestResult"
+
   /sales:
     get:
       operationId: getSales
@@ -710,6 +755,65 @@ components:
         - profileId
         - csvContent
 
+    RouterOSConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        host:
+          type: string
+        port:
+          type: integer
+        ssl:
+          type: boolean
+        user:
+          type: string
+        password:
+          type: string
+      required:
+        - enabled
+        - host
+        - port
+        - ssl
+        - user
+        - password
+
+    RouterOSTestResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        profiles:
+          type: array
+          items:
+            type: string
+      required:
+        - success
+        - message
+        - profiles
+
+    RouterOSSyncResult:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        success:
+          type: boolean
+        synced:
+          type: integer
+        failed:
+          type: integer
+        message:
+          type: string
+      required:
+        - enabled
+        - success
+        - synced
+        - failed
+        - message
+
     GenerateVouchersResponse:
       type: object
       properties:
@@ -719,6 +823,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Voucher"
+        routerosSync:
+          $ref: "#/components/schemas/RouterOSSyncResult"
+          nullable: true
       required:
         - count
         - vouchers

@@ -307,6 +307,48 @@ export const DeleteVoucherParams = zod.object({
 });
 
 /**
+ * @summary Obtenir la configuration RouterOS
+ */
+export const GetRouterOSConfigResponse = zod.object({
+  enabled: zod.boolean(),
+  host: zod.string(),
+  port: zod.number(),
+  ssl: zod.boolean(),
+  user: zod.string(),
+  password: zod.string(),
+});
+
+/**
+ * @summary Mettre à jour la configuration RouterOS
+ */
+export const UpdateRouterOSConfigBody = zod.object({
+  enabled: zod.boolean(),
+  host: zod.string(),
+  port: zod.number(),
+  ssl: zod.boolean(),
+  user: zod.string(),
+  password: zod.string(),
+});
+
+export const UpdateRouterOSConfigResponse = zod.object({
+  enabled: zod.boolean(),
+  host: zod.string(),
+  port: zod.number(),
+  ssl: zod.boolean(),
+  user: zod.string(),
+  password: zod.string(),
+});
+
+/**
+ * @summary Tester la connexion RouterOS
+ */
+export const TestRouterOSConnectionResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string(),
+  profiles: zod.array(zod.string()),
+});
+
+/**
  * @summary Lister les ventes
  */
 export const GetSalesQueryParams = zod.object({

@@ -12,6 +12,7 @@ import {
   useGetVouchers,
   getGetVouchersQueryKey,
   useImportVouchers,
+  useGetRouterOSConfig,
 } from "@workspace/api-client-react";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trash2, Plus, Download, Upload, FileText, PackageOpen, Eye } from "lucide-react";
+import { Trash2, Plus, Download, Upload, FileText, PackageOpen, Eye, Router } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -295,6 +296,8 @@ function GenerateDialog({ profiles }: { profiles?: { id: number; name: string; p
   const [genQuantity, setGenQuantity] = useState("10");
 
   const generateVouchers = useGenerateVouchers();
+  const { data: rosConfig } = useGetRouterOSConfig();
+  const rosEnabled = rosConfig?.enabled ?? false;
 
   const handleGenerate = () => {
     if (!genProfileId || !genQuantity) return;
@@ -302,7 +305,23 @@ function GenerateDialog({ profiles }: { profiles?: { id: number; name: string; p
       { data: { profileId: parseInt(genProfileId), quantity: parseInt(genQuantity) } },
       {
         onSuccess: (res) => {
-          toast({ title: "Vouchers générés", description: `${res.count} codes créés avec succès.` });
+          const sync = res.routerosSync;
+          if (sync?.enabled) {
+            if (sync.success) {
+              toast({
+                title: "Vouchers générés et synchronisés",
+                description: `${res.count} codes créés — ${sync.synced} envoyés dans RouterOS.`,
+              });
+            } else {
+              toast({
+                title: "Vouchers générés (RouterOS partiel)",
+                description: sync.message,
+                variant: "destructive",
+              });
+            }
+          } else {
+            toast({ title: "Vouchers générés", description: `${res.count} codes créés avec succès.` });
+          }
           setOpen(false);
           queryClient.invalidateQueries({ queryKey: getGetVoucherBatchesQueryKey() });
         },
@@ -328,6 +347,12 @@ function GenerateDialog({ profiles }: { profiles?: { id: number; name: string; p
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
+          {rosEnabled && (
+            <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-md px-3 py-2">
+              <Router className="h-4 w-4 shrink-0" />
+              <span>Les vouchers seront automatiquement créés dans RouterOS.</span>
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Forfait</Label>
             <Select value={genProfileId} onValueChange={setGenProfileId}>

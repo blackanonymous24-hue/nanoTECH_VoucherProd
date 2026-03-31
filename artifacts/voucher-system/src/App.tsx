@@ -15,6 +15,7 @@ import Distributors from "@/pages/distributors";
 import DistributorsDaily from "@/pages/distributors-daily";
 import VendorLogin from "@/pages/vendor-login";
 import VendorPOS from "@/pages/vendor-pos";
+import SettingsRouterOS from "@/pages/settings-routeros";
 
 const queryClient = new QueryClient();
 
@@ -44,6 +45,7 @@ function Router() {
             <Route path="/ventes" component={Sales} />
             <Route path="/distributeurs" component={Distributors} />
             <Route path="/distributeurs/journalier" component={DistributorsDaily} />
+            <Route path="/parametres/routeros" component={SettingsRouterOS} />
             <Route component={NotFound} />
           </Switch>
         </Shell>

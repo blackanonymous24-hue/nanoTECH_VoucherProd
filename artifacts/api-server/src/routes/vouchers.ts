@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, inArray, sql } from "drizzle-orm";
-import { db, vouchersTable, profilesTable } from "@workspace/db";
+import { db, vouchersTable, profilesTable, settingsTable } from "@workspace/db";
 import {
   GenerateVouchersBody,
   GetVouchersQueryParams,
@@ -9,6 +9,7 @@ import {
   ImportVouchersBody,
 } from "@workspace/api-zod";
 import { randomBytes } from "crypto";
+import { parseConfig, createHotspotUser } from "../lib/routeros";
 
 const router: IRouter = Router();
 
@@ -261,6 +262,10 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     return;
   }
 
+  const sanitizeProfile = (name: string) =>
+    name.toLowerCase().replace(/[^a-z0-9\-_]/g, "").slice(0, 16) || "profile";
+  const mikrotikProfile = profile.mikrotikProfile ?? sanitizeProfile(profile.name);
+
   const bId = generateBatchId();
   const bName = `Lot du ${new Date().toLocaleDateString("fr-FR")} — ${profile.name} — ${quantity} codes`;
 
@@ -285,7 +290,39 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     soldAt: v.soldAt ?? null,
   }));
 
-  res.status(201).json({ count: vouchers.length, vouchers });
+  // RouterOS integration: push vouchers as hotspot users if enabled
+  const ROS_KEYS = ["routeros.enabled", "routeros.host", "routeros.port", "routeros.ssl", "routeros.user", "routeros.password"];
+  const settingsRows = await db.select().from(settingsTable).where(inArray(settingsTable.key, ROS_KEYS));
+  const rawSettings: Record<string, string | null | undefined> = {};
+  settingsRows.forEach((r) => { rawSettings[r.key] = r.value ?? undefined; });
+  const rosCfg = parseConfig(rawSettings);
+
+  let routerosSync = null;
+  if (rosCfg.enabled) {
+    let synced = 0;
+    let failed = 0;
+    for (const v of inserted) {
+      const result = await createHotspotUser(rosCfg, {
+        name: v.code,
+        password: v.code,
+        profile: mikrotikProfile,
+      });
+      if (result.success) synced++;
+      else failed++;
+    }
+    routerosSync = {
+      enabled: true,
+      success: failed === 0,
+      synced,
+      failed,
+      message:
+        failed === 0
+          ? `${synced} voucher(s) créé(s) dans RouterOS avec succès`
+          : `${synced} créé(s), ${failed} échec(s) dans RouterOS`,
+    };
+  }
+
+  res.status(201).json({ count: vouchers.length, vouchers, routerosSync });
 });
 
 // DELETE /vouchers/:id

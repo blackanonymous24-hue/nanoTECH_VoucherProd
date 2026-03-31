@@ -5,9 +5,11 @@
  * API specification - Système de vente de vouchers MikroTik
  * OpenAPI spec version: 0.1.0
  */
+import type { RouterOSSyncResult } from "./routerOSSyncResult";
 import type { Voucher } from "./voucher";
 
 export interface GenerateVouchersResponse {
   count: number;
   vouchers: Voucher[];
+  routerosSync?: RouterOSSyncResult | null;
 }

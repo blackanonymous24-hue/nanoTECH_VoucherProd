@@ -7,7 +7,8 @@ import {
   History,
   Menu,
   Users,
-  BarChart3
+  BarChart3,
+  Settings
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,10 @@ const mainNavItems = [
 const distributorNavItems = [
   { href: "/distributeurs/journalier", icon: BarChart3, label: "Rapport Journalier" },
   { href: "/distributeurs", icon: Users, label: "Distributeurs" },
+];
+
+const settingsNavItems = [
+  { href: "/parametres/routeros", icon: Settings, label: "RouterOS MikroTik" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -56,6 +61,27 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-col gap-2">
         <h3 className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-1">Distributeurs</h3>
         {distributorNavItems.map((item) => {
+          const isActive = location === item.href;
+          return (
+            <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>
+              <div
+                className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer ${
+                  isActive 
+                    ? "bg-primary text-primary-foreground font-medium" 
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                }`}
+              >
+                <item.icon className="h-5 w-5" />
+                <span>{item.label}</span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <h3 className="px-3 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-1">Configuration</h3>
+        {settingsNavItems.map((item) => {
           const isActive = location === item.href;
           return (
             <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>

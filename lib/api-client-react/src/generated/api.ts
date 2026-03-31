@@ -32,6 +32,8 @@ import type {
   HealthStatus,
   ImportVouchersBody,
   Profile,
+  RouterOSConfig,
+  RouterOSTestResult,
   Sale,
   UpdateDistributorBody,
   UpdateProfileBody,
@@ -1740,6 +1742,243 @@ export const useDeleteVoucher = <
 > => {
   return useMutation(getDeleteVoucherMutationOptions(options));
 };
+
+/**
+ * @summary Obtenir la configuration RouterOS
+ */
+export const getGetRouterOSConfigUrl = () => {
+  return `/api/settings/routeros`;
+};
+
+export const getRouterOSConfig = async (
+  options?: RequestInit,
+): Promise<RouterOSConfig> => {
+  return customFetch<RouterOSConfig>(getGetRouterOSConfigUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRouterOSConfigQueryKey = () => {
+  return [`/api/settings/routeros`] as const;
+};
+
+export const getGetRouterOSConfigQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRouterOSConfig>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRouterOSConfig>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRouterOSConfigQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRouterOSConfig>>
+  > = ({ signal }) => getRouterOSConfig({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRouterOSConfig>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRouterOSConfigQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRouterOSConfig>>
+>;
+export type GetRouterOSConfigQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Obtenir la configuration RouterOS
+ */
+
+export function useGetRouterOSConfig<
+  TData = Awaited<ReturnType<typeof getRouterOSConfig>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRouterOSConfig>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRouterOSConfigQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Mettre à jour la configuration RouterOS
+ */
+export const getUpdateRouterOSConfigUrl = () => {
+  return `/api/settings/routeros`;
+};
+
+export const updateRouterOSConfig = async (
+  routerOSConfig: RouterOSConfig,
+  options?: RequestInit,
+): Promise<RouterOSConfig> => {
+  return customFetch<RouterOSConfig>(getUpdateRouterOSConfigUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(routerOSConfig),
+  });
+};
+
+export const getUpdateRouterOSConfigMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateRouterOSConfig>>,
+    TError,
+    { data: BodyType<RouterOSConfig> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateRouterOSConfig>>,
+  TError,
+  { data: BodyType<RouterOSConfig> },
+  TContext
+> => {
+  const mutationKey = ["updateRouterOSConfig"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateRouterOSConfig>>,
+    { data: BodyType<RouterOSConfig> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateRouterOSConfig(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateRouterOSConfigMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateRouterOSConfig>>
+>;
+export type UpdateRouterOSConfigMutationBody = BodyType<RouterOSConfig>;
+export type UpdateRouterOSConfigMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mettre à jour la configuration RouterOS
+ */
+export const useUpdateRouterOSConfig = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateRouterOSConfig>>,
+    TError,
+    { data: BodyType<RouterOSConfig> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateRouterOSConfig>>,
+  TError,
+  { data: BodyType<RouterOSConfig> },
+  TContext
+> => {
+  return useMutation(getUpdateRouterOSConfigMutationOptions(options));
+};
+
+/**
+ * @summary Tester la connexion RouterOS
+ */
+export const getTestRouterOSConnectionUrl = () => {
+  return `/api/settings/routeros/test`;
+};
+
+export const testRouterOSConnection = async (
+  options?: RequestInit,
+): Promise<RouterOSTestResult> => {
+  return customFetch<RouterOSTestResult>(getTestRouterOSConnectionUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getTestRouterOSConnectionQueryKey = () => {
+  return [`/api/settings/routeros/test`] as const;
+};
+
+export const getTestRouterOSConnectionQueryOptions = <
+  TData = Awaited<ReturnType<typeof testRouterOSConnection>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof testRouterOSConnection>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getTestRouterOSConnectionQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof testRouterOSConnection>>
+  > = ({ signal }) => testRouterOSConnection({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof testRouterOSConnection>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type TestRouterOSConnectionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof testRouterOSConnection>>
+>;
+export type TestRouterOSConnectionQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Tester la connexion RouterOS
+ */
+
+export function useTestRouterOSConnection<
+  TData = Awaited<ReturnType<typeof testRouterOSConnection>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof testRouterOSConnection>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getTestRouterOSConnectionQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Lister les ventes

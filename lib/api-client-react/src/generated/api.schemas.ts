@@ -106,9 +106,33 @@ export interface ImportVouchersBody {
   batchName?: string;
 }
 
+export interface RouterOSConfig {
+  enabled: boolean;
+  host: string;
+  port: number;
+  ssl: boolean;
+  user: string;
+  password: string;
+}
+
+export interface RouterOSTestResult {
+  success: boolean;
+  message: string;
+  profiles: string[];
+}
+
+export interface RouterOSSyncResult {
+  enabled: boolean;
+  success: boolean;
+  synced: number;
+  failed: number;
+  message: string;
+}
+
 export interface GenerateVouchersResponse {
   count: number;
   vouchers: Voucher[];
+  routerosSync?: RouterOSSyncResult | null;
 }
 
 export interface Sale {
