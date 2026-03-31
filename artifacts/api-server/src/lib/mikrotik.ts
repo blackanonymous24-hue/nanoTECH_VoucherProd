@@ -134,6 +134,27 @@ export async function withRouter<T>(
   }
 }
 
+export async function pingRouter(conn: RouterConnection): Promise<boolean> {
+  const attempt = () =>
+    withRouter(conn, async (api) => {
+      await api.write("/system/identity/print");
+    }, 8000);
+
+  try {
+    await attempt();
+    return true;
+  } catch {
+    // Wait 2s for concurrent connections to free up, then retry once
+    await new Promise<void>((r) => setTimeout(r, 2000));
+    try {
+      await attempt();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export async function testConnection(conn: RouterConnection): Promise<{ success: boolean; message: string; routerBoard: string | null; version: string | null }> {
   try {
     return await withRouter(conn, async (api) => {
