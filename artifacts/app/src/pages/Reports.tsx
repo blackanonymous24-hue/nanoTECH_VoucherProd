@@ -408,8 +408,8 @@ export default function Reports() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="vendu-desc">Vendus</SelectItem>
-                  <SelectItem value="non-vendu">Non vendus</SelectItem>
+                  <SelectItem value="vendu-desc">Meilleure performance</SelectItem>
+                  <SelectItem value="non-vendu">Performance faible</SelectItem>
                 </SelectContent>
               </Select>
             </div>
