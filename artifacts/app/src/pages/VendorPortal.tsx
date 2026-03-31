@@ -407,7 +407,7 @@ function Dashboard({ token, vendor, onLogout }: {
                     <div className="h-8 w-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
                       <Search className="h-4 w-4 text-white" />
                     </div>
-                    <p className="text-sm font-medium text-gray-700 leading-tight">Vérifier les ventes d&apos;une période</p>
+                    <p className="text-xs font-medium text-gray-700 leading-tight whitespace-nowrap">Vérifier les ventes d&apos;une période</p>
                   </div>
                   <div className="grid grid-cols-3 gap-1.5">
                     <Select value={reportDay} onValueChange={setReportDay}>
