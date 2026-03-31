@@ -423,15 +423,23 @@ export interface InterfaceTraffic {
 
 export async function fetchInterfaceTraffic(conn: RouterConnection): Promise<InterfaceTraffic> {
   return withRouter(conn, async (api) => {
-    const ifaces = await api.write("/interface/print", [
-      "=.proplist=name,rx-bits-per-second,tx-bits-per-second,disabled",
-    ]);
-    const first = ifaces[0];
+    // Find the first non-disabled interface (same logic as MikHmon)
+    const ifaces = await api.write("/interface/print", ["=.proplist=name,disabled"]);
+    const first = ifaces.find((i) => i["disabled"] !== "true") ?? ifaces[0];
     if (!first) return { rxBps: 0, txBps: 0, name: null };
+
+    const ifaceName = (first["name"] as string) || "";
+
+    // Use /interface/monitor-traffic with once — same as MikHmon PHP code
+    const [traffic] = await api.write("/interface/monitor-traffic", [
+      `=interface=${ifaceName}`,
+      "=once=",
+    ]);
+
     return {
-      rxBps: parseInt((first["rx-bits-per-second"] as string) || "0", 10),
-      txBps: parseInt((first["tx-bits-per-second"] as string) || "0", 10),
-      name:  (first["name"] as string) || null,
+      rxBps: parseInt((traffic?.["rx-bits-per-second"] as string) || "0", 10),
+      txBps: parseInt((traffic?.["tx-bits-per-second"] as string) || "0", 10),
+      name:  ifaceName || null,
     };
   }, 8000);
 }
