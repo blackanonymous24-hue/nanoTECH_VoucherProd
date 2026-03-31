@@ -353,6 +353,39 @@ export async function fetchUsedUsernames(conn: RouterConnection): Promise<Set<st
   return used;
 }
 
+/**
+ * Enable or disable a list of hotspot users on a MikroTik router.
+ * Users not found on the router are silently skipped.
+ */
+export async function enableDisableHotspotUsers(
+  conn: RouterConnection,
+  usernames: string[],
+  enable: boolean,
+): Promise<{ done: number; notFound: string[] }> {
+  if (usernames.length === 0) return { done: 0, notFound: [] };
+  return withRouter(conn, async (api) => {
+    const all = await api.write("/ip/hotspot/user/print");
+    const map = new Map<string, string>();
+    for (const u of all) {
+      const name = (u["name"] as string) ?? "";
+      const id   = (u[".id"]  as string) ?? "";
+      if (name && id) map.set(name.toLowerCase(), id);
+    }
+    const notFound: string[] = [];
+    let done = 0;
+    for (const username of usernames) {
+      const id = map.get(username.toLowerCase());
+      if (!id) { notFound.push(username); continue; }
+      await api.write("/ip/hotspot/user/set", [
+        `=.id=${id}`,
+        `=disabled=${enable ? "no" : "yes"}`,
+      ]);
+      done++;
+    }
+    return { done, notFound };
+  });
+}
+
 export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
   return withRouter(conn, async (api) => {
     const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);

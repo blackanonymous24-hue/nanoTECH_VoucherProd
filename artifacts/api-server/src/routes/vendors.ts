@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { eq, desc, and, count, sql, isNotNull } from "drizzle-orm";
-import { db, vendorsTable, vouchersTable } from "@workspace/db";
+import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
+import { enableDisableHotspotUsers } from "../lib/mikrotik.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 
@@ -126,6 +128,10 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     }
   }
 
+  // Fetch current vendor to detect isActive change
+  const [current] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
+  if (!current) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
+
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name.trim();
   if (phone !== undefined) updates.phone = phone?.trim() || null;
@@ -149,6 +155,58 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
 
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
   res.json(safeVendor(vendor));
+
+  // If isActive changed, enable/disable all vouchers on MikroTik (background)
+  if (isActive !== undefined && isActive !== current.isActive) {
+    const enable = isActive;
+    (async () => {
+      try {
+        // Get all vouchers for this vendor, grouped by router
+        const vouchers = await db
+          .select({
+            username: vouchersTable.username,
+            routerId: vouchersTable.routerId,
+          })
+          .from(vouchersTable)
+          .where(eq(vouchersTable.vendorId, id));
+
+        // Group by routerId
+        const byRouter = new Map<number, string[]>();
+        for (const v of vouchers) {
+          const list = byRouter.get(v.routerId) ?? [];
+          list.push(v.username);
+          byRouter.set(v.routerId, list);
+        }
+
+        // For each router, connect and enable/disable
+        for (const [routerId, usernames] of byRouter) {
+          const [routerRow] = await db
+            .select()
+            .from(routersTable)
+            .where(eq(routersTable.id, routerId));
+          if (!routerRow) continue;
+
+          try {
+            const result = await enableDisableHotspotUsers(
+              {
+                host: routerRow.host,
+                port: routerRow.port,
+                username: routerRow.username,
+                password: routerRow.password,
+              },
+              usernames,
+              enable,
+            );
+            logger.info({ vendorId: id, routerId, enable, ...result }, "vendor vouchers toggled on MikroTik");
+          } catch (err) {
+            logger.warn({ vendorId: id, routerId, enable, err }, "failed to toggle vouchers on MikroTik");
+          }
+        }
+      } catch (err) {
+        logger.error({ vendorId: id, err }, "background enable/disable task failed");
+      }
+    })();
+  }
 });
 
 router.delete("/vendors/:id", async (req, res): Promise<void> => {
