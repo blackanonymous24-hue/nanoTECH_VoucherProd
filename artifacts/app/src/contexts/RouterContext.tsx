@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import { useListRouters } from "@workspace/api-client-react";
 import type { Router } from "@workspace/api-client-react";
 
@@ -21,13 +21,19 @@ const RouterContext = createContext<RouterContextValue>({
 const STORAGE_KEY = "vouchernet_router_id";
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const { data: routers = [], isLoading: routersLoading } = useListRouters({
-    query: {
-      staleTime: 30_000,
-      gcTime: 5 * 60_000,
-      placeholderData: (prev: Router[] | undefined) => prev,
-    },
+  const { data: freshRouters, isLoading: routersLoading } = useListRouters({
+    query: { staleTime: 30_000, gcTime: 5 * 60_000 },
   });
+
+  const [routers, setRouters] = useState<Router[]>([]);
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    if (freshRouters && freshRouters.length > 0) {
+      setRouters(freshRouters);
+      initializedRef.current = true;
+    }
+  }, [freshRouters]);
 
   const [selectedRouterId, setSelectedRouterIdState] = useState<number | null>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -51,8 +57,10 @@ export function RouterProvider({ children }: { children: ReactNode }) {
 
   const selectedRouter = routers.find((r) => r.id === selectedRouterId);
 
+  const isLoading = routersLoading && !initializedRef.current;
+
   return (
-    <RouterContext.Provider value={{ selectedRouterId, setSelectedRouterId, selectedRouter, routers, routersLoading }}>
+    <RouterContext.Provider value={{ selectedRouterId, setSelectedRouterId, selectedRouter, routers, routersLoading: isLoading }}>
       {children}
     </RouterContext.Provider>
   );
