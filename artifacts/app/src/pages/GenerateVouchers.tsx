@@ -49,7 +49,7 @@ export default function GenerateVouchers() {
   const [prefix, setPrefix] = useState("");
   const [comment, setComment] = useState(() => makeBatchId());
   const [vendorId, setVendorId] = useState<string>("");
-  const [passwordMode, setPasswordMode] = useState<"same" | "random">("random");
+  const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
 
   const activeRouterId = selectedRouterId ?? (localRouterId ? parseInt(localRouterId, 10) : null);
