@@ -265,5 +265,5 @@ export async function generateVouchers(
     }
 
     return generated;
-  });
+  }, 120_000);
 }
