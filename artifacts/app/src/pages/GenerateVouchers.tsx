@@ -26,12 +26,11 @@ import { useToast } from "@/hooks/use-toast";
 
 function makeBatchId(): string {
   const now = new Date();
-  const Y = now.getFullYear();
   const M = String(now.getMonth() + 1).padStart(2, "0");
   const D = String(now.getDate()).padStart(2, "0");
-  const H = String(now.getHours()).padStart(2, "0");
-  const min = String(now.getMinutes()).padStart(2, "0");
-  return `LOT-${Y}${M}${D}-${H}${min}`;
+  const Y = String(now.getFullYear()).slice(-2);
+  const rand = String(Math.floor(Math.random() * 900) + 100);
+  return `vc-${rand}-${M}.${D}.${Y}`;
 }
 
 export default function GenerateVouchers() {
