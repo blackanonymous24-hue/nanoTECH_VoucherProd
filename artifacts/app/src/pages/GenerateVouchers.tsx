@@ -149,26 +149,21 @@ export default function GenerateVouchers() {
 
               <div>
                 <Label>Profil</Label>
-                <Select value={profile} onValueChange={setProfile} disabled={!activeRouterId || loadingProfiles}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder={loadingProfiles ? "Chargement..." : "Sélectionnez un profil"} />
-                  </SelectTrigger>
-                  <SelectContent
-                    onWheel={(e) => {
-                      e.stopPropagation();
-                      const el = e.currentTarget.querySelector("[data-radix-select-viewport]") as HTMLElement | null;
-                      if (el) el.scrollTop += e.deltaY;
-                    }}
-                  >
-                    {profiles.map((p) => (
-                      <SelectItem key={p.name} value={p.name}>
-                        {p.name}
-                        {p.validity && ` · ${p.validity}`}
-                        {p.price && ` · ${p.price}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <select
+                  className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value)}
+                  disabled={!activeRouterId || loadingProfiles}
+                >
+                  <option value="">{loadingProfiles ? "Chargement..." : "Sélectionnez un profil"}</option>
+                  {profiles.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                      {p.validity ? ` · ${p.validity}` : ""}
+                      {p.price ? ` · ${p.price}` : ""}
+                    </option>
+                  ))}
+                </select>
                 {selectedProfile && (
                   <div className="mt-2 p-2.5 bg-blue-50 rounded-lg text-xs text-blue-700 flex flex-wrap gap-2">
                     {selectedProfile.validity && (
