@@ -150,7 +150,7 @@ export interface HotspotUser {
   disabled: boolean;
 }
 
-export async function listHotspotUsers(conn: RouterConnection): Promise<HotspotUser[]> {
+export async function listHotspotUsers(conn: RouterConnection, timeout = 15000): Promise<HotspotUser[]> {
   return withRouter(conn, async (api) => {
     const users = await api.write("/ip/hotspot/user/print");
     return users.map((u) => ({
@@ -164,7 +164,7 @@ export async function listHotspotUsers(conn: RouterConnection): Promise<HotspotU
       server: (u["server"] as string) || null,
       disabled: (u["disabled"] as string) === "true",
     }));
-  });
+  }, timeout);
 }
 
 export async function listSessions(conn: RouterConnection): Promise<HotspotSession[]> {

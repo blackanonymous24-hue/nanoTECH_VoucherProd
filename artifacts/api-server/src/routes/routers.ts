@@ -184,17 +184,54 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   }
 });
 
+interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expiresAt: number; }
+const userCache = new Map<number, UserCache>();
+const USER_CACHE_TTL = 30_000;
+
+async function getCachedUsers(id: number, conn: Parameters<typeof listHotspotUsers>[0]) {
+  const cached = userCache.get(id);
+  if (cached && Date.now() < cached.expiresAt) return cached.users;
+  const users = await listHotspotUsers(conn, 60_000);
+  userCache.set(id, { users, expiresAt: Date.now() + USER_CACHE_TTL });
+  return users;
+}
+
 router.get("/routers/:id/users", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const { search, profile, limit: limitStr, offset: offsetStr } = req.query as {
+    search?: string; profile?: string; limit?: string; offset?: string;
+  };
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
-    const users = await listHotspotUsers({ host: r.host, port: r.port, username: r.username, password: r.password });
-    res.json(users);
+    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+    let users = await getCachedUsers(id, conn);
+
+    if (search) {
+      const q = search.toLowerCase();
+      users = users.filter(
+        (u) =>
+          u.username.toLowerCase().includes(q) ||
+          u.password.toLowerCase().includes(q) ||
+          (u.comment ?? "").toLowerCase().includes(q) ||
+          u.profile.toLowerCase().includes(q),
+      );
+    }
+    if (profile) {
+      users = users.filter((u) => u.profile === profile);
+    }
+
+    const total = users.length;
+    const limit = limitStr ? parseInt(limitStr, 10) : 100;
+    const offset = offsetStr ? parseInt(offsetStr, 10) : 0;
+    const paged = users.slice(offset, offset + limit);
+
+    res.json({ users: paged, total });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

@@ -26,7 +26,8 @@ import type {
   HealthStatus,
   HotspotProfile,
   HotspotSession,
-  HotspotUser,
+  HotspotUserListResponse,
+  ListRouterUsersParams,
   ListVouchersParams,
   Router,
   SyncResult,
@@ -642,16 +643,18 @@ export function useListRouterSessions<TData = Awaited<ReturnType<typeof listRout
 
 
 /**
- * @summary List all hotspot users from a router
+ * @summary List hotspot users from a router (paginated, server-side search)
  */
 export const listRouterUsers = (
     id: number,
+    params?: ListRouterUsersParams,
  options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
 ) => {
       
       
-      return customInstance<HotspotUser[]>(
-      {url: `/routers/${id}/users`, method: 'GET', signal
+      return customInstance<HotspotUserListResponse>(
+      {url: `/routers/${id}/users`, method: 'GET',
+        params, signal
     },
       options);
     }
@@ -659,23 +662,25 @@ export const listRouterUsers = (
 
 
 
-export const getListRouterUsersQueryKey = (id?: number,) => {
+export const getListRouterUsersQueryKey = (id?: number,
+    params?: ListRouterUsersParams,) => {
     return [
-    `/routers/${id}/users`
+    `/routers/${id}/users`, ...(params ? [params]: [])
     ] as const;
     }
 
     
-export const getListRouterUsersQueryOptions = <TData = Awaited<ReturnType<typeof listRouterUsers>>, TError = ErrorResponse>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterUsers>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+export const getListRouterUsersQueryOptions = <TData = Awaited<ReturnType<typeof listRouterUsers>>, TError = ErrorResponse>(id: number,
+    params?: ListRouterUsersParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterUsers>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListRouterUsersQueryKey(id);
+  const queryKey =  queryOptions?.queryKey ?? getListRouterUsersQueryKey(id,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRouterUsers>>> = ({ signal }) => listRouterUsers(id, requestOptions, signal);
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRouterUsers>>> = ({ signal }) => listRouterUsers(id,params, requestOptions, signal);
 
       
 
@@ -689,15 +694,16 @@ export type ListRouterUsersQueryError = ErrorResponse
 
 
 /**
- * @summary List all hotspot users from a router
+ * @summary List hotspot users from a router (paginated, server-side search)
  */
 
 export function useListRouterUsers<TData = Awaited<ReturnType<typeof listRouterUsers>>, TError = ErrorResponse>(
- id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterUsers>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+ id: number,
+    params?: ListRouterUsersParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterUsers>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
   
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getListRouterUsersQueryOptions(id,options)
+  const queryOptions = getListRouterUsersQueryOptions(id,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

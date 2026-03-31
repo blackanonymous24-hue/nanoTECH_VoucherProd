@@ -221,22 +221,36 @@ paths:
   /routers/{id}/users:
     get:
       operationId: listRouterUsers
-      summary: List all hotspot users from a router
+      summary: List hotspot users from a router (paginated, server-side search)
       parameters:
         - in: path
           name: id
           required: true
           schema:
             type: integer
+        - in: query
+          name: search
+          schema:
+            type: ["string", "null"]
+        - in: query
+          name: profile
+          schema:
+            type: ["string", "null"]
+        - in: query
+          name: limit
+          schema:
+            type: ["integer", "null"]
+        - in: query
+          name: offset
+          schema:
+            type: ["integer", "null"]
       responses:
         "200":
-          description: List of hotspot users
+          description: Paginated list of hotspot users
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/HotspotUser"
+                $ref: "#/components/schemas/HotspotUserListResponse"
         "404":
           description: Not found
           content:
@@ -583,6 +597,17 @@ components:
           type: ["string", "null"]
         server:
           type: ["string", "null"]
+
+    HotspotUserListResponse:
+      type: object
+      required: [users, total]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/HotspotUser"
+        total:
+          type: integer
 
     HotspotUser:
       type: object

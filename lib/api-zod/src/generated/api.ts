@@ -154,13 +154,21 @@ export const listRouterSessionsResponse = zod.array(listRouterSessionsResponseIt
 
 
 /**
- * @summary List all hotspot users from a router
+ * @summary List hotspot users from a router (paginated, server-side search)
  */
 export const listRouterUsersParams = zod.object({
   "id": zod.number()
 })
 
-export const listRouterUsersResponseItem = zod.object({
+export const listRouterUsersQueryParams = zod.object({
+  "search": zod.string().nullish(),
+  "profile": zod.string().nullish(),
+  "limit": zod.number().nullish(),
+  "offset": zod.number().nullish()
+})
+
+export const listRouterUsersResponse = zod.object({
+  "users": zod.array(zod.object({
   "username": zod.string(),
   "password": zod.string(),
   "profile": zod.string(),
@@ -170,8 +178,9 @@ export const listRouterUsersResponseItem = zod.object({
   "macAddress": zod.string().nullish(),
   "server": zod.string().nullish(),
   "disabled": zod.boolean()
+})),
+  "total": zod.number()
 })
-export const listRouterUsersResponse = zod.array(listRouterUsersResponseItem)
 
 
 /**
