@@ -415,31 +415,53 @@ export async function listSessions(conn: RouterConnection): Promise<HotspotSessi
   });
 }
 
+export interface RouterInterface {
+  name: string;
+  type: string;
+  disabled: boolean;
+}
+
 export interface InterfaceTraffic {
   rxBps: number;
   txBps: number;
   name: string | null;
 }
 
-export async function fetchInterfaceTraffic(conn: RouterConnection): Promise<InterfaceTraffic> {
+export async function listInterfaces(conn: RouterConnection): Promise<RouterInterface[]> {
   return withRouter(conn, async (api) => {
-    // Find the first non-disabled interface (same logic as MikHmon)
-    const ifaces = await api.write("/interface/print", ["=.proplist=name,disabled"]);
-    const first = ifaces.find((i) => i["disabled"] !== "true") ?? ifaces[0];
-    if (!first) return { rxBps: 0, txBps: 0, name: null };
+    const ifaces = await api.write("/interface/print", [
+      "=.proplist=name,type,disabled",
+    ]);
+    return ifaces.map((i) => ({
+      name:     (i["name"] as string) || "",
+      type:     (i["type"] as string) || "",
+      disabled: i["disabled"] === "true",
+    }));
+  }, 8000);
+}
 
-    const ifaceName = (first["name"] as string) || "";
+export async function fetchInterfaceTraffic(conn: RouterConnection, ifaceName?: string): Promise<InterfaceTraffic> {
+  return withRouter(conn, async (api) => {
+    let targetIface = ifaceName;
+
+    if (!targetIface) {
+      // Find the first non-disabled interface (same logic as MikHmon)
+      const ifaces = await api.write("/interface/print", ["=.proplist=name,disabled"]);
+      const first = ifaces.find((i) => i["disabled"] !== "true") ?? ifaces[0];
+      if (!first) return { rxBps: 0, txBps: 0, name: null };
+      targetIface = (first["name"] as string) || "";
+    }
 
     // Use /interface/monitor-traffic with once — same as MikHmon PHP code
     const [traffic] = await api.write("/interface/monitor-traffic", [
-      `=interface=${ifaceName}`,
+      `=interface=${targetIface}`,
       "=once=",
     ]);
 
     return {
       rxBps: parseInt((traffic?.["rx-bits-per-second"] as string) || "0", 10),
       txBps: parseInt((traffic?.["tx-bits-per-second"] as string) || "0", 10),
-      name:  ifaceName || null,
+      name:  targetIface || null,
     };
   }, 8000);
 }

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchInterfaceTraffic, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchInterfaceTraffic, listInterfaces, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -513,7 +513,7 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
   });
 });
 
-router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
+router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
@@ -522,7 +522,25 @@ router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
 
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const traffic = await fetchInterfaceTraffic(conn);
+    const ifaces = await listInterfaces(conn);
+    res.json(ifaces);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : undefined;
+
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const traffic = await fetchInterfaceTraffic(conn, ifaceName);
     res.json(traffic);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

@@ -106,8 +106,8 @@ function formatBps(bps: number): string {
 
 const MAX_TRAFFIC_POINTS = 30;
 
-const TX_COLOR  = "#4dd0e1";
-const RX_COLOR  = "#f48fb1";
+const TX_COLOR   = "#4dd0e1";
+const RX_COLOR   = "#f48fb1";
 const LIGHT_GRID = "#e5e7eb";
 
 function fmtTime(ts: number) {
@@ -115,26 +115,55 @@ function fmtTime(ts: number) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 }
 
+// Base-1024 formatter — same as MikHmon Highcharts yAxis.labels.formatter
 function yTickFmt(v: number) {
   if (v === 0) return "0 bps";
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)} Mbps`;
-  if (v >= 1_000)     return `${(v / 1_000).toFixed(2)} Kbps`;
-  return `${v} bps`;
+  const sizes = ["bps", "kbps", "Mbps", "Gbps", "Tbps"];
+  const i = Math.floor(Math.log(v) / Math.log(1024));
+  return `${parseFloat((v / Math.pow(1024, i)).toFixed(2))} ${sizes[i]}`;
 }
 
 function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
   const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
+  const [selectedIface, setSelectedIface] = useState<string>("");
 
-  const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
-    queryKey: ["traffic", routerId],
+  // Fetch interface list when router changes
+  const { data: ifaceList } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
+    queryKey: ["interfaces", routerId],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/routers/${routerId}/traffic`);
-      if (!res.ok) throw new Error("traffic unavailable");
+      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`);
+      if (!res.ok) throw new Error("interfaces unavailable");
       return res.json();
     },
     enabled: !!routerId,
-    refetchInterval: 5_000,
-    staleTime: 4_000,
+    staleTime: 60_000,
+    retry: false,
+    throwOnError: false,
+  });
+
+  // Auto-select first non-disabled interface when list arrives
+  useEffect(() => {
+    if (!ifaceList?.length) return;
+    setSelectedIface(prev => {
+      if (prev && ifaceList.some(i => i.name === prev)) return prev;
+      return ifaceList.find(i => !i.disabled)?.name ?? ifaceList[0].name ?? "";
+    });
+  }, [ifaceList]);
+
+  const trafficUrl = routerId
+    ? `${BASE}/api/routers/${routerId}/traffic${selectedIface ? `?iface=${encodeURIComponent(selectedIface)}` : ""}`
+    : "";
+
+  const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
+    queryKey: ["traffic", routerId, selectedIface],
+    queryFn: async () => {
+      const res = await fetch(trafficUrl);
+      if (!res.ok) throw new Error("traffic unavailable");
+      return res.json();
+    },
+    enabled: !!routerId && !!selectedIface,
+    refetchInterval: 3_000,
+    staleTime: 2_500,
     retry: false,
     throwOnError: false,
   });
@@ -146,7 +175,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
 
   useEffect(() => {
     setHistory([]);
-  }, [routerId]);
+  }, [routerId, selectedIface]);
 
   const maxVal = Math.max(...history.flatMap(p => [p.rx, p.tx]), 1);
   const yTop = maxVal * 1.5;
@@ -160,7 +189,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
           <CardTitle className="text-base flex items-center gap-2">
             <Activity className="h-4 w-4 text-gray-400" />
             Trafic
-            {routerId && !isError && (
+            {routerId && !isError && selectedIface && (
               <span className="flex items-center gap-1 text-xs font-normal text-green-600">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -170,7 +199,22 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
               </span>
             )}
           </CardTitle>
-          <span className="text-xs text-gray-400">↻ 5s</span>
+          <div className="flex items-center gap-2">
+            {ifaceList && ifaceList.length > 0 && (
+              <select
+                value={selectedIface}
+                onChange={(e) => setSelectedIface(e.target.value)}
+                className="text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              >
+                {ifaceList.map((iface) => (
+                  <option key={iface.name} value={iface.name} disabled={iface.disabled}>
+                    {iface.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <span className="text-xs text-gray-400">↻ 3s</span>
+          </div>
         </div>
       </CardHeader>
 
@@ -191,8 +235,8 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
           </div>
         ) : (
           <>
-            {data?.name && (
-              <p className="text-center text-xs font-medium text-gray-400 mb-1 font-mono">{data.name}</p>
+            {selectedIface && (
+              <p className="text-center text-xs font-medium text-gray-400 mb-1 font-mono">Interface {selectedIface}</p>
             )}
             <div className="w-full" style={{ height: 200 }}>
               <ResponsiveContainer width="100%" height={200}>
