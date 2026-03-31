@@ -1,4 +1,25 @@
 import { RouterOSAPI } from "node-routeros";
+import net from "net";
+
+export function tcpPing(host: string, port: number, timeoutMs = 3000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let done = false;
+
+    const finish = (result: boolean) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve(result);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.on("connect", () => finish(true));
+    socket.on("error", () => finish(false));
+    socket.on("timeout", () => finish(false));
+    socket.connect(port, host);
+  });
+}
 
 export interface RouterConnection {
   host: string;
