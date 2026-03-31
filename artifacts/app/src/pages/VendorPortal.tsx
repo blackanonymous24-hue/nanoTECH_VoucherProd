@@ -5,7 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, BarChart2, User, RefreshCw } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
+  User, RefreshCw, Clock, CheckCircle2,
+} from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -13,7 +22,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 type VendorInfo = { id: number; name: string; email: string | null; username: string | null };
 type SalesStats = { todaySold: number; yesterdaySold: number; weekSold: number; lastMonthSold: number };
 type ByProfile = { profileName: string; total: number; printed: number; used: number };
-type RecentVoucher = {
+type Voucher = {
   id: number;
   username: string;
   password: string;
@@ -26,11 +35,13 @@ type RecentVoucher = {
 type PortalData = {
   vendor: VendorInfo;
   totalVouchers: number;
+  totalAvailable: number;
   totalPrinted: number;
   totalUsed: number;
   salesStats: SalesStats;
   byProfile: ByProfile[];
-  recentVouchers: RecentVoucher[];
+  recentSales: Voucher[];
+  availableVouchers: Voucher[];
 };
 
 function api(path: string, options?: RequestInit) {
@@ -40,25 +51,49 @@ function api(path: string, options?: RequestInit) {
   });
 }
 
-function StatCard({ label, value, icon: Icon, color }: {
+function fmt(date: string | null) {
+  if (!date) return "—";
+  return new Date(date).toLocaleDateString("fr-FR", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function StatCard({
+  label, value, icon: Icon, color, onClick,
+}: {
   label: string;
   value: number;
   icon: React.ElementType;
   color: string;
+  onClick?: () => void;
 }) {
-  return (
-    <Card>
-      <CardContent className="p-4 flex items-center gap-4">
-        <div className={`h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
-          <Icon className="h-6 w-6 text-white" />
-        </div>
-        <div>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-        </div>
-      </CardContent>
-    </Card>
+  const inner = (
+    <CardContent className="p-4 flex items-center gap-4">
+      <div className={`h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
+        <Icon className="h-6 w-6 text-white" />
+      </div>
+      <div>
+        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+      </div>
+    </CardContent>
   );
+
+  if (onClick) {
+    return (
+      <Card
+        className="cursor-pointer hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.98]"
+        onClick={onClick}
+      >
+        {inner}
+        <div className="px-4 pb-3">
+          <span className="text-xs text-blue-500 font-medium">Voir la liste →</span>
+        </div>
+      </Card>
+    );
+  }
+
+  return <Card>{inner}</Card>;
 }
 
 function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) => void }) {
@@ -110,6 +145,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
                   onChange={(e) => setUsername(e.target.value)}
                   required
                   autoFocus
+                  autoComplete="username"
                 />
               </div>
               <div>
@@ -122,6 +158,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                 />
               </div>
               {error && (
@@ -138,6 +175,51 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
   );
 }
 
+function AvailableVouchersModal({
+  open,
+  onClose,
+  vouchers,
+}: {
+  open: boolean;
+  onClose: () => void;
+  vouchers: Voucher[];
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Ticket className="h-5 w-5 text-blue-600" />
+            Tickets disponibles ({vouchers.length})
+          </DialogTitle>
+        </DialogHeader>
+        <div className="overflow-y-auto flex-1 -mx-6 px-6">
+          {vouchers.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">Aucun ticket disponible</p>
+          ) : (
+            <div className="space-y-2 pb-2">
+              {vouchers.map((v) => (
+                <div
+                  key={v.id}
+                  className="flex items-center justify-between py-3 px-3 bg-gray-50 rounded-lg gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-mono font-semibold text-gray-800">{v.username}</p>
+                    <p className="text-xs text-gray-500">{v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}</p>
+                  </div>
+                  <Badge variant="outline" className="border-green-300 text-green-600 bg-green-50 flex-shrink-0 text-xs">
+                    Disponible
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Dashboard({ token, vendor, onLogout }: {
   token: string;
   vendor: VendorInfo;
@@ -146,6 +228,7 @@ function Dashboard({ token, vendor, onLogout }: {
   const [data, setData] = useState<PortalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showAvailable, setShowAvailable] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -172,8 +255,8 @@ function Dashboard({ token, vendor, onLogout }: {
 
   const chartData = data
     ? [
-        { label: "Aujourd'hui", vendus: data.salesStats.todaySold },
         { label: "Hier", vendus: data.salesStats.yesterdaySold },
+        { label: "Aujourd'hui", vendus: data.salesStats.todaySold },
         { label: "Cette sem.", vendus: data.salesStats.weekSold },
         { label: "Mois préc.", vendus: data.salesStats.lastMonthSold },
       ]
@@ -220,11 +303,44 @@ function Dashboard({ token, vendor, onLogout }: {
 
         {data && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="Total vouchers" value={data.totalVouchers} icon={BarChart2} color="bg-blue-500" />
-              <StatCard label="Vendus aujourd'hui" value={data.salesStats.todaySold} icon={ShoppingCart} color="bg-green-500" />
-              <StatCard label="Cette semaine" value={data.salesStats.weekSold} icon={Calendar} color="bg-orange-500" />
-              <StatCard label="Mois précédent" value={data.salesStats.lastMonthSold} icon={TrendingUp} color="bg-purple-500" />
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <StatCard
+                label="Tickets disponibles"
+                value={data.totalAvailable}
+                icon={Ticket}
+                color="bg-blue-500"
+                onClick={() => setShowAvailable(true)}
+              />
+              <StatCard
+                label="Vendus aujourd'hui"
+                value={data.salesStats.todaySold}
+                icon={ShoppingCart}
+                color="bg-green-500"
+              />
+              <StatCard
+                label="Vendus hier"
+                value={data.salesStats.yesterdaySold}
+                icon={Clock}
+                color="bg-yellow-500"
+              />
+              <StatCard
+                label="Cette semaine"
+                value={data.salesStats.weekSold}
+                icon={Calendar}
+                color="bg-orange-500"
+              />
+              <StatCard
+                label="Mois précédent"
+                value={data.salesStats.lastMonthSold}
+                icon={TrendingUp}
+                color="bg-purple-500"
+              />
+              <StatCard
+                label="Total vendus"
+                value={data.totalUsed}
+                icon={CheckCircle2}
+                color="bg-gray-500"
+              />
             </div>
 
             <Card>
@@ -257,7 +373,7 @@ function Dashboard({ token, vendor, onLogout }: {
                         <div className="flex gap-3 text-sm">
                           <span className="text-gray-500">Total: <strong>{p.total}</strong></span>
                           <span className="text-green-600">Vendus: <strong>{p.used}</strong></span>
-                          <span className="text-gray-400">Non vendus: <strong>{p.total - p.used}</strong></span>
+                          <span className="text-gray-400">Restants: <strong>{p.total - p.used}</strong></span>
                         </div>
                       </div>
                     ))}
@@ -268,26 +384,24 @@ function Dashboard({ token, vendor, onLogout }: {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Derniers vouchers</CardTitle>
+                <CardTitle className="text-base">Ventes récentes</CardTitle>
               </CardHeader>
               <CardContent>
-                {data.recentVouchers.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-4">Aucun voucher</p>
+                {data.recentSales.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Aucune vente enregistrée</p>
                 ) : (
                   <div className="space-y-2">
-                    {data.recentVouchers.slice(0, 20).map((v) => (
+                    {data.recentSales.map((v) => (
                       <div key={v.id} className="flex items-center justify-between py-2 border-b last:border-0 gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-mono font-medium truncate">{v.username}</p>
-                          <p className="text-xs text-gray-400">{v.profileName} — {v.price ? `${v.price} FCFA` : "—"}</p>
+                          <p className="text-xs text-gray-400">
+                            {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
+                            {v.usedAt ? ` · ${fmt(v.usedAt)}` : ""}
+                          </p>
                         </div>
-                        <Badge
-                          variant="outline"
-                          className={v.usedAt
-                            ? "border-red-300 text-red-600 bg-transparent flex-shrink-0"
-                            : "border-green-300 text-green-600 bg-transparent flex-shrink-0"}
-                        >
-                          {v.usedAt ? "Vendu" : "Non vendu"}
+                        <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0">
+                          Vendu
                         </Badge>
                       </div>
                     ))}
@@ -295,6 +409,12 @@ function Dashboard({ token, vendor, onLogout }: {
                 )}
               </CardContent>
             </Card>
+
+            <AvailableVouchersModal
+              open={showAvailable}
+              onClose={() => setShowAvailable(false)}
+              vouchers={data.availableVouchers}
+            />
           </>
         )}
       </main>

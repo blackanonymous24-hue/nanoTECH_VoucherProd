@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, count, sql } from "drizzle-orm";
+import { eq, desc, count, sql, isNull, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable } from "@workspace/db";
 import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 
@@ -108,7 +108,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     return;
   }
 
-  const [totalsRows, byProfile, salesRow, recentVouchers] = await Promise.all([
+  const [totalsRows, byProfile, salesRow, recentSales, availableVouchers] = await Promise.all([
     buildTotals(id),
     db
       .select({
@@ -126,17 +126,24 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
       .select()
       .from(vouchersTable)
       .where(eq(vouchersTable.vendorId, id))
-      .orderBy(desc(vouchersTable.createdAt))
-      .limit(50),
+      .orderBy(desc(vouchersTable.usedAt))
+      .limit(30),
+    db
+      .select()
+      .from(vouchersTable)
+      .where(eq(vouchersTable.vendorId, id))
+      .orderBy(desc(vouchersTable.createdAt)),
   ]);
 
   const totals = totalsRows[0];
+  const totalAvailable = availableVouchers.filter((v) => v.usedAt === null).length;
 
   res.json({
     vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
-    totalVouchers: totals?.total        ?? 0,
-    totalPrinted:  Number(totals?.printed ?? 0),
-    totalUsed:     Number(totals?.used    ?? 0),
+    totalVouchers:  totals?.total        ?? 0,
+    totalAvailable,
+    totalPrinted:   Number(totals?.printed ?? 0),
+    totalUsed:      Number(totals?.used    ?? 0),
     salesStats: {
       todaySold:     Number(salesRow?.todaySold     ?? 0),
       yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),
@@ -144,7 +151,8 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
       lastMonthSold: Number(salesRow?.lastMonthSold ?? 0),
     },
     byProfile,
-    recentVouchers,
+    recentSales: recentSales.filter((v) => v.usedAt !== null),
+    availableVouchers: availableVouchers.filter((v) => v.usedAt === null),
   });
 });
 
