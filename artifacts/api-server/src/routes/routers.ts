@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, inArray } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, tcpPing, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames } from "../lib/mikrotik.js";
+import { testConnection, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -160,8 +160,12 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const online = await tcpPing(r.host, r.port, 2000);
-  res.json({ success: online });
+  try {
+    await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+    res.json({ success: true });
+  } catch {
+    res.json({ success: false });
+  }
 });
 
 router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
