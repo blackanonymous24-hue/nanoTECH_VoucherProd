@@ -309,8 +309,8 @@ export default function Dashboard() {
       return res.json() as Promise<SyncStatus>;
     },
     enabled: !!selectedRouterId,
-    refetchInterval: 10_000,
-    staleTime: 8_000,
+    refetchInterval: 30_000,
+    staleTime: 25_000,
     retry: false,
     throwOnError: false,
   });
