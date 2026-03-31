@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   useGetVendorReportsSummary,
   useGetVendorReport,
@@ -9,9 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   BarChart3, Users, Ticket, ShoppingCart, PackageOpen,
   ArrowLeft, CalendarDays, CalendarClock, TrendingUp,
-  RefreshCw, CheckCircle2,
+  RefreshCw, CheckCircle2, ArrowDownUp,
 } from "lucide-react";
 
 /* ─── helpers ─────────────────────────────────────────────────── */
@@ -303,15 +306,37 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
   );
 }
 
+type SortMode = "vendu-desc" | "vendu-asc" | "non-vendu" | "nom";
+
+function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummary[] {
+  const copy = [...summaries];
+  switch (mode) {
+    case "vendu-desc":
+      return copy.sort((a, b) => b.totalUsed - a.totalUsed);
+    case "vendu-asc":
+      return copy.sort((a, b) => a.totalUsed - b.totalUsed);
+    case "non-vendu":
+      return copy.sort((a, b) => {
+        const aNonSold = a.totalPrinted - a.totalUsed;
+        const bNonSold = b.totalPrinted - b.totalUsed;
+        return bNonSold - aNonSold;
+      });
+    case "nom":
+      return copy.sort((a, b) => a.vendor.name.localeCompare(b.vendor.name, "fr"));
+  }
+}
+
 /* ─── main page ───────────────────────────────────────────────── */
 export default function Reports() {
   const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 10_000 } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
 
-  // Read the active router from localStorage (same key used globally in the app)
   const routerId = (() => {
     try { const v = localStorage.getItem("vouchernet_router_id"); return v ? parseInt(v) : null; } catch { return null; }
   })();
+
+  const sorted = useMemo(() => sortSummaries(summaries, sortMode), [summaries, sortMode]);
 
   if (selectedVendorId) {
     return <VendorDetailReport vendorId={selectedVendorId} onBack={() => setSelectedVendorId(null)} />;
@@ -329,7 +354,9 @@ export default function Reports() {
           <h1 className="text-2xl font-bold text-gray-900">Rapports de vente</h1>
           <p className="text-sm text-gray-500">Suivi des vouchers par vendeur</p>
         </div>
-        <SyncButton routerId={routerId} />
+        <div className="flex items-center gap-2">
+          <SyncButton routerId={routerId} />
+        </div>
       </div>
 
       {totalVouchers > 0 && (
@@ -388,15 +415,34 @@ export default function Reports() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {summaries.map((summary) => (
-            <VendorCard
-              key={summary.vendor.id}
-              summary={summary}
-              onClick={() => setSelectedVendorId(summary.vendor.id)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-gray-500">{summaries.length} vendeur(s)</p>
+            <div className="flex items-center gap-2">
+              <ArrowDownUp className="h-3.5 w-3.5 text-gray-400" />
+              <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+                <SelectTrigger className="w-48 h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vendu-desc">Plus vendus en premier</SelectItem>
+                  <SelectItem value="vendu-asc">Moins vendus en premier</SelectItem>
+                  <SelectItem value="non-vendu">Non vendus en premier</SelectItem>
+                  <SelectItem value="nom">Nom (A → Z)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {sorted.map((summary) => (
+              <VendorCard
+                key={summary.vendor.id}
+                summary={summary}
+                onClick={() => setSelectedVendorId(summary.vendor.id)}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
