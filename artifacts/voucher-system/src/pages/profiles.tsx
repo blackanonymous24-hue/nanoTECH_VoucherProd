@@ -17,9 +17,115 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Wifi, Clock, Download, Upload, Database, Plus, Edit2, Trash2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Wifi, Clock, Download, Upload, Database, Plus, Edit2, Trash2, Code2, Copy, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+
+// ── RouterOS script generator ─────────────────────────────────────────────────
+
+function sanitizeCode(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'profile';
+}
+
+function profileLabel(name: string): string {
+  return name.toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9\-]/g, '');
+}
+
+function generateRouterOSScript(profile: {
+  name: string;
+  price: number;
+  durationMinutes: number;
+  speedDownload: number | null;
+  dataLimitMb: number | null;
+}): string {
+  const code = sanitizeCode(profile.name);
+  const dur = formatDuration(profile.durationMinutes);
+  const price = Math.round(profile.price);
+  const speed = profile.speedDownload != null ? profile.speedDownload * 1000 : 0;
+  const dataLimit = profile.dataLimitMb != null ? String(profile.dataLimitMb) : '';
+  const label = profileLabel(profile.name);
+
+  // Build the script line by line — no JS template escaping needed for RouterOS $ variables
+  const rows: string[] = [
+    `:put (",${code},${price},${dur},${speed},${dataLimit},Disable,");`,
+    `{`,
+    `  :local comment [ /ip hotspot user get [/ip hotspot user find where name="$user"] comment];`,
+    `  :local ucode [:pic $comment 0 2];`,
+    `  :if ($ucode = "vc" or $ucode = "up" or $comment = "") do={`,
+    `    :local date [ /system clock get date ];`,
+    `    :local year [ :pick $date 0 4 ];`,
+    `    :local month [ :pick $date 5 7 ];`,
+    `    /sys sch add name="$user" disable=no start-date=$date interval="${dur}";`,
+    `    :delay 5s;`,
+    `    :local exp [ /sys sch get [ /sys sch find where name="$user" ] next-run];`,
+    `    :local getxp [len $exp];`,
+    `    :if ($getxp = 15) do={ :local d [:pic $exp 0 6]; :local t [:pic $exp 7 16]; :local s ("/"); :local exp ("$d$s$year $t"); /ip hotspot user set comment="$exp" [find where name="$user"];};`,
+    `    :if ($getxp = 8) do={ /ip hotspot user set comment="$date $exp" [find where name="$user"];};`,
+    `    :if ($getxp > 15) do={ /ip hotspot user set comment="$exp" [find where name="$user"];};`,
+    `    :delay 5s;`,
+    `    /sys sch remove [find where name="$user"];`,
+    `    :local mac $"mac-address";`,
+    `    :local time [/system clock get time ];`,
+    `    /system script add name="$date-|-$time-|-$user-|-${price}-|-$address-|-$mac-|-${dur}-|-${label}-|-$comment" owner="$month$year" source="$date" comment="mikhmon"`,
+    `  }`,
+    `}`,
+  ];
+  return rows.join('\n');
+}
+
+function ScriptDialog({ profile }: {
+  profile: { name: string; price: number; durationMinutes: number; speedDownload: number | null; dataLimitMb: number | null }
+}) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const script = generateRouterOSScript(profile);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(script).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => setOpen(true)}>
+        <Code2 className="h-4 w-4" /> Script
+      </Button>
+      <DialogContent className="sm:max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle>Script RouterOS — {profile.name}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground -mt-2">
+          Copiez ce script dans le champ <strong>On Login</strong> du profil hotspot MikroTik correspondant à ce forfait.
+        </p>
+        <div className="relative">
+          <Textarea
+            readOnly
+            className="font-mono text-xs h-72 resize-none bg-muted/50"
+            value={script}
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            className="absolute top-2 right-2 gap-1.5 h-7 text-xs"
+            onClick={handleCopy}
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? "Copié !" : "Copier"}
+          </Button>
+        </div>
+        <div className="text-xs text-muted-foreground space-y-1 border rounded-md p-3 bg-muted/30">
+          <p><strong>Profil MikroTik :</strong> {sanitizeCode(profile.name)}</p>
+          <p><strong>Prix :</strong> {Math.round(profile.price)} FCFA</p>
+          <p><strong>Validité :</strong> {formatDuration(profile.durationMinutes)}</p>
+          <p><strong>Vitesse :</strong> {profile.speedDownload != null ? `${profile.speedDownload * 1000} kbps` : 'Illimitée (0)'}</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const profileSchema = z.object({
   name: z.string().min(1, "Nom requis"),
@@ -207,13 +313,16 @@ export default function Profiles() {
                   <span>Quota : <strong className="text-foreground">{formatBytes(profile.dataLimitMb)}</strong></span>
                 </div>
               </CardContent>
-              <CardFooter className="bg-muted/20 pt-4 flex justify-end gap-2 border-t">
-                <Button variant="ghost" size="sm" className="h-8" onClick={() => handleOpenEdit(profile)}>
-                  <Edit2 className="h-4 w-4 mr-2" /> Modifier
-                </Button>
-                <Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(profile.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+              <CardFooter className="bg-muted/20 pt-4 flex justify-between gap-2 border-t">
+                <ScriptDialog profile={profile} />
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" className="h-8" onClick={() => handleOpenEdit(profile)}>
+                    <Edit2 className="h-4 w-4 mr-2" /> Modifier
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(profile.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </CardFooter>
             </Card>
           ))
