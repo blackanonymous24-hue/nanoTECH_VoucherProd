@@ -842,6 +842,9 @@ components:
           type: ["string", "null"]
         vendorId:
           type: ["integer", "null"]
+        passwordMode:
+          type: string
+          enum: [same, random]
 
     DisconnectSessionBody:
       type: object

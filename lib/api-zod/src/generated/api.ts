@@ -366,7 +366,8 @@ export const generateVouchersBody = zod.object({
   "prefix": zod.string().nullish(),
   "comment": zod.string().nullish(),
   "server": zod.string().nullish(),
-  "vendorId": zod.number().nullish()
+  "vendorId": zod.number().nullish(),
+  "passwordMode": zod.enum(['same', 'random']).optional()
 })
 
 

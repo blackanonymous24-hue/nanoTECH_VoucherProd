@@ -197,13 +197,20 @@ export async function disconnectSession(conn: RouterConnection, username: string
   });
 }
 
-function generateCode(length: number, prefix?: string): { username: string; password: string } {
+function randomStr(length: number): string {
   const chars = "5ab2c34d";
-  const random = () =>
-    Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  const code = random();
+  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
+
+function generateCode(
+  length: number,
+  prefix: string | undefined,
+  passwordMode: "same" | "random",
+): { username: string; password: string } {
+  const code = randomStr(length);
   const username = prefix ? `${prefix}${code}` : code;
-  return { username, password: code };
+  const password = passwordMode === "same" ? username : randomStr(length);
+  return { username, password };
 }
 
 export interface GeneratedVoucher {
@@ -225,13 +232,14 @@ export async function generateVouchers(
     server?: string;
     price: string;
     validity: string;
+    passwordMode?: "same" | "random";
   },
 ): Promise<GeneratedVoucher[]> {
   return withRouter(conn, async (api) => {
     const generated: GeneratedVoucher[] = [];
 
     for (let i = 0; i < opts.qty; i++) {
-      const { username, password } = generateCode(opts.prefix ? 5 : 8, opts.prefix);
+      const { username, password } = generateCode(opts.prefix ? 5 : 8, opts.prefix, opts.passwordMode ?? "random");
       const addParams: string[] = [
         `=name=${username}`,
         `=password=${password}`,

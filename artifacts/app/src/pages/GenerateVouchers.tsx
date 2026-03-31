@@ -49,6 +49,7 @@ export default function GenerateVouchers() {
   const [prefix, setPrefix] = useState("");
   const [comment, setComment] = useState(() => makeBatchId());
   const [vendorId, setVendorId] = useState<string>("");
+  const [passwordMode, setPasswordMode] = useState<"same" | "random">("random");
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
 
   const activeRouterId = selectedRouterId ?? (localRouterId ? parseInt(localRouterId, 10) : null);
@@ -87,6 +88,7 @@ export default function GenerateVouchers() {
         prefix: prefix || null,
         comment: comment || null,
         vendorId: vendorId ? parseInt(vendorId, 10) : null,
+        passwordMode,
       },
     });
 
@@ -213,6 +215,36 @@ export default function GenerateVouchers() {
                     value={prefix}
                     onChange={(e) => setPrefix(e.target.value)}
                   />
+                </div>
+              </div>
+
+              <div>
+                <Label className="mb-2 block">Mode du mot de passe</Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPasswordMode("random")}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                      passwordMode === "random"
+                        ? "bg-blue-50 border-blue-400 text-blue-700"
+                        : "border-gray-200 text-gray-500 hover:border-gray-300"
+                    }`}
+                  >
+                    <span className="font-mono text-xs block mb-0.5">user &amp; password</span>
+                    <span className="text-xs font-normal text-current opacity-70">Codes différents</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPasswordMode("same")}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                      passwordMode === "same"
+                        ? "bg-blue-50 border-blue-400 text-blue-700"
+                        : "border-gray-200 text-gray-500 hover:border-gray-300"
+                    }`}
+                  >
+                    <span className="font-mono text-xs block mb-0.5">user = password</span>
+                    <span className="text-xs font-normal text-current opacity-70">Identiques</span>
+                  </button>
                 </div>
               </div>
 

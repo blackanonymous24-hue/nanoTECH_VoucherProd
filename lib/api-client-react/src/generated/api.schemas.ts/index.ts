@@ -14,6 +14,7 @@ export * from './disconnectSessionBody';
 export * from './errorResponse';
 export * from './generateVouchersBody';
 export * from './generateVouchersBodyComment';
+export * from './generateVouchersBodyPasswordMode';
 export * from './generateVouchersBodyPrefix';
 export * from './generateVouchersBodyServer';
 export * from './generateVouchersBodyVendorId';

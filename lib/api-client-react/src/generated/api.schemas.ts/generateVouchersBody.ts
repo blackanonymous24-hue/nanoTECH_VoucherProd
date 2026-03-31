@@ -8,6 +8,7 @@ import type { GenerateVouchersBodyPrefix } from './generateVouchersBodyPrefix';
 import type { GenerateVouchersBodyComment } from './generateVouchersBodyComment';
 import type { GenerateVouchersBodyServer } from './generateVouchersBodyServer';
 import type { GenerateVouchersBodyVendorId } from './generateVouchersBodyVendorId';
+import type { GenerateVouchersBodyPasswordMode } from './generateVouchersBodyPasswordMode';
 
 export interface GenerateVouchersBody {
   routerId: number;
@@ -21,4 +22,5 @@ export interface GenerateVouchersBody {
   comment?: GenerateVouchersBodyComment;
   server?: GenerateVouchersBodyServer;
   vendorId?: GenerateVouchersBodyVendorId;
+  passwordMode?: GenerateVouchersBodyPasswordMode;
 }
