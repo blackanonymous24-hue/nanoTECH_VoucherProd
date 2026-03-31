@@ -257,8 +257,8 @@ function Dashboard({ token, vendor, onLogout }: {
     ? [
         { label: "Hier", vendus: data.salesStats.yesterdaySold },
         { label: "Aujourd'hui", vendus: data.salesStats.todaySold },
-        { label: "Cette sem.", vendus: data.salesStats.weekSold },
-        { label: "Mois préc.", vendus: data.salesStats.lastMonthSold },
+        { label: "Sem. dern.", vendus: data.salesStats.weekSold },
+        { label: "Mois en cours", vendus: data.salesStats.lastMonthSold },
       ]
     : [];
 
@@ -324,13 +324,13 @@ function Dashboard({ token, vendor, onLogout }: {
                 color="bg-yellow-500"
               />
               <StatCard
-                label="Cette semaine"
+                label="Semaine dernière"
                 value={data.salesStats.weekSold}
                 icon={Calendar}
                 color="bg-orange-500"
               />
               <StatCard
-                label="Mois précédent"
+                label="Mois en cours"
                 value={data.salesStats.lastMonthSold}
                 icon={TrendingUp}
                 color="bg-purple-500"

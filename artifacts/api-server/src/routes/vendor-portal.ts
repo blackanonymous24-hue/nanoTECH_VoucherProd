@@ -29,13 +29,13 @@ function buildSalesStats(vendorId: number) {
       )`,
     weekSold: sql<number>`
       count(*) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('week', current_date)
-        and ${vouchersTable.printedAt} < current_date + interval '1 day'
+        ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week')
+        and ${vouchersTable.printedAt} < date_trunc('week', current_date)
       )`,
     lastMonthSold: sql<number>`
       count(*) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('month', current_date - interval '1 month')
-        and ${vouchersTable.printedAt} < date_trunc('month', current_date)
+        ${vouchersTable.printedAt} >= date_trunc('month', current_date)
+        and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'
       )`,
   })
   .from(vouchersTable)
