@@ -199,8 +199,8 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
             </div>
 
             {/* Chart */}
-            <div className="flex-1 min-h-[100px]">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="w-full h-[120px]">
+              <ResponsiveContainer width="100%" height={120}>
                 <AreaChart data={history} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
                   <defs>
                     <linearGradient id="rxGrad" x1="0" y1="0" x2="0" y2="1">
