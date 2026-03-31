@@ -147,6 +147,13 @@ export async function listProfiles(conn: RouterConnection): Promise<HotspotProfi
   });
 }
 
+export async function listAddressPools(conn: RouterConnection): Promise<string[]> {
+  return withRouter(conn, async (api) => {
+    const pools = await api.write("/ip/pool/print");
+    return pools.map((p) => (p["name"] as string) ?? "").filter(Boolean);
+  });
+}
+
 export interface CreateProfileOptions {
   name: string;
   label: string;

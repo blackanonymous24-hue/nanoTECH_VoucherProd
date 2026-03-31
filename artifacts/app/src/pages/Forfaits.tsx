@@ -71,6 +71,8 @@ export default function Forfaits() {
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pools, setPools] = useState<string[]>([]);
+  const [loadingPools, setLoadingPools] = useState(false);
 
   function setField<K extends keyof typeof defaultForm>(key: K, val: (typeof defaultForm)[K]) {
     setForm((f) => ({ ...f, [key]: val }));
@@ -109,7 +111,21 @@ export default function Forfaits() {
           <p className="text-sm text-gray-500">Profils hotspot disponibles sur vos routeurs MikroTik</p>
         </div>
         <Button
-          onClick={() => { setError(null); setForm(defaultForm); setShowDialog(true); }}
+          onClick={async () => {
+            setError(null);
+            setForm(defaultForm);
+            setPools([]);
+            setShowDialog(true);
+            if (routerId) {
+              setLoadingPools(true);
+              try {
+                const res = await fetch(`/api/routers/${routerId}/pools`);
+                if (res.ok) setPools(await res.json());
+              } catch { /* ignore */ } finally {
+                setLoadingPools(false);
+              }
+            }
+          }}
           disabled={!routerId}
           className="flex-shrink-0"
         >
@@ -295,11 +311,21 @@ export default function Forfaits() {
 
             <div className="space-y-1.5">
               <Label>Pool d&apos;adresses</Label>
-              <Input
-                placeholder="ex: hs-pool-1"
-                value={form.addrPool}
-                onChange={(e) => setField("addrPool", e.target.value)}
-              />
+              <Select
+                value={form.addrPool || "__none"}
+                onValueChange={(v) => setField("addrPool", v === "__none" ? "" : v)}
+                disabled={loadingPools}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingPools ? "Chargement…" : "Sélectionner un pool"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Aucun</SelectItem>
+                  {pools.map((pool) => (
+                    <SelectItem key={pool} value={pool}>{pool}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex items-center gap-3 pt-2">
