@@ -153,7 +153,13 @@ export default function GenerateVouchers() {
                   <SelectTrigger className="mt-1">
                     <SelectValue placeholder={loadingProfiles ? "Chargement..." : "Sélectionnez un profil"} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent
+                    onWheel={(e) => {
+                      e.stopPropagation();
+                      const el = e.currentTarget.querySelector("[data-radix-select-viewport]") as HTMLElement | null;
+                      if (el) el.scrollTop += e.deltaY;
+                    }}
+                  >
                     {profiles.map((p) => (
                       <SelectItem key={p.name} value={p.name}>
                         {p.name}
