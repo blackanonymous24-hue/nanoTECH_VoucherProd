@@ -73,15 +73,16 @@ export default function Dashboard() {
     refetch: refetchSessions,
   } = useQuery({
     queryKey: ["router-sessions", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async (): Promise<number> => {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions`);
-      if (!res.ok) throw new Error("Erreur sessions");
-      const data: unknown[] = await res.json();
-      return data.length;
+      if (!res.ok) return 0;
+      const data: unknown = await res.json();
+      return Array.isArray(data) ? data.length : 0;
     },
     enabled: !!selectedRouterId,
     refetchInterval: 10_000,
     staleTime: 9_000,
+    throwOnError: false,
   });
 
   const {
@@ -90,15 +91,16 @@ export default function Dashboard() {
     refetch: refetchUsers,
   } = useQuery({
     queryKey: ["router-users-count", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async (): Promise<number> => {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`);
-      if (!res.ok) throw new Error("Erreur utilisateurs");
-      const data: unknown[] = await res.json();
-      return data.length;
+      if (!res.ok) return 0;
+      const data: unknown = await res.json();
+      return Array.isArray(data) ? data.length : 0;
     },
     enabled: !!selectedRouterId,
     refetchInterval: 10_000,
     staleTime: 9_000,
+    throwOnError: false,
   });
 
   const {
