@@ -266,18 +266,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
 }
 
 function SyncPill({ status, onSync }: { status: SyncStatus | undefined; onSync: () => void }) {
-  if (!status) return null;
-
-  if (status.running) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-600">
-        <RefreshCw className="h-3 w-3 animate-spin" />
-        Sync en cours…
-      </span>
-    );
-  }
-
-  if (!status.updatedAt) return null;
+  if (!status || !status.updatedAt) return null;
 
   return (
     <button
