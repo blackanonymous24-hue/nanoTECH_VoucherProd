@@ -408,10 +408,8 @@ export default function Reports() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="vendu-desc">Plus vendus en premier</SelectItem>
-                  <SelectItem value="vendu-asc">Moins vendus en premier</SelectItem>
+                  <SelectItem value="vendu-desc">Vendus en premier</SelectItem>
                   <SelectItem value="non-vendu">Non vendus en premier</SelectItem>
-                  <SelectItem value="nom">Nom (A → Z)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
