@@ -332,12 +332,6 @@ function Dashboard({ token, vendor, onLogout }: {
                 icon={TrendingUp}
                 color="bg-purple-500"
               />
-              <StatCard
-                label="Total vendus"
-                value={data.totalUsed}
-                icon={CheckCircle2}
-                color="bg-gray-500"
-              />
             </div>
 
             <Card>
