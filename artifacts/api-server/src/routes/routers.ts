@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, isNotNull, gte, inArray } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames } from "../lib/mikrotik.js";
 
@@ -386,16 +386,39 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  try {
-    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const sales = await fetchSalesFromScripts(conn);
-    res.json(sales);
-  } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const isoDateLabel = `${now.getFullYear()}-${mm}-${dd}`;
+  const isoOwner = `${mm}${now.getFullYear()}`;
+
+  const rows = await db
+    .select({ price: vouchersTable.price, printedAt: vouchersTable.printedAt })
+    .from(vouchersTable)
+    .where(and(
+      eq(vouchersTable.routerId, id),
+      isNotNull(vouchersTable.printedAt),
+      gte(vouchersTable.printedAt, startOfMonth),
+    ));
+
+  let dailyCount = 0;
+  let dailyAmount = 0;
+  let monthlyCount = rows.length;
+  let monthlyAmount = 0;
+
+  for (const row of rows) {
+    const price = parseFloat(row.price) || 0;
+    monthlyAmount += price;
+    if (row.printedAt && row.printedAt >= startOfDay) {
+      dailyCount++;
+      dailyAmount += price;
+    }
   }
+
+  res.json({ dailyCount, dailyAmount, monthlyCount, monthlyAmount, dateLabel: isoDateLabel, monthLabel: isoOwner });
 });
 
 router.get("/routers/:id/logs", async (req, res): Promise<void> => {
