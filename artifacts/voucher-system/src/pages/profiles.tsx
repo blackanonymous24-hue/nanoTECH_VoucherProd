@@ -24,8 +24,14 @@ const profileSchema = z.object({
   name: z.string().min(1, "Nom requis"),
   price: z.coerce.number().min(0, "Prix invalide"),
   durationMinutes: z.coerce.number().min(1, "Durée invalide"),
-  speedDownload: z.coerce.number().min(1, "Vitesse invalide"),
-  speedUpload: z.coerce.number().min(1, "Vitesse invalide"),
+  speedDownload: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? null : Number(v)),
+    z.number().int().positive("Doit être positif").nullable().optional()
+  ),
+  speedUpload: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? null : Number(v)),
+    z.number().int().positive("Doit être positif").nullable().optional()
+  ),
   dataLimitMb: z.coerce.number().optional().nullable(),
   description: z.string().optional().nullable(),
 });
@@ -52,8 +58,8 @@ export default function Profiles() {
       name: "",
       price: 0,
       durationMinutes: 60,
-      speedDownload: 5,
-      speedUpload: 2,
+      speedDownload: null,
+      speedUpload: null,
       dataLimitMb: null,
       description: "",
     },
@@ -65,8 +71,8 @@ export default function Profiles() {
       name: "",
       price: 0,
       durationMinutes: 60,
-      speedDownload: 5,
-      speedUpload: 2,
+      speedDownload: null,
+      speedUpload: null,
       dataLimitMb: null,
       description: "",
     });
@@ -79,8 +85,8 @@ export default function Profiles() {
       name: profile.name,
       price: profile.price,
       durationMinutes: profile.durationMinutes,
-      speedDownload: profile.speedDownload,
-      speedUpload: profile.speedUpload,
+      speedDownload: profile.speedDownload ?? null,
+      speedUpload: profile.speedUpload ?? null,
       dataLimitMb: profile.dataLimitMb,
       description: profile.description,
     });
@@ -103,6 +109,8 @@ export default function Profiles() {
   const onSubmit = (data: ProfileFormValues) => {
     const payload = {
       ...data,
+      speedDownload: data.speedDownload ?? null,
+      speedUpload: data.speedUpload ?? null,
       dataLimitMb: data.dataLimitMb || null,
     };
 
@@ -167,14 +175,24 @@ export default function Profiles() {
                   <Clock className="h-4 w-4" />
                   <span>Durée : <strong className="text-foreground">{formatDuration(profile.durationMinutes)}</strong></span>
                 </div>
-                <div className="flex items-center gap-3 text-muted-foreground">
-                  <Download className="h-4 w-4" />
-                  <span>Download : <strong className="text-foreground">{profile.speedDownload} Mbps</strong></span>
-                </div>
-                <div className="flex items-center gap-3 text-muted-foreground">
-                  <Upload className="h-4 w-4" />
-                  <span>Upload : <strong className="text-foreground">{profile.speedUpload} Mbps</strong></span>
-                </div>
+                {profile.speedDownload != null && (
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <Download className="h-4 w-4" />
+                    <span>Download : <strong className="text-foreground">{profile.speedDownload} Mbps</strong></span>
+                  </div>
+                )}
+                {profile.speedUpload != null && (
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <Upload className="h-4 w-4" />
+                    <span>Upload : <strong className="text-foreground">{profile.speedUpload} Mbps</strong></span>
+                  </div>
+                )}
+                {profile.speedDownload == null && profile.speedUpload == null && (
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <Wifi className="h-4 w-4" />
+                    <span>Vitesse illimitée</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-3 text-muted-foreground">
                   <Database className="h-4 w-4" />
                   <span>Quota : <strong className="text-foreground">{formatBytes(profile.dataLimitMb)}</strong></span>
@@ -226,7 +244,7 @@ export default function Profiles() {
                   name="price"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Prix</FormLabel>
+                      <FormLabel>Prix (FCFA)</FormLabel>
                       <FormControl>
                         <Input type="number" {...field} />
                       </FormControl>
@@ -252,9 +270,14 @@ export default function Profiles() {
                   name="speedDownload"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Vitesse Download (Mbps)</FormLabel>
+                      <FormLabel>Download (Mbps) <span className="text-muted-foreground font-normal">— optionnel</span></FormLabel>
                       <FormControl>
-                        <Input type="number" {...field} />
+                        <Input
+                          type="number"
+                          placeholder="Illimité"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -265,9 +288,14 @@ export default function Profiles() {
                   name="speedUpload"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Vitesse Upload (Mbps)</FormLabel>
+                      <FormLabel>Upload (Mbps) <span className="text-muted-foreground font-normal">— optionnel</span></FormLabel>
                       <FormControl>
-                        <Input type="number" {...field} />
+                        <Input
+                          type="number"
+                          placeholder="Illimité"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -278,9 +306,27 @@ export default function Profiles() {
                   name="dataLimitMb"
                   render={({ field }) => (
                     <FormItem className="col-span-2">
-                      <FormLabel>Limite de données (Mo, optionnel)</FormLabel>
+                      <FormLabel>Quota données (Mo) <span className="text-muted-foreground font-normal">— optionnel</span></FormLabel>
                       <FormControl>
-                        <Input type="number" placeholder="Laissez vide pour illimité" value={field.value || ''} onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)} />
+                        <Input
+                          type="number"
+                          placeholder="Laissez vide pour illimité"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem className="col-span-2">
+                      <FormLabel>Description <span className="text-muted-foreground font-normal">— optionnel</span></FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ex: Idéal pour navigation" value={field.value ?? ""} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

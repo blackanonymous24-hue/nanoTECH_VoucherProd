@@ -10,8 +10,10 @@ export interface CreateProfileBody {
   name: string;
   price: number;
   durationMinutes: number;
-  speedDownload: number;
-  speedUpload: number;
+  /** @nullable */
+  speedDownload?: number | null;
+  /** @nullable */
+  speedUpload?: number | null;
   /** @nullable */
   dataLimitMb?: number | null;
   /** @nullable */

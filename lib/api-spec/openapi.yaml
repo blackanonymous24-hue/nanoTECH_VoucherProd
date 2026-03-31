@@ -550,9 +550,9 @@ components:
         durationMinutes:
           type: integer
         speedDownload:
-          type: integer
+          type: ["integer", "null"]
         speedUpload:
-          type: integer
+          type: ["integer", "null"]
         dataLimitMb:
           type: ["integer", "null"]
         description:
@@ -581,9 +581,9 @@ components:
         durationMinutes:
           type: integer
         speedDownload:
-          type: integer
+          type: ["integer", "null"]
         speedUpload:
-          type: integer
+          type: ["integer", "null"]
         dataLimitMb:
           type: ["integer", "null"]
         description:
@@ -592,8 +592,6 @@ components:
         - name
         - price
         - durationMinutes
-        - speedDownload
-        - speedUpload
 
     UpdateProfileBody:
       type: object
@@ -605,9 +603,9 @@ components:
         durationMinutes:
           type: integer
         speedDownload:
-          type: integer
+          type: ["integer", "null"]
         speedUpload:
-          type: integer
+          type: ["integer", "null"]
         dataLimitMb:
           type: ["integer", "null"]
         description:
