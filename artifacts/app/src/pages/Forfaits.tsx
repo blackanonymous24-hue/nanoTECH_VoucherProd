@@ -20,7 +20,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 function formatValidity(v: string | null | undefined): string {
@@ -61,6 +71,8 @@ export default function Forfaits() {
   const [error, setError] = useState<string | null>(null);
   const [pools, setPools] = useState<string[]>([]);
   const [loadingPools, setLoadingPools] = useState(false);
+  const [deletingName, setDeletingName] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   function setField<K extends keyof typeof defaultForm>(key: K, val: (typeof defaultForm)[K]) {
     setForm((f) => ({ ...f, [key]: val }));
@@ -136,6 +148,23 @@ export default function Forfaits() {
     }
   }
 
+  async function handleDelete() {
+    if (!deletingName || !routerId) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/routers/${routerId}/profiles/${encodeURIComponent(deletingName)}`,
+        { method: "DELETE" },
+      );
+      if (res.ok) {
+        setDeletingName(null);
+        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", parseInt(routerId, 10)] });
+      }
+    } catch { /* ignore */ } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -192,17 +221,26 @@ export default function Forfaits() {
             {profiles.map((p) => (
               <Card key={p.name} className="hover:shadow-md transition-shadow">
                 <CardHeader className="pb-2 pt-4 px-4">
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-1">
                     <CardTitle className="text-base font-bold text-gray-900 truncate" title={p.name}>
                       {p.name}
                     </CardTitle>
-                    <button
-                      onClick={() => openEdit(p)}
-                      className="flex-shrink-0 p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-                      title="Modifier"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                      <button
+                        onClick={() => openEdit(p)}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                        title="Modifier"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setDeletingName(p.name)}
+                        className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                        title="Supprimer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="px-4 pb-4 space-y-2">
@@ -250,6 +288,27 @@ export default function Forfaits() {
           </div>
         </>
       )}
+
+      <AlertDialog open={deletingName !== null} onOpenChange={(open) => { if (!open) setDeletingName(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer le forfait ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le profil <span className="font-semibold text-gray-900">{deletingName}</span> sera supprimé définitivement du routeur MikroTik. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-500"
+            >
+              {deleting ? "Suppression…" : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="max-w-md max-h-[90vh] flex flex-col">

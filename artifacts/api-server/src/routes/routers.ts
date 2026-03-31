@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, inArray } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, listProfiles, createProfile, updateProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames } from "../lib/mikrotik.js";
+import { testConnection, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -245,6 +245,26 @@ router.put("/routers/:id/profiles/:profileName", async (req, res): Promise<void>
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de modifier le profil" });
+  }
+});
+
+router.delete("/routers/:id/profiles/:profileName", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const profileName = decodeURIComponent(req.params.profileName as string);
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    await deleteProfile(
+      { host: r.host, port: r.port, username: r.username, password: r.password },
+      profileName,
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de supprimer le profil" });
   }
 });
 

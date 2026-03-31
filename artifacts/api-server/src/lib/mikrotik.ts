@@ -181,6 +181,15 @@ export async function updateProfile(conn: RouterConnection, originalName: string
   });
 }
 
+export async function deleteProfile(conn: RouterConnection, name: string): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const found = await api.write("/ip/hotspot/user/profile/print", [`?name=${name}`]);
+    if (!found.length) throw new Error(`Profil "${name}" introuvable`);
+    const id = found[0][".id"] as string;
+    await api.write("/ip/hotspot/user/profile/remove", [`=.id=${id}`]);
+  });
+}
+
 export async function listAddressPools(conn: RouterConnection): Promise<string[]> {
   return withRouter(conn, async (api) => {
     const pools = await api.write("/ip/pool/print");
