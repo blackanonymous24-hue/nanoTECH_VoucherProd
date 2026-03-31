@@ -1,0 +1,333 @@
+import { useState, useEffect, useCallback } from "react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, BarChart2, User, RefreshCw } from "lucide-react";
+
+const TOKEN_KEY = "vouchernet_vendor_token";
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+type VendorInfo = { id: number; name: string; email: string | null; username: string | null };
+type SalesStats = { todaySold: number; yesterdaySold: number; weekSold: number; lastMonthSold: number };
+type ByProfile = { profileName: string; total: number; printed: number; used: number };
+type RecentVoucher = {
+  id: number;
+  username: string;
+  password: string;
+  profileName: string;
+  price: string;
+  printedAt: string | null;
+  usedAt: string | null;
+  createdAt: string;
+};
+type PortalData = {
+  vendor: VendorInfo;
+  totalVouchers: number;
+  totalPrinted: number;
+  totalUsed: number;
+  salesStats: SalesStats;
+  byProfile: ByProfile[];
+  recentVouchers: RecentVoucher[];
+};
+
+function api(path: string, options?: RequestInit) {
+  return fetch(`${BASE}/api${path}`, {
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    ...options,
+  });
+}
+
+function StatCard({ label, value, icon: Icon, color }: {
+  label: string;
+  value: number;
+  icon: React.ElementType;
+  color: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4 flex items-center gap-4">
+        <div className={`h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
+          <Icon className="h-6 w-6 text-white" />
+        </div>
+        <div>
+          <p className="text-2xl font-bold text-gray-900">{value}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await api("/vendor-portal/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? "Erreur de connexion"); return; }
+      onLogin(data.token, data.vendor);
+    } catch {
+      setError("Impossible de contacter le serveur");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-blue-600 mb-4">
+            <Wifi className="h-8 w-8 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">VoucherNet</h1>
+          <p className="text-gray-500 text-sm mt-1">Espace vendeur</p>
+        </div>
+
+        <Card className="shadow-lg">
+          <CardContent className="p-6">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <Label htmlFor="vp-username">Nom d'utilisateur</Label>
+                <Input
+                  id="vp-username"
+                  className="mt-1"
+                  placeholder="votre identifiant"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div>
+                <Label htmlFor="vp-password">Mot de passe</Label>
+                <Input
+                  id="vp-password"
+                  type="password"
+                  className="mt-1"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              {error && (
+                <p className="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{error}</p>
+              )}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Connexion..." : "Se connecter"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ token, vendor, onLogout }: {
+  token: string;
+  vendor: VendorInfo;
+  onLogout: () => void;
+}) {
+  const [data, setData] = useState<PortalData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api("/vendor-portal/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401 || res.status === 403) { onLogout(); return; }
+      const json = await res.json();
+      setData(json);
+    } catch {
+      setError("Erreur lors du chargement des données");
+    } finally {
+      setLoading(false);
+    }
+  }, [token, onLogout]);
+
+  useEffect(() => {
+    fetchData();
+    const id = setInterval(fetchData, 30_000);
+    return () => clearInterval(id);
+  }, [fetchData]);
+
+  const chartData = data
+    ? [
+        { label: "Aujourd'hui", vendus: data.salesStats.todaySold },
+        { label: "Hier", vendus: data.salesStats.yesterdaySold },
+        { label: "Cette sem.", vendus: data.salesStats.weekSold },
+        { label: "Mois préc.", vendus: data.salesStats.lastMonthSold },
+      ]
+    : [];
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center">
+            <Wifi className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">VoucherNet</p>
+            <p className="text-xs text-gray-500">Espace vendeur</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-2 text-sm text-gray-700 bg-gray-100 rounded-lg px-3 py-1.5">
+            <User className="h-4 w-4" />
+            {vendor.name}
+          </div>
+          <Button size="sm" variant="ghost" onClick={fetchData} title="Actualiser">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={onLogout}>
+            <LogOut className="h-4 w-4" /> Déconnexion
+          </Button>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Mes performances</h2>
+          <p className="text-sm text-gray-500">Bienvenue, {vendor.name}</p>
+        </div>
+
+        {loading && !data && (
+          <div className="text-center py-12 text-gray-400">Chargement...</div>
+        )}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>
+        )}
+
+        {data && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard label="Total vouchers" value={data.totalVouchers} icon={BarChart2} color="bg-blue-500" />
+              <StatCard label="Vendus aujourd'hui" value={data.salesStats.todaySold} icon={ShoppingCart} color="bg-green-500" />
+              <StatCard label="Cette semaine" value={data.salesStats.weekSold} icon={Calendar} color="bg-orange-500" />
+              <StatCard label="Mois précédent" value={data.salesStats.lastMonthSold} icon={TrendingUp} color="bg-purple-500" />
+            </div>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Évolution des ventes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={chartData} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={30} />
+                    <Tooltip />
+                    <Bar dataKey="vendus" name="Vendus" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {data.byProfile.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Par forfait</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {data.byProfile.map((p) => (
+                      <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
+                        <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
+                        <div className="flex gap-3 text-sm">
+                          <span className="text-gray-500">Total: <strong>{p.total}</strong></span>
+                          <span className="text-green-600">Vendus: <strong>{p.used}</strong></span>
+                          <span className="text-gray-400">Non vendus: <strong>{p.total - p.used}</strong></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Derniers vouchers</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {data.recentVouchers.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Aucun voucher</p>
+                ) : (
+                  <div className="space-y-2">
+                    {data.recentVouchers.slice(0, 20).map((v) => (
+                      <div key={v.id} className="flex items-center justify-between py-2 border-b last:border-0 gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-mono font-medium truncate">{v.username}</p>
+                          <p className="text-xs text-gray-400">{v.profileName} — {v.price ? `${v.price} FCFA` : "—"}</p>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={v.usedAt
+                            ? "border-red-300 text-red-600 bg-transparent flex-shrink-0"
+                            : "border-green-300 text-green-600 bg-transparent flex-shrink-0"}
+                        >
+                          {v.usedAt ? "Vendu" : "Non vendu"}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default function VendorPortal() {
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [vendor, setVendor] = useState<VendorInfo | null>(() => {
+    try {
+      const v = localStorage.getItem("vouchernet_vendor_info");
+      return v ? JSON.parse(v) : null;
+    } catch { return null; }
+  });
+
+  const handleLogin = (t: string, v: VendorInfo) => {
+    localStorage.setItem(TOKEN_KEY, t);
+    localStorage.setItem("vouchernet_vendor_info", JSON.stringify(v));
+    setToken(t);
+    setVendor(v);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem("vouchernet_vendor_info");
+    setToken(null);
+    setVendor(null);
+  };
+
+  if (!token || !vendor) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
+  return <Dashboard token={token} vendor={vendor} onLogout={handleLogout} />;
+}

@@ -3,6 +3,7 @@ import routersRouter from "./routers.js";
 import vouchersRouter from "./vouchers.js";
 import vendorsRouter from "./vendors.js";
 import dashboardRouter from "./dashboard.js";
+import vendorPortalRouter from "./vendor-portal.js";
 
 export const router = Router();
 
@@ -14,3 +15,4 @@ router.use(routersRouter);
 router.use(vouchersRouter);
 router.use(vendorsRouter);
 router.use(dashboardRouter);
+router.use(vendorPortalRouter);

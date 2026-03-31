@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +12,7 @@ import GenerateVouchers from "@/pages/GenerateVouchers";
 import Vouchers from "@/pages/Vouchers";
 import Vendors from "@/pages/Vendors";
 import Reports from "@/pages/Reports";
+import VendorPortal from "@/pages/VendorPortal";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -24,6 +25,12 @@ const queryClient = new QueryClient({
 });
 
 function AppRoutes() {
+  const [location] = useLocation();
+
+  if (location.startsWith("/vendor-portal")) {
+    return <VendorPortal />;
+  }
+
   return (
     <RouterProvider>
       <Layout>

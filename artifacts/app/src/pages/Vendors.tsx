@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Pencil, Trash2, Phone, Check, X } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -33,25 +33,38 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+type FormData = {
+  name: string;
+  phone: string;
+  email: string;
+  username: string;
+  password: string;
+};
+
 function VendorForm({
   initial,
   onSubmit,
   onCancel,
   loading,
+  isEdit,
 }: {
-  initial?: Partial<Vendor>;
-  onSubmit: (data: { name: string; phone: string }) => void;
+  initial?: Partial<Vendor & { username?: string; email?: string }>;
+  onSubmit: (data: FormData) => void;
   onCancel: () => void;
   loading: boolean;
+  isEdit?: boolean;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [email, setEmail] = useState((initial as any)?.email ?? "");
+  const [username, setUsername] = useState((initial as any)?.username ?? "");
+  const [password, setPassword] = useState("");
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, phone });
+        onSubmit({ name, phone, email, username, password });
       }}
       className="space-y-4"
     >
@@ -67,6 +80,7 @@ function VendorForm({
           autoFocus
         />
       </div>
+
       <div>
         <Label htmlFor="v-phone">Téléphone <span className="text-gray-400 text-xs">(optionnel)</span></Label>
         <Input
@@ -77,6 +91,50 @@ function VendorForm({
           onChange={(e) => setPhone(e.target.value)}
         />
       </div>
+
+      <div>
+        <Label htmlFor="v-email">Email <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+        <Input
+          id="v-email"
+          type="email"
+          className="mt-1"
+          placeholder="ex: jean@email.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+      </div>
+
+      <div className="pt-2 border-t">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Accès au portail vendeur</p>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="v-username">Nom d'utilisateur</Label>
+            <Input
+              id="v-username"
+              className="mt-1"
+              placeholder="ex: jean2025"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="v-password">
+              {isEdit ? "Nouveau mot de passe" : "Mot de passe"}
+              <span className="text-gray-400 text-xs ml-1">{isEdit ? "(laisser vide = inchangé)" : "(min. 6 caractères)"}</span>
+            </Label>
+            <Input
+              id="v-password"
+              type="password"
+              className="mt-1"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              minLength={isEdit ? 0 : undefined}
+            />
+          </div>
+        </div>
+      </div>
+
       <DialogFooter className="pt-2">
         <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
         <Button type="submit" disabled={loading || !name.trim()}>
@@ -101,18 +159,32 @@ export default function Vendors() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListVendorsQueryKey() });
 
-  const handleCreate = async (data: { name: string; phone: string }) => {
-    await createMutation.mutateAsync({ data: { name: data.name, phone: data.phone || null } });
+  const handleCreate = async (data: FormData) => {
+    await createMutation.mutateAsync({
+      data: {
+        name: data.name,
+        phone: data.phone || null,
+        email: data.email || null,
+        username: data.username || null,
+        ...(data.password ? { password: data.password } : {}),
+      } as any,
+    });
     invalidate();
     setShowCreate(false);
     toast({ title: "Vendeur créé avec succès" });
   };
 
-  const handleEdit = async (data: { name: string; phone: string }) => {
+  const handleEdit = async (data: FormData) => {
     if (!editVendor) return;
     await updateMutation.mutateAsync({
       id: editVendor.id,
-      data: { name: data.name, phone: data.phone || null },
+      data: {
+        name: data.name,
+        phone: data.phone || null,
+        email: data.email || null,
+        username: data.username || null,
+        ...(data.password ? { password: data.password } : {}),
+      } as any,
     });
     invalidate();
     setEditVendor(null);
@@ -136,16 +208,27 @@ export default function Vendors() {
     toast({ title: "Vendeur supprimé" });
   };
 
+  const portalBase = import.meta.env.BASE_URL.replace(/\/$/, "");
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Vendeurs</h1>
-          <p className="text-sm text-gray-500">Gérez les vendeurs et suivez leurs ventes</p>
+          <p className="text-sm text-gray-500">Gérez les vendeurs et leur accès au portail</p>
         </div>
-        <Button onClick={() => setShowCreate(true)} className="gap-2">
-          <Plus className="h-4 w-4" /> Ajouter un vendeur
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => window.open(`${portalBase}/vendor-portal`, "_blank")}
+          >
+            <ExternalLink className="h-4 w-4" /> Portail vendeur
+          </Button>
+          <Button onClick={() => setShowCreate(true)} className="gap-2">
+            <Plus className="h-4 w-4" /> Ajouter un vendeur
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -171,12 +254,24 @@ export default function Vendors() {
                     <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                       <Users className="h-5 w-5 text-blue-600" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <CardTitle className="text-base">{vendor.name}</CardTitle>
                       {vendor.phone && (
                         <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                          <Phone className="h-3 w-3" />
+                          <Phone className="h-3 w-3 flex-shrink-0" />
                           {vendor.phone}
+                        </div>
+                      )}
+                      {(vendor as any).email && (
+                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                          <Mail className="h-3 w-3 flex-shrink-0" />
+                          {(vendor as any).email}
+                        </div>
+                      )}
+                      {(vendor as any).username && (
+                        <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5">
+                          <KeyRound className="h-3 w-3 flex-shrink-0" />
+                          @{(vendor as any).username}
                         </div>
                       )}
                     </div>
@@ -221,7 +316,7 @@ export default function Vendors() {
       )}
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Ajouter un vendeur</DialogTitle>
           </DialogHeader>
@@ -234,7 +329,7 @@ export default function Vendors() {
       </Dialog>
 
       <Dialog open={!!editVendor} onOpenChange={(o) => { if (!o) setEditVendor(null); }}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Modifier le vendeur</DialogTitle>
           </DialogHeader>
@@ -244,6 +339,7 @@ export default function Vendors() {
               onSubmit={handleEdit}
               onCancel={() => setEditVendor(null)}
               loading={updateMutation.isPending}
+              isEdit
             />
           )}
         </DialogContent>

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { eq, desc, and, count, sql, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable } from "@workspace/db";
+import { hashPassword } from "../lib/vendor-auth.js";
 
 const router = Router();
 
@@ -41,41 +42,104 @@ function buildSalesStats(vendorId: number) {
   .where(eq(vouchersTable.vendorId, vendorId));
 }
 
+function safeVendor(v: typeof vendorsTable.$inferSelect) {
+  const { passwordHash: _ph, ...rest } = v;
+  return rest;
+}
+
 router.get("/vendors", async (_req, res): Promise<void> => {
   const vendors = await db
     .select()
     .from(vendorsTable)
     .orderBy(vendorsTable.name);
-  res.json(vendors);
+  res.json(vendors.map(safeVendor));
 });
 
 router.post("/vendors", async (req, res): Promise<void> => {
-  const { name, phone } = req.body as { name?: string; phone?: string };
+  const { name, phone, email, username, password } = req.body as {
+    name?: string;
+    phone?: string;
+    email?: string;
+    username?: string;
+    password?: string;
+  };
+
   if (!name || name.trim() === "") {
     res.status(400).json({ error: "Le nom du vendeur est requis" });
     return;
   }
+
+  if (username && username.trim()) {
+    const [existing] = await db
+      .select({ id: vendorsTable.id })
+      .from(vendorsTable)
+      .where(eq(vendorsTable.username, username.trim()));
+    if (existing) {
+      res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" });
+      return;
+    }
+  }
+
+  let passwordHash: string | null = null;
+  if (password && password.trim()) {
+    if (password.length < 6) {
+      res.status(400).json({ error: "Le mot de passe doit comporter au moins 6 caractères" });
+      return;
+    }
+    passwordHash = await hashPassword(password);
+  }
+
   const [vendor] = await db
     .insert(vendorsTable)
-    .values({ name: name.trim(), phone: phone?.trim() || null })
+    .values({
+      name: name.trim(),
+      phone: phone?.trim() || null,
+      email: email?.trim() || null,
+      username: username?.trim() || null,
+      passwordHash,
+    })
     .returning();
-  res.status(201).json(vendor);
+  res.status(201).json(safeVendor(vendor));
 });
 
 router.put("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, phone, isActive } = req.body as {
+  const { name, phone, email, username, password, isActive } = req.body as {
     name?: string;
     phone?: string;
+    email?: string;
+    username?: string;
+    password?: string;
     isActive?: boolean;
   };
+
+  if (username !== undefined && username.trim()) {
+    const [existing] = await db
+      .select({ id: vendorsTable.id })
+      .from(vendorsTable)
+      .where(eq(vendorsTable.username, username.trim()));
+    if (existing && existing.id !== id) {
+      res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" });
+      return;
+    }
+  }
 
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name.trim();
   if (phone !== undefined) updates.phone = phone?.trim() || null;
+  if (email !== undefined) updates.email = email?.trim() || null;
+  if (username !== undefined) updates.username = username?.trim() || null;
   if (isActive !== undefined) updates.isActive = isActive;
+
+  if (password !== undefined && password.trim()) {
+    if (password.length < 6) {
+      res.status(400).json({ error: "Le mot de passe doit comporter au moins 6 caractères" });
+      return;
+    }
+    updates.passwordHash = await hashPassword(password);
+  }
 
   const [vendor] = await db
     .update(vendorsTable)
@@ -84,7 +148,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     .returning();
 
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
-  res.json(vendor);
+  res.json(safeVendor(vendor));
 });
 
 router.delete("/vendors/:id", async (req, res): Promise<void> => {
@@ -98,6 +162,37 @@ router.delete("/vendors/:id", async (req, res): Promise<void> => {
 
   if (!deleted) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
   res.sendStatus(204);
+});
+
+router.get("/vendors/reports/summary", async (_req, res): Promise<void> => {
+  const vendors = await db
+    .select()
+    .from(vendorsTable)
+    .orderBy(vendorsTable.name);
+
+  const summaries = await Promise.all(
+    vendors.map(async (vendor) => {
+      const [[row], [salesRow]] = await Promise.all([
+        buildTotals(vendor.id),
+        buildSalesStats(vendor.id),
+      ]);
+
+      return {
+        vendor: safeVendor(vendor),
+        totalVouchers: row?.total        ?? 0,
+        totalPrinted:  Number(row?.printed ?? 0),
+        totalUsed:     Number(row?.used    ?? 0),
+        salesStats: {
+          todaySold:     Number(salesRow?.todaySold     ?? 0),
+          yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),
+          weekSold:      Number(salesRow?.weekSold      ?? 0),
+          lastMonthSold: Number(salesRow?.lastMonthSold ?? 0),
+        },
+      };
+    }),
+  );
+
+  res.json(summaries);
 });
 
 router.get("/vendors/:id/report", async (req, res): Promise<void> => {
@@ -139,7 +234,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
   const totals = totalsRows[0];
 
   res.json({
-    vendor,
+    vendor: safeVendor(vendor),
     totalVouchers: totals?.total        ?? 0,
     totalPrinted:  Number(totals?.printed ?? 0),
     totalUsed:     Number(totals?.used    ?? 0),
@@ -152,37 +247,6 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     byProfile,
     recentVouchers,
   });
-});
-
-router.get("/vendors/reports/summary", async (_req, res): Promise<void> => {
-  const vendors = await db
-    .select()
-    .from(vendorsTable)
-    .orderBy(vendorsTable.name);
-
-  const summaries = await Promise.all(
-    vendors.map(async (vendor) => {
-      const [[row], [salesRow]] = await Promise.all([
-        buildTotals(vendor.id),
-        buildSalesStats(vendor.id),
-      ]);
-
-      return {
-        vendor,
-        totalVouchers: row?.total        ?? 0,
-        totalPrinted:  Number(row?.printed ?? 0),
-        totalUsed:     Number(row?.used    ?? 0),
-        salesStats: {
-          todaySold:     Number(salesRow?.todaySold     ?? 0),
-          yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),
-          weekSold:      Number(salesRow?.weekSold      ?? 0),
-          lastMonthSold: Number(salesRow?.lastMonthSold ?? 0),
-        },
-      };
-    }),
-  );
-
-  res.json(summaries);
 });
 
 export default router;
