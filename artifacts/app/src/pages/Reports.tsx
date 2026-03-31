@@ -12,38 +12,44 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  BarChart3, Users, Ticket, ShoppingCart, PackageOpen,
+  BarChart3, Users, Ticket,
   ArrowLeft, CalendarDays, CalendarClock, TrendingUp,
-  RefreshCw, CheckCircle2, ArrowDownUp,
+  RefreshCw, CheckCircle2, ArrowDownUp, XCircle,
 } from "lucide-react";
 
-/* ─── helpers ─────────────────────────────────────────────────── */
-
-/** 3-segment bar: utilisé (green) | distribué (amber) | disponible (blue) */
-function AvailabilityBar({
-  used, distributed, total,
-}: { used: number; distributed: number; total: number }) {
-  const available    = total - distributed - used;
-  const usedPct      = total > 0 ? Math.round((used         / total) * 100) : 0;
-  const distPct      = total > 0 ? Math.round((distributed  / total) * 100) : 0;
-  const availPct     = 100 - usedPct - distPct;
+/* ─── 2-segment bar: vendu (green) | non vendu (gray) ─────────── */
+function SaleBar({ used, total }: { used: number; total: number }) {
+  const usedPct    = total > 0 ? Math.round((used / total) * 100) : 0;
+  const nonSoldPct = 100 - usedPct;
+  const nonSold    = total - used;
 
   return (
     <div>
       <div className="flex justify-between text-xs mb-1">
-        <span className="text-green-600 font-medium">{used} utilisés</span>
-        <span className="text-amber-600">{distributed} distribués</span>
-        <span className="text-blue-400">{available} disponibles</span>
+        <span className="text-green-600 font-medium">{used} vendu{used !== 1 ? "s" : ""}</span>
+        <span className="text-gray-400">{nonSold} non vendu{nonSold !== 1 ? "s" : ""}</span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex">
-        <div className="h-full bg-green-500 transition-all"  style={{ width: `${usedPct}%`  }} title={`${usedPct}% utilisés`} />
-        <div className="h-full bg-amber-400 transition-all"  style={{ width: `${distPct}%`  }} title={`${distPct}% distribués`} />
-        <div className="h-full bg-blue-200 transition-all"   style={{ width: `${availPct}%` }} title={`${availPct}% disponibles`} />
+        <div
+          className="h-full bg-green-500 transition-all rounded-l-full"
+          style={{ width: `${usedPct}%` }}
+          title={`${usedPct}% vendus`}
+        />
+        <div
+          className="h-full bg-gray-200 transition-all rounded-r-full"
+          style={{ width: `${nonSoldPct}%` }}
+          title={`${nonSoldPct}% non vendus`}
+        />
       </div>
       <div className="flex gap-3 mt-1">
-        <span className="flex items-center gap-1 text-xs text-gray-400"><span className="inline-block w-2 h-2 rounded-full bg-green-500" />Utilisés {usedPct}%</span>
-        <span className="flex items-center gap-1 text-xs text-gray-400"><span className="inline-block w-2 h-2 rounded-full bg-amber-400" />Distribués {distPct}%</span>
-        <span className="flex items-center gap-1 text-xs text-gray-400"><span className="inline-block w-2 h-2 rounded-full bg-blue-200" />Disponibles {availPct}%</span>
+        <span className="flex items-center gap-1 text-xs text-gray-400">
+          <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+          Vendu {usedPct}%
+        </span>
+        <span className="flex items-center gap-1 text-xs text-gray-400">
+          <span className="inline-block w-2 h-2 rounded-full bg-gray-200" />
+          Non vendu {nonSoldPct}%
+        </span>
       </div>
     </div>
   );
@@ -64,9 +70,7 @@ function SalesMiniCard({ label, value, icon: Icon, color }: {
 /* ─── sync button ─────────────────────────────────────────────── */
 function SyncButton({ routerId }: { routerId: number | null }) {
   const { mutate, isPending, data, isSuccess } = useSyncVoucherUsage();
-
   if (!routerId) return null;
-
   return (
     <Button
       variant="outline"
@@ -91,8 +95,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
 
   if (isLoading || !data) return <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>;
 
-  const distributed = data.totalPrinted - data.totalUsed;
-  const available   = data.totalVouchers - data.totalPrinted;
+  const nonSold = data.totalVouchers - data.totalUsed;
   const ss = data.salesStats;
 
   return (
@@ -110,8 +113,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         </Badge>
       </div>
 
-      {/* Stock totaux — 4 cartes */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      {/* Totaux — 3 cartes */}
+      <div className="grid grid-cols-3 gap-4 mb-5">
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-2">
@@ -132,7 +135,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Utilisés</p>
+                <p className="text-xs text-gray-500">Vendus</p>
                 <p className="text-xl font-bold text-green-600">{data.totalUsed}</p>
               </div>
             </div>
@@ -141,30 +144,24 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                <ShoppingCart className="h-4 w-4 text-amber-600" />
+              <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <XCircle className="h-4 w-4 text-gray-500" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Distribués</p>
-                <p className="text-xl font-bold text-amber-600">{distributed}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <PackageOpen className="h-4 w-4 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Disponibles</p>
-                <p className="text-xl font-bold text-blue-500">{available}</p>
+                <p className="text-xs text-gray-500">Non vendus</p>
+                <p className="text-xl font-bold text-gray-600">{nonSold}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Barre 2 segments */}
+      <Card className="mb-5">
+        <CardContent className="pt-5">
+          <SaleBar used={data.totalUsed} total={data.totalVouchers} />
+        </CardContent>
+      </Card>
 
       {/* Performance temporelle */}
       <Card className="mb-5">
@@ -176,8 +173,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-4 gap-3">
-            <SalesMiniCard label="Aujourd'hui" value={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" />
-            <SalesMiniCard label="Hier"         value={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
+            <SalesMiniCard label="Aujourd'hui"  value={ss.todaySold}     icon={CalendarDays}  color="bg-green-50 text-green-700" />
+            <SalesMiniCard label="Hier"          value={ss.yesterdaySold} icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
             <SalesMiniCard label="Cette semaine" value={ss.weekSold}      icon={CalendarClock} color="bg-blue-50 text-blue-700" />
             <SalesMiniCard label="Mois dernier"  value={ss.lastMonthSold} icon={BarChart3}      color="bg-purple-50 text-purple-700" />
           </div>
@@ -193,15 +190,14 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
             ) : (
               <div className="space-y-4">
                 {data.byProfile.map((stat) => {
-                  const used  = Number((stat as any).used ?? 0);
-                  const dist  = Number(stat.printed) - used;
+                  const used = Number((stat as any).used ?? 0);
                   return (
                     <div key={stat.profileName}>
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-sm font-medium">{stat.profileName}</span>
                         <span className="text-xs text-gray-400">{stat.total} total</span>
                       </div>
-                      <AvailabilityBar used={used} distributed={dist} total={stat.total} />
+                      <SaleBar used={used} total={stat.total} />
                     </div>
                   );
                 })}
@@ -226,11 +222,9 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-500">{v.profileName}</span>
                       {(v as any).usedAt ? (
-                        <Badge className="text-xs bg-green-600">Utilisé</Badge>
-                      ) : v.printedAt ? (
-                        <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">Distribué</Badge>
+                        <Badge className="text-xs bg-green-600">Vendu</Badge>
                       ) : (
-                        <Badge variant="outline" className="text-xs text-blue-500 border-blue-300">Disponible</Badge>
+                        <Badge variant="outline" className="text-xs text-gray-500 border-gray-300">Non vendu</Badge>
                       )}
                     </div>
                   </div>
@@ -246,9 +240,9 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
 
 /* ─── vendor card ─────────────────────────────────────────────── */
 function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () => void }) {
-  const used         = summary.totalUsed;
-  const distributed  = summary.totalPrinted - summary.totalUsed;
-  const ss           = summary.salesStats;
+  const used    = summary.totalUsed;
+  const nonSold = summary.totalVouchers - used;
+  const ss      = summary.salesStats;
 
   return (
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
@@ -269,36 +263,32 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
         </div>
       </CardHeader>
       <CardContent>
-        {/* Stock */}
-        <div className="grid grid-cols-4 gap-2 text-center mb-3">
+        {/* Compteurs */}
+        <div className="grid grid-cols-3 gap-2 text-center mb-3">
           <div>
             <p className="text-lg font-bold text-gray-900">{summary.totalVouchers}</p>
             <p className="text-xs text-gray-500">Total</p>
           </div>
           <div>
             <p className="text-lg font-bold text-green-600">{used}</p>
-            <p className="text-xs text-green-600">Utilisés</p>
+            <p className="text-xs text-green-600">Vendus</p>
           </div>
           <div>
-            <p className="text-lg font-bold text-amber-600">{distributed}</p>
-            <p className="text-xs text-amber-600">Distribués</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-blue-500">{summary.totalVouchers - summary.totalPrinted}</p>
-            <p className="text-xs text-blue-500">Disponibles</p>
+            <p className="text-lg font-bold text-gray-500">{nonSold}</p>
+            <p className="text-xs text-gray-500">Non vendus</p>
           </div>
         </div>
 
-        {/* Barre 3 segments */}
-        <AvailabilityBar used={used} distributed={distributed} total={summary.totalVouchers} />
+        {/* Barre 2 segments */}
+        <SaleBar used={used} total={summary.totalVouchers} />
 
         {/* Stats temporelles */}
         <div className="mt-3 pt-3 border-t border-gray-100">
           <div className="grid grid-cols-4 gap-1.5">
-            <SalesMiniCard label="Auj."    value={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" />
-            <SalesMiniCard label="Hier"    value={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
-            <SalesMiniCard label="Semaine" value={ss.weekSold}       icon={CalendarClock} color="bg-blue-50 text-blue-700" />
-            <SalesMiniCard label="Mois-1"  value={ss.lastMonthSold}  icon={BarChart3}     color="bg-purple-50 text-purple-700" />
+            <SalesMiniCard label="Auj."    value={ss.todaySold}     icon={CalendarDays}  color="bg-green-50 text-green-700" />
+            <SalesMiniCard label="Hier"    value={ss.yesterdaySold} icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
+            <SalesMiniCard label="Semaine" value={ss.weekSold}      icon={CalendarClock} color="bg-blue-50 text-blue-700" />
+            <SalesMiniCard label="Mois-1"  value={ss.lastMonthSold} icon={BarChart3}     color="bg-purple-50 text-purple-700" />
           </div>
         </div>
       </CardContent>
@@ -306,6 +296,7 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
   );
 }
 
+/* ─── sort ────────────────────────────────────────────────────── */
 type SortMode = "vendu-desc" | "vendu-asc" | "non-vendu" | "nom";
 
 function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummary[] {
@@ -316,11 +307,7 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
     case "vendu-asc":
       return copy.sort((a, b) => a.totalUsed - b.totalUsed);
     case "non-vendu":
-      return copy.sort((a, b) => {
-        const aNonSold = a.totalPrinted - a.totalUsed;
-        const bNonSold = b.totalPrinted - b.totalUsed;
-        return bNonSold - aNonSold;
-      });
+      return copy.sort((a, b) => (b.totalVouchers - b.totalUsed) - (a.totalVouchers - a.totalUsed));
     case "nom":
       return copy.sort((a, b) => a.vendor.name.localeCompare(b.vendor.name, "fr"));
   }
@@ -344,8 +331,7 @@ export default function Reports() {
 
   const totalVouchers = summaries.reduce((s, r) => s + r.totalVouchers, 0);
   const totalUsed     = summaries.reduce((s, r) => s + r.totalUsed, 0);
-  const totalDist     = summaries.reduce((s, r) => s + r.totalPrinted - r.totalUsed, 0);
-  const totalAvail    = totalVouchers - summaries.reduce((s, r) => s + r.totalPrinted, 0);
+  const totalNonSold  = totalVouchers - totalUsed;
 
   return (
     <div>
@@ -354,20 +340,21 @@ export default function Reports() {
           <h1 className="text-2xl font-bold text-gray-900">Rapports de vente</h1>
           <p className="text-sm text-gray-500">Suivi des vouchers par vendeur</p>
         </div>
-        <div className="flex items-center gap-2">
-          <SyncButton routerId={routerId} />
-        </div>
+        <SyncButton routerId={routerId} />
       </div>
 
       {totalVouchers > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-3 gap-4 mb-6">
           <Card>
             <CardContent className="pt-5">
               <div className="flex items-center gap-2">
                 <div className="h-9 w-9 rounded-lg bg-blue-100 flex items-center justify-center">
                   <Ticket className="h-4 w-4 text-blue-600" />
                 </div>
-                <div><p className="text-xs text-gray-500">Total</p><p className="text-xl font-bold">{totalVouchers}</p></div>
+                <div>
+                  <p className="text-xs text-gray-500">Total</p>
+                  <p className="text-xl font-bold">{totalVouchers}</p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -377,27 +364,23 @@ export default function Reports() {
                 <div className="h-9 w-9 rounded-lg bg-green-100 flex items-center justify-center">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
                 </div>
-                <div><p className="text-xs text-gray-500">Utilisés</p><p className="text-xl font-bold text-green-600">{totalUsed}</p></div>
+                <div>
+                  <p className="text-xs text-gray-500">Vendus</p>
+                  <p className="text-xl font-bold text-green-600">{totalUsed}</p>
+                </div>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-5">
               <div className="flex items-center gap-2">
-                <div className="h-9 w-9 rounded-lg bg-amber-100 flex items-center justify-center">
-                  <ShoppingCart className="h-4 w-4 text-amber-600" />
+                <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center">
+                  <XCircle className="h-4 w-4 text-gray-500" />
                 </div>
-                <div><p className="text-xs text-gray-500">Distribués</p><p className="text-xl font-bold text-amber-600">{totalDist}</p></div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-5">
-              <div className="flex items-center gap-2">
-                <div className="h-9 w-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                  <PackageOpen className="h-4 w-4 text-blue-500" />
+                <div>
+                  <p className="text-xs text-gray-500">Non vendus</p>
+                  <p className="text-xl font-bold text-gray-600">{totalNonSold}</p>
                 </div>
-                <div><p className="text-xs text-gray-500">Disponibles</p><p className="text-xl font-bold text-blue-500">{totalAvail}</p></div>
               </div>
             </CardContent>
           </Card>
