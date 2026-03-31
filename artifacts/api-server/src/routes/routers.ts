@@ -152,6 +152,22 @@ router.post("/routers/:id/test", async (req, res): Promise<void> => {
   res.json(result);
 });
 
+router.get("/routers/:id/ping", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+    res.json({ success: true });
+  } catch {
+    res.json({ success: false });
+  }
+});
+
 router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);

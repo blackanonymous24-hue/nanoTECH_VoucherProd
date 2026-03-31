@@ -62,7 +62,7 @@ export default function Dashboard() {
   const { data, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: { refetchInterval: 10_000, staleTime: 9_000 },
   });
-  const { selectedRouterId } = useRouterContext();
+  const { selectedRouterId, pingTrigger } = useRouterContext();
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
@@ -152,6 +152,18 @@ export default function Dashboard() {
     }
     prevIdsRef.current = incoming;
   }, [logs]);
+
+  const prevPingTriggerRef = useRef(0);
+  useEffect(() => {
+    if (pingTrigger === 0) return;
+    if (pingTrigger === prevPingTriggerRef.current) return;
+    prevPingTriggerRef.current = pingTrigger;
+    refetch();
+    refetchLogs();
+    refetchSales();
+    refetchSessions();
+    refetchUsers();
+  }, [pingTrigger, refetch, refetchLogs, refetchSales, refetchSessions, refetchUsers]);
 
   const handleRefresh = () => {
     refetch();
