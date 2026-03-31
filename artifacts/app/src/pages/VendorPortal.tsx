@@ -50,7 +50,7 @@ type PortalData = {
   recentSales: Voucher[];
   availableVouchers: Voucher[];
 };
-type ReportData = { from: string; to: string; total: number; revenue: number; vouchers: Voucher[] };
+type ReportData = { date: string; total: number; revenue: number; vouchers: Voucher[] };
 
 function api(path: string, options?: RequestInit) {
   return fetch(`${BASE}/api${path}`, {
@@ -189,10 +189,11 @@ function AvailableVouchersModal({ open, onClose, vouchers }: { open: boolean; on
   );
 }
 
-function PeriodReport({ token, from, to, onBack }: {
+function DayReport({ token, day, month, year, onBack }: {
   token: string;
-  from: string;
-  to: string;
+  day: string;
+  month: string;
+  year: string;
   onBack: () => void;
 }) {
   const [data, setData] = useState<ReportData | null>(null);
@@ -202,7 +203,7 @@ function PeriodReport({ token, from, to, onBack }: {
   useEffect(() => {
     setLoading(true);
     setError("");
-    api(`/vendor-portal/me/report?from=${from}&to=${to}`, {
+    api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (res) => {
@@ -212,15 +213,11 @@ function PeriodReport({ token, from, to, onBack }: {
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token, from, to]);
+  }, [token, day, month, year]);
 
-  function fmtDate(iso: string) {
-    return new Date(`${iso}T12:00:00Z`).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
-  }
-
-  const periodLabel = from === to
-    ? fmtDate(from)
-    : `${fmtDate(from)} – ${fmtDate(to)}`;
+  const dateLabel = data
+    ? new Date(`${data.date}T12:00:00Z`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : `${day.padStart(2,"0")}/${month.padStart(2,"0")}/${year}`;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -230,7 +227,7 @@ function PeriodReport({ token, from, to, onBack }: {
         </Button>
         <div className="h-5 w-px bg-gray-200" />
         <div>
-          <p className="text-sm font-semibold text-gray-900">{periodLabel}</p>
+          <p className="text-sm font-semibold text-gray-900 capitalize">{dateLabel}</p>
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
       </header>
@@ -249,7 +246,7 @@ function PeriodReport({ token, from, to, onBack }: {
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-gray-900">{data.total}</p>
-                    <p className="text-xs text-gray-500">Vendus sur la période</p>
+                    <p className="text-xs text-gray-500">Vendus ce jour</p>
                   </div>
                 </CardContent>
               </Card>
@@ -272,7 +269,7 @@ function PeriodReport({ token, from, to, onBack }: {
               </CardHeader>
               <CardContent>
                 {data.vouchers.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-6">Aucune vente sur cette période</p>
+                  <p className="text-sm text-gray-400 text-center py-6">Aucune vente ce jour</p>
                 ) : (
                   <div className="space-y-1">
                     {data.vouchers.map((v) => (
@@ -311,18 +308,10 @@ function Dashboard({ token, vendor, onLogout }: {
   const [showAvailable, setShowAvailable] = useState(false);
 
   const now = new Date();
-
-  const [fromDay,   setFromDay]   = useState(String(now.getDate()));
-  const [fromMonth, setFromMonth] = useState(String(now.getMonth() + 1));
-  const [fromYear,  setFromYear]  = useState(String(now.getFullYear()));
-  const [toDay,     setToDay]     = useState(String(now.getDate()));
-  const [toMonth,   setToMonth]   = useState(String(now.getMonth() + 1));
-  const [toYear,    setToYear]    = useState(String(now.getFullYear()));
-  const [reportView, setReportView] = useState<{ from: string; to: string } | null>(null);
-
-  function buildISO(d: string, m: string, y: string) {
-    return `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;
-  }
+  const [reportDay,   setReportDay]   = useState(String(now.getDate()));
+  const [reportMonth, setReportMonth] = useState(String(now.getMonth() + 1));
+  const [reportYear,  setReportYear]  = useState(String(now.getFullYear()));
+  const [reportView,  setReportView]  = useState<{ day: string; month: string; year: string } | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -346,10 +335,11 @@ function Dashboard({ token, vendor, onLogout }: {
 
   if (reportView) {
     return (
-      <PeriodReport
+      <DayReport
         token={token}
-        from={reportView.from}
-        to={reportView.to}
+        day={reportView.day}
+        month={reportView.month}
+        year={reportView.year}
         onBack={() => setReportView(null)}
       />
     );
@@ -417,71 +407,38 @@ function Dashboard({ token, vendor, onLogout }: {
                     <div className="h-8 w-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
                       <Search className="h-4 w-4 text-white" />
                     </div>
-                    <p className="text-sm font-medium text-gray-700 leading-tight">Ventes d&apos;une période</p>
+                    <p className="text-sm font-medium text-gray-700 leading-tight">Vérifier les ventes d&apos;une période</p>
                   </div>
-
-                  <div className="space-y-2">
-                    <p className="text-xs text-gray-500 font-medium">Du</p>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <Select value={fromDay} onValueChange={setFromDay}>
-                        <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {days.map((d) => (
-                            <SelectItem key={d} value={String(d)} className="text-xs">{String(d).padStart(2,"0")}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Select value={fromMonth} onValueChange={setFromMonth}>
-                        <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {MONTHS.map((m, i) => (
-                            <SelectItem key={i + 1} value={String(i + 1)} className="text-xs">{m.slice(0, 3)}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Select value={fromYear} onValueChange={setFromYear}>
-                        <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {years.map((y) => (
-                            <SelectItem key={y} value={String(y)} className="text-xs">{y}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <p className="text-xs text-gray-500 font-medium">Au</p>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <Select value={toDay} onValueChange={setToDay}>
-                        <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {days.map((d) => (
-                            <SelectItem key={d} value={String(d)} className="text-xs">{String(d).padStart(2,"0")}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Select value={toMonth} onValueChange={setToMonth}>
-                        <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {MONTHS.map((m, i) => (
-                            <SelectItem key={i + 1} value={String(i + 1)} className="text-xs">{m.slice(0, 3)}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Select value={toYear} onValueChange={setToYear}>
-                        <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {years.map((y) => (
-                            <SelectItem key={y} value={String(y)} className="text-xs">{y}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <Select value={reportDay} onValueChange={setReportDay}>
+                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {days.map((d) => (
+                          <SelectItem key={d} value={String(d)} className="text-xs">{String(d).padStart(2,"0")}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={reportMonth} onValueChange={setReportMonth}>
+                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {MONTHS.map((m, i) => (
+                          <SelectItem key={i + 1} value={String(i + 1)} className="text-xs">{m.slice(0, 3)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={reportYear} onValueChange={setReportYear}>
+                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {years.map((y) => (
+                          <SelectItem key={y} value={String(y)} className="text-xs">{y}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-
                   <Button
                     size="sm"
                     className="w-full bg-indigo-600 hover:bg-indigo-700 text-xs"
-                    onClick={() => setReportView({ from: buildISO(fromDay, fromMonth, fromYear), to: buildISO(toDay, toMonth, toYear) })}
+                    onClick={() => setReportView({ day: reportDay, month: reportMonth, year: reportYear })}
                   >
                     Voir le rapport
                   </Button>

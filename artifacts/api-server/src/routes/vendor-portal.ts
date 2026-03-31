@@ -162,22 +162,20 @@ router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
   const payload = verifyToken(auth.slice(7));
   if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
 
-  const { from, to } = req.query as { from?: string; to?: string };
-  const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
-  if (!from || !to || !ISO_RE.test(from) || !ISO_RE.test(to)) {
-    res.status(400).json({ error: "Paramètres 'from' et 'to' requis (format YYYY-MM-DD)" }); return;
-  }
-
-  const start = new Date(`${from}T00:00:00Z`);
-  const end   = new Date(`${to}T00:00:00Z`);
-  end.setUTCDate(end.getUTCDate() + 1); // inclure le dernier jour entier
-
-  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) {
-    res.status(400).json({ error: "Période invalide" }); return;
+  const { day, month, year } = req.query as { day?: string; month?: string; year?: string };
+  const d = parseInt(day ?? "", 10);
+  const m = parseInt(month ?? "", 10);
+  const y = parseInt(year ?? "", 10);
+  if (!d || !m || !y || d < 1 || d > 31 || m < 1 || m > 12 || y < 2020) {
+    res.status(400).json({ error: "Date invalide" }); return;
   }
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
   if (!vendor || !vendor.isActive) { res.status(403).json({ error: "Compte introuvable ou désactivé" }); return; }
+
+  const startStr = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const start = new Date(`${startStr}T00:00:00Z`);
+  const end   = new Date(start.getTime() + 86_400_000);
 
   const vouchers = await db
     .select()
@@ -191,7 +189,7 @@ router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
-  res.json({ from, to, total: vouchers.length, revenue, vouchers });
+  res.json({ date: startStr, total: vouchers.length, revenue, vouchers });
 });
 
 export default router;
