@@ -10,12 +10,13 @@ import {
   useUpdateProfile,
   useDeleteProfile
 } from "@workspace/api-client-react";
-import { formatCurrency, formatDuration, formatBytes } from "@/lib/format";
+import { formatCurrency, formatDuration, formatBytes, minutesToParts, partsToMinutes } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Wifi, Clock, Download, Upload, Database, Plus, Edit2, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,7 +24,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 const profileSchema = z.object({
   name: z.string().min(1, "Nom requis"),
   price: z.coerce.number().min(0, "Prix invalide"),
-  durationMinutes: z.coerce.number().min(1, "Durée invalide"),
+  durationValue: z.coerce.number().min(1, "Durée invalide"),
+  durationUnit: z.enum(['m', 'd', 'w']),
   speedDownload: z.preprocess(
     (v) => (v === "" || v === null || v === undefined ? null : Number(v)),
     z.number().int().positive("Doit être positif").nullable().optional()
@@ -57,7 +59,8 @@ export default function Profiles() {
     defaultValues: {
       name: "",
       price: 0,
-      durationMinutes: 60,
+      durationValue: 1,
+      durationUnit: 'd',
       speedDownload: null,
       speedUpload: null,
       dataLimitMb: null,
@@ -70,7 +73,8 @@ export default function Profiles() {
     form.reset({
       name: "",
       price: 0,
-      durationMinutes: 60,
+      durationValue: 1,
+      durationUnit: 'd',
       speedDownload: null,
       speedUpload: null,
       dataLimitMb: null,
@@ -81,10 +85,12 @@ export default function Profiles() {
 
   const handleOpenEdit = (profile: any) => {
     setEditingId(profile.id);
+    const { value, unit } = minutesToParts(profile.durationMinutes);
     form.reset({
       name: profile.name,
       price: profile.price,
-      durationMinutes: profile.durationMinutes,
+      durationValue: value,
+      durationUnit: unit,
       speedDownload: profile.speedDownload ?? null,
       speedUpload: profile.speedUpload ?? null,
       dataLimitMb: profile.dataLimitMb,
@@ -108,10 +114,13 @@ export default function Profiles() {
 
   const onSubmit = (data: ProfileFormValues) => {
     const payload = {
-      ...data,
+      name: data.name,
+      price: data.price,
+      durationMinutes: partsToMinutes(data.durationValue, data.durationUnit),
       speedDownload: data.speedDownload ?? null,
       speedUpload: data.speedUpload ?? null,
       dataLimitMb: data.dataLimitMb || null,
+      description: data.description || null,
     };
 
     if (editingId) {
@@ -252,19 +261,39 @@ export default function Profiles() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="durationMinutes"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Durée (minutes)</FormLabel>
-                      <FormControl>
-                        <Input type="number" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <FormItem>
+                  <FormLabel>Validité</FormLabel>
+                  <div className="flex gap-2">
+                    <FormField
+                      control={form.control}
+                      name="durationValue"
+                      render={({ field }) => (
+                        <FormControl>
+                          <Input type="number" min="1" className="w-24" {...field} />
+                        </FormControl>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="durationUnit"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger className="w-28">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="m">m — minutes</SelectItem>
+                            <SelectItem value="d">d — jours</SelectItem>
+                            <SelectItem value="w">w — semaines</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <FormField control={form.control} name="durationValue" render={() => <FormMessage />} />
+                </FormItem>
                 <FormField
                   control={form.control}
                   name="speedDownload"
