@@ -67,6 +67,21 @@ export default function Routers() {
     setShowForm(true);
   };
 
+  const handleHostBlur = () => {
+    const colonIdx = form.host.lastIndexOf(":");
+    if (colonIdx > 0) {
+      const possiblePort = form.host.slice(colonIdx + 1);
+      if (/^\d+$/.test(possiblePort)) {
+        setForm((prev) => ({
+          ...prev,
+          host: prev.host.slice(0, colonIdx),
+          port: possiblePort,
+        }));
+        toast({ title: "Port extrait automatiquement", description: `Hôte: ${form.host.slice(0, colonIdx)} · Port: ${possiblePort}` });
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
@@ -213,11 +228,13 @@ export default function Routers() {
                 <Label>Hôte / IP</Label>
                 <Input
                   className="mt-1"
-                  placeholder="192.168.1.1"
+                  placeholder="192.168.1.1 ou mon.domaine.com"
                   value={form.host}
                   onChange={(e) => setForm({ ...form, host: e.target.value })}
+                  onBlur={handleHostBlur}
                   required
                 />
+                <p className="text-xs text-gray-400 mt-0.5">Entrez uniquement l&apos;IP/domaine, sans le port</p>
               </div>
               <div>
                 <Label>Port API</Label>
