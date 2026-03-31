@@ -319,7 +319,7 @@ export default function GenerateVouchers() {
                   <div className="flex items-center justify-end gap-2 mt-1.5">
                     <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                        className="h-full bg-orange-500 rounded-full transition-all duration-300"
                         style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
                       />
                     </div>
