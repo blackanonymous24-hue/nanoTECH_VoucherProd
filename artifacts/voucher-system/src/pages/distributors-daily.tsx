@@ -70,7 +70,6 @@ function buildTxtReport(
     const rev = d[revKey] as number;
     const qty = d[qtyKey] as number;
     lines.push(`#${i + 1}  ${d.distributorName}${d.phone ? "  |  " + d.phone : ""}`);
-    lines.push(`    Statut : ${d.status === "active" ? "Actif" : "Inactif"}`);
     lines.push(`    Ventes : ${fmt(rev)}  (${qty} voucher${qty !== 1 ? "s" : ""})`);
     if (d.lastSaleAt) {
       lines.push(`    Dernière vente : ${new Date(d.lastSaleAt).toLocaleString("fr-FR")}`);
@@ -108,10 +107,9 @@ function printReport(
       <tr>
         <td>${i + 1}</td>
         <td><strong>${d.distributorName}</strong>${d.phone ? `<br><small>${d.phone}</small>` : ""}</td>
-        <td style="text-align:center">${d.status === "active" ? "Actif" : "Inactif"}</td>
         <td style="text-align:right"><strong>${fmt(d[revKey] as number)}</strong></td>
         <td style="text-align:center">${d[qtyKey] as number}</td>
-        <td style="font-size:11px">${d.lastSaleAt ? new Date(d.lastSaleAt).toLocaleString("fr-FR") : "—"}</td>
+        <td>${d.lastSaleAt ? new Date(d.lastSaleAt).toLocaleString("fr-FR") : "—"}</td>
       </tr>`
     )
     .join("");
@@ -122,13 +120,13 @@ function printReport(
   <meta charset="utf-8" />
   <title>Rapport — ${periodLabel}</title>
   <style>
-    body { font-family: Arial, sans-serif; font-size: 13px; margin: 30px; color: #111; }
-    h1 { font-size: 20px; margin-bottom: 4px; }
-    .meta { color: #555; margin-bottom: 20px; font-size: 12px; }
-    .total { background: #f0f4ff; padding: 10px 16px; border-radius: 6px; margin-bottom: 20px; font-size: 15px; }
+    body { font-family: Arial, sans-serif; font-size: 15px; margin: 30px; color: #111; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    .meta { color: #555; margin-bottom: 20px; font-size: 14px; }
+    .total { background: #f0f4ff; padding: 12px 18px; border-radius: 6px; margin-bottom: 20px; font-size: 17px; }
     table { width: 100%; border-collapse: collapse; }
-    th { background: #2563eb; color: white; padding: 8px 10px; text-align: left; font-size: 12px; }
-    td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    th { background: #2563eb; color: white; padding: 10px 12px; text-align: left; font-size: 14px; }
+    td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; font-size: 14px; }
     tr:nth-child(even) td { background: #f9fafb; }
     @media print { body { margin: 15px; } }
   </style>
@@ -142,7 +140,7 @@ function printReport(
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Vendeur</th><th>Statut</th><th>Revenu</th><th>Vouchers</th><th>Dernière vente</th>
+        <th>#</th><th>Vendeur</th><th>Revenu</th><th>Vouchers</th><th>Dernière vente</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
