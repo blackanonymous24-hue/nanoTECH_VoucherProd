@@ -241,7 +241,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
             {/* position:relative wrapper is the recharts trick to fill flex space with height="100%" */}
             <div className="flex-1" style={{ position: "relative", minHeight: 0 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={history} margin={{ top: 8, right: 16, bottom: 0, left: 70 }}>
+                <LineChart data={history} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid stroke={LIGHT_GRID} strokeDasharray="0" vertical={true} horizontal={true} />
                   <XAxis
                     dataKey="t"
