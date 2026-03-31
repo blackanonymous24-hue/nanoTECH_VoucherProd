@@ -196,7 +196,7 @@ router.post("/routers/:id/profiles", async (req, res): Promise<void> => {
         sharedUsers: (sharedUsers ?? "1").trim(),
         addrPool: (addrPool ?? "").trim(),
         rateLimit: (rateLimit ?? "").trim(),
-        expiredMode: (expiredMode ?? "nothing").trim(),
+        expiredMode: (expiredMode ?? "None").trim(),
         lockMac: lockMac === true,
         parentQueue: (parentQueue ?? "").trim(),
       },

@@ -36,7 +36,7 @@ const defaultForm = {
   addrPool: "",
   sharedUsers: "1",
   rateLimit: "",
-  expiredMode: "nothing",
+  expiredMode: "None",
   price: "",
   sellingPrice: "",
   lockMac: false,
@@ -277,9 +277,11 @@ export default function Forfaits() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="nothing">Aucun</SelectItem>
-                  <SelectItem value="disable">Désactiver l&apos;utilisateur</SelectItem>
-                  <SelectItem value="remove">Supprimer l&apos;utilisateur</SelectItem>
+                  <SelectItem value="None">Aucun</SelectItem>
+                  <SelectItem value="Remove">Supprimer</SelectItem>
+                  <SelectItem value="Notice">Avertir</SelectItem>
+                  <SelectItem value="Remove & Record">Supprimer &amp; Enregistrer</SelectItem>
+                  <SelectItem value="Notice & Record">Avertir &amp; Enregistrer</SelectItem>
                 </SelectContent>
               </Select>
             </div>
