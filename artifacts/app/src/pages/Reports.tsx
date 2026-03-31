@@ -75,7 +75,7 @@ function SalesMiniCard({
 }
 
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
-  const { data, isLoading } = useGetVendorReport(vendorId);
+  const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: 10_000 } });
 
   if (isLoading || !data) {
     return (
@@ -286,7 +286,7 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
 }
 
 export default function Reports() {
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary();
+  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 10_000 } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
 
   if (selectedVendorId) {
