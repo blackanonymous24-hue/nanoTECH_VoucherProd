@@ -363,8 +363,8 @@ function Dashboard({ token, vendor, onLogout }: {
                         <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
                         <div className="flex gap-3 text-sm">
                           <span className="text-gray-500">Total: <strong>{p.total}</strong></span>
-                          <span className="text-green-600">Vendus: <strong>{p.used}</strong></span>
-                          <span className="text-gray-400">Restants: <strong>{p.total - p.used}</strong></span>
+                          <span className="text-red-600">Vendus: <strong>{p.used}</strong></span>
+                          <span className="text-green-600">Restants: <strong>{p.total - p.used}</strong></span>
                         </div>
                       </div>
                     ))}
