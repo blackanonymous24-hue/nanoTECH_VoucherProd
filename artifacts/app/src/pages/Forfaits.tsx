@@ -263,7 +263,7 @@ export default function Forfaits() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Débit max [montant/descendant]</Label>
+              <Label>Débit max [UP/DOWN]</Label>
               <Input
                 placeholder="ex: 1M/1M"
                 value={form.rateLimit}
