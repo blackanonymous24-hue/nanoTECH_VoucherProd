@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AreaChart, Area, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -115,8 +116,12 @@ function formatBps(bps: number): string {
   return `${bps} bps`;
 }
 
+const MAX_TRAFFIC_POINTS = 30;
+
 function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
-  const { data, isError, isFetching } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
+  const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
+
+  const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
     queryKey: ["traffic", routerId],
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/routers/${routerId}/traffic`);
@@ -130,7 +135,16 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
     throwOnError: false,
   });
 
-  const active = !!data && (data.rxBps > 0 || data.txBps > 0);
+  useEffect(() => {
+    if (!data) return;
+    setHistory(prev => [...prev, { t: Date.now(), rx: data.rxBps, tx: data.txBps }].slice(-MAX_TRAFFIC_POINTS));
+  }, [data]);
+
+  useEffect(() => {
+    setHistory([]);
+  }, [routerId]);
+
+  const maxVal = Math.max(...history.flatMap(p => [p.rx, p.tx]), 1);
 
   return (
     <Card className="flex flex-col flex-1 min-w-0">
@@ -154,41 +168,95 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
           <span className="text-xs text-gray-400">↻ 5s</span>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col items-center justify-center gap-4 py-6">
+
+      <CardContent className="flex-1 flex flex-col gap-3 p-4">
         {!routerId ? (
-          <div className="text-center">
-            <Activity className="h-8 w-8 text-gray-200 mx-auto mb-2" />
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <Activity className="h-8 w-8 text-gray-200 mb-2" />
             <p className="text-xs text-gray-400">Sélectionnez un routeur</p>
           </div>
         ) : isError ? (
-          <div className="text-center">
-            <Activity className="h-8 w-8 text-red-200 mx-auto mb-2" />
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <Activity className="h-8 w-8 text-red-200 mb-2" />
             <p className="text-xs text-red-400">Indisponible</p>
           </div>
-        ) : !data ? (
-          <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
+        ) : history.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
+          </div>
         ) : (
           <>
-            <Activity className={`h-6 w-6 ${active ? "text-emerald-500" : "text-gray-300"}`} />
-            <div className="w-full space-y-3 px-2">
-              <div className="flex items-center justify-between gap-2 bg-sky-50 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-1.5 text-sky-600">
-                  <ArrowDown className="h-4 w-4" />
-                  <span className="text-xs font-medium">Download</span>
-                </div>
-                <span className="font-mono text-sm font-semibold text-sky-700">
-                  {isFetching && !data ? "…" : formatBps(data.rxBps)}
-                </span>
+            {/* Current values */}
+            <div className="flex justify-between px-1">
+              <div className="flex items-center gap-1.5 text-sky-600">
+                <ArrowDown className="h-3.5 w-3.5" />
+                <span className="font-mono text-sm font-semibold">{formatBps(data?.rxBps ?? 0)}</span>
               </div>
-              <div className="flex items-center justify-between gap-2 bg-orange-50 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-1.5 text-orange-500">
-                  <ArrowUp className="h-4 w-4" />
-                  <span className="text-xs font-medium">Upload</span>
-                </div>
-                <span className="font-mono text-sm font-semibold text-orange-600">
-                  {isFetching && !data ? "…" : formatBps(data.txBps)}
-                </span>
+              <div className="flex items-center gap-1.5 text-orange-500">
+                <ArrowUp className="h-3.5 w-3.5" />
+                <span className="font-mono text-sm font-semibold">{formatBps(data?.txBps ?? 0)}</span>
               </div>
+            </div>
+
+            {/* Chart */}
+            <div className="flex-1 min-h-[100px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={history} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="rxGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#0ea5e9" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="txGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#f97316" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <YAxis domain={[0, maxVal * 1.2]} hide />
+                  <Tooltip
+                    isAnimationActive={false}
+                    content={({ active: a, payload }) => {
+                      if (!a || !payload?.length) return null;
+                      return (
+                        <div className="bg-white border border-gray-100 rounded shadow-sm px-2 py-1 text-xs space-y-0.5">
+                          <div className="flex items-center gap-1 text-sky-600">
+                            <ArrowDown className="h-3 w-3" />
+                            {formatBps((payload[0]?.value as number) ?? 0)}
+                          </div>
+                          <div className="flex items-center gap-1 text-orange-500">
+                            <ArrowUp className="h-3 w-3" />
+                            {formatBps((payload[1]?.value as number) ?? 0)}
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="rx"
+                    stroke="#0ea5e9"
+                    strokeWidth={1.5}
+                    fill="url(#rxGrad)"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="tx"
+                    stroke="#f97316"
+                    strokeWidth={1.5}
+                    fill="url(#txGrad)"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Legend */}
+            <div className="flex justify-center gap-4 text-xs text-gray-400">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-400 inline-block" />Download</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />Upload</span>
             </div>
           </>
         )}
