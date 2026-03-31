@@ -12,9 +12,12 @@ export interface HotspotProfile {
   rateLimit: string | null;
   validity: string | null;
   price: string | null;
+  sellingPrice: string | null;
   sharedUsers: string | null;
   addrPool: string | null;
   lockMac: boolean;
+  expiredMode: string | null;
+  parentQueue: string | null;
 }
 
 export interface HotspotSession {
@@ -63,19 +66,23 @@ function fixEncoding(str: string): string {
   }
 }
 
-function parseProfileOnLogin(onLogin: string): { price: string; validity: string; lockMac: boolean } {
+function parseProfileOnLogin(onLogin: string): {
+  price: string; validity: string; lockMac: boolean;
+  sellingPrice: string; expiredMode: string; parentQueue: string;
+} {
   // MikHmon embeds config in a :put ("...") line, e.g.:
-  //   :put (",remc,100,3h,100,,Disable,");
-  // Fields: [0]="" [1]=label [2]=price [3]=validity [4]=shared [5]=pool [6]=lockMac [7]=""
+  //   :put (",label,price,validity,shared,pool,lockMac,sellingPrice,expiredMode,parentQueue,");
   const putMatch = onLogin.match(/:put\s*\("([^"]+)"\)/);
   const configStr = putMatch ? putMatch[1] : onLogin;
   const parts = configStr.split(",");
-  const price    = (parts[2] ?? "").trim();
-  const validity = (parts[3] ?? "").trim();
-  const lockField = (parts[6] ?? "").trim();
-  // MAC lock field is literally "Enable" when active, "Disable" when inactive
-  const lockMac = lockField.toLowerCase() === "enable";
-  return { price, validity, lockMac };
+  const price        = (parts[2] ?? "").trim();
+  const validity     = (parts[3] ?? "").trim();
+  const lockField    = (parts[6] ?? "").trim();
+  const lockMac      = lockField.toLowerCase() === "enable";
+  const sellingPrice = (parts[7] ?? "").trim();
+  const expiredMode  = (parts[8] ?? "").trim();
+  const parentQueue  = (parts[9] ?? "").trim();
+  return { price, validity, lockMac, sellingPrice, expiredMode, parentQueue };
 }
 
 export async function withRouter<T>(
@@ -128,22 +135,49 @@ export async function testConnection(conn: RouterConnection): Promise<{ success:
   }
 }
 
+const EMPTY_PARSED = { price: "", validity: "", lockMac: false, sellingPrice: "", expiredMode: "", parentQueue: "" };
+
 export async function listProfiles(conn: RouterConnection): Promise<HotspotProfile[]> {
   return withRouter(conn, async (api) => {
     const profiles = await api.write("/ip/hotspot/user/profile/print");
     return profiles.map((p) => {
       const onLogin = (p["on-login"] as string) ?? "";
-      const parsed = onLogin.includes(",") ? parseProfileOnLogin(onLogin) : { price: "", validity: "", lockMac: false };
+      const parsed = onLogin.includes(",") ? parseProfileOnLogin(onLogin) : EMPTY_PARSED;
       return {
         name: fixEncoding((p["name"] as string) ?? ""),
         rateLimit: (p["rate-limit"] as string) || null,
         validity: parsed.validity || null,
         price: parsed.price || null,
+        sellingPrice: parsed.sellingPrice || null,
         sharedUsers: (p["shared-users"] as string) || null,
         addrPool: (p["address-pool"] as string) || null,
         lockMac: parsed.lockMac,
+        expiredMode: parsed.expiredMode || null,
+        parentQueue: (p["parent-queue"] as string) || parsed.parentQueue || null,
       };
     });
+  });
+}
+
+export async function updateProfile(conn: RouterConnection, originalName: string, opts: CreateProfileOptions): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const found = await api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]);
+    if (!found.length) throw new Error(`Profil "${originalName}" introuvable`);
+    const id = found[0][".id"] as string;
+    const onLogin = generateMikHmonOnLogin(opts);
+    const args = [
+      `=.id=${id}`,
+      `=name=${opts.name}`,
+      `=on-login=${onLogin}`,
+      `=shared-users=${opts.sharedUsers || "1"}`,
+    ];
+    if (opts.rateLimit)   args.push(`=rate-limit=${opts.rateLimit}`);
+    else                  args.push(`=rate-limit=`);
+    if (opts.addrPool)    args.push(`=address-pool=${opts.addrPool}`);
+    else                  args.push(`=address-pool=`);
+    if (opts.parentQueue) args.push(`=parent-queue=${opts.parentQueue}`);
+    else                  args.push(`=parent-queue=`);
+    await api.write("/ip/hotspot/user/profile/set", args);
   });
 }
 

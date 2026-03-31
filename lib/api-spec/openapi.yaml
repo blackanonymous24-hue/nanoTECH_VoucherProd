@@ -777,12 +777,18 @@ components:
           type: ["string", "null"]
         price:
           type: ["string", "null"]
+        sellingPrice:
+          type: ["string", "null"]
         sharedUsers:
           type: ["string", "null"]
         addrPool:
           type: ["string", "null"]
         lockMac:
           type: boolean
+        expiredMode:
+          type: ["string", "null"]
+        parentQueue:
+          type: ["string", "null"]
 
     HotspotSession:
       type: object

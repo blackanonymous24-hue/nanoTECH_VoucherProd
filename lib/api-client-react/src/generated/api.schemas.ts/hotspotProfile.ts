@@ -15,7 +15,10 @@ export interface HotspotProfile {
   rateLimit?: HotspotProfileRateLimit;
   validity?: HotspotProfileValidity;
   price?: HotspotProfilePrice;
+  sellingPrice?: string | null;
   sharedUsers?: HotspotProfileSharedUsers;
   addrPool?: HotspotProfileAddrPool;
   lockMac?: boolean;
+  expiredMode?: string | null;
+  parentQueue?: string | null;
 }

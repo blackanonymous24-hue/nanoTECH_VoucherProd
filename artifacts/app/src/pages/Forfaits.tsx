@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus } from "lucide-react";
+import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 function formatValidity(v: string | null | undefined): string {
@@ -55,6 +55,7 @@ export default function Forfaits() {
   );
 
   const [showDialog, setShowDialog] = useState(false);
+  const [editingName, setEditingName] = useState<string | null>(null); // original name when editing
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +66,47 @@ export default function Forfaits() {
     setForm((f) => ({ ...f, [key]: val }));
   }
 
-  async function handleCreate() {
+  async function fetchPools() {
+    if (!routerId) return;
+    setLoadingPools(true);
+    try {
+      const res = await fetch(`/api/routers/${routerId}/pools`);
+      if (res.ok) setPools(await res.json());
+    } catch { /* ignore */ } finally {
+      setLoadingPools(false);
+    }
+  }
+
+  function openCreate() {
+    setError(null);
+    setEditingName(null);
+    setForm(defaultForm);
+    setPools([]);
+    setShowDialog(true);
+    fetchPools();
+  }
+
+  function openEdit(p: (typeof profiles)[0]) {
+    setError(null);
+    setEditingName(p.name);
+    setForm({
+      name: p.name,
+      addrPool: p.addrPool ?? "",
+      sharedUsers: p.sharedUsers ?? "1",
+      rateLimit: p.rateLimit ?? "",
+      expiredMode: p.expiredMode ?? "None",
+      price: p.price ?? "",
+      sellingPrice: p.sellingPrice ?? "",
+      lockMac: p.lockMac ?? false,
+      parentQueue: p.parentQueue ?? "",
+      validity: p.validity ?? "",
+    });
+    setPools([]);
+    setShowDialog(true);
+    fetchPools();
+  }
+
+  async function handleSave() {
     setError(null);
     if (!routerId) { setError("Sélectionnez un routeur d'abord."); return; }
     if (!form.name.trim() || !form.price.trim() || !form.validity.trim()) {
@@ -73,15 +114,20 @@ export default function Forfaits() {
     }
     setSaving(true);
     try {
-      const res = await fetch(`/api/routers/${routerId}/profiles`, {
-        method: "POST",
+      const url = editingName
+        ? `/api/routers/${routerId}/profiles/${encodeURIComponent(editingName)}`
+        : `/api/routers/${routerId}/profiles`;
+      const method = editingName ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Erreur lors de la création"); setSaving(false); return; }
+      if (!res.ok) { setError(data.error ?? "Erreur lors de la sauvegarde"); setSaving(false); return; }
       setShowDialog(false);
       setForm(defaultForm);
+      setEditingName(null);
       queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", parseInt(routerId, 10)] });
     } catch {
       setError("Impossible de contacter le serveur.");
@@ -97,25 +143,7 @@ export default function Forfaits() {
           <h1 className="text-2xl font-bold text-gray-900">Forfaits</h1>
           <p className="text-sm text-gray-500">Profils hotspot disponibles sur vos routeurs MikroTik</p>
         </div>
-        <Button
-          onClick={async () => {
-            setError(null);
-            setForm(defaultForm);
-            setPools([]);
-            setShowDialog(true);
-            if (routerId) {
-              setLoadingPools(true);
-              try {
-                const res = await fetch(`/api/routers/${routerId}/pools`);
-                if (res.ok) setPools(await res.json());
-              } catch { /* ignore */ } finally {
-                setLoadingPools(false);
-              }
-            }
-          }}
-          disabled={!routerId}
-          className="flex-shrink-0"
-        >
+        <Button onClick={openCreate} disabled={!routerId} className="flex-shrink-0">
           <Plus className="h-4 w-4 mr-1.5" /> Ajouter un forfait
         </Button>
       </div>
@@ -164,9 +192,18 @@ export default function Forfaits() {
             {profiles.map((p) => (
               <Card key={p.name} className="hover:shadow-md transition-shadow">
                 <CardHeader className="pb-2 pt-4 px-4">
-                  <CardTitle className="text-base font-bold text-gray-900 truncate" title={p.name}>
-                    {p.name}
-                  </CardTitle>
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-base font-bold text-gray-900 truncate" title={p.name}>
+                      {p.name}
+                    </CardTitle>
+                    <button
+                      onClick={() => openEdit(p)}
+                      className="flex-shrink-0 p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                      title="Modifier"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </CardHeader>
                 <CardContent className="px-4 pb-4 space-y-2">
                   <div className="flex items-center gap-2 text-sm">
@@ -217,7 +254,9 @@ export default function Forfaits() {
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader className="flex-shrink-0">
-            <DialogTitle>Ajouter un forfait</DialogTitle>
+            <DialogTitle>
+              {editingName ? `Modifier — ${editingName}` : "Ajouter un forfait"}
+            </DialogTitle>
           </DialogHeader>
 
           <div className="overflow-y-auto flex-1 pr-1">
@@ -350,8 +389,8 @@ export default function Forfaits() {
             <Button variant="outline" onClick={() => setShowDialog(false)} disabled={saving}>
               Annuler
             </Button>
-            <Button onClick={handleCreate} disabled={saving}>
-              {saving ? "Création…" : "Créer le forfait"}
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Sauvegarde…" : editingName ? "Enregistrer" : "Créer le forfait"}
             </Button>
           </DialogFooter>
         </DialogContent>
