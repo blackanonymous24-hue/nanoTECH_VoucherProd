@@ -86,9 +86,6 @@ function StatCard({
         onClick={onClick}
       >
         {inner}
-        <div className="px-4 pb-3">
-          <span className="text-xs text-blue-500 font-medium">Voir la liste →</span>
-        </div>
       </Card>
     );
   }
