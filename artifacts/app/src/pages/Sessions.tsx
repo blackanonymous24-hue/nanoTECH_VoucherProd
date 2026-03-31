@@ -235,14 +235,26 @@ export default function Sessions() {
                   <TableHead>Durée</TableHead>
                   <TableHead>Données ↓</TableHead>
                   <TableHead>Données ↑</TableHead>
-                  <TableHead>Serveur</TableHead>
-                  <TableHead className="pr-6 w-12"></TableHead>
+                  <TableHead className="pr-6">Serveur</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((s, i) => (
                   <TableRow key={i}>
-                    <TableCell className="pl-6 font-mono font-semibold text-gray-900">{s.user}</TableCell>
+                    <TableCell className="pl-6">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50 flex-shrink-0"
+                          title={`Déconnecter ${s.user}`}
+                          onClick={() => setDisconnectUser(s.user)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                        <span className="font-mono font-semibold text-gray-900">{s.user}</span>
+                      </div>
+                    </TableCell>
                     <TableCell className="font-mono text-sm text-gray-600">{s.address || "—"}</TableCell>
                     <TableCell className="font-mono text-xs text-gray-500">{s.macAddress || "—"}</TableCell>
                     <TableCell>
@@ -252,18 +264,7 @@ export default function Sessions() {
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">{formatBytes(s.bytesIn)}</TableCell>
                     <TableCell className="text-sm text-gray-600">{formatBytes(s.bytesOut)}</TableCell>
-                    <TableCell className="text-sm text-gray-500">{s.server || "—"}</TableCell>
-                    <TableCell className="pr-4">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
-                        title={`Déconnecter ${s.user}`}
-                        onClick={() => setDisconnectUser(s.user)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </TableCell>
+                    <TableCell className="pr-6 text-sm text-gray-500">{s.server || "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
