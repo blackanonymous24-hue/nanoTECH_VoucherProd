@@ -106,10 +106,9 @@ function formatBps(bps: number): string {
 
 const MAX_TRAFFIC_POINTS = 30;
 
-const TX_COLOR = "#4dd0e1";
-const RX_COLOR = "#f48fb1";
-const DARK_BG  = "#1e2130";
-const DARK_GRID = "#2e3350";
+const TX_COLOR  = "#4dd0e1";
+const RX_COLOR  = "#f48fb1";
+const LIGHT_GRID = "#e5e7eb";
 
 function fmtTime(ts: number) {
   const d = new Date(ts);
@@ -155,60 +154,56 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
   const yTicks = [0, yTop * 0.333, yTop * 0.667, yTop];
 
   return (
-    <div
-      className="flex flex-col flex-1 min-w-0 rounded-xl overflow-hidden"
-      style={{ background: DARK_BG }}
-    >
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-white/5">
-        <Activity className="h-4 w-4 text-white/60" />
-        <span className="text-sm font-semibold text-white/80 tracking-wide">Traffic</span>
-        {routerId && !isError && (
-          <span className="flex items-center gap-1 text-xs text-emerald-400 ml-1">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-            </span>
-            Live
-          </span>
-        )}
-        <span className="ml-auto text-[10px] text-white/30">↻ 5s</span>
-      </div>
+    <Card className="flex flex-col flex-1 min-w-0">
+      <CardHeader className="pb-2 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="h-4 w-4 text-gray-400" />
+            Trafic
+            {routerId && !isError && (
+              <span className="flex items-center gap-1 text-xs font-normal text-green-600">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                </span>
+                Live
+              </span>
+            )}
+          </CardTitle>
+          <span className="text-xs text-gray-400">↻ 5s</span>
+        </div>
+      </CardHeader>
 
-      {/* Body */}
-      <div className="flex flex-col flex-1 px-3 pt-3 pb-2">
+      <CardContent className="flex flex-col flex-1 pt-3 pb-2 px-3">
         {!routerId ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2">
-            <Activity className="h-8 w-8 text-white/10" />
-            <p className="text-xs text-white/30">Sélectionnez un routeur</p>
+            <Activity className="h-8 w-8 text-gray-200" />
+            <p className="text-xs text-gray-400">Sélectionnez un routeur</p>
           </div>
         ) : isError ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2">
-            <Activity className="h-8 w-8 text-red-400/30" />
-            <p className="text-xs text-red-400/60">Indisponible</p>
+            <Activity className="h-8 w-8 text-red-200" />
+            <p className="text-xs text-red-400">Indisponible</p>
           </div>
         ) : history.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
-            <RefreshCw className="h-5 w-5 animate-spin text-white/20" />
+            <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
           </div>
         ) : (
           <>
-            {/* Interface name */}
             {data?.name && (
-              <p className="text-center text-xs font-medium text-white/60 mb-1 font-mono">{data.name}</p>
+              <p className="text-center text-xs font-medium text-gray-400 mb-1 font-mono">{data.name}</p>
             )}
-
-            {/* Chart */}
             <div className="w-full" style={{ height: 200 }}>
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={history} margin={{ top: 8, right: 16, bottom: 0, left: 70 }}>
-                  <CartesianGrid stroke={DARK_GRID} strokeDasharray="0" vertical={true} horizontal={true} />
+                  <CartesianGrid stroke={LIGHT_GRID} strokeDasharray="0" vertical={true} horizontal={true} />
                   <XAxis
                     dataKey="t"
                     tickFormatter={fmtTime}
                     interval="preserveStartEnd"
-                    tick={{ fill: "#9aa0be", fontSize: 10 }}
-                    axisLine={{ stroke: DARK_GRID }}
+                    tick={{ fill: "#9ca3af", fontSize: 10 }}
+                    axisLine={{ stroke: LIGHT_GRID }}
                     tickLine={false}
                     minTickGap={60}
                   />
@@ -216,44 +211,30 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
                     domain={[0, yTop]}
                     ticks={yTicks}
                     tickFormatter={yTickFmt}
-                    tick={{ fill: "#9aa0be", fontSize: 10 }}
-                    axisLine={{ stroke: DARK_GRID }}
+                    tick={{ fill: "#9ca3af", fontSize: 10 }}
+                    axisLine={{ stroke: LIGHT_GRID }}
                     tickLine={false}
                     width={66}
                   />
                   <Tooltip
                     isAnimationActive={false}
-                    contentStyle={{ background: "#2a2d3e", border: "1px solid #3a3f5c", borderRadius: 6, fontSize: 11, color: "#e2e8f0" }}
+                    contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 11, color: "#374151" }}
                     labelFormatter={(v) => fmtTime(v as number)}
                     formatter={(value, name) => [formatBps(value as number), name === "rx" ? "Rx" : "Tx"]}
                   />
                   <Legend
-                    wrapperStyle={{ paddingTop: 8, fontSize: 12, color: "#9aa0be" }}
+                    wrapperStyle={{ paddingTop: 8, fontSize: 12, color: "#6b7280" }}
                     formatter={(v) => v === "rx" ? "Rx" : "Tx"}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="rx"
-                    stroke={RX_COLOR}
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="tx"
-                    stroke={TX_COLOR}
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
+                  <Line type="monotone" dataKey="rx" stroke={RX_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="tx" stroke={TX_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
