@@ -206,6 +206,7 @@ export async function testConnection(conn: RouterConnection): Promise<{ success:
 }
 
 export interface RouterInfo {
+  identity: string | null;
   boardName: string | null;
   model: string | null;
   serialNumber: string | null;
@@ -223,6 +224,12 @@ export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo>
   return withRouter(conn, async (api) => {
     const [res] = await api.write("/system/resource/print");
 
+    let identity: string | null = null;
+    try {
+      const [idRes] = await api.write("/system/identity/print");
+      identity = (idRes?.["name"] as string) ?? null;
+    } catch { /* may be restricted */ }
+
     let model: string | null = null;
     let serialNumber: string | null = null;
     let firmwareVersion: string | null = null;
@@ -234,6 +241,7 @@ export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo>
     } catch { /* routerboard may be restricted */ }
 
     return {
+      identity,
       boardName: (res?.["board-name"] as string) ?? null,
       model,
       serialNumber,

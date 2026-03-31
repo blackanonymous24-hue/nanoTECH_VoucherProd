@@ -23,7 +23,7 @@ const navItems = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline } = useRouterContext();
+  const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline, routerIdentity } = useRouterContext();
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -33,7 +33,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Wifi className="h-6 w-6 text-blue-400" />
             <span className="text-lg font-bold text-white">VoucherNet</span>
           </div>
-          <p className="text-xs text-gray-400 mt-0.5">Gestion Hotspot MikroTik</p>
+          <p className="text-xs text-gray-400 mt-0.5">{routerIdentity ?? "Gestion Hotspot MikroTik"}</p>
         </div>
 
         <div className="px-3 pt-4 pb-2">

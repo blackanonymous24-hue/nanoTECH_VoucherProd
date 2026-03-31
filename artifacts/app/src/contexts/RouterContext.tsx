@@ -11,6 +11,8 @@ interface RouterContextValue {
   pingTrigger: number;
   routerOnline: boolean | null;
   setRouterOnline: (online: boolean) => void;
+  routerIdentity: string | null;
+  setRouterIdentity: (identity: string | null) => void;
 }
 
 const RouterContext = createContext<RouterContextValue>({
@@ -22,6 +24,8 @@ const RouterContext = createContext<RouterContextValue>({
   pingTrigger: 0,
   routerOnline: null,
   setRouterOnline: () => {},
+  routerIdentity: null,
+  setRouterIdentity: () => {},
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
@@ -48,16 +52,19 @@ export function RouterProvider({ children }: { children: ReactNode }) {
 
   const [pingTrigger, setPingTrigger] = useState(0);
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
+  const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     setSelectedRouterIdState(id);
     if (id === null) {
       localStorage.removeItem(STORAGE_KEY);
       setRouterOnline(null);
+      setRouterIdentity(null);
     } else {
       localStorage.setItem(STORAGE_KEY, String(id));
       // Trigger immediate data refresh — no ping needed
       setRouterOnline(null);
+      setRouterIdentity(null);
       setPingTrigger((n) => n + 1);
     }
   }, []);
@@ -90,6 +97,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       pingTrigger,
       routerOnline,
       setRouterOnline,
+      routerIdentity,
+      setRouterIdentity,
     }}>
       {children}
     </RouterContext.Provider>

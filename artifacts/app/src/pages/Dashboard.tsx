@@ -11,6 +11,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 type LogEntry = { id: string; time: string; topics: string; message: string };
 
 interface RouterInfo {
+  identity: string | null;
   boardName: string | null;
   model: string | null;
   serialNumber: string | null;
@@ -97,7 +98,7 @@ export default function Dashboard() {
   const { data, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: { refetchInterval: 10_000, staleTime: 9_000 },
   });
-  const { selectedRouterId, pingTrigger, setRouterOnline } = useRouterContext();
+  const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity } = useRouterContext();
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
@@ -243,6 +244,10 @@ export default function Dashboard() {
     retry: false,
     throwOnError: false,
   });
+
+  useEffect(() => {
+    if (routerInfo?.identity) setRouterIdentity(routerInfo.identity);
+  }, [routerInfo, setRouterIdentity]);
 
   const prevPingTriggerRef = useRef(0);
   useEffect(() => {
