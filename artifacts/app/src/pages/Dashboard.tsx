@@ -85,6 +85,23 @@ export default function Dashboard() {
   });
 
   const {
+    data: hotspotUserCount,
+    isFetching: usersFetching,
+    refetch: refetchUsers,
+  } = useQuery({
+    queryKey: ["router-users-count", selectedRouterId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`);
+      if (!res.ok) throw new Error("Erreur utilisateurs");
+      const data: unknown[] = await res.json();
+      return data.length;
+    },
+    enabled: !!selectedRouterId,
+    refetchInterval: 10_000,
+    staleTime: 9_000,
+  });
+
+  const {
     data: sales,
     isFetching: salesFetching,
     refetch: refetchSales,
@@ -134,6 +151,7 @@ export default function Dashboard() {
       refetchLogs();
       refetchSales();
       refetchSessions();
+      refetchUsers();
     }
   };
 
@@ -190,11 +208,11 @@ export default function Dashboard() {
         />
         <StatCard
           title="Total Vouchers"
-          value={data?.totalVouchers ?? 0}
-          live
-          fetching={dashFetching}
+          value={selectedRouterId ? (hotspotUserCount ?? 0) : (data?.totalVouchers ?? 0)}
+          live={!!selectedRouterId}
+          fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
-          loading={isLoading}
+          loading={!!selectedRouterId && hotspotUserCount === undefined}
         />
       </div>
 
