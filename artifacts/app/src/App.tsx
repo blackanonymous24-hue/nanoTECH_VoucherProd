@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Routers from "@/pages/Routers";
+import Forfaits from "@/pages/Forfaits";
 import GenerateVouchers from "@/pages/GenerateVouchers";
 import Vouchers from "@/pages/Vouchers";
 import NotFound from "@/pages/not-found";
@@ -24,6 +25,7 @@ function AppRoutes() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/routers" component={Routers} />
+        <Route path="/forfaits" component={Forfaits} />
         <Route path="/generate" component={GenerateVouchers} />
         <Route path="/vouchers" component={Vouchers} />
         <Route component={NotFound} />

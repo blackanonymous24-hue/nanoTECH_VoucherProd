@@ -1,10 +1,11 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Router, Ticket, Zap, Wifi } from "lucide-react";
+import { LayoutDashboard, Router, Ticket, Zap, Wifi, PackageOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Tableau de bord", icon: LayoutDashboard },
   { href: "/routers", label: "Routeurs", icon: Router },
+  { href: "/forfaits", label: "Forfaits", icon: PackageOpen },
   { href: "/generate", label: "Générer", icon: Zap },
   { href: "/vouchers", label: "Vouchers", icon: Ticket },
 ];
