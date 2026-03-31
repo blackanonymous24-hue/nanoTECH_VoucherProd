@@ -147,8 +147,8 @@ export default function Dashboard() {
         />
         <StatCard
           title="Vente journalière"
-          value={sales?.dailyCount ?? 0}
-          sub={sales?.dailyAmount ? formatAmount(sales.dailyAmount) : undefined}
+          label={sales ? formatAmount(sales.dailyAmount) : undefined}
+          sub={sales ? `${sales.dailyCount.toLocaleString()} tickets` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
@@ -156,8 +156,8 @@ export default function Dashboard() {
         />
         <StatCard
           title="Vente mensuelle"
-          value={sales?.monthlyCount ?? 0}
-          sub={sales?.monthlyAmount ? formatAmount(sales.monthlyAmount) : undefined}
+          label={sales ? formatAmount(sales.monthlyAmount) : undefined}
+          sub={sales ? `${sales.monthlyCount.toLocaleString()} tickets` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
@@ -241,6 +241,7 @@ export default function Dashboard() {
 function StatCard({
   title,
   value,
+  label,
   sub,
   icon,
   loading,
@@ -248,7 +249,8 @@ function StatCard({
   fetching,
 }: {
   title: string;
-  value: number;
+  value?: number;
+  label?: string;
   sub?: string;
   icon: React.ReactNode;
   loading: boolean;
@@ -272,11 +274,19 @@ function StatCard({
               {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
             </div>
             {loading ? (
-              <div className="h-7 w-12 bg-gray-200 rounded animate-pulse mt-1" />
+              <>
+                <div className="h-7 w-24 bg-gray-200 rounded animate-pulse mt-1" />
+                <div className="h-3 w-16 bg-gray-100 rounded animate-pulse mt-1.5" />
+              </>
+            ) : label !== undefined ? (
+              <>
+                <p className="text-xl font-bold text-gray-900 leading-tight mt-0.5 truncate">{label || "0 FCFA"}</p>
+                {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+              </>
             ) : (
               <>
-                <p className="text-2xl font-bold text-gray-900">{value.toLocaleString()}</p>
-                {sub && <p className="text-xs text-gray-400 -mt-0.5 font-medium">{sub}</p>}
+                <p className="text-2xl font-bold text-gray-900">{(value ?? 0).toLocaleString()}</p>
+                {sub && <p className="text-xs text-gray-400 -mt-0.5">{sub}</p>}
               </>
             )}
           </div>
