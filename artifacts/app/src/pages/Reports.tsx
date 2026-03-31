@@ -26,28 +26,28 @@ function SaleBar({ used, total }: { used: number; total: number }) {
   return (
     <div>
       <div className="flex justify-between text-xs mb-1">
-        <span className="text-green-600 font-medium">{used} vendu{used !== 1 ? "s" : ""}</span>
-        <span className="text-gray-400">{nonSold} non vendu{nonSold !== 1 ? "s" : ""}</span>
+        <span className="text-red-600 font-medium">{used} vendu{used !== 1 ? "s" : ""}</span>
+        <span className="text-green-600">{nonSold} non vendu{nonSold !== 1 ? "s" : ""}</span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex">
         <div
-          className="h-full bg-green-500 transition-all rounded-l-full"
+          className="h-full bg-red-500 transition-all rounded-l-full"
           style={{ width: `${usedPct}%` }}
           title={`${usedPct}% vendus`}
         />
         <div
-          className="h-full bg-gray-200 transition-all rounded-r-full"
+          className="h-full bg-green-400 transition-all rounded-r-full"
           style={{ width: `${nonSoldPct}%` }}
           title={`${nonSoldPct}% non vendus`}
         />
       </div>
       <div className="flex gap-3 mt-1">
         <span className="flex items-center gap-1 text-xs text-gray-400">
-          <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+          <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
           Vendu {usedPct}%
         </span>
         <span className="flex items-center gap-1 text-xs text-gray-400">
-          <span className="inline-block w-2 h-2 rounded-full bg-gray-200" />
+          <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
           Non vendu {nonSoldPct}%
         </span>
       </div>
@@ -131,12 +131,12 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <div className="h-9 w-9 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 className="h-4 w-4 text-red-600" />
               </div>
               <div>
                 <p className="text-xs text-gray-500">Vendus</p>
-                <p className="text-xl font-bold text-green-600">{data.totalUsed}</p>
+                <p className="text-xl font-bold text-red-600">{data.totalUsed}</p>
               </div>
             </div>
           </CardContent>
@@ -144,12 +144,12 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                <XCircle className="h-4 w-4 text-gray-500" />
+              <div className="h-9 w-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+                <XCircle className="h-4 w-4 text-green-600" />
               </div>
               <div>
                 <p className="text-xs text-gray-500">Non vendus</p>
-                <p className="text-xl font-bold text-gray-600">{nonSold}</p>
+                <p className="text-xl font-bold text-green-600">{nonSold}</p>
               </div>
             </div>
           </CardContent>
@@ -270,12 +270,12 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
             <p className="text-xs text-gray-500">Total</p>
           </div>
           <div>
-            <p className="text-lg font-bold text-green-600">{used}</p>
-            <p className="text-xs text-green-600">Vendus</p>
+            <p className="text-lg font-bold text-red-600">{used}</p>
+            <p className="text-xs text-red-600">Vendus</p>
           </div>
           <div>
-            <p className="text-lg font-bold text-gray-500">{nonSold}</p>
-            <p className="text-xs text-gray-500">Non vendus</p>
+            <p className="text-lg font-bold text-green-600">{nonSold}</p>
+            <p className="text-xs text-green-600">Non vendus</p>
           </div>
         </div>
 
@@ -361,12 +361,12 @@ export default function Reports() {
           <Card>
             <CardContent className="pt-5">
               <div className="flex items-center gap-2">
-                <div className="h-9 w-9 rounded-lg bg-green-100 flex items-center justify-center">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                <div className="h-9 w-9 rounded-lg bg-red-100 flex items-center justify-center">
+                  <CheckCircle2 className="h-4 w-4 text-red-600" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Vendus</p>
-                  <p className="text-xl font-bold text-green-600">{totalUsed}</p>
+                  <p className="text-xl font-bold text-red-600">{totalUsed}</p>
                 </div>
               </div>
             </CardContent>
@@ -374,12 +374,12 @@ export default function Reports() {
           <Card>
             <CardContent className="pt-5">
               <div className="flex items-center gap-2">
-                <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center">
-                  <XCircle className="h-4 w-4 text-gray-500" />
+                <div className="h-9 w-9 rounded-lg bg-green-100 flex items-center justify-center">
+                  <XCircle className="h-4 w-4 text-green-600" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Non vendus</p>
-                  <p className="text-xl font-bold text-gray-600">{totalNonSold}</p>
+                  <p className="text-xl font-bold text-green-600">{totalNonSold}</p>
                 </div>
               </div>
             </CardContent>
