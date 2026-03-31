@@ -191,42 +191,73 @@ export interface SalesReport {
   monthLabel: string;
 }
 
-/** Reproduces MikHmon's live-report logic:
- *  script name format: "mar/31/2026-|-10:30:00-|-username-|-500"
- *  script owner:       "mar2026"
+/** Reproduces MikHmon's live-report logic, compatible with both formats:
+ *
+ *  Legacy (RouterOS < 7.10):
+ *    name:  "mar/31/2026-|-10:30:00-|-username-|-500"
+ *    owner: "mar2026"
+ *
+ *  New (RouterOS 7.10+):
+ *    name:  "2025-11-01-|-07:46:47-|-username-|-300-|-ip-|-mac-|-validity-|-label-|-batch"
+ *    owner: "112025"  (mmYYYY based on the date field)
+ *
+ *  Price is always at index 3.
  */
 export async function fetchSalesFromScripts(conn: RouterConnection): Promise<SalesReport> {
   return withRouter(conn, async (api) => {
     const now = new Date();
-    const months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-    const m = months[now.getMonth()];
-    const d = String(now.getDate()).padStart(2, "0");
-    const y = now.getFullYear();
-    const dateLabel = `${m}/${d}/${y}`;   // e.g. "mar/31/2026"
-    const monthLabel = `${m}${y}`;        // e.g. "mar2026"
+    const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+    const m   = MONTHS[now.getMonth()];
+    const d   = String(now.getDate()).padStart(2, "0");
+    const y   = now.getFullYear();
+    const mm  = String(now.getMonth() + 1).padStart(2, "0");
 
-    const scripts = await api.write("/system/script/print", [`?owner=${monthLabel}`]);
+    // Legacy labels
+    const legacyDateLabel  = `${m}/${d}/${y}`;   // "mar/31/2026"
+    const legacyOwner      = `${m}${y}`;          // "mar2026"
+
+    // New (7.10+) labels
+    const isoDateLabel     = `${y}-${mm}-${d}`;   // "2026-03-31"
+    const isoOwner         = `${mm}${y}`;          // "032026"
+
+    // Try new (7.10+) owner first, fall back to legacy if empty
+    let allScripts = await api.write("/system/script/print", [`?owner=${isoOwner}`]).catch(() => []);
+    if (allScripts.length === 0) {
+      allScripts = await api.write("/system/script/print", [`?owner=${legacyOwner}`]).catch(() => []);
+    }
 
     let dailyCount = 0;
     let dailyAmount = 0;
     let monthlyCount = 0;
     let monthlyAmount = 0;
 
-    for (const s of scripts) {
+    for (const s of allScripts) {
       const name = (s["name"] as string) ?? "";
       const parts = name.split("-|-");
-      const price = parseFloat(parts[3] ?? "0") || 0;
+      if (parts.length < 4) continue;
+
+      const datePart = parts[0];
+      const price    = parseFloat(parts[3]) || 0;
+
+      const isToday  = datePart === legacyDateLabel || datePart === isoDateLabel;
 
       monthlyCount++;
       monthlyAmount += price;
 
-      if (parts[0] === dateLabel) {
+      if (isToday) {
         dailyCount++;
         dailyAmount += price;
       }
     }
 
-    return { dailyCount, dailyAmount, monthlyCount, monthlyAmount, dateLabel, monthLabel };
+    return {
+      dailyCount,
+      dailyAmount,
+      monthlyCount,
+      monthlyAmount,
+      dateLabel: isoDateLabel,
+      monthLabel: isoOwner,
+    };
   });
 }
 
