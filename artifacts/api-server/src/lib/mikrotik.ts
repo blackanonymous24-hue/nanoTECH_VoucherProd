@@ -64,11 +64,17 @@ function fixEncoding(str: string): string {
 }
 
 function parseProfileOnLogin(onLogin: string): { price: string; validity: string; lockMac: boolean } {
-  const parts = onLogin.split(",");
-  const price = (parts[2] ?? "").trim();
+  // MikHmon embeds config in a :put ("...") line, e.g.:
+  //   :put (",remc,100,3h,100,,Disable,");
+  // Fields: [0]="" [1]=label [2]=price [3]=validity [4]=shared [5]=pool [6]=lockMac [7]=""
+  const putMatch = onLogin.match(/:put\s*\("([^"]+)"\)/);
+  const configStr = putMatch ? putMatch[1] : onLogin;
+  const parts = configStr.split(",");
+  const price    = (parts[2] ?? "").trim();
   const validity = (parts[3] ?? "").trim();
-  // MAC lock is only active when the on-login script explicitly sets mac-address on the user
-  const lockMac = /mac-address/i.test(onLogin);
+  const lockField = (parts[6] ?? "").trim();
+  // MAC lock field is literally "Enable" when active, "Disable" when inactive
+  const lockMac = lockField.toLowerCase() === "enable";
   return { price, validity, lockMac };
 }
 
