@@ -106,11 +106,38 @@ function parseProfileOnLogin(onLogin: string): {
   return { price, validity, lockMac, sellingPrice, expiredMode, parentQueue };
 }
 
+// Per-router semaphore: max 2 concurrent API connections per router
+class Semaphore {
+  private slots: number;
+  private readonly queue: Array<() => void> = [];
+  constructor(max: number) { this.slots = max; }
+
+  acquire(): Promise<void> {
+    if (this.slots > 0) { this.slots--; return Promise.resolve(); }
+    return new Promise((resolve) => this.queue.push(resolve));
+  }
+
+  release(): void {
+    const next = this.queue.shift();
+    if (next) { next(); } else { this.slots++; }
+  }
+}
+
+const routerSemaphores = new Map<string, Semaphore>();
+function getRouterSemaphore(host: string, port: number): Semaphore {
+  const key = `${host}:${port}`;
+  if (!routerSemaphores.has(key)) routerSemaphores.set(key, new Semaphore(2));
+  return routerSemaphores.get(key)!;
+}
+
 export async function withRouter<T>(
   conn: RouterConnection,
   fn: (api: RouterOSAPI) => Promise<T>,
   timeout = 15000,
 ): Promise<T> {
+  const sem = getRouterSemaphore(conn.host, conn.port);
+  await sem.acquire();
+
   const api = new RouterOSAPI({
     host: conn.host,
     port: conn.port,
@@ -131,6 +158,7 @@ export async function withRouter<T>(
   } finally {
     if (timer !== null) clearTimeout(timer);
     try { api.close(); } catch { /* ignore close errors */ }
+    sem.release();
   }
 }
 

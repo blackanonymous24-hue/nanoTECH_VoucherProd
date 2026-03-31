@@ -115,8 +115,8 @@ export default function Dashboard() {
       return Array.isArray(data) ? data.length : 0;
     },
     enabled: !!selectedRouterId,
-    refetchInterval: 10_000,
-    staleTime: 9_000,
+    refetchInterval: 30_000,
+    staleTime: 25_000,
     throwOnError: false,
   });
 
@@ -139,8 +139,8 @@ export default function Dashboard() {
       return 0;
     },
     enabled: !!selectedRouterId,
-    refetchInterval: 10_000,
-    staleTime: 9_000,
+    refetchInterval: 60_000,
+    staleTime: 55_000,
     throwOnError: false,
   });
 
@@ -153,8 +153,8 @@ export default function Dashboard() {
     {
       query: {
         enabled: !!selectedRouterId,
-        refetchInterval: 10_000,
-        staleTime: 9_000,
+        refetchInterval: 30_000,
+        staleTime: 25_000,
       },
     },
   );
@@ -171,8 +171,8 @@ export default function Dashboard() {
     {
       query: {
         enabled: !!selectedRouterId,
-        refetchInterval: 5_000,
-        staleTime: 4_000,
+        refetchInterval: 20_000,
+        staleTime: 15_000,
       },
     },
   );
