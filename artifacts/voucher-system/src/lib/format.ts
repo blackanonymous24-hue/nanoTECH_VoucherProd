@@ -1,10 +1,7 @@
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('fr-MG', {
-    style: 'currency',
-    currency: 'MGA',
-    currencyDisplay: 'narrowSymbol',
+  return new Intl.NumberFormat('fr-FR', {
     maximumFractionDigits: 0,
-  }).format(amount).replace('MGA', 'Ar');
+  }).format(amount) + '\u00a0FCFA';
 }
 
 export function formatBytes(megabytes: number | null | undefined): string {
