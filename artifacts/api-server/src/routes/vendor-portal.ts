@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, count, sql, isNull, isNotNull } from "drizzle-orm";
+import { eq, desc, count, sql, and, gte, lt } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable } from "@workspace/db";
 import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 
@@ -154,6 +154,42 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     recentSales: recentSales.filter((v) => v.usedAt !== null),
     availableVouchers: availableVouchers.filter((v) => v.usedAt === null),
   });
+});
+
+router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const payload = verifyToken(auth.slice(7));
+  if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const { day, month, year } = req.query as { day?: string; month?: string; year?: string };
+  const d = parseInt(day ?? "", 10);
+  const m = parseInt(month ?? "", 10);
+  const y = parseInt(year ?? "", 10);
+  if (!d || !m || !y || d < 1 || d > 31 || m < 1 || m > 12 || y < 2020) {
+    res.status(400).json({ error: "Date invalide" }); return;
+  }
+
+  const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
+  if (!vendor || !vendor.isActive) { res.status(403).json({ error: "Compte introuvable ou désactivé" }); return; }
+
+  const startStr = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const start = new Date(`${startStr}T00:00:00Z`);
+  const end   = new Date(start.getTime() + 86_400_000);
+
+  const vouchers = await db
+    .select()
+    .from(vouchersTable)
+    .where(and(
+      eq(vouchersTable.vendorId, payload.vendorId),
+      gte(vouchersTable.usedAt, start.toISOString()),
+      lt(vouchersTable.usedAt, end.toISOString()),
+    ))
+    .orderBy(desc(vouchersTable.usedAt));
+
+  const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
+
+  res.json({ date: startStr, total: vouchers.length, revenue, vouchers });
 });
 
 export default router;

@@ -12,8 +12,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
-  User, RefreshCw, Clock, CheckCircle2,
+  User, RefreshCw, Clock, ChevronLeft, Search, Banknote,
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
@@ -43,6 +50,7 @@ type PortalData = {
   recentSales: Voucher[];
   availableVouchers: Voucher[];
 };
+type ReportData = { date: string; total: number; revenue: number; vouchers: Voucher[] };
 
 function api(path: string, options?: RequestInit) {
   return fetch(`${BASE}/api${path}`, {
@@ -57,6 +65,11 @@ function fmt(date: string | null) {
     day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
   });
 }
+
+const MONTHS = [
+  "Janvier","Février","Mars","Avril","Mai","Juin",
+  "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
+];
 
 function StatCard({
   label, value, icon: Icon, color, onClick,
@@ -78,18 +91,13 @@ function StatCard({
       </div>
     </CardContent>
   );
-
   if (onClick) {
     return (
-      <Card
-        className="cursor-pointer hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.98]"
-        onClick={onClick}
-      >
+      <Card className="cursor-pointer hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.98]" onClick={onClick}>
         {inner}
       </Card>
     );
   }
-
   return <Card>{inner}</Card>;
 }
 
@@ -128,42 +136,19 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
           <h1 className="text-2xl font-bold text-gray-900">VoucherNet</h1>
           <p className="text-gray-500 text-sm mt-1">Espace vendeur</p>
         </div>
-
         <Card className="shadow-lg">
           <CardContent className="p-6">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="vp-username">Nom d'utilisateur</Label>
-                <Input
-                  id="vp-username"
-                  className="mt-1"
-                  placeholder="votre identifiant"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  autoFocus
-                  autoComplete="username"
-                />
+                <Label htmlFor="vp-username">Nom d&apos;utilisateur</Label>
+                <Input id="vp-username" className="mt-1" placeholder="votre identifiant" value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus autoComplete="username" />
               </div>
               <div>
                 <Label htmlFor="vp-password">Mot de passe</Label>
-                <Input
-                  id="vp-password"
-                  type="password"
-                  className="mt-1"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
+                <Input id="vp-password" type="password" className="mt-1" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
               </div>
-              {error && (
-                <p className="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{error}</p>
-              )}
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Connexion..." : "Se connecter"}
-              </Button>
+              {error && <p className="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{error}</p>}
+              <Button type="submit" className="w-full" disabled={loading}>{loading ? "Connexion..." : "Se connecter"}</Button>
             </form>
           </CardContent>
         </Card>
@@ -172,15 +157,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
   );
 }
 
-function AvailableVouchersModal({
-  open,
-  onClose,
-  vouchers,
-}: {
-  open: boolean;
-  onClose: () => void;
-  vouchers: Voucher[];
-}) {
+function AvailableVouchersModal({ open, onClose, vouchers }: { open: boolean; onClose: () => void; vouchers: Voucher[] }) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
@@ -196,17 +173,12 @@ function AvailableVouchersModal({
           ) : (
             <div className="space-y-2 pb-2">
               {vouchers.map((v) => (
-                <div
-                  key={v.id}
-                  className="flex items-center justify-between py-3 px-3 bg-gray-50 rounded-lg gap-3"
-                >
+                <div key={v.id} className="flex items-center justify-between py-3 px-3 bg-gray-50 rounded-lg gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-mono font-semibold text-gray-800">{v.username}</p>
                     <p className="text-xs text-gray-500">{v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}</p>
                   </div>
-                  <Badge variant="outline" className="border-green-300 text-green-600 bg-green-50 flex-shrink-0 text-xs">
-                    Non vendu
-                  </Badge>
+                  <Badge variant="outline" className="border-green-300 text-green-600 bg-green-50 flex-shrink-0 text-xs">Non vendu</Badge>
                 </div>
               ))}
             </div>
@@ -214,6 +186,114 @@ function AvailableVouchersModal({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DayReport({ token, day, month, year, onBack }: {
+  token: string;
+  day: string;
+  month: string;
+  year: string;
+  onBack: () => void;
+}) {
+  const [data, setData] = useState<ReportData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+        return res.json();
+      })
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [token, day, month, year]);
+
+  const dateLabel = data
+    ? new Date(`${data.date}T12:00:00Z`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : `${day.padStart(2,"0")}/${month.padStart(2,"0")}/${year}`;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+        <Button size="sm" variant="ghost" onClick={onBack} className="gap-1.5">
+          <ChevronLeft className="h-4 w-4" /> Retour
+        </Button>
+        <div className="h-5 w-px bg-gray-200" />
+        <div>
+          <p className="text-sm font-semibold text-gray-900 capitalize">{dateLabel}</p>
+          <p className="text-xs text-gray-500">Rapport de ventes</p>
+        </div>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        {loading && <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>}
+        {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
+
+        {data && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Card>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
+                    <ShoppingCart className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900">{data.total}</p>
+                    <p className="text-xs text-gray-500">Vendus ce jour</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
+                    <Banknote className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
+                    <p className="text-xs text-gray-500">FCFA estimé</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {data.vouchers.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">Aucune vente ce jour</p>
+                ) : (
+                  <div className="space-y-1">
+                    {data.vouchers.map((v) => (
+                      <div key={v.id} className="flex items-center justify-between py-2.5 border-b last:border-0 gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
+                          <p className="text-xs text-gray-400">
+                            {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
+                            {v.usedAt ? ` · ${fmt(v.usedAt)}` : ""}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">
+                          Vendu
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </main>
+    </div>
   );
 }
 
@@ -227,16 +307,19 @@ function Dashboard({ token, vendor, onLogout }: {
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
 
+  const now = new Date();
+  const [reportDay,   setReportDay]   = useState(String(now.getDate()));
+  const [reportMonth, setReportMonth] = useState(String(now.getMonth() + 1));
+  const [reportYear,  setReportYear]  = useState(String(now.getFullYear()));
+  const [reportView,  setReportView]  = useState<{ day: string; month: string; year: string } | null>(null);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await api("/vendor-portal/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await api("/vendor-portal/me", { headers: { Authorization: `Bearer ${token}` } });
       if (res.status === 401 || res.status === 403) { onLogout(); return; }
-      const json = await res.json();
-      setData(json);
+      setData(await res.json());
     } catch {
       setError("Erreur lors du chargement des données");
     } finally {
@@ -250,14 +333,29 @@ function Dashboard({ token, vendor, onLogout }: {
     return () => clearInterval(id);
   }, [fetchData]);
 
+  if (reportView) {
+    return (
+      <DayReport
+        token={token}
+        day={reportView.day}
+        month={reportView.month}
+        year={reportView.year}
+        onBack={() => setReportView(null)}
+      />
+    );
+  }
+
   const chartData = data
     ? [
-        { label: "Hier", vendus: data.salesStats.yesterdaySold },
-        { label: "Aujourd'hui", vendus: data.salesStats.todaySold },
-        { label: "Sem. dern.", vendus: data.salesStats.weekSold },
+        { label: "Hier",          vendus: data.salesStats.yesterdaySold },
+        { label: "Aujourd'hui",   vendus: data.salesStats.todaySold },
+        { label: "Sem. dern.",    vendus: data.salesStats.weekSold },
         { label: "Mois en cours", vendus: data.salesStats.lastMonthSold },
       ]
     : [];
+
+  const years = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
+  const days  = Array.from({ length: 31 }, (_, i) => i + 1);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -291,47 +389,61 @@ function Dashboard({ token, vendor, onLogout }: {
           <p className="text-sm text-gray-500">Bienvenue, {vendor.name}</p>
         </div>
 
-        {loading && !data && (
-          <div className="text-center py-12 text-gray-400">Chargement...</div>
-        )}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>
-        )}
+        {loading && !data && <div className="text-center py-12 text-gray-400">Chargement...</div>}
+        {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
         {data && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <StatCard
-                label="Tickets disponibles"
-                value={data.totalAvailable}
-                icon={Ticket}
-                color="bg-blue-500"
-                onClick={() => setShowAvailable(true)}
-              />
-              <StatCard
-                label="Vendus aujourd'hui"
-                value={data.salesStats.todaySold}
-                icon={ShoppingCart}
-                color="bg-green-500"
-              />
-              <StatCard
-                label="Vendus hier"
-                value={data.salesStats.yesterdaySold}
-                icon={Clock}
-                color="bg-yellow-500"
-              />
-              <StatCard
-                label="Semaine dernière"
-                value={data.salesStats.weekSold}
-                icon={Calendar}
-                color="bg-orange-500"
-              />
-              <StatCard
-                label="Mois en cours"
-                value={data.salesStats.lastMonthSold}
-                icon={TrendingUp}
-                color="bg-purple-500"
-              />
+              <StatCard label="Tickets disponibles" value={data.totalAvailable} icon={Ticket} color="bg-blue-500" onClick={() => setShowAvailable(true)} />
+              <StatCard label="Vendus aujourd'hui"  value={data.salesStats.todaySold}      icon={ShoppingCart} color="bg-green-500" />
+              <StatCard label="Vendus hier"          value={data.salesStats.yesterdaySold}  icon={Clock}        color="bg-yellow-500" />
+              <StatCard label="Semaine dernière"     value={data.salesStats.weekSold}        icon={Calendar}     color="bg-orange-500" />
+              <StatCard label="Mois en cours"        value={data.salesStats.lastMonthSold}   icon={TrendingUp}   color="bg-purple-500" />
+
+              <Card className="col-span-2 md:col-span-1">
+                <CardContent className="p-4 h-full flex flex-col justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                      <Search className="h-4 w-4 text-white" />
+                    </div>
+                    <p className="text-sm font-medium text-gray-700 leading-tight">Vérifier les ventes d&apos;un jour</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <Select value={reportDay} onValueChange={setReportDay}>
+                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {days.map((d) => (
+                          <SelectItem key={d} value={String(d)} className="text-xs">{String(d).padStart(2,"0")}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={reportMonth} onValueChange={setReportMonth}>
+                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {MONTHS.map((m, i) => (
+                          <SelectItem key={i + 1} value={String(i + 1)} className="text-xs">{m.slice(0, 3)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={reportYear} onValueChange={setReportYear}>
+                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {years.map((y) => (
+                          <SelectItem key={y} value={String(y)} className="text-xs">{y}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-xs"
+                    onClick={() => setReportView({ day: reportDay, month: reportMonth, year: reportYear })}
+                  >
+                    Voir le rapport
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
 
             <Card>
@@ -391,9 +503,7 @@ function Dashboard({ token, vendor, onLogout }: {
                             {v.usedAt ? ` · ${fmt(v.usedAt)}` : ""}
                           </p>
                         </div>
-                        <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0">
-                          Vendu
-                        </Badge>
+                        <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0">Vendu</Badge>
                       </div>
                     ))}
                   </div>
@@ -401,11 +511,7 @@ function Dashboard({ token, vendor, onLogout }: {
               </CardContent>
             </Card>
 
-            <AvailableVouchersModal
-              open={showAvailable}
-              onClose={() => setShowAvailable(false)}
-              vouchers={data.availableVouchers}
-            />
+            <AvailableVouchersModal open={showAvailable} onClose={() => setShowAvailable(false)} vouchers={data.availableVouchers} />
           </>
         )}
       </main>
@@ -414,31 +520,24 @@ function Dashboard({ token, vendor, onLogout }: {
 }
 
 export default function VendorPortal() {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [token,  setToken]  = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [vendor, setVendor] = useState<VendorInfo | null>(() => {
-    try {
-      const v = localStorage.getItem("vouchernet_vendor_info");
-      return v ? JSON.parse(v) : null;
-    } catch { return null; }
+    try { const v = localStorage.getItem("vouchernet_vendor_info"); return v ? JSON.parse(v) : null; }
+    catch { return null; }
   });
 
   const handleLogin = (t: string, v: VendorInfo) => {
     localStorage.setItem(TOKEN_KEY, t);
     localStorage.setItem("vouchernet_vendor_info", JSON.stringify(v));
-    setToken(t);
-    setVendor(v);
+    setToken(t); setVendor(v);
   };
 
   const handleLogout = () => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem("vouchernet_vendor_info");
-    setToken(null);
-    setVendor(null);
+    setToken(null); setVendor(null);
   };
 
-  if (!token || !vendor) {
-    return <LoginPage onLogin={handleLogin} />;
-  }
-
+  if (!token || !vendor) return <LoginPage onLogin={handleLogin} />;
   return <Dashboard token={token} vendor={vendor} onLogout={handleLogout} />;
 }
