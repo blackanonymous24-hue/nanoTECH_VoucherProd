@@ -266,27 +266,16 @@ export default function Forfaits() {
 
             <div className="col-span-2 space-y-1.5">
               <Label>Validité <span className="text-red-500">*</span></Label>
-              <div className="flex gap-2">
-                <Select
-                  value={VALIDITY_PRESETS.some((p) => p.value === form.validity) ? form.validity : "__custom"}
-                  onValueChange={(v) => { if (v !== "__custom") setField("validity", v); }}
-                >
-                  <SelectTrigger className="w-44 flex-shrink-0">
-                    <SelectValue placeholder="Choisir…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {VALIDITY_PRESETS.map((p) => (
-                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                    ))}
-                    <SelectItem value="__custom">Personnalisé…</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="ex: 3h, 1d, 7d"
-                  value={form.validity}
-                  onChange={(e) => setField("validity", e.target.value)}
-                />
-              </div>
+              <Select value={form.validity} onValueChange={(v) => setField("validity", v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choisir une durée…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {VALIDITY_PRESETS.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1.5">
