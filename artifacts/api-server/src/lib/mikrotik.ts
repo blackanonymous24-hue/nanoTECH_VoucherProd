@@ -198,7 +198,7 @@ export async function disconnectSession(conn: RouterConnection, username: string
 }
 
 function generateCode(length: number, prefix?: string): { username: string; password: string } {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const chars = "5ab2c34d";
   const random = () =>
     Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
   const code = random();

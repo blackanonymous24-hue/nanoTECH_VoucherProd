@@ -21,8 +21,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Zap, Printer, Copy, Router as RouterIcon } from "lucide-react";
+import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+function makeBatchId(): string {
+  const now = new Date();
+  const Y = now.getFullYear();
+  const M = String(now.getMonth() + 1).padStart(2, "0");
+  const D = String(now.getDate()).padStart(2, "0");
+  const H = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  return `LOT-${Y}${M}${D}-${H}${min}`;
+}
 
 export default function GenerateVouchers() {
   const { data: routers = [] } = useListRouters();
@@ -37,7 +47,7 @@ export default function GenerateVouchers() {
   const [profile, setProfile] = useState<string>("");
   const [qty, setQty] = useState("10");
   const [prefix, setPrefix] = useState("");
-  const [comment, setComment] = useState("");
+  const [comment, setComment] = useState(() => makeBatchId());
   const [vendorId, setVendorId] = useState<string>("");
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
 
@@ -207,13 +217,25 @@ export default function GenerateVouchers() {
               </div>
 
               <div>
-                <Label>Commentaire <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+                <div className="flex items-center justify-between mb-1">
+                  <Label>Identifiant de lot</Label>
+                  <button
+                    type="button"
+                    onClick={() => setComment(makeBatchId())}
+                    className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                    title="Générer un nouvel ID de lot"
+                  >
+                    <RefreshCw className="h-3 w-3" /> Régénérer
+                  </button>
+                </div>
                 <Input
-                  className="mt-1"
-                  placeholder="ex: Vente du 01/06"
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
+                  placeholder="ex: LOT-20260101-0900"
                 />
+                <p className="text-xs text-gray-400 mt-1">
+                  Sert à regrouper ce lot pour l&apos;export ou la suppression groupée
+                </p>
               </div>
 
               {vendors.length > 0 && (
