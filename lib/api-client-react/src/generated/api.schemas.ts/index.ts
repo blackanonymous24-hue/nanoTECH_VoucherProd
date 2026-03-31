@@ -6,12 +6,15 @@
  */
 
 export * from './createRouterBody';
+export * from './createVendorBody';
+export * from './createVendorBodyPhone';
 export * from './dashboardStats';
 export * from './errorResponse';
 export * from './generateVouchersBody';
 export * from './generateVouchersBodyComment';
 export * from './generateVouchersBodyPrefix';
 export * from './generateVouchersBodyServer';
+export * from './generateVouchersBodyVendorId';
 export * from './healthStatus';
 export * from './hotspotProfile';
 export * from './hotspotProfileAddrPool';
@@ -39,6 +42,13 @@ export * from './testResult';
 export * from './testResultRouterBoard';
 export * from './testResultVersion';
 export * from './updateRouterBody';
+export * from './updateVendorBody';
+export * from './updateVendorBodyPhone';
+export * from './vendor';
+export * from './vendorPhone';
+export * from './vendorProfileStat';
+export * from './vendorReport';
+export * from './vendorSummary';
 export * from './voucher';
 export * from './voucherComment';
 export * from './voucherListResponse';

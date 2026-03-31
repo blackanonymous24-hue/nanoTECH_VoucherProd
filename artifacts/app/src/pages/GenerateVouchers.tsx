@@ -3,6 +3,7 @@ import {
   useListRouters,
   useListRouterProfiles,
   useGenerateVouchers,
+  useListVendors,
   getListVouchersQueryKey,
 } from "@workspace/api-client-react";
 import type { Voucher } from "@workspace/api-client-react";
@@ -25,6 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export default function GenerateVouchers() {
   const { data: routers = [] } = useListRouters();
+  const { data: vendors = [] } = useListVendors();
   const { selectedRouterId, setSelectedRouterId, selectedRouter } = useRouterContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -36,6 +38,7 @@ export default function GenerateVouchers() {
   const [qty, setQty] = useState("10");
   const [prefix, setPrefix] = useState("");
   const [comment, setComment] = useState("");
+  const [vendorId, setVendorId] = useState<string>("");
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
 
   const activeRouterId = selectedRouterId ?? (localRouterId ? parseInt(localRouterId, 10) : null);
@@ -73,6 +76,7 @@ export default function GenerateVouchers() {
         qty: parseInt(qty, 10),
         prefix: prefix || null,
         comment: comment || null,
+        vendorId: vendorId ? parseInt(vendorId, 10) : null,
       },
     });
 
@@ -210,6 +214,25 @@ export default function GenerateVouchers() {
                   onChange={(e) => setComment(e.target.value)}
                 />
               </div>
+
+              {vendors.length > 0 && (
+                <div>
+                  <Label>Vendeur <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+                  <Select value={vendorId} onValueChange={setVendorId}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Aucun vendeur sélectionné" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Aucun vendeur</SelectItem>
+                      {vendors.filter((v) => v.isActive).map((v) => (
+                        <SelectItem key={v.id} value={String(v.id)}>
+                          {v.name}{v.phone ? ` · ${v.phone}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <Button
                 type="submit"

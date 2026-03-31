@@ -41,13 +41,14 @@ router.get("/vouchers", async (req, res): Promise<void> => {
 });
 
 router.post("/vouchers/generate", async (req, res): Promise<void> => {
-  const { routerId, profile, qty, prefix, comment, server } = req.body as {
+  const { routerId, profile, qty, prefix, comment, server, vendorId } = req.body as {
     routerId?: number;
     profile?: string;
     qty?: number;
     prefix?: string;
     comment?: string;
     server?: string;
+    vendorId?: number | null;
   };
 
   if (!routerId || !profile || !qty) {
@@ -87,6 +88,7 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
       .values(
         generated.map((v) => ({
           routerId,
+          vendorId: vendorId ?? null,
           username: v.username,
           password: v.password,
           profileName: v.profile,

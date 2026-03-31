@@ -1,6 +1,7 @@
 import { Router } from "express";
 import routersRouter from "./routers.js";
 import vouchersRouter from "./vouchers.js";
+import vendorsRouter from "./vendors.js";
 import dashboardRouter from "./dashboard.js";
 
 export const router = Router();
@@ -11,4 +12,5 @@ router.get("/healthz", (_req, res) => {
 
 router.use(routersRouter);
 router.use(vouchersRouter);
+router.use(vendorsRouter);
 router.use(dashboardRouter);

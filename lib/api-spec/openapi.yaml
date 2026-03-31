@@ -294,6 +294,128 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /vendors:
+    get:
+      operationId: listVendors
+      summary: List all vendors
+      responses:
+        "200":
+          description: List of vendors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Vendor"
+    post:
+      operationId: createVendor
+      summary: Create a vendor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVendorBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vendor"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vendors/{id}:
+    put:
+      operationId: updateVendor
+      summary: Update a vendor
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVendorBody"
+      responses:
+        "200":
+          description: Updated vendor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vendor"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteVendor
+      summary: Delete a vendor
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vendors/{id}/report:
+    get:
+      operationId: getVendorReport
+      summary: Get sales report for a vendor
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vendor report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VendorReport"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vendors/reports/summary:
+    get:
+      operationId: getVendorReportsSummary
+      summary: Get summary sales stats for all vendors
+      responses:
+        "200":
+          description: Vendor summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VendorSummary"
+
   /vouchers:
     get:
       operationId: listVouchers
@@ -579,6 +701,85 @@ components:
         total:
           type: integer
 
+    Vendor:
+      type: object
+      required: [id, name, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateVendorBody:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        phone:
+          type: ["string", "null"]
+
+    UpdateVendorBody:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+
+    VendorProfileStat:
+      type: object
+      required: [profileName, total, printed]
+      properties:
+        profileName:
+          type: string
+        total:
+          type: integer
+        printed:
+          type: integer
+
+    VendorReport:
+      type: object
+      required: [vendor, totalVouchers, totalPrinted, byProfile, recentVouchers]
+      properties:
+        vendor:
+          $ref: "#/components/schemas/Vendor"
+        totalVouchers:
+          type: integer
+        totalPrinted:
+          type: integer
+        byProfile:
+          type: array
+          items:
+            $ref: "#/components/schemas/VendorProfileStat"
+        recentVouchers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Voucher"
+
+    VendorSummary:
+      type: object
+      required: [vendor, totalVouchers, totalPrinted]
+      properties:
+        vendor:
+          $ref: "#/components/schemas/Vendor"
+        totalVouchers:
+          type: integer
+        totalPrinted:
+          type: integer
+
     GenerateVouchersBody:
       type: object
       required: [routerId, profile, qty]
@@ -597,6 +798,8 @@ components:
           type: ["string", "null"]
         server:
           type: ["string", "null"]
+        vendorId:
+          type: ["integer", "null"]
 
     HotspotUserListResponse:
       type: object

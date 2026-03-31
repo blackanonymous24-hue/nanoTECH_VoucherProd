@@ -7,6 +7,7 @@
 import type { GenerateVouchersBodyPrefix } from './generateVouchersBodyPrefix';
 import type { GenerateVouchersBodyComment } from './generateVouchersBodyComment';
 import type { GenerateVouchersBodyServer } from './generateVouchersBodyServer';
+import type { GenerateVouchersBodyVendorId } from './generateVouchersBodyVendorId';
 
 export interface GenerateVouchersBody {
   routerId: number;
@@ -19,4 +20,5 @@ export interface GenerateVouchersBody {
   prefix?: GenerateVouchersBodyPrefix;
   comment?: GenerateVouchersBodyComment;
   server?: GenerateVouchersBodyServer;
+  vendorId?: GenerateVouchersBodyVendorId;
 }

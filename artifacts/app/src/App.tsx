@@ -10,6 +10,8 @@ import Forfaits from "@/pages/Forfaits";
 import Sessions from "@/pages/Sessions";
 import GenerateVouchers from "@/pages/GenerateVouchers";
 import Vouchers from "@/pages/Vouchers";
+import Vendors from "@/pages/Vendors";
+import Reports from "@/pages/Reports";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -32,6 +34,8 @@ function AppRoutes() {
           <Route path="/sessions" component={Sessions} />
           <Route path="/generate" component={GenerateVouchers} />
           <Route path="/vouchers" component={Vouchers} />
+          <Route path="/vendors" component={Vendors} />
+          <Route path="/reports" component={Reports} />
           <Route component={NotFound} />
         </Switch>
       </Layout>

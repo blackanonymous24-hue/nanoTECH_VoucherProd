@@ -20,6 +20,7 @@ import type {
 
 import type {
   CreateRouterBody,
+  CreateVendorBody,
   DashboardStats,
   ErrorResponse,
   GenerateVouchersBody,
@@ -33,6 +34,10 @@ import type {
   SyncResult,
   TestResult,
   UpdateRouterBody,
+  UpdateVendorBody,
+  Vendor,
+  VendorReport,
+  VendorSummary,
   Voucher,
   VoucherListResponse
 } from './';
@@ -779,6 +784,405 @@ export const useSyncRouterVouchers = <TError = ErrorResponse,
       return useMutation(mutationOptions);
     }
     
+/**
+ * @summary List all vendors
+ */
+export const listVendors = (
+    
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<Vendor[]>(
+      {url: `/vendors`, method: 'GET', signal
+    },
+      options);
+    }
+  
+
+
+
+export const getListVendorsQueryKey = () => {
+    return [
+    `/vendors`
+    ] as const;
+    }
+
+    
+export const getListVendorsQueryOptions = <TData = Awaited<ReturnType<typeof listVendors>>, TError = unknown>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVendors>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVendorsQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVendors>>> = ({ signal }) => listVendors(requestOptions, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVendors>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVendorsQueryResult = NonNullable<Awaited<ReturnType<typeof listVendors>>>
+export type ListVendorsQueryError = unknown
+
+
+/**
+ * @summary List all vendors
+ */
+
+export function useListVendors<TData = Awaited<ReturnType<typeof listVendors>>, TError = unknown>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVendors>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+  
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVendorsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+/**
+ * @summary Create a vendor
+ */
+export const createVendor = (
+    createVendorBody: CreateVendorBody,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<Vendor>(
+      {url: `/vendors`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: createVendorBody, signal
+    },
+      options);
+    }
+  
+
+
+export const getCreateVendorMutationOptions = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createVendor>>, TError,{data: CreateVendorBody}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createVendor>>, TError,{data: CreateVendorBody}, TContext> => {
+
+const mutationKey = ['createVendor'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createVendor>>, {data: CreateVendorBody}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createVendor(data,requestOptions)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateVendorMutationResult = NonNullable<Awaited<ReturnType<typeof createVendor>>>
+    export type CreateVendorMutationBody = CreateVendorBody
+    export type CreateVendorMutationError = ErrorResponse
+
+    /**
+ * @summary Create a vendor
+ */
+export const useCreateVendor = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createVendor>>, TError,{data: CreateVendorBody}, TContext>, request?: SecondParameter<typeof customInstance>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createVendor>>,
+        TError,
+        {data: CreateVendorBody},
+        TContext
+      > => {
+
+      const mutationOptions = getCreateVendorMutationOptions(options);
+
+      return useMutation(mutationOptions);
+    }
+    
+/**
+ * @summary Update a vendor
+ */
+export const updateVendor = (
+    id: number,
+    updateVendorBody: UpdateVendorBody,
+ options?: SecondParameter<typeof customInstance>,) => {
+      
+      
+      return customInstance<Vendor>(
+      {url: `/vendors/${id}`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: updateVendorBody
+    },
+      options);
+    }
+  
+
+
+export const getUpdateVendorMutationOptions = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVendor>>, TError,{id: number;data: UpdateVendorBody}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateVendor>>, TError,{id: number;data: UpdateVendorBody}, TContext> => {
+
+const mutationKey = ['updateVendor'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateVendor>>, {id: number;data: UpdateVendorBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateVendor(id,data,requestOptions)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateVendorMutationResult = NonNullable<Awaited<ReturnType<typeof updateVendor>>>
+    export type UpdateVendorMutationBody = UpdateVendorBody
+    export type UpdateVendorMutationError = ErrorResponse
+
+    /**
+ * @summary Update a vendor
+ */
+export const useUpdateVendor = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVendor>>, TError,{id: number;data: UpdateVendorBody}, TContext>, request?: SecondParameter<typeof customInstance>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateVendor>>,
+        TError,
+        {id: number;data: UpdateVendorBody},
+        TContext
+      > => {
+
+      const mutationOptions = getUpdateVendorMutationOptions(options);
+
+      return useMutation(mutationOptions);
+    }
+    
+/**
+ * @summary Delete a vendor
+ */
+export const deleteVendor = (
+    id: number,
+ options?: SecondParameter<typeof customInstance>,) => {
+      
+      
+      return customInstance<void>(
+      {url: `/vendors/${id}`, method: 'DELETE'
+    },
+      options);
+    }
+  
+
+
+export const getDeleteVendorMutationOptions = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVendor>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteVendor>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteVendor'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteVendor>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteVendor(id,requestOptions)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteVendorMutationResult = NonNullable<Awaited<ReturnType<typeof deleteVendor>>>
+    
+    export type DeleteVendorMutationError = ErrorResponse
+
+    /**
+ * @summary Delete a vendor
+ */
+export const useDeleteVendor = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVendor>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteVendor>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteVendorMutationOptions(options);
+
+      return useMutation(mutationOptions);
+    }
+    
+/**
+ * @summary Get sales report for a vendor
+ */
+export const getVendorReport = (
+    id: number,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<VendorReport>(
+      {url: `/vendors/${id}/report`, method: 'GET', signal
+    },
+      options);
+    }
+  
+
+
+
+export const getGetVendorReportQueryKey = (id?: number,) => {
+    return [
+    `/vendors/${id}/report`
+    ] as const;
+    }
+
+    
+export const getGetVendorReportQueryOptions = <TData = Awaited<ReturnType<typeof getVendorReport>>, TError = ErrorResponse>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVendorReport>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVendorReportQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVendorReport>>> = ({ signal }) => getVendorReport(id, requestOptions, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVendorReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVendorReportQueryResult = NonNullable<Awaited<ReturnType<typeof getVendorReport>>>
+export type GetVendorReportQueryError = ErrorResponse
+
+
+/**
+ * @summary Get sales report for a vendor
+ */
+
+export function useGetVendorReport<TData = Awaited<ReturnType<typeof getVendorReport>>, TError = ErrorResponse>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVendorReport>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+  
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVendorReportQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+/**
+ * @summary Get summary sales stats for all vendors
+ */
+export const getVendorReportsSummary = (
+    
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<VendorSummary[]>(
+      {url: `/vendors/reports/summary`, method: 'GET', signal
+    },
+      options);
+    }
+  
+
+
+
+export const getGetVendorReportsSummaryQueryKey = () => {
+    return [
+    `/vendors/reports/summary`
+    ] as const;
+    }
+
+    
+export const getGetVendorReportsSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getVendorReportsSummary>>, TError = unknown>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVendorReportsSummary>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVendorReportsSummaryQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVendorReportsSummary>>> = ({ signal }) => getVendorReportsSummary(requestOptions, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVendorReportsSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVendorReportsSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getVendorReportsSummary>>>
+export type GetVendorReportsSummaryQueryError = unknown
+
+
+/**
+ * @summary Get summary sales stats for all vendors
+ */
+
+export function useGetVendorReportsSummary<TData = Awaited<ReturnType<typeof getVendorReportsSummary>>, TError = unknown>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVendorReportsSummary>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+  
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVendorReportsSummaryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
 /**
  * @summary List generated vouchers
  */

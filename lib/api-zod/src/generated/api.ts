@@ -198,6 +198,116 @@ export const syncRouterVouchersResponse = zod.object({
 
 
 /**
+ * @summary List all vendors
+ */
+export const listVendorsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "phone": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string().datetime({}),
+  "updatedAt": zod.string().datetime({})
+})
+export const listVendorsResponse = zod.array(listVendorsResponseItem)
+
+
+/**
+ * @summary Create a vendor
+ */
+export const createVendorBody = zod.object({
+  "name": zod.string(),
+  "phone": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update a vendor
+ */
+export const updateVendorParams = zod.object({
+  "id": zod.number()
+})
+
+export const updateVendorBody = zod.object({
+  "name": zod.string().optional(),
+  "phone": zod.string().nullish(),
+  "isActive": zod.boolean().optional()
+})
+
+export const updateVendorResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "phone": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string().datetime({}),
+  "updatedAt": zod.string().datetime({})
+})
+
+
+/**
+ * @summary Delete a vendor
+ */
+export const deleteVendorParams = zod.object({
+  "id": zod.number()
+})
+
+
+/**
+ * @summary Get sales report for a vendor
+ */
+export const getVendorReportParams = zod.object({
+  "id": zod.number()
+})
+
+export const getVendorReportResponse = zod.object({
+  "vendor": zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "phone": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string().datetime({}),
+  "updatedAt": zod.string().datetime({})
+}),
+  "totalVouchers": zod.number(),
+  "totalPrinted": zod.number(),
+  "byProfile": zod.array(zod.object({
+  "profileName": zod.string(),
+  "total": zod.number(),
+  "printed": zod.number()
+})),
+  "recentVouchers": zod.array(zod.object({
+  "id": zod.number(),
+  "routerId": zod.number(),
+  "username": zod.string(),
+  "password": zod.string(),
+  "profileName": zod.string(),
+  "price": zod.string(),
+  "validity": zod.string(),
+  "comment": zod.string().nullish(),
+  "printedAt": zod.string().datetime({}).nullish(),
+  "createdAt": zod.string().datetime({})
+}))
+})
+
+
+/**
+ * @summary Get summary sales stats for all vendors
+ */
+export const getVendorReportsSummaryResponseItem = zod.object({
+  "vendor": zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "phone": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string().datetime({}),
+  "updatedAt": zod.string().datetime({})
+}),
+  "totalVouchers": zod.number(),
+  "totalPrinted": zod.number()
+})
+export const getVendorReportsSummaryResponse = zod.array(getVendorReportsSummaryResponseItem)
+
+
+/**
  * @summary List generated vouchers
  */
 export const listVouchersQueryParams = zod.object({
@@ -238,7 +348,8 @@ export const generateVouchersBody = zod.object({
   "qty": zod.number().min(1).max(generateVouchersBodyQtyMax),
   "prefix": zod.string().nullish(),
   "comment": zod.string().nullish(),
-  "server": zod.string().nullish()
+  "server": zod.string().nullish(),
+  "vendorId": zod.number().nullish()
 })
 
 
