@@ -278,7 +278,7 @@ function DayReport({ token, day, month, year, onBack }: {
                           <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
                           <p className="text-xs text-gray-400">
                             {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
-                            {v.usedAt ? ` · ${fmt(v.usedAt)}` : ""}
+                            {v.printedAt ? ` · ${fmt(v.printedAt)}` : ""}
                           </p>
                         </div>
                         <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">

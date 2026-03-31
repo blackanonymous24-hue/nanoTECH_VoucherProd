@@ -182,10 +182,10 @@ router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
     .from(vouchersTable)
     .where(and(
       eq(vouchersTable.vendorId, payload.vendorId),
-      gte(vouchersTable.usedAt, start),
-      lt(vouchersTable.usedAt, end),
+      gte(vouchersTable.printedAt, start),
+      lt(vouchersTable.printedAt, end),
     ))
-    .orderBy(desc(vouchersTable.usedAt));
+    .orderBy(desc(vouchersTable.printedAt));
 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
