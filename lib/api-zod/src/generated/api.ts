@@ -191,7 +191,8 @@ export const listRouterLogsParams = zod.object({
 })
 
 export const listRouterLogsQueryParams = zod.object({
-  "limit": zod.number().optional()
+  "limit": zod.number().optional(),
+  "topics": zod.string().optional()
 })
 
 export const listRouterLogsResponseItem = zod.object({

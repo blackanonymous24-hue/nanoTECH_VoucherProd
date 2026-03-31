@@ -189,10 +189,17 @@ export interface LogEntry {
   message: string;
 }
 
-export async function listLogs(conn: RouterConnection, limit = 50): Promise<LogEntry[]> {
+export async function listLogs(conn: RouterConnection, limit = 50, topicFilter?: string): Promise<LogEntry[]> {
   return withRouter(conn, async (api) => {
     const entries = await api.write("/log/print");
-    return entries
+    let filtered = entries;
+    if (topicFilter) {
+      const lc = topicFilter.toLowerCase();
+      filtered = entries.filter((e) =>
+        ((e["topics"] as string) ?? "").toLowerCase().includes(lc)
+      );
+    }
+    return filtered
       .slice(-limit)
       .reverse()
       .map((e) => ({

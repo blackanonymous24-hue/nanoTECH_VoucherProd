@@ -249,7 +249,8 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const logs = await listLogs(conn, limit);
+    const topics = req.query.topics as string | undefined;
+    const logs = await listLogs(conn, limit, topics);
     res.json(logs);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

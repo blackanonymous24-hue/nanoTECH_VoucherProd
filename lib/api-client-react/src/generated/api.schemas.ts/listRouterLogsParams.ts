@@ -7,4 +7,5 @@
 
 export type ListRouterLogsParams = {
 limit?: number;
+topics?: string;
 };

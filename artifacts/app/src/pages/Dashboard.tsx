@@ -1,37 +1,61 @@
+import { useEffect, useRef, useState } from "react";
 import { useGetDashboard, useListRouterLogs } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Ticket, Printer, Router, RefreshCw, ScrollText, Wifi } from "lucide-react";
+import { Ticket, Printer, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info } from "lucide-react";
 
-const TOPIC_COLORS: Record<string, string> = {
-  hotspot: "bg-blue-100 text-blue-700",
-  info: "bg-gray-100 text-gray-600",
-  warning: "bg-yellow-100 text-yellow-700",
-  error: "bg-red-100 text-red-700",
-  critical: "bg-red-200 text-red-800",
-  dhcp: "bg-purple-100 text-purple-700",
-  firewall: "bg-orange-100 text-orange-700",
-  system: "bg-teal-100 text-teal-700",
-  wireless: "bg-indigo-100 text-indigo-700",
-};
+type LogEntry = { id: string; time: string; topics: string; message: string };
 
-function topicColor(topics: string): string {
-  const parts = topics.split(",").map((t) => t.trim().toLowerCase());
-  for (const t of parts) {
-    if (TOPIC_COLORS[t]) return TOPIC_COLORS[t];
+function classifyLog(entry: LogEntry): {
+  icon: React.ReactNode;
+  rowClass: string;
+  timeClass: string;
+} {
+  const msg = entry.message.toLowerCase();
+  const topics = entry.topics.toLowerCase();
+
+  if (topics.includes("error") || topics.includes("critical")) {
+    return {
+      icon: <AlertCircle className="h-3.5 w-3.5 text-red-500 flex-shrink-0 mt-0.5" />,
+      rowClass: "bg-red-50/60 hover:bg-red-50",
+      timeClass: "text-red-400",
+    };
   }
-  return "bg-gray-100 text-gray-500";
-}
-
-function topicLabel(topics: string): string {
-  return topics.split(",")[0]?.trim() ?? topics;
+  if (msg.includes("logged in") || msg.includes("login")) {
+    return {
+      icon: <LogIn className="h-3.5 w-3.5 text-green-500 flex-shrink-0 mt-0.5" />,
+      rowClass: "hover:bg-gray-50",
+      timeClass: "text-gray-400",
+    };
+  }
+  if (msg.includes("logged out") || msg.includes("logout") || msg.includes("disconnected")) {
+    return {
+      icon: <LogOut className="h-3.5 w-3.5 text-orange-400 flex-shrink-0 mt-0.5" />,
+      rowClass: "hover:bg-gray-50",
+      timeClass: "text-gray-400",
+    };
+  }
+  if (topics.includes("warning") || msg.includes("denied") || msg.includes("block")) {
+    return {
+      icon: <Shield className="h-3.5 w-3.5 text-yellow-500 flex-shrink-0 mt-0.5" />,
+      rowClass: "bg-yellow-50/40 hover:bg-yellow-50/60",
+      timeClass: "text-yellow-500",
+    };
+  }
+  return {
+    icon: <Info className="h-3.5 w-3.5 text-blue-400 flex-shrink-0 mt-0.5" />,
+    rowClass: "hover:bg-gray-50",
+    timeClass: "text-gray-400",
+  };
 }
 
 export default function Dashboard() {
   const { data, isLoading, isError, refetch } = useGetDashboard();
   const { selectedRouterId } = useRouterContext();
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const prevIdsRef = useRef<Set<string>>(new Set());
+  const listRef = useRef<HTMLDivElement>(null);
 
   const {
     data: logs = [],
@@ -41,15 +65,26 @@ export default function Dashboard() {
     error: logsError,
   } = useListRouterLogs(
     selectedRouterId ?? 0,
-    { limit: 60 },
+    { limit: 80, topics: "hotspot" },
     {
       query: {
         enabled: !!selectedRouterId,
-        refetchInterval: 30_000,
-        staleTime: 25_000,
+        refetchInterval: 5_000,
+        staleTime: 4_000,
       },
     },
   );
+
+  useEffect(() => {
+    if (!logs.length) return;
+    const incoming = new Set(logs.map((l) => l.id).filter(Boolean));
+    const fresh = new Set([...incoming].filter((id) => !prevIdsRef.current.has(id)));
+    if (fresh.size > 0 && prevIdsRef.current.size > 0) {
+      setNewIds(fresh);
+      setTimeout(() => setNewIds(new Set()), 2000);
+    }
+    prevIdsRef.current = incoming;
+  }, [logs]);
 
   const handleRefresh = () => {
     refetch();
@@ -68,7 +103,6 @@ export default function Dashboard() {
           size="sm"
           onClick={handleRefresh}
           className="gap-1.5 text-gray-500"
-          title="Rafraîchir"
         >
           <RefreshCw className={`h-4 w-4 ${logsFetching ? "animate-spin" : ""}`} />
           Actualiser
@@ -77,11 +111,11 @@ export default function Dashboard() {
 
       {isError && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
-          Impossible de charger les statistiques. Vérifiez que l&apos;API est en cours d&apos;exécution.
+          Impossible de charger les statistiques.
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           title="Total Vouchers"
           value={data?.totalVouchers ?? 0}
@@ -109,56 +143,64 @@ export default function Dashboard() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <ScrollText className="h-4 w-4 text-gray-400" />
-              Logs MikroTik
-              {logsFetching && !logsLoading && (
-                <RefreshCw className="h-3 w-3 text-gray-400 animate-spin" />
+              Logs Hotspot
+              {selectedRouterId && !logsLoading && (
+                <span className="flex items-center gap-1 text-xs font-normal text-green-600">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                  </span>
+                  Live
+                </span>
               )}
             </CardTitle>
-            {logs.length > 0 && (
-              <span className="text-xs text-gray-400">↻ 30s</span>
-            )}
+            <span className="text-xs text-gray-400">↻ 5s</span>
           </div>
         </CardHeader>
+
         <CardContent className="p-0">
           {!selectedRouterId ? (
-            <div className="py-12 text-center">
+            <div className="py-14 text-center">
               <Wifi className="h-8 w-8 text-gray-200 mx-auto mb-2" />
               <p className="text-sm text-gray-400">Sélectionnez un routeur dans la barre de gauche</p>
             </div>
           ) : logsLoading ? (
-            <div className="py-8 text-center text-sm text-gray-400">
+            <div className="py-10 text-center text-sm text-gray-400">
               <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-gray-300" />
-              Chargement des logs...
+              Connexion au routeur…
             </div>
           ) : logsError ? (
-            <div className="py-8 text-center text-sm text-red-400">
-              Impossible de récupérer les logs du routeur.
+            <div className="py-10 text-center text-sm text-red-400">
+              Impossible de récupérer les logs hotspot.
             </div>
           ) : logs.length === 0 ? (
-            <div className="py-8 text-center text-sm text-gray-400">Aucun log disponible.</div>
+            <div className="py-10 text-center text-sm text-gray-400">
+              Aucun log hotspot disponible.
+            </div>
           ) : (
-            <div className="divide-y divide-gray-50 max-h-[480px] overflow-y-auto font-mono text-xs">
-              {logs.map((entry, i) => (
-                <div
-                  key={entry.id || i}
-                  className="flex items-start gap-3 px-4 py-2 hover:bg-gray-50"
-                >
-                  <span className="text-gray-400 whitespace-nowrap pt-0.5 flex-shrink-0 w-24">
-                    {entry.time}
-                  </span>
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] px-1.5 py-0 h-5 flex-shrink-0 border-0 font-medium ${topicColor(entry.topics)}`}
+            <div
+              ref={listRef}
+              className="divide-y divide-gray-50 max-h-[500px] overflow-y-auto"
+            >
+              {logs.map((entry, i) => {
+                const { icon, rowClass, timeClass } = classifyLog(entry);
+                const isNew = entry.id ? newIds.has(entry.id) : false;
+                return (
+                  <div
+                    key={entry.id || i}
+                    className={`flex items-start gap-2.5 px-4 py-2 font-mono text-xs transition-colors duration-500 ${rowClass} ${isNew ? "bg-blue-50/60" : ""}`}
                   >
-                    {topicLabel(entry.topics)}
-                  </Badge>
-                  <span className="text-gray-700 break-all leading-5">{entry.message}</span>
-                </div>
-              ))}
+                    {icon}
+                    <span className={`whitespace-nowrap flex-shrink-0 w-24 ${timeClass}`}>
+                      {entry.time}
+                    </span>
+                    <span className="text-gray-700 break-all leading-5">{entry.message}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
