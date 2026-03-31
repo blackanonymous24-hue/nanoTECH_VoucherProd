@@ -134,6 +134,35 @@ export async function listProfiles(conn: RouterConnection): Promise<HotspotProfi
   });
 }
 
+export interface HotspotUser {
+  username: string;
+  password: string;
+  profile: string;
+  comment: string | null;
+  limitUptime: string | null;
+  limitBytesTotal: string | null;
+  macAddress: string | null;
+  server: string | null;
+  disabled: boolean;
+}
+
+export async function listHotspotUsers(conn: RouterConnection): Promise<HotspotUser[]> {
+  return withRouter(conn, async (api) => {
+    const users = await api.write("/ip/hotspot/user/print");
+    return users.map((u) => ({
+      username: fixEncoding((u["name"] as string) ?? ""),
+      password: (u["password"] as string) ?? "",
+      profile: fixEncoding((u["profile"] as string) ?? ""),
+      comment: fixEncoding((u["comment"] as string) || null) || null,
+      limitUptime: (u["limit-uptime"] as string) || null,
+      limitBytesTotal: (u["limit-bytes-total"] as string) || null,
+      macAddress: (u["mac-address"] as string) || null,
+      server: (u["server"] as string) || null,
+      disabled: (u["disabled"] as string) === "true",
+    }));
+  });
+}
+
 export async function listSessions(conn: RouterConnection): Promise<HotspotSession[]> {
   return withRouter(conn, async (api) => {
     const sessions = await api.write("/ip/hotspot/active/print");

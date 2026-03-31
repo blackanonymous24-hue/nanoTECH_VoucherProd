@@ -26,8 +26,10 @@ import type {
   HealthStatus,
   HotspotProfile,
   HotspotSession,
+  HotspotUser,
   ListVouchersParams,
   Router,
+  SyncResult,
   TestResult,
   UpdateRouterBody,
   Voucher,
@@ -639,6 +641,138 @@ export function useListRouterSessions<TData = Awaited<ReturnType<typeof listRout
 
 
 
+/**
+ * @summary List all hotspot users from a router
+ */
+export const listRouterUsers = (
+    id: number,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<HotspotUser[]>(
+      {url: `/routers/${id}/users`, method: 'GET', signal
+    },
+      options);
+    }
+  
+
+
+
+export const getListRouterUsersQueryKey = (id?: number,) => {
+    return [
+    `/routers/${id}/users`
+    ] as const;
+    }
+
+    
+export const getListRouterUsersQueryOptions = <TData = Awaited<ReturnType<typeof listRouterUsers>>, TError = ErrorResponse>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterUsers>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListRouterUsersQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRouterUsers>>> = ({ signal }) => listRouterUsers(id, requestOptions, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listRouterUsers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListRouterUsersQueryResult = NonNullable<Awaited<ReturnType<typeof listRouterUsers>>>
+export type ListRouterUsersQueryError = ErrorResponse
+
+
+/**
+ * @summary List all hotspot users from a router
+ */
+
+export function useListRouterUsers<TData = Awaited<ReturnType<typeof listRouterUsers>>, TError = ErrorResponse>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterUsers>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+  
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListRouterUsersQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+/**
+ * @summary Import hotspot users from MikroTik into local DB
+ */
+export const syncRouterVouchers = (
+    id: number,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<SyncResult>(
+      {url: `/routers/${id}/sync`, method: 'POST', signal
+    },
+      options);
+    }
+  
+
+
+export const getSyncRouterVouchersMutationOptions = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncRouterVouchers>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncRouterVouchers>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['syncRouterVouchers'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncRouterVouchers>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  syncRouterVouchers(id,requestOptions)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncRouterVouchersMutationResult = NonNullable<Awaited<ReturnType<typeof syncRouterVouchers>>>
+    
+    export type SyncRouterVouchersMutationError = ErrorResponse
+
+    /**
+ * @summary Import hotspot users from MikroTik into local DB
+ */
+export const useSyncRouterVouchers = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncRouterVouchers>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof syncRouterVouchers>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+
+      const mutationOptions = getSyncRouterVouchersMutationOptions(options);
+
+      return useMutation(mutationOptions);
+    }
+    
 /**
  * @summary List generated vouchers
  */

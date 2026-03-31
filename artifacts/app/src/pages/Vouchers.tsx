@@ -3,13 +3,15 @@ import {
   useListVouchers,
   useDeleteVoucher,
   useMarkVoucherPrinted,
+  useSyncRouterVouchers,
   useListRouters,
   getListVouchersQueryKey,
   getGetDashboardQueryKey,
 } from "@workspace/api-client-react";
 import type { Voucher } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useRouterContext } from "@/contexts/RouterContext";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -20,13 +22,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Trash2, Printer, Search, RefreshCw } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Trash2, Printer, Search, RefreshCw, CloudDownload, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
 
 export default function Vouchers() {
   const { data: routers = [] } = useListRouters();
+  const { selectedRouterId } = useRouterContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -34,6 +44,12 @@ export default function Vouchers() {
   const [filterPrinted, setFilterPrinted] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncRouterId, setSyncRouterId] = useState<string>(
+    selectedRouterId ? String(selectedRouterId) : "",
+  );
+  const [syncResult, setSyncResult] = useState<{ imported: number; skipped: number; total: number } | null>(null);
 
   const params = {
     routerId: filterRouter !== "all" ? parseInt(filterRouter, 10) : undefined,
@@ -44,6 +60,7 @@ export default function Vouchers() {
   const { data, isLoading, refetch } = useListVouchers(params);
   const deleteMutation = useDeleteVoucher();
   const markPrintedMutation = useMarkVoucherPrinted();
+  const syncMutation = useSyncRouterVouchers();
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
@@ -103,6 +120,25 @@ export default function Vouchers() {
     window.print();
   };
 
+  const openSync = () => {
+    setSyncResult(null);
+    setSyncRouterId(selectedRouterId ? String(selectedRouterId) : (routers[0] ? String(routers[0].id) : ""));
+    setSyncDialogOpen(true);
+  };
+
+  const handleSync = async () => {
+    if (!syncRouterId) return;
+    setSyncResult(null);
+    try {
+      const result = await syncMutation.mutateAsync({ id: parseInt(syncRouterId, 10) });
+      setSyncResult(result);
+      invalidate();
+      refetch();
+    } catch {
+      toast({ title: "Erreur de synchronisation", variant: "destructive" });
+    }
+  };
+
   const routerName = (id: number) => routers.find((r) => r.id === id)?.name ?? `#${id}`;
 
   return (
@@ -112,9 +148,20 @@ export default function Vouchers() {
           <h1 className="text-2xl font-bold text-gray-900">Vouchers</h1>
           <p className="text-sm text-gray-500">{data?.total ?? 0} voucher(s) au total</p>
         </div>
-        <button onClick={() => refetch()} className="p-2 rounded-lg hover:bg-gray-200 text-gray-500">
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openSync}
+            className="gap-2"
+          >
+            <CloudDownload className="h-4 w-4" />
+            Sync MikroTik
+          </Button>
+          <button onClick={() => refetch()} className="p-2 rounded-lg hover:bg-gray-200 text-gray-500">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <Card className="mb-4">
@@ -189,7 +236,10 @@ export default function Vouchers() {
           {isLoading ? (
             <div className="py-8 text-center text-gray-400 text-sm">Chargement...</div>
           ) : vouchers.length === 0 ? (
-            <div className="py-8 text-center text-gray-400 text-sm">Aucun voucher trouvé.</div>
+            <div className="py-12 text-center text-gray-400 text-sm">
+              <p className="mb-2">Aucun voucher trouvé.</p>
+              <p className="text-xs">Utilisez "Sync MikroTik" pour importer les utilisateurs existants.</p>
+            </div>
           ) : (
             <div className="divide-y divide-gray-100 print:block" id="voucher-print-area">
               {vouchers.map((v) => (
@@ -207,6 +257,89 @@ export default function Vouchers() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={syncDialogOpen} onOpenChange={(o) => { if (!syncMutation.isPending) setSyncDialogOpen(o); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CloudDownload className="h-5 w-5 text-blue-500" />
+              Synchroniser depuis MikroTik
+            </DialogTitle>
+          </DialogHeader>
+
+          {!syncResult ? (
+            <div className="space-y-4 py-2">
+              <p className="text-sm text-gray-500">
+                Importe tous les utilisateurs hotspot existants depuis le routeur MikroTik dans la base de données locale. Les doublons sont ignorés.
+              </p>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Routeur</label>
+                <Select value={syncRouterId} onValueChange={setSyncRouterId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionnez un routeur" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {routers.map((r) => (
+                      <SelectItem key={r.id} value={String(r.id)}>
+                        {r.name} — {r.host}:{r.port}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter className="pt-2">
+                <Button variant="outline" onClick={() => setSyncDialogOpen(false)} disabled={syncMutation.isPending}>
+                  Annuler
+                </Button>
+                <Button
+                  onClick={handleSync}
+                  disabled={!syncRouterId || syncMutation.isPending}
+                  className="gap-2"
+                >
+                  {syncMutation.isPending ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Synchronisation...
+                    </>
+                  ) : (
+                    <>
+                      <CloudDownload className="h-4 w-4" />
+                      Synchroniser
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
+                <CheckCircle className="h-6 w-6 text-green-500 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-green-800">Synchronisation terminée</p>
+                  <p className="text-sm text-green-600">{syncResult.total} utilisateurs traités</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <p className="text-2xl font-bold text-blue-600">{syncResult.imported}</p>
+                  <p className="text-xs text-blue-500 mt-0.5">Importés</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-2xl font-bold text-gray-500">{syncResult.skipped}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Ignorés</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-2xl font-bold text-gray-700">{syncResult.total}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Total</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setSyncDialogOpen(false)}>Fermer</Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

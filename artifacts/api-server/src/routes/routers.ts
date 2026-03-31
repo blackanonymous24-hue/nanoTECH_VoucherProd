@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
-import { db, routersTable } from "@workspace/db";
-import { testConnection, listProfiles, listSessions } from "../lib/mikrotik.js";
+import { eq, and } from "drizzle-orm";
+import { db, routersTable, vouchersTable } from "@workspace/db";
+import { testConnection, listProfiles, listSessions, listHotspotUsers } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -179,6 +179,78 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   try {
     const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
     res.json(sessions);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.get("/routers/:id/users", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const users = await listHotspotUsers({ host: r.host, port: r.port, username: r.username, password: r.password });
+    res.json(users);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.post("/routers/:id/sync", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const [users, profiles] = await Promise.all([
+      listHotspotUsers(conn),
+      listProfiles(conn).catch(() => []),
+    ]);
+
+    const profileMap = new Map(profiles.map((p) => [p.name, p]));
+
+    let imported = 0;
+    let skipped = 0;
+
+    for (const user of users) {
+      if (!user.username || user.username === "default" || user.username === "default-trial") {
+        skipped++;
+        continue;
+      }
+
+      const existing = await db
+        .select({ id: vouchersTable.id })
+        .from(vouchersTable)
+        .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.username, user.username)))
+        .limit(1);
+
+      if (existing.length > 0) {
+        skipped++;
+        continue;
+      }
+
+      const prof = profileMap.get(user.profile);
+      await db.insert(vouchersTable).values({
+        routerId: id,
+        username: user.username,
+        password: user.password,
+        profileName: user.profile || "default",
+        price: prof?.price ?? "",
+        validity: prof?.validity ?? user.limitUptime ?? "",
+        comment: user.comment ?? null,
+      });
+      imported++;
+    }
+
+    res.json({ imported, skipped, total: users.length });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

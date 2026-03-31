@@ -154,6 +154,41 @@ export const listRouterSessionsResponse = zod.array(listRouterSessionsResponseIt
 
 
 /**
+ * @summary List all hotspot users from a router
+ */
+export const listRouterUsersParams = zod.object({
+  "id": zod.number()
+})
+
+export const listRouterUsersResponseItem = zod.object({
+  "username": zod.string(),
+  "password": zod.string(),
+  "profile": zod.string(),
+  "comment": zod.string().nullish(),
+  "limitUptime": zod.string().nullish(),
+  "limitBytesTotal": zod.string().nullish(),
+  "macAddress": zod.string().nullish(),
+  "server": zod.string().nullish(),
+  "disabled": zod.boolean()
+})
+export const listRouterUsersResponse = zod.array(listRouterUsersResponseItem)
+
+
+/**
+ * @summary Import hotspot users from MikroTik into local DB
+ */
+export const syncRouterVouchersParams = zod.object({
+  "id": zod.number()
+})
+
+export const syncRouterVouchersResponse = zod.object({
+  "imported": zod.number(),
+  "skipped": zod.number(),
+  "total": zod.number()
+})
+
+
+/**
  * @summary List generated vouchers
  */
 export const listVouchersQueryParams = zod.object({

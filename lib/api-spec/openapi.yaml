@@ -218,6 +218,68 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /routers/{id}/users:
+    get:
+      operationId: listRouterUsers
+      summary: List all hotspot users from a router
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of hotspot users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HotspotUser"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /routers/{id}/sync:
+    post:
+      operationId: syncRouterVouchers
+      summary: Import hotspot users from MikroTik into local DB
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /vouchers:
     get:
       operationId: listVouchers
@@ -521,6 +583,40 @@ components:
           type: ["string", "null"]
         server:
           type: ["string", "null"]
+
+    HotspotUser:
+      type: object
+      required: [username, password, profile, disabled]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        profile:
+          type: string
+        comment:
+          type: ["string", "null"]
+        limitUptime:
+          type: ["string", "null"]
+        limitBytesTotal:
+          type: ["string", "null"]
+        macAddress:
+          type: ["string", "null"]
+        server:
+          type: ["string", "null"]
+        disabled:
+          type: boolean
+
+    SyncResult:
+      type: object
+      required: [imported, skipped, total]
+      properties:
+        imported:
+          type: integer
+        skipped:
+          type: integer
+        total:
+          type: integer
 
     DashboardStats:
       type: object
