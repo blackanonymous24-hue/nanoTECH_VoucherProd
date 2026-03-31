@@ -116,7 +116,7 @@ function formatBps(bps: number): string {
 }
 
 function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
-  const { data, isError, isFetching } = useQuery<{ rxBps: number; txBps: number }>({
+  const { data, isError, isFetching } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
     queryKey: ["traffic", routerId],
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/routers/${routerId}/traffic`);
@@ -133,11 +133,14 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
   const active = !!data && (data.rxBps > 0 || data.txBps > 0);
 
   return (
-    <Card className="flex flex-col w-64 shrink-0">
+    <Card className="flex flex-col flex-1 min-w-0">
       <CardHeader className="pb-2 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             Trafic
+            {data?.name && (
+              <span className="text-xs font-mono font-normal text-gray-400">{data.name}</span>
+            )}
             {routerId && !isError && (
               <span className="flex items-center gap-1 text-xs font-normal text-green-600">
                 <span className="relative flex h-2 w-2">
@@ -575,7 +578,7 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="flex gap-4 items-start">
+      <div className="flex gap-4 items-stretch">
       <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
