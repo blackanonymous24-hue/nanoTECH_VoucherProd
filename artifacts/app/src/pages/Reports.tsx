@@ -7,7 +7,17 @@ import type { VendorSummary } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BarChart3, Users, Ticket, ShoppingCart, PackageOpen, ArrowLeft, TrendingUp } from "lucide-react";
+import {
+  BarChart3,
+  Users,
+  Ticket,
+  ShoppingCart,
+  PackageOpen,
+  ArrowLeft,
+  CalendarDays,
+  CalendarClock,
+  TrendingUp,
+} from "lucide-react";
 
 function AvailabilityBar({ sold, total }: { sold: number; total: number }) {
   const soldPct  = total > 0 ? Math.round((sold  / total) * 100) : 0;
@@ -44,6 +54,26 @@ function AvailabilityBar({ sold, total }: { sold: number; total: number }) {
   );
 }
 
+function SalesMiniCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: number;
+  icon: React.ElementType;
+  color: string;
+}) {
+  return (
+    <div className={`flex flex-col items-center justify-center rounded-lg p-2 ${color}`}>
+      <Icon className="h-4 w-4 mb-0.5 opacity-70" />
+      <span className="text-lg font-bold leading-none">{value}</span>
+      <span className="text-xs mt-0.5 text-center leading-tight opacity-80">{label}</span>
+    </div>
+  );
+}
+
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
   const { data, isLoading } = useGetVendorReport(vendorId);
 
@@ -54,9 +84,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
   }
 
   const available = data.totalVouchers - data.totalPrinted;
-  const soldPct = data.totalVouchers > 0
-    ? Math.round((data.totalPrinted / data.totalVouchers) * 100)
-    : 0;
+  const ss = data.salesStats;
 
   return (
     <div>
@@ -73,7 +101,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         </Badge>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      {/* Stock totaux */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -115,6 +144,24 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         </Card>
       </div>
 
+      {/* Ventes par période */}
+      <Card className="mb-5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-blue-500" />
+            Performance de vente
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-4 gap-3">
+            <SalesMiniCard label="Aujourd'hui" value={ss.todaySold}     icon={CalendarDays}  color="bg-green-50 text-green-700" />
+            <SalesMiniCard label="Hier"         value={ss.yesterdaySold} icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
+            <SalesMiniCard label="Cette semaine" value={ss.weekSold}    icon={CalendarClock} color="bg-blue-50 text-blue-700" />
+            <SalesMiniCard label="Mois dernier"  value={ss.lastMonthSold} icon={BarChart3}    color="bg-purple-50 text-purple-700" />
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -127,7 +174,6 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
               <div className="space-y-4">
                 {data.byProfile.map((stat) => {
                   const sold = Number(stat.printed);
-                  const avail = stat.total - sold;
                   return (
                     <div key={stat.profileName}>
                       <div className="flex items-center justify-between mb-1.5">
@@ -180,6 +226,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
 function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () => void }) {
   const sold      = summary.totalPrinted;
   const available = summary.totalVouchers - summary.totalPrinted;
+  const ss        = summary.salesStats;
 
   return (
     <Card
@@ -205,7 +252,8 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-3 gap-3 text-center mb-4">
+        {/* Stock */}
+        <div className="grid grid-cols-3 gap-3 text-center mb-3">
           <div>
             <p className="text-xl font-bold text-gray-900">{summary.totalVouchers}</p>
             <p className="text-xs text-gray-500">Générés</p>
@@ -219,7 +267,19 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
             <p className="text-xs text-blue-500">Disponibles</p>
           </div>
         </div>
+
+        {/* Barre */}
         <AvailabilityBar sold={sold} total={summary.totalVouchers} />
+
+        {/* Stats de vente par période */}
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <div className="grid grid-cols-4 gap-1.5">
+            <SalesMiniCard label="Auj." value={ss.todaySold}     icon={CalendarDays}  color="bg-green-50 text-green-700" />
+            <SalesMiniCard label="Hier" value={ss.yesterdaySold} icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
+            <SalesMiniCard label="Semaine" value={ss.weekSold}    icon={CalendarClock} color="bg-blue-50 text-blue-700" />
+            <SalesMiniCard label="Mois-1" value={ss.lastMonthSold} icon={BarChart3}    color="bg-purple-50 text-purple-700" />
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

@@ -4,6 +4,33 @@ import { db, vendorsTable, vouchersTable } from "@workspace/db";
 
 const router = Router();
 
+function buildSalesStats(vendorId: number) {
+  return db.select({
+    todaySold: sql<number>`
+      count(*) filter (where
+        ${vouchersTable.printedAt} >= current_date
+        and ${vouchersTable.printedAt} < current_date + interval '1 day'
+      )`,
+    yesterdaySold: sql<number>`
+      count(*) filter (where
+        ${vouchersTable.printedAt} >= current_date - interval '1 day'
+        and ${vouchersTable.printedAt} < current_date
+      )`,
+    weekSold: sql<number>`
+      count(*) filter (where
+        ${vouchersTable.printedAt} >= date_trunc('week', current_date)
+        and ${vouchersTable.printedAt} < current_date + interval '1 day'
+      )`,
+    lastMonthSold: sql<number>`
+      count(*) filter (where
+        ${vouchersTable.printedAt} >= date_trunc('month', current_date - interval '1 month')
+        and ${vouchersTable.printedAt} < date_trunc('month', current_date)
+      )`,
+  })
+  .from(vouchersTable)
+  .where(eq(vouchersTable.vendorId, vendorId));
+}
+
 router.get("/vendors", async (_req, res): Promise<void> => {
   const vendors = await db
     .select()
@@ -74,31 +101,41 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
 
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
 
-  const stats = await db
-    .select({
-      profileName: vouchersTable.profileName,
-      total: count(),
-      printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
-    })
-    .from(vouchersTable)
-    .where(eq(vouchersTable.vendorId, id))
-    .groupBy(vouchersTable.profileName)
-    .orderBy(desc(count()));
+  const [stats, salesRow, recentVouchers] = await Promise.all([
+    db
+      .select({
+        profileName: vouchersTable.profileName,
+        total: count(),
+        printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
+      })
+      .from(vouchersTable)
+      .where(eq(vouchersTable.vendorId, id))
+      .groupBy(vouchersTable.profileName)
+      .orderBy(desc(count())),
+
+    buildSalesStats(id).then((rows) => rows[0]),
+
+    db
+      .select()
+      .from(vouchersTable)
+      .where(eq(vouchersTable.vendorId, id))
+      .orderBy(desc(vouchersTable.createdAt))
+      .limit(50),
+  ]);
 
   const totalVouchers = stats.reduce((s, r) => s + r.total, 0);
-  const totalPrinted = stats.reduce((s, r) => s + Number(r.printed), 0);
-
-  const recentVouchers = await db
-    .select()
-    .from(vouchersTable)
-    .where(eq(vouchersTable.vendorId, id))
-    .orderBy(desc(vouchersTable.createdAt))
-    .limit(50);
+  const totalPrinted  = stats.reduce((s, r) => s + Number(r.printed), 0);
 
   res.json({
     vendor,
     totalVouchers,
     totalPrinted,
+    salesStats: {
+      todaySold:     Number(salesRow?.todaySold     ?? 0),
+      yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),
+      weekSold:      Number(salesRow?.weekSold      ?? 0),
+      lastMonthSold: Number(salesRow?.lastMonthSold ?? 0),
+    },
     byProfile: stats,
     recentVouchers,
   });
@@ -112,18 +149,28 @@ router.get("/vendors/reports/summary", async (_req, res): Promise<void> => {
 
   const summaries = await Promise.all(
     vendors.map(async (vendor) => {
-      const [row] = await db
-        .select({
-          total: count(),
-          printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
-        })
-        .from(vouchersTable)
-        .where(eq(vouchersTable.vendorId, vendor.id));
+      const [[row], [salesRow]] = await Promise.all([
+        db
+          .select({
+            total:   count(),
+            printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
+          })
+          .from(vouchersTable)
+          .where(eq(vouchersTable.vendorId, vendor.id)),
+
+        buildSalesStats(vendor.id),
+      ]);
 
       return {
         vendor,
         totalVouchers: row?.total ?? 0,
-        totalPrinted: row ? Number(row.printed) : 0,
+        totalPrinted:  row ? Number(row.printed) : 0,
+        salesStats: {
+          todaySold:     Number(salesRow?.todaySold     ?? 0),
+          yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),
+          weekSold:      Number(salesRow?.weekSold      ?? 0),
+          lastMonthSold: Number(salesRow?.lastMonthSold ?? 0),
+        },
       };
     }),
   );

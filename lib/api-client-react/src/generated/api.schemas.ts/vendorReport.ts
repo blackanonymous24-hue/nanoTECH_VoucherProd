@@ -5,6 +5,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { Vendor } from './vendor';
+import type { VendorSalesStats } from './vendorSalesStats';
 import type { VendorProfileStat } from './vendorProfileStat';
 import type { Voucher } from './voucher';
 
@@ -12,6 +13,7 @@ export interface VendorReport {
   vendor: Vendor;
   totalVouchers: number;
   totalPrinted: number;
+  salesStats: VendorSalesStats;
   byProfile: VendorProfileStat[];
   recentVouchers: Voucher[];
 }

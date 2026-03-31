@@ -5,9 +5,11 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { Vendor } from './vendor';
+import type { VendorSalesStats } from './vendorSalesStats';
 
 export interface VendorSummary {
   vendor: Vendor;
   totalVouchers: number;
   totalPrinted: number;
+  salesStats: VendorSalesStats;
 }

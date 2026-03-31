@@ -324,6 +324,12 @@ export const getVendorReportResponse = zod.object({
 }),
   "totalVouchers": zod.number(),
   "totalPrinted": zod.number(),
+  "salesStats": zod.object({
+  "todaySold": zod.number(),
+  "yesterdaySold": zod.number(),
+  "weekSold": zod.number(),
+  "lastMonthSold": zod.number()
+}),
   "byProfile": zod.array(zod.object({
   "profileName": zod.string(),
   "total": zod.number(),
@@ -357,7 +363,13 @@ export const getVendorReportsSummaryResponseItem = zod.object({
   "updatedAt": zod.string().datetime({})
 }),
   "totalVouchers": zod.number(),
-  "totalPrinted": zod.number()
+  "totalPrinted": zod.number(),
+  "salesStats": zod.object({
+  "todaySold": zod.number(),
+  "yesterdaySold": zod.number(),
+  "weekSold": zod.number(),
+  "lastMonthSold": zod.number()
+})
 })
 export const getVendorReportsSummaryResponse = zod.array(getVendorReportsSummaryResponseItem)
 

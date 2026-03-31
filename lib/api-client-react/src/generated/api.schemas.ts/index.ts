@@ -54,6 +54,7 @@ export * from './vendor';
 export * from './vendorPhone';
 export * from './vendorProfileStat';
 export * from './vendorReport';
+export * from './vendorSalesStats';
 export * from './vendorSummary';
 export * from './voucher';
 export * from './voucherComment';
