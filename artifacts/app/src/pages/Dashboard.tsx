@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspace/api-client-react";
@@ -550,6 +551,7 @@ export default function Dashboard() {
           fetching={sessionsFetching}
           icon={<Wifi className="h-5 w-5 text-purple-500" />}
           loading={!!selectedRouterId && activeSessions === undefined}
+          href="/sessions"
         />
         <StatCard
           title="Vente journalière"
@@ -576,6 +578,7 @@ export default function Dashboard() {
           fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
           loading={!!selectedRouterId && hotspotUserCount === undefined}
+          href="/vouchers"
         />
       </div>
 
@@ -658,6 +661,7 @@ function StatCard({
   loading,
   live,
   fetching,
+  href,
 }: {
   title: string;
   value?: number;
@@ -667,9 +671,10 @@ function StatCard({
   loading: boolean;
   live?: boolean;
   fetching?: boolean;
+  href?: string;
 }) {
-  return (
-    <Card>
+  const inner = (
+    <Card className={href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}>
       <CardContent className="pt-5">
         <div className="flex items-start gap-3">
           <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0 mt-0.5">{icon}</div>
@@ -705,4 +710,6 @@ function StatCard({
       </CardContent>
     </Card>
   );
+  if (href) return <Link href={href} className="block">{inner}</Link>;
+  return inner;
 }
