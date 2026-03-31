@@ -31,21 +31,6 @@ function formatValidity(v: string | null | undefined): string {
     .replace(/(\d+)w/, "$1 semaine(s)");
 }
 
-const VALIDITY_PRESETS = [
-  { label: "30 minutes", value: "30m" },
-  { label: "1 heure", value: "1h" },
-  { label: "2 heures", value: "2h" },
-  { label: "3 heures", value: "3h" },
-  { label: "6 heures", value: "6h" },
-  { label: "12 heures", value: "12h" },
-  { label: "1 jour", value: "1d" },
-  { label: "2 jours", value: "2d" },
-  { label: "3 jours", value: "3d" },
-  { label: "7 jours", value: "7d" },
-  { label: "15 jours", value: "15d" },
-  { label: "30 jours", value: "30d" },
-];
-
 const defaultForm = {
   name: "",
   label: "",
@@ -266,16 +251,11 @@ export default function Forfaits() {
 
             <div className="col-span-2 space-y-1.5">
               <Label>Validité <span className="text-red-500">*</span></Label>
-              <Select value={form.validity} onValueChange={(v) => setField("validity", v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choisir une durée…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {VALIDITY_PRESETS.map((p) => (
-                    <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                placeholder="ex: 3h, 1d, 7d, 30m"
+                value={form.validity}
+                onChange={(e) => setField("validity", e.target.value)}
+              />
             </div>
 
             <div className="space-y-1.5">
