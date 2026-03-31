@@ -156,6 +156,50 @@ export async function testConnection(conn: RouterConnection): Promise<{ success:
   }
 }
 
+export interface RouterInfo {
+  boardName: string | null;
+  model: string | null;
+  serialNumber: string | null;
+  routerOsVersion: string | null;
+  firmwareVersion: string | null;
+  cpu: string | null;
+  cpuCount: string | null;
+  totalMemory: string | null;
+  freeMemory: string | null;
+  uptime: string | null;
+  architecture: string | null;
+}
+
+export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo> {
+  return withRouter(conn, async (api) => {
+    const [res] = await api.write("/system/resource/print");
+
+    let model: string | null = null;
+    let serialNumber: string | null = null;
+    let firmwareVersion: string | null = null;
+    try {
+      const [board] = await api.write("/system/routerboard/print");
+      model = (board?.["model"] as string) ?? null;
+      serialNumber = (board?.["serial-number"] as string) ?? null;
+      firmwareVersion = (board?.["current-firmware"] as string) ?? null;
+    } catch { /* routerboard may be restricted */ }
+
+    return {
+      boardName: (res?.["board-name"] as string) ?? null,
+      model,
+      serialNumber,
+      routerOsVersion: (res?.["version"] as string) ?? null,
+      firmwareVersion,
+      cpu: (res?.["cpu"] as string) ?? null,
+      cpuCount: (res?.["cpu-count"] as string) ?? null,
+      totalMemory: (res?.["total-memory"] as string) ?? null,
+      freeMemory: (res?.["free-memory"] as string) ?? null,
+      uptime: (res?.["uptime"] as string) ?? null,
+      architecture: (res?.["architecture-name"] as string) ?? null,
+    };
+  }, 12000);
+}
+
 const EMPTY_PARSED = { price: "", validity: "", lockMac: false, sellingPrice: "", expiredMode: "", parentQueue: "" };
 
 export async function listProfiles(conn: RouterConnection): Promise<HotspotProfile[]> {

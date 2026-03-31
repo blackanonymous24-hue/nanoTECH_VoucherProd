@@ -4,11 +4,46 @@ import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspac
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info } from "lucide-react";
+import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type LogEntry = { id: string; time: string; topics: string; message: string };
+
+interface RouterInfo {
+  boardName: string | null;
+  model: string | null;
+  serialNumber: string | null;
+  routerOsVersion: string | null;
+  firmwareVersion: string | null;
+  cpu: string | null;
+  cpuCount: string | null;
+  totalMemory: string | null;
+  freeMemory: string | null;
+  uptime: string | null;
+  architecture: string | null;
+}
+
+function formatUptime(raw: string | null): string | null {
+  if (!raw) return null;
+  return raw
+    .replace(/(\d+)w/, "$1sem ")
+    .replace(/(\d+)d/, "$1j ")
+    .replace(/(\d+)h/, "$1h ")
+    .replace(/(\d+)m/, "$1min ")
+    .replace(/(\d+)s/, "")
+    .trim();
+}
+
+function formatMemory(bytes: string | null): string | null {
+  if (!bytes) return null;
+  const n = parseInt(bytes, 10);
+  if (isNaN(n)) return bytes;
+  if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(1)} GiB`;
+  if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(0)} MiB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(0)} KiB`;
+  return `${n} B`;
+}
 
 function formatAmount(amount: number): string {
   if (amount === 0) return "";
@@ -153,6 +188,23 @@ export default function Dashboard() {
     prevIdsRef.current = incoming;
   }, [logs]);
 
+  const {
+    data: routerInfo,
+    isLoading: infoLoading,
+    refetch: refetchInfo,
+  } = useQuery<RouterInfo>({
+    queryKey: ["router-info", selectedRouterId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/info`);
+      if (!res.ok) throw new Error("info unavailable");
+      return res.json() as Promise<RouterInfo>;
+    },
+    enabled: !!selectedRouterId,
+    staleTime: 60_000,
+    retry: false,
+    throwOnError: false,
+  });
+
   const prevPingTriggerRef = useRef(0);
   useEffect(() => {
     if (pingTrigger === 0) return;
@@ -163,7 +215,8 @@ export default function Dashboard() {
     refetchSales();
     refetchSessions();
     refetchUsers();
-  }, [pingTrigger, refetch, refetchLogs, refetchSales, refetchSessions, refetchUsers]);
+    refetchInfo();
+  }, [pingTrigger, refetch, refetchLogs, refetchSales, refetchSessions, refetchUsers, refetchInfo]);
 
   const handleRefresh = () => {
     refetch();
@@ -177,10 +230,9 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
-          <p className="text-sm text-gray-500">Vue d&apos;ensemble de votre système</p>
         </div>
         <Button
           variant="ghost"
@@ -192,6 +244,62 @@ export default function Dashboard() {
           Actualiser
         </Button>
       </div>
+
+      {/* Router hardware/software info bar */}
+      {selectedRouterId && (
+        <div className="mb-6">
+          {infoLoading ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Récupération des informations routeur…
+            </div>
+          ) : routerInfo ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {(routerInfo.boardName || routerInfo.model) && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs font-medium text-blue-700">
+                  <Router className="h-3 w-3" />
+                  {routerInfo.boardName ?? routerInfo.model}
+                </span>
+              )}
+              {routerInfo.routerOsVersion && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-50 border border-violet-100 text-xs font-medium text-violet-700">
+                  <Shield className="h-3 w-3" />
+                  RouterOS {routerInfo.routerOsVersion}
+                </span>
+              )}
+              {routerInfo.cpu && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-100 text-xs font-medium text-amber-700">
+                  <Cpu className="h-3 w-3" />
+                  {routerInfo.cpu}{routerInfo.cpuCount && routerInfo.cpuCount !== "1" ? ` × ${routerInfo.cpuCount}` : ""}
+                </span>
+              )}
+              {(routerInfo.freeMemory || routerInfo.totalMemory) && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-green-50 border border-green-100 text-xs font-medium text-green-700">
+                  <HardDrive className="h-3 w-3" />
+                  {formatMemory(routerInfo.freeMemory)} libre / {formatMemory(routerInfo.totalMemory)}
+                </span>
+              )}
+              {routerInfo.uptime && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-xs font-medium text-gray-600">
+                  <Clock className="h-3 w-3" />
+                  En ligne {formatUptime(routerInfo.uptime)}
+                </span>
+              )}
+              {routerInfo.serialNumber && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-xs text-gray-500">
+                  S/N {routerInfo.serialNumber}
+                </span>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">Vue d&apos;ensemble de votre système</p>
+          )}
+        </div>
+      )}
+
+      {!selectedRouterId && (
+        <p className="text-sm text-gray-500 mb-6">Vue d&apos;ensemble de votre système</p>
+      )}
 
       {isError && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
