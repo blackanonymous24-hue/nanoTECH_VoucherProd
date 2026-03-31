@@ -75,7 +75,7 @@ function parseProfileOnLogin(onLogin: string): { price: string; validity: string
 export async function withRouter<T>(
   conn: RouterConnection,
   fn: (api: RouterOSAPI) => Promise<T>,
-  timeout = 10000,
+  timeout = 15000,
 ): Promise<T> {
   const api = new RouterOSAPI({
     host: conn.host,
@@ -85,11 +85,15 @@ export async function withRouter<T>(
     timeout,
   });
 
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("RouterOS operation timed out")), timeout),
+  );
+
   await api.connect();
   try {
-    return await fn(api);
+    return await Promise.race([fn(api), timeoutPromise]);
   } finally {
-    api.close();
+    try { api.close(); } catch { /* ignore close errors */ }
   }
 }
 
