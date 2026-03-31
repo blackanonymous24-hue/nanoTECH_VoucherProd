@@ -95,7 +95,13 @@ export default function Dashboard() {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`);
       if (!res.ok) return 0;
       const data: unknown = await res.json();
-      return Array.isArray(data) ? data.length : 0;
+      if (Array.isArray(data)) return data.length;
+      if (data && typeof data === "object") {
+        const d = data as Record<string, unknown>;
+        if (typeof d.total === "number") return d.total;
+        if (Array.isArray(d.users)) return d.users.length;
+      }
+      return 0;
     },
     enabled: !!selectedRouterId,
     refetchInterval: 10_000,
