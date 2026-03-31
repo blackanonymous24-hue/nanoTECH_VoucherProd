@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react";
-import { useListRouterSessions } from "@workspace/api-client-react";
+import {
+  useListRouterSessions,
+  useDisconnectRouterSession,
+} from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -19,7 +23,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Activity, RefreshCw, Wifi, Users } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Activity, RefreshCw, Wifi, Users, Search, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 function formatBytes(bytes: string | null | undefined): string {
   if (!bytes) return "—";
@@ -33,9 +48,13 @@ function formatBytes(bytes: string | null | undefined): string {
 
 export default function Sessions() {
   const { selectedRouterId, setSelectedRouterId, routers } = useRouterContext();
+  const { toast } = useToast();
+
   const [localRouterId, setLocalRouterId] = useState<string>(
     selectedRouterId ? String(selectedRouterId) : "",
   );
+  const [search, setSearch] = useState("");
+  const [disconnectUser, setDisconnectUser] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedRouterId && !localRouterId) {
@@ -55,10 +74,47 @@ export default function Sessions() {
     },
   );
 
+  const disconnectMutation = useDisconnectRouterSession();
+
   const handleRouterChange = (val: string) => {
     setLocalRouterId(val);
     setSelectedRouterId(val ? parseInt(val, 10) : null);
+    setSearch("");
   };
+
+  const handleDisconnect = async () => {
+    if (!disconnectUser || !activeId) return;
+    try {
+      const result = await disconnectMutation.mutateAsync({
+        id: activeId,
+        data: { user: disconnectUser },
+      });
+      toast({
+        title: `${disconnectUser} déconnecté`,
+        description: `${result.removed} session(s) terminée(s)`,
+      });
+      refetch();
+    } catch {
+      toast({
+        title: "Erreur de déconnexion",
+        description: "Impossible de déconnecter cet utilisateur",
+        variant: "destructive",
+      });
+    } finally {
+      setDisconnectUser(null);
+    }
+  };
+
+  const filtered = sessions.filter((s) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      s.user.toLowerCase().includes(q) ||
+      (s.address ?? "").toLowerCase().includes(q) ||
+      (s.macAddress ?? "").toLowerCase().includes(q) ||
+      (s.server ?? "").toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div>
@@ -81,7 +137,7 @@ export default function Sessions() {
         )}
       </div>
 
-      <div className="mb-6 flex items-center gap-4">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="w-72">
           <Select value={localRouterId} onValueChange={handleRouterChange}>
             <SelectTrigger>
@@ -96,10 +152,23 @@ export default function Sessions() {
             </SelectContent>
           </Select>
         </div>
+
+        {activeId && sessions.length > 0 && (
+          <div className="relative flex-1 min-w-48 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            <Input
+              className="pl-9"
+              placeholder="Rechercher un client, IP, MAC..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        )}
+
         {activeId && !isLoading && (
           <Badge variant="outline" className="gap-1.5 text-green-600 border-green-200">
             <Users className="h-3 w-3" />
-            {sessions.length} client(s) connecté(s)
+            {search ? `${filtered.length} / ${sessions.length}` : sessions.length} client(s)
           </Badge>
         )}
         {activeId && (
@@ -139,7 +208,16 @@ export default function Sessions() {
         </Card>
       )}
 
-      {activeId && !isLoading && sessions.length > 0 && (
+      {activeId && !isLoading && sessions.length > 0 && filtered.length === 0 && (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <Search className="h-8 w-8 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500 font-medium">Aucun résultat pour « {search} »</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeId && !isLoading && filtered.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -157,11 +235,12 @@ export default function Sessions() {
                   <TableHead>Durée</TableHead>
                   <TableHead>Données ↓</TableHead>
                   <TableHead>Données ↑</TableHead>
-                  <TableHead className="pr-6">Serveur</TableHead>
+                  <TableHead>Serveur</TableHead>
+                  <TableHead className="pr-6 w-12"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sessions.map((s, i) => (
+                {filtered.map((s, i) => (
                   <TableRow key={i}>
                     <TableCell className="pl-6 font-mono font-semibold text-gray-900">{s.user}</TableCell>
                     <TableCell className="font-mono text-sm text-gray-600">{s.address || "—"}</TableCell>
@@ -173,7 +252,18 @@ export default function Sessions() {
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">{formatBytes(s.bytesIn)}</TableCell>
                     <TableCell className="text-sm text-gray-600">{formatBytes(s.bytesOut)}</TableCell>
-                    <TableCell className="pr-6 text-sm text-gray-500">{s.server || "—"}</TableCell>
+                    <TableCell className="text-sm text-gray-500">{s.server || "—"}</TableCell>
+                    <TableCell className="pr-4">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                        title={`Déconnecter ${s.user}`}
+                        onClick={() => setDisconnectUser(s.user)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -181,6 +271,27 @@ export default function Sessions() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={!!disconnectUser} onOpenChange={(o) => { if (!o) setDisconnectUser(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Déconnecter ce client ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              L&apos;utilisateur <strong className="font-mono">{disconnectUser}</strong> sera déconnecté du hotspot immédiatement. Il pourra se reconnecter avec ses identifiants.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={handleDisconnect}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? "Déconnexion..." : "Déconnecter"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

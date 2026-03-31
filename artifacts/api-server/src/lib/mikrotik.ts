@@ -182,6 +182,21 @@ export async function listSessions(conn: RouterConnection): Promise<HotspotSessi
   });
 }
 
+export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
+  return withRouter(conn, async (api) => {
+    const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);
+    let removed = 0;
+    for (const s of sessions) {
+      const id = s[".id"] as string | undefined;
+      if (id) {
+        await api.write("/ip/hotspot/active/remove", [`=.id=${id}`]);
+        removed++;
+      }
+    }
+    return removed;
+  });
+}
+
 function generateCode(length: number, prefix?: string): { username: string; password: string } {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   const random = () =>

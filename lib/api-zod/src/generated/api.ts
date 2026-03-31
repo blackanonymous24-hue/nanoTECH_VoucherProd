@@ -184,6 +184,23 @@ export const listRouterUsersResponse = zod.object({
 
 
 /**
+ * @summary Disconnect an active hotspot session
+ */
+export const disconnectRouterSessionParams = zod.object({
+  "id": zod.number()
+})
+
+export const disconnectRouterSessionBody = zod.object({
+  "user": zod.string()
+})
+
+export const disconnectRouterSessionResponse = zod.object({
+  "removed": zod.number(),
+  "user": zod.string()
+})
+
+
+/**
  * @summary Import hotspot users from MikroTik into local DB
  */
 export const syncRouterVouchersParams = zod.object({

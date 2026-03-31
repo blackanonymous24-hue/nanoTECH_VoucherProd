@@ -264,6 +264,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /routers/{id}/sessions/disconnect:
+    post:
+      operationId: disconnectRouterSession
+      summary: Disconnect an active hotspot session
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisconnectSessionBody"
+      responses:
+        "200":
+          description: Disconnect result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisconnectResult"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /routers/{id}/sync:
     post:
       operationId: syncRouterVouchers
@@ -800,6 +842,22 @@ components:
           type: ["string", "null"]
         vendorId:
           type: ["integer", "null"]
+
+    DisconnectSessionBody:
+      type: object
+      required: [user]
+      properties:
+        user:
+          type: string
+
+    DisconnectResult:
+      type: object
+      required: [removed, user]
+      properties:
+        removed:
+          type: integer
+        user:
+          type: string
 
     HotspotUserListResponse:
       type: object

@@ -9,6 +9,8 @@ export * from './createRouterBody';
 export * from './createVendorBody';
 export * from './createVendorBodyPhone';
 export * from './dashboardStats';
+export * from './disconnectResult';
+export * from './disconnectSessionBody';
 export * from './errorResponse';
 export * from './generateVouchersBody';
 export * from './generateVouchersBodyComment';

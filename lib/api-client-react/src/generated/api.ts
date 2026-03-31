@@ -22,6 +22,8 @@ import type {
   CreateRouterBody,
   CreateVendorBody,
   DashboardStats,
+  DisconnectResult,
+  DisconnectSessionBody,
   ErrorResponse,
   GenerateVouchersBody,
   HealthStatus,
@@ -721,6 +723,72 @@ export function useListRouterUsers<TData = Awaited<ReturnType<typeof listRouterU
 
 
 
+/**
+ * @summary Disconnect an active hotspot session
+ */
+export const disconnectRouterSession = (
+    id: number,
+    disconnectSessionBody: DisconnectSessionBody,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<DisconnectResult>(
+      {url: `/routers/${id}/sessions/disconnect`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: disconnectSessionBody, signal
+    },
+      options);
+    }
+  
+
+
+export const getDisconnectRouterSessionMutationOptions = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectRouterSession>>, TError,{id: number;data: DisconnectSessionBody}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectRouterSession>>, TError,{id: number;data: DisconnectSessionBody}, TContext> => {
+
+const mutationKey = ['disconnectRouterSession'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectRouterSession>>, {id: number;data: DisconnectSessionBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  disconnectRouterSession(id,data,requestOptions)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectRouterSessionMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectRouterSession>>>
+    export type DisconnectRouterSessionMutationBody = DisconnectSessionBody
+    export type DisconnectRouterSessionMutationError = ErrorResponse
+
+    /**
+ * @summary Disconnect an active hotspot session
+ */
+export const useDisconnectRouterSession = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectRouterSession>>, TError,{id: number;data: DisconnectSessionBody}, TContext>, request?: SecondParameter<typeof customInstance>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectRouterSession>>,
+        TError,
+        {id: number;data: DisconnectSessionBody},
+        TContext
+      > => {
+
+      const mutationOptions = getDisconnectRouterSessionMutationOptions(options);
+
+      return useMutation(mutationOptions);
+    }
+    
 /**
  * @summary Import hotspot users from MikroTik into local DB
  */
