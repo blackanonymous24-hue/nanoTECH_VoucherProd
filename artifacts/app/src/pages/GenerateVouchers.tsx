@@ -218,12 +218,12 @@ export default function GenerateVouchers() {
               {vendors.length > 0 && (
                 <div>
                   <Label>Vendeur <span className="text-gray-400 text-xs">(optionnel)</span></Label>
-                  <Select value={vendorId} onValueChange={setVendorId}>
+                  <Select value={vendorId || "none"} onValueChange={(v) => setVendorId(v === "none" ? "" : v)}>
                     <SelectTrigger className="mt-1">
                       <SelectValue placeholder="Aucun vendeur sélectionné" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Aucun vendeur</SelectItem>
+                      <SelectItem value="none">— Aucun vendeur —</SelectItem>
                       {vendors.filter((v) => v.isActive).map((v) => (
                         <SelectItem key={v.id} value={String(v.id)}>
                           {v.name}{v.phone ? ` · ${v.phone}` : ""}
