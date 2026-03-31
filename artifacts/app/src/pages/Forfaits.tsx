@@ -220,69 +220,67 @@ export default function Forfaits() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {profiles.map((p) => (
               <Card key={p.name} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-2 pt-4 px-4">
-                  <div className="flex items-start justify-between gap-1">
-                    <CardTitle className="text-base font-bold text-gray-900 truncate" title={p.name}>
-                      {p.name}
-                    </CardTitle>
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
-                      <button
-                        onClick={() => openEdit(p)}
-                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-                        title="Modifier"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeletingName(p.name)}
-                        className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                        title="Supprimer"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="px-4 pb-4 space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Clock className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
-                    <span className="text-gray-700">{formatValidity(p.validity)}</span>
-                  </div>
+                <div className="flex p-4 gap-2">
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <p className="text-base font-bold text-gray-900 truncate" title={p.name}>{p.name}</p>
 
-                  {p.price && p.price !== "0" ? (
                     <div className="flex items-center gap-2 text-sm">
-                      <Banknote className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                      <span className="text-gray-700 font-semibold">{p.price} FCFA</span>
+                      <Clock className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                      <span className="text-gray-700">{formatValidity(p.validity)}</span>
                     </div>
-                  ) : null}
 
-                  {p.sharedUsers && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Users className="h-3.5 w-3.5 text-purple-500 flex-shrink-0" />
-                      <span className="text-gray-700">{p.sharedUsers} appareil(s)</span>
-                    </div>
-                  )}
+                    {p.price && p.price !== "0" ? (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Banknote className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                        <span className="text-gray-700 font-semibold">{p.price} FCFA</span>
+                      </div>
+                    ) : null}
 
-                  {p.rateLimit && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Wifi className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
-                      <span className="text-gray-600 text-xs font-mono">{p.rateLimit}</span>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {p.lockMac && (
-                      <Badge variant="outline" className="text-xs text-amber-600 border-amber-200 gap-1">
-                        <Lock className="h-2.5 w-2.5" /> MAC verrouillé
-                      </Badge>
+                    {p.sharedUsers && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Users className="h-3.5 w-3.5 text-purple-500 flex-shrink-0" />
+                        <span className="text-gray-700">{p.sharedUsers} appareil(s)</span>
+                      </div>
                     )}
-                    {(!p.price || p.price === "0") && (
-                      <Badge variant="outline" className="text-xs text-blue-600 border-blue-200">
-                        Promo / Gratuit
-                      </Badge>
+
+                    {p.rateLimit && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Wifi className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
+                        <span className="text-gray-600 text-xs font-mono">{p.rateLimit}</span>
+                      </div>
                     )}
+
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {p.lockMac && (
+                        <Badge variant="outline" className="text-xs text-amber-600 border-amber-200 gap-1">
+                          <Lock className="h-2.5 w-2.5" /> MAC verrouillé
+                        </Badge>
+                      )}
+                      {(!p.price || p.price === "0") && (
+                        <Badge variant="outline" className="text-xs text-blue-600 border-blue-200">
+                          Promo / Gratuit
+                        </Badge>
+                      )}
+                    </div>
                   </div>
-                </CardContent>
+
+                  <div className="flex flex-col items-center justify-between flex-shrink-0">
+                    <button
+                      onClick={() => openEdit(p)}
+                      className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                      title="Modifier"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setDeletingName(p.name)}
+                      className="p-1 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"
+                      title="Supprimer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
               </Card>
             ))}
           </div>
