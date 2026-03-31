@@ -13,6 +13,10 @@ export interface Voucher {
   profileId: number;
   profileName: string;
   status: VoucherStatus;
+  /** @nullable */
+  batchId: string | null;
+  /** @nullable */
+  batchName: string | null;
   createdAt: Date;
   /** @nullable */
   soldAt: Date | null;

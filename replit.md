@@ -101,10 +101,10 @@ French-language Wi-Fi voucher sales system for MikroTik hotspot operators.
 
 ### Frontend (`artifacts/voucher-system`, `@workspace/voucher-system`)
 
-React + Vite + Tailwind + shadcn/ui. All text in French, currency in Ariary (e.g. "2 500 Ar"). Routes:
+React + Vite + Tailwind + shadcn/ui. All text in French, currency in FCFA (e.g. "2 500 FCFA"). Routes:
 - `/dashboard` — Tableau de bord (stats, recent sales, vouchers by profile chart)
 - `/vente` — Point de Vente (POS with profile selector, distributor selector, payment method)
-- `/vouchers` — Gestion Vouchers (list, import, delete)
+- `/vouchers` — Gestion Vouchers (onglet "Par lot" avec export .txt/.csv + delete, onglet "Tous les codes", import MikHmon CSV)
 - `/profils` — Forfaits & Profils (CRUD for hotspot profiles)
 - `/ventes` — Historique des ventes
 - `/distributeurs` — Gestion des distributeurs (CRUD)

@@ -21,6 +21,7 @@ import type {
   CreateProfileBody,
   CreateSaleBody,
   DashboardStats,
+  DeleteVoucherBatch200,
   Distributor,
   DistributorDailyReport,
   DistributorDailyStats,
@@ -29,6 +30,7 @@ import type {
   GetSalesParams,
   GetVouchersParams,
   HealthStatus,
+  ImportVouchersBody,
   Profile,
   Sale,
   UpdateDistributorBody,
@@ -36,6 +38,7 @@ import type {
   VendorLoginBody,
   VendorSession,
   Voucher,
+  VoucherBatch,
   VouchersByProfile,
 } from "./api.schemas";
 
@@ -1233,6 +1236,340 @@ export function useGetVouchers<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Lister les lots de vouchers
+ */
+export const getGetVoucherBatchesUrl = () => {
+  return `/api/vouchers/batches`;
+};
+
+export const getVoucherBatches = async (
+  options?: RequestInit,
+): Promise<VoucherBatch[]> => {
+  return customFetch<VoucherBatch[]>(getGetVoucherBatchesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetVoucherBatchesQueryKey = () => {
+  return [`/api/vouchers/batches`] as const;
+};
+
+export const getGetVoucherBatchesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getVoucherBatches>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getVoucherBatches>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetVoucherBatchesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getVoucherBatches>>
+  > = ({ signal }) => getVoucherBatches({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getVoucherBatches>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetVoucherBatchesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getVoucherBatches>>
+>;
+export type GetVoucherBatchesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Lister les lots de vouchers
+ */
+
+export function useGetVoucherBatches<
+  TData = Awaited<ReturnType<typeof getVoucherBatches>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getVoucherBatches>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetVoucherBatchesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Lister les vouchers d'un lot
+ */
+export const getGetVouchersByBatchUrl = (batchId: string) => {
+  return `/api/vouchers/batches/${batchId}`;
+};
+
+export const getVouchersByBatch = async (
+  batchId: string,
+  options?: RequestInit,
+): Promise<Voucher[]> => {
+  return customFetch<Voucher[]>(getGetVouchersByBatchUrl(batchId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetVouchersByBatchQueryKey = (batchId: string) => {
+  return [`/api/vouchers/batches/${batchId}`] as const;
+};
+
+export const getGetVouchersByBatchQueryOptions = <
+  TData = Awaited<ReturnType<typeof getVouchersByBatch>>,
+  TError = ErrorType<unknown>,
+>(
+  batchId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getVouchersByBatch>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetVouchersByBatchQueryKey(batchId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getVouchersByBatch>>
+  > = ({ signal }) =>
+    getVouchersByBatch(batchId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!batchId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getVouchersByBatch>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetVouchersByBatchQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getVouchersByBatch>>
+>;
+export type GetVouchersByBatchQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Lister les vouchers d'un lot
+ */
+
+export function useGetVouchersByBatch<
+  TData = Awaited<ReturnType<typeof getVouchersByBatch>>,
+  TError = ErrorType<unknown>,
+>(
+  batchId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getVouchersByBatch>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetVouchersByBatchQueryOptions(batchId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Supprimer un lot de vouchers
+ */
+export const getDeleteVoucherBatchUrl = (batchId: string) => {
+  return `/api/vouchers/batches/${batchId}`;
+};
+
+export const deleteVoucherBatch = async (
+  batchId: string,
+  options?: RequestInit,
+): Promise<DeleteVoucherBatch200> => {
+  return customFetch<DeleteVoucherBatch200>(getDeleteVoucherBatchUrl(batchId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteVoucherBatchMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteVoucherBatch>>,
+    TError,
+    { batchId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteVoucherBatch>>,
+  TError,
+  { batchId: string },
+  TContext
+> => {
+  const mutationKey = ["deleteVoucherBatch"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteVoucherBatch>>,
+    { batchId: string }
+  > = (props) => {
+    const { batchId } = props ?? {};
+
+    return deleteVoucherBatch(batchId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteVoucherBatchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteVoucherBatch>>
+>;
+
+export type DeleteVoucherBatchMutationError = ErrorType<void>;
+
+/**
+ * @summary Supprimer un lot de vouchers
+ */
+export const useDeleteVoucherBatch = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteVoucherBatch>>,
+    TError,
+    { batchId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteVoucherBatch>>,
+  TError,
+  { batchId: string },
+  TContext
+> => {
+  return useMutation(getDeleteVoucherBatchMutationOptions(options));
+};
+
+/**
+ * @summary Importer des vouchers depuis un CSV MikHmon
+ */
+export const getImportVouchersUrl = () => {
+  return `/api/vouchers/import`;
+};
+
+export const importVouchers = async (
+  importVouchersBody: ImportVouchersBody,
+  options?: RequestInit,
+): Promise<GenerateVouchersResponse> => {
+  return customFetch<GenerateVouchersResponse>(getImportVouchersUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(importVouchersBody),
+  });
+};
+
+export const getImportVouchersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof importVouchers>>,
+    TError,
+    { data: BodyType<ImportVouchersBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof importVouchers>>,
+  TError,
+  { data: BodyType<ImportVouchersBody> },
+  TContext
+> => {
+  const mutationKey = ["importVouchers"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof importVouchers>>,
+    { data: BodyType<ImportVouchersBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return importVouchers(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ImportVouchersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof importVouchers>>
+>;
+export type ImportVouchersMutationBody = BodyType<ImportVouchersBody>;
+export type ImportVouchersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Importer des vouchers depuis un CSV MikHmon
+ */
+export const useImportVouchers = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof importVouchers>>,
+    TError,
+    { data: BodyType<ImportVouchersBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof importVouchers>>,
+  TError,
+  { data: BodyType<ImportVouchersBody> },
+  TContext
+> => {
+  return useMutation(getImportVouchersMutationOptions(options));
+};
 
 /**
  * @summary Générer des vouchers en lot

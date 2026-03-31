@@ -210,6 +210,7 @@ export const DeleteProfileParams = zod.object({
 export const GetVouchersQueryParams = zod.object({
   status: zod.enum(["available", "sold", "used", "expired"]).optional(),
   profileId: zod.coerce.number().optional(),
+  batchId: zod.coerce.string().optional(),
 });
 
 export const GetVouchersResponseItem = zod.object({
@@ -218,10 +219,71 @@ export const GetVouchersResponseItem = zod.object({
   profileId: zod.number(),
   profileName: zod.string(),
   status: zod.enum(["available", "sold", "used", "expired"]),
+  batchId: zod.string().nullable(),
+  batchName: zod.string().nullable(),
   createdAt: zod.coerce.date(),
   soldAt: zod.coerce.date().nullable(),
 });
 export const GetVouchersResponse = zod.array(GetVouchersResponseItem);
+
+/**
+ * @summary Lister les lots de vouchers
+ */
+export const GetVoucherBatchesResponseItem = zod.object({
+  batchId: zod.string(),
+  batchName: zod.string(),
+  profileId: zod.number(),
+  profileName: zod.string(),
+  total: zod.number(),
+  available: zod.number(),
+  sold: zod.number(),
+  createdAt: zod.coerce.date(),
+});
+export const GetVoucherBatchesResponse = zod.array(
+  GetVoucherBatchesResponseItem,
+);
+
+/**
+ * @summary Lister les vouchers d'un lot
+ */
+export const GetVouchersByBatchParams = zod.object({
+  batchId: zod.coerce.string(),
+});
+
+export const GetVouchersByBatchResponseItem = zod.object({
+  id: zod.number(),
+  code: zod.string(),
+  profileId: zod.number(),
+  profileName: zod.string(),
+  status: zod.enum(["available", "sold", "used", "expired"]),
+  batchId: zod.string().nullable(),
+  batchName: zod.string().nullable(),
+  createdAt: zod.coerce.date(),
+  soldAt: zod.coerce.date().nullable(),
+});
+export const GetVouchersByBatchResponse = zod.array(
+  GetVouchersByBatchResponseItem,
+);
+
+/**
+ * @summary Supprimer un lot de vouchers
+ */
+export const DeleteVoucherBatchParams = zod.object({
+  batchId: zod.coerce.string(),
+});
+
+export const DeleteVoucherBatchResponse = zod.object({
+  deleted: zod.number(),
+});
+
+/**
+ * @summary Importer des vouchers depuis un CSV MikHmon
+ */
+export const ImportVouchersBody = zod.object({
+  profileId: zod.number(),
+  csvContent: zod.string(),
+  batchName: zod.string().optional(),
+});
 
 /**
  * @summary Générer des vouchers en lot

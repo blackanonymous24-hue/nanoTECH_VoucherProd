@@ -277,6 +277,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: batchId
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: Liste des vouchers
@@ -286,6 +290,85 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Voucher"
+
+  /vouchers/batches:
+    get:
+      operationId: getVoucherBatches
+      tags: [vouchers]
+      summary: Lister les lots de vouchers
+      responses:
+        "200":
+          description: Liste des lots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VoucherBatch"
+
+  /vouchers/batches/{batchId}:
+    get:
+      operationId: getVouchersByBatch
+      tags: [vouchers]
+      summary: Lister les vouchers d'un lot
+      parameters:
+        - name: batchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Vouchers du lot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Voucher"
+    delete:
+      operationId: deleteVoucherBatch
+      tags: [vouchers]
+      summary: Supprimer un lot de vouchers
+      parameters:
+        - name: batchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Résultat de la suppression
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+                required:
+                  - deleted
+        "404":
+          description: Lot introuvable
+
+  /vouchers/import:
+    post:
+      operationId: importVouchers
+      tags: [vouchers]
+      summary: Importer des vouchers depuis un CSV MikHmon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportVouchersBody"
+      responses:
+        "201":
+          description: Vouchers importés
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateVouchersResponse"
 
   /vouchers/generate:
     post:
@@ -544,6 +627,10 @@ components:
         status:
           type: string
           enum: [available, sold, used, expired]
+        batchId:
+          type: ["string", "null"]
+        batchName:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -556,8 +643,40 @@ components:
         - profileId
         - profileName
         - status
+        - batchId
+        - batchName
         - createdAt
         - soldAt
+
+    VoucherBatch:
+      type: object
+      properties:
+        batchId:
+          type: string
+        batchName:
+          type: string
+        profileId:
+          type: integer
+        profileName:
+          type: string
+        total:
+          type: integer
+        available:
+          type: integer
+        sold:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - batchId
+        - batchName
+        - profileId
+        - profileName
+        - total
+        - available
+        - sold
+        - createdAt
 
     GenerateVouchersBody:
       type: object
@@ -569,6 +688,19 @@ components:
       required:
         - profileId
         - quantity
+
+    ImportVouchersBody:
+      type: object
+      properties:
+        profileId:
+          type: integer
+        csvContent:
+          type: string
+        batchName:
+          type: string
+      required:
+        - profileId
+        - csvContent
 
     GenerateVouchersResponse:
       type: object

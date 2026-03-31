@@ -62,14 +62,35 @@ export interface Voucher {
   profileId: number;
   profileName: string;
   status: VoucherStatus;
+  /** @nullable */
+  batchId: string | null;
+  /** @nullable */
+  batchName: string | null;
   createdAt: string;
   /** @nullable */
   soldAt: string | null;
 }
 
+export interface VoucherBatch {
+  batchId: string;
+  batchName: string;
+  profileId: number;
+  profileName: string;
+  total: number;
+  available: number;
+  sold: number;
+  createdAt: string;
+}
+
 export interface GenerateVouchersBody {
   profileId: number;
   quantity: number;
+}
+
+export interface ImportVouchersBody {
+  profileId: number;
+  csvContent: string;
+  batchName?: string;
 }
 
 export interface GenerateVouchersResponse {
@@ -228,6 +249,7 @@ export interface VouchersByProfile {
 export type GetVouchersParams = {
   status?: GetVouchersStatus;
   profileId?: number;
+  batchId?: string;
 };
 
 export type GetVouchersStatus =
@@ -239,6 +261,10 @@ export const GetVouchersStatus = {
   used: "used",
   expired: "expired",
 } as const;
+
+export type DeleteVoucherBatch200 = {
+  deleted: number;
+};
 
 export type GetSalesParams = {
   limit?: number;
