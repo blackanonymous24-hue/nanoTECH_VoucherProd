@@ -50,6 +50,7 @@ export default function GenerateVouchers() {
   const [vendorId, setVendorId] = useState<string>("");
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const activeRouterId = selectedRouterId ?? (localRouterId ? parseInt(localRouterId, 10) : null);
 
@@ -75,25 +76,42 @@ export default function GenerateVouchers() {
     setSelectedRouterId(val ? parseInt(val, 10) : null);
   };
 
+  const BATCH_SIZE = 50;
+
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeRouterId || !profile) return;
 
-    const result = await generateMutation.mutateAsync({
-      data: {
-        routerId: activeRouterId,
-        profile,
-        qty: parseInt(qty, 10),
-        prefix: prefix || null,
-        comment: comment || null,
-        vendorId: vendorId ? parseInt(vendorId, 10) : null,
-        passwordMode,
-      },
-    });
+    const total = parseInt(qty, 10);
+    const allVouchers: Voucher[] = [];
+    let done = 0;
+    setProgress({ done: 0, total });
 
-    setGeneratedVouchers(result);
-    queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
-    toast({ title: `${result.length} voucher(s) généré(s) avec succès !` });
+    try {
+      while (done < total) {
+        const batchQty = Math.min(BATCH_SIZE, total - done);
+        const batch = await generateMutation.mutateAsync({
+          data: {
+            routerId: activeRouterId,
+            profile,
+            qty: batchQty,
+            prefix: prefix || null,
+            comment: comment || null,
+            vendorId: vendorId ? parseInt(vendorId, 10) : null,
+            passwordMode,
+          },
+        });
+        allVouchers.push(...batch);
+        done += batch.length;
+        setProgress({ done, total });
+      }
+
+      setGeneratedVouchers(allVouchers);
+      queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
+      toast({ title: `${allVouchers.length} voucher(s) généré(s) avec succès !` });
+    } finally {
+      setProgress(null);
+    }
   };
 
   const handlePrint = () => {
@@ -200,7 +218,7 @@ export default function GenerateVouchers() {
                     className="mt-1"
                     type="number"
                     min={1}
-                    max={200}
+                    max={5000}
                     value={qty}
                     onChange={(e) => setQty(e.target.value)}
                     required
@@ -288,14 +306,29 @@ export default function GenerateVouchers() {
                 </div>
               )}
 
-              <Button
-                type="submit"
-                className="w-full gap-2"
-                disabled={!activeRouterId || !profile || generateMutation.isPending}
-              >
-                <Zap className="h-4 w-4" />
-                {generateMutation.isPending ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
-              </Button>
+              <div>
+                <Button
+                  type="submit"
+                  className="w-full gap-2"
+                  disabled={!activeRouterId || !profile || !!progress}
+                >
+                  <Zap className="h-4 w-4" />
+                  {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
+                </Button>
+                {progress && (
+                  <div className="flex items-center justify-end gap-2 mt-1.5">
+                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">
+                      {progress.done} / {progress.total}
+                    </span>
+                  </div>
+                )}
+              </div>
 
               {generateMutation.isError && (
                 <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded p-2">
