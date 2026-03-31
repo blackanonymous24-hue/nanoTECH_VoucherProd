@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, type SalesReport } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -400,6 +400,65 @@ async function triggerSalesRefresh(id: number, host: string, port: number, usern
   }
 }
 
+// ─── Usage sync (real-time sold voucher detection) ───────────────────────────
+interface UsageSyncEntry { updatedAt: number; updated: number; total: number; }
+const usageSyncCache  = new Map<number, UsageSyncEntry>();
+const usageSyncActive = new Set<number>(); // routers currently syncing
+const usageSyncTimer  = new Map<number, ReturnType<typeof setTimeout>>();
+const USAGE_SYNC_INTERVAL = 3 * 60 * 1000; // 3 minutes
+
+/** Core sync logic — shared by background and manual trigger */
+async function runUsageSync(routerId: number, conn: RouterConnection): Promise<{ updated: number; total: number }> {
+  const usedUsernames = await fetchUsedUsernames(conn);
+
+  const vouchers = await db
+    .select({ id: vouchersTable.id, username: vouchersTable.username })
+    .from(vouchersTable)
+    .where(and(
+      eq(vouchersTable.routerId, routerId),
+      isNotNull(vouchersTable.vendorId),
+      isNull(vouchersTable.usedAt),
+    ));
+
+  if (usedUsernames.size === 0) return { updated: 0, total: vouchers.length };
+
+  const toUpdate = vouchers
+    .filter((v) => usedUsernames.has(v.username.toLowerCase()))
+    .map((v) => v.id);
+
+  if (toUpdate.length > 0) {
+    const now = new Date();
+    await db
+      .update(vouchersTable)
+      .set({ usedAt: now, printedAt: sql`coalesce(${vouchersTable.printedAt}, ${now.toISOString()})` })
+      .where(inArray(vouchersTable.id, toUpdate));
+  }
+
+  return { updated: toUpdate.length, total: vouchers.length };
+}
+
+/** Background auto-sync — self-reschedules every USAGE_SYNC_INTERVAL */
+async function scheduleUsageSync(routerId: number, conn: RouterConnection) {
+  if (usageSyncActive.has(routerId)) return;
+  usageSyncActive.add(routerId);
+  try {
+    const result = await runUsageSync(routerId, conn);
+    usageSyncCache.set(routerId, { updatedAt: Date.now(), ...result });
+  } catch { /* keep stale cache on error */ } finally {
+    usageSyncActive.delete(routerId);
+    // Reschedule next run
+    const timer = setTimeout(() => scheduleUsageSync(routerId, conn), USAGE_SYNC_INTERVAL);
+    usageSyncTimer.set(routerId, timer);
+  }
+}
+
+/** Start auto-sync for a router if not already scheduled */
+function ensureUsageSyncScheduled(routerId: number, conn: RouterConnection) {
+  if (!usageSyncTimer.has(routerId) && !usageSyncActive.has(routerId)) {
+    scheduleUsageSync(routerId, conn);
+  }
+}
+
 router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
@@ -417,6 +476,9 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   if (needsRefresh || agingRefresh) {
     triggerSalesRefresh(id, r.host, r.port, r.username, r.password);
   }
+  // Also ensure usage sync is running for this router
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  ensureUsageSyncScheduled(id, conn);
 
   if (cached) {
     res.json({ ...cached.data, _cachedAt: cached.updatedAt });
@@ -430,6 +492,25 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
       dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`, _cachedAt: null,
     });
   }
+});
+
+router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  ensureUsageSyncScheduled(id, conn);
+
+  const entry = usageSyncCache.get(id);
+  res.json({
+    running:   usageSyncActive.has(id),
+    updatedAt: entry?.updatedAt ?? null,
+    updated:   entry?.updated  ?? 0,
+    total:     entry?.total    ?? 0,
+  });
 });
 
 router.get("/routers/:id/logs", async (req, res): Promise<void> => {
@@ -530,8 +611,8 @@ router.post("/routers/:id/sync", async (req, res): Promise<void> => {
 
 /**
  * POST /routers/:id/sync-usage
- * Fetches used usernames from MikroTik (hotspot logs + MikHmon scripts)
- * and marks matching vouchers in the DB with usedAt if not already set.
+ * Immediate manual sync — runs runUsageSync synchronously, updates cache,
+ * and resets the auto-sync schedule for this router.
  */
 router.post("/routers/:id/sync-usage", async (req, res): Promise<void> => {
   const routerId = parseInt(req.params.id, 10);
@@ -544,52 +625,29 @@ router.post("/routers/:id/sync-usage", async (req, res): Promise<void> => {
 
   if (!routerRow) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const conn = {
+  const conn: RouterConnection = {
     host: routerRow.host,
     port: routerRow.port,
     username: routerRow.username,
     password: routerRow.password,
   };
 
+  // If a background sync is already running, wait for it briefly or return cached
+  if (usageSyncActive.has(routerId)) {
+    const entry = usageSyncCache.get(routerId);
+    res.json({ running: true, updated: entry?.updated ?? 0, total: entry?.total ?? 0, _cachedAt: entry?.updatedAt ?? null });
+    return;
+  }
+
   try {
-    const usedUsernames = await fetchUsedUsernames(conn);
-
-    if (usedUsernames.size === 0) {
-      res.json({ updated: 0, total: 0, message: "Aucun utilisateur trouvé dans les logs/scripts" });
-      return;
-    }
-
-    // Get all vouchers for this router assigned to a vendor, not yet marked as used
-    const vouchers = await db
-      .select({ id: vouchersTable.id, username: vouchersTable.username, printedAt: vouchersTable.printedAt })
-      .from(vouchersTable)
-      .where(and(
-        eq(vouchersTable.routerId, routerId),
-        isNotNull(vouchersTable.vendorId),
-        isNull(vouchersTable.usedAt),
-      ));
-
-    const toUpdate = vouchers
-      .filter((v) => usedUsernames.has(v.username.toLowerCase()))
-      .map((v) => v.id);
-
-    let updated = 0;
-    if (toUpdate.length > 0) {
-      const now = new Date();
-      // Mark usedAt; also backfill printedAt if it was never set
-      // (voucher was sold outside VoucherNet's print flow)
-      await db
-        .update(vouchersTable)
-        .set({ usedAt: now, printedAt: sql`coalesce(${vouchersTable.printedAt}, ${now.toISOString()})` })
-        .where(inArray(vouchersTable.id, toUpdate));
-      updated = toUpdate.length;
-    }
-
-    res.json({
-      updated,
-      total: vouchers.length,
-      usedOnRouter: usedUsernames.size,
-    });
+    const result = await runUsageSync(routerId, conn);
+    usageSyncCache.set(routerId, { updatedAt: Date.now(), ...result });
+    // Reset recurring schedule
+    const existing = usageSyncTimer.get(routerId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => scheduleUsageSync(routerId, conn), USAGE_SYNC_INTERVAL);
+    usageSyncTimer.set(routerId, timer);
+    res.json({ running: false, ...result, _cachedAt: Date.now() });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

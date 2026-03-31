@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock } from "lucide-react";
+import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Zap } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -94,6 +95,51 @@ function classifyLog(entry: LogEntry): {
   };
 }
 
+interface SyncStatus {
+  running: boolean;
+  updatedAt: number | null;
+  updated: number;
+  total: number;
+}
+
+function relativeTime(ms: number): string {
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 60) return "à l'instant";
+  if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
+  return `il y a ${Math.floor(diff / 3600)}h`;
+}
+
+function SyncPill({ status, onSync }: { status: SyncStatus | undefined; onSync: () => void }) {
+  if (!status) return null;
+
+  if (status.running) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-600">
+        <RefreshCw className="h-3 w-3 animate-spin" />
+        Sync en cours…
+      </span>
+    );
+  }
+
+  if (!status.updatedAt) return null;
+
+  return (
+    <button
+      onClick={onSync}
+      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-600 hover:bg-indigo-100 transition-colors cursor-pointer"
+      title="Cliquez pour synchroniser maintenant"
+    >
+      <Zap className="h-3 w-3" />
+      Sync {relativeTime(status.updatedAt)}
+      {status.updated > 0 && (
+        <span className="ml-1 bg-indigo-200 text-indigo-800 rounded-full px-1.5 py-0 text-[10px] font-bold">
+          +{status.updated}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export default function Dashboard() {
   const { data, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: { refetchInterval: 10_000, staleTime: 9_000 },
@@ -102,6 +148,9 @@ export default function Dashboard() {
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
+  const [syncing, setSyncing] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const {
     data: activeSessions,
@@ -249,6 +298,55 @@ export default function Dashboard() {
     if (routerInfo?.identity) setRouterIdentity(routerInfo.identity);
   }, [routerInfo, setRouterIdentity]);
 
+  const {
+    data: syncStatus,
+    refetch: refetchSync,
+  } = useQuery<SyncStatus>({
+    queryKey: ["sync-status", selectedRouterId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sync-status`);
+      if (!res.ok) throw new Error("sync-status unavailable");
+      return res.json() as Promise<SyncStatus>;
+    },
+    enabled: !!selectedRouterId,
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+    retry: false,
+    throwOnError: false,
+  });
+
+  const handleSync = async () => {
+    if (!selectedRouterId || syncing) return;
+    setSyncing(true);
+    try {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sync-usage`, { method: "POST" });
+      const result = (await res.json()) as { updated: number; total: number; running?: boolean };
+      await Promise.all([
+        refetchSync(),
+        queryClient.invalidateQueries({ queryKey: ["list-vouchers"] }),
+      ]);
+      if (result.running) {
+        const { dismiss } = toast({ title: "Sync en cours…", description: "Une synchronisation est déjà active" });
+        setTimeout(dismiss, 4000);
+      } else {
+        const { dismiss } = toast({
+          title: result.updated > 0
+            ? `${result.updated} ticket${result.updated > 1 ? "s" : ""} détecté${result.updated > 1 ? "s" : ""}`
+            : "Sync terminée",
+          description: result.updated > 0
+            ? `${result.updated} ticket${result.updated > 1 ? "s" : ""} vendu${result.updated > 1 ? "s" : ""} mis à jour`
+            : "Aucun nouveau ticket vendu trouvé",
+        });
+        setTimeout(dismiss, 5000);
+      }
+    } catch {
+      const { dismiss } = toast({ title: "Erreur de synchronisation", variant: "destructive" });
+      setTimeout(dismiss, 4000);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const prevPingTriggerRef = useRef(0);
   useEffect(() => {
     if (pingTrigger === 0) return;
@@ -260,7 +358,8 @@ export default function Dashboard() {
     refetchSessions();
     refetchUsers();
     refetchInfo();
-  }, [pingTrigger, refetch, refetchLogs, refetchSales, refetchSessions, refetchUsers, refetchInfo]);
+    refetchSync();
+  }, [pingTrigger, refetch, refetchLogs, refetchSales, refetchSessions, refetchUsers, refetchInfo, refetchSync]);
 
   const handleRefresh = () => {
     refetch();
@@ -269,6 +368,7 @@ export default function Dashboard() {
       refetchSales();
       refetchSessions();
       refetchUsers();
+      refetchSync();
     }
   };
 
@@ -278,15 +378,29 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleRefresh}
-          className="gap-1.5 text-gray-500"
-        >
-          <RefreshCw className={`h-4 w-4 ${logsFetching ? "animate-spin" : ""}`} />
-          Actualiser
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedRouterId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSync}
+              disabled={syncing || syncStatus?.running}
+              className="gap-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+            >
+              <Zap className={`h-4 w-4 ${syncing || syncStatus?.running ? "animate-pulse" : ""}`} />
+              {syncing || syncStatus?.running ? "Sync…" : "Synchroniser"}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRefresh}
+            className="gap-1.5 text-gray-500"
+          >
+            <RefreshCw className={`h-4 w-4 ${logsFetching ? "animate-spin" : ""}`} />
+            Actualiser
+          </Button>
+        </div>
       </div>
 
       {/* Router hardware/software info bar */}
@@ -334,6 +448,8 @@ export default function Dashboard() {
                   S/N {routerInfo.serialNumber}
                 </span>
               )}
+              {/* Sync status pill */}
+              <SyncPill status={syncStatus} onSync={handleSync} />
             </div>
           ) : (
             <p className="text-sm text-gray-500">Vue d&apos;ensemble de votre système</p>
