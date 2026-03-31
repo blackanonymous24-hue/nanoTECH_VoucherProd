@@ -218,7 +218,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col flex-1 pt-3 pb-2 px-3">
+      <CardContent className="flex flex-col flex-1 pt-3 pb-2 px-3" style={{ minHeight: 0 }}>
         {!routerId ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2">
             <Activity className="h-8 w-8 text-gray-200" />
@@ -234,12 +234,13 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
             <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
           </div>
         ) : (
-          <>
+          <div className="flex flex-col flex-1" style={{ minHeight: 0 }}>
             {selectedIface && (
               <p className="text-center text-xs font-medium text-gray-400 mb-1 font-mono">Interface {selectedIface}</p>
             )}
-            <div className="w-full" style={{ height: 200 }}>
-              <ResponsiveContainer width="100%" height={200}>
+            {/* position:relative wrapper is the recharts trick to fill flex space with height="100%" */}
+            <div className="flex-1" style={{ position: "relative", minHeight: 0 }}>
+              <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={history} margin={{ top: 8, right: 16, bottom: 0, left: 70 }}>
                   <CartesianGrid stroke={LIGHT_GRID} strokeDasharray="0" vertical={true} horizontal={true} />
                   <XAxis
@@ -275,7 +276,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </>
+          </div>
         )}
       </CardContent>
     </Card>
