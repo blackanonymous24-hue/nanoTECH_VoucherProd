@@ -223,18 +223,6 @@ export default function GenerateVouchers() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setPasswordMode("random")}
-                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
-                      passwordMode === "random"
-                        ? "bg-blue-50 border-blue-400 text-blue-700"
-                        : "border-gray-200 text-gray-500 hover:border-gray-300"
-                    }`}
-                  >
-                    <span className="font-mono text-xs block mb-0.5">user &amp; password</span>
-                    <span className="text-xs font-normal text-current opacity-70">Codes différents</span>
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => setPasswordMode("same")}
                     className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
                       passwordMode === "same"
@@ -244,6 +232,18 @@ export default function GenerateVouchers() {
                   >
                     <span className="font-mono text-xs block mb-0.5">user = password</span>
                     <span className="text-xs font-normal text-current opacity-70">Identiques</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPasswordMode("random")}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                      passwordMode === "random"
+                        ? "bg-blue-50 border-blue-400 text-blue-700"
+                        : "border-gray-200 text-gray-500 hover:border-gray-300"
+                    }`}
+                  >
+                    <span className="font-mono text-xs block mb-0.5">user &amp; password</span>
+                    <span className="text-xs font-normal text-current opacity-70">Codes différents</span>
                   </button>
                 </div>
               </div>
