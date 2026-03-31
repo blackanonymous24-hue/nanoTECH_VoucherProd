@@ -19,7 +19,7 @@ export default function SettingsRouterOS() {
   const [form, setForm] = useState<RouterOSConfig>({
     enabled: false,
     host: "192.168.88.1",
-    port: 80,
+    port: 8728,
     ssl: false,
     user: "admin",
     password: "",
@@ -78,7 +78,7 @@ export default function SettingsRouterOS() {
           Configuration RouterOS MikroTik
         </h1>
         <p className="text-muted-foreground mt-1">
-          Connectez VoucherNet à votre routeur MikroTik pour créer automatiquement les utilisateurs hotspot lors de la génération de vouchers.
+          Connectez VoucherNet à votre routeur MikroTik via l'API RouterOS pour créer automatiquement les utilisateurs hotspot lors de la génération de vouchers.
         </p>
       </div>
 
@@ -87,7 +87,7 @@ export default function SettingsRouterOS() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base">Intégration RouterOS</CardTitle>
-              <CardDescription>Synchronisation automatique des vouchers via l'API REST RouterOS</CardDescription>
+              <CardDescription>Synchronisation automatique des vouchers via l'API RouterOS (même paramètres que MikHmon)</CardDescription>
             </div>
             <Switch
               checked={form.enabled}
@@ -99,7 +99,7 @@ export default function SettingsRouterOS() {
         <CardContent className="space-y-5">
           <div className="grid grid-cols-3 gap-4">
             <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="host">Adresse IP / Hôte du routeur</Label>
+              <Label htmlFor="host">Adresse IP du routeur</Label>
               <Input
                 id="host"
                 placeholder="192.168.88.1"
@@ -107,23 +107,25 @@ export default function SettingsRouterOS() {
                 onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
                 disabled={!form.enabled}
               />
+              <p className="text-xs text-muted-foreground">IP locale de votre routeur MikroTik</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="port">Port</Label>
+              <Label htmlFor="port">Port API</Label>
               <Input
                 id="port"
                 type="number"
-                placeholder="80"
+                placeholder="8728"
                 value={form.port}
-                onChange={(e) => setForm((f) => ({ ...f, port: parseInt(e.target.value) || 80 }))}
+                onChange={(e) => setForm((f) => ({ ...f, port: parseInt(e.target.value) || 8728 }))}
                 disabled={!form.enabled}
               />
+              <p className="text-xs text-muted-foreground">8728 par défaut</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="user">Nom d'utilisateur RouterOS</Label>
+              <Label htmlFor="user">Utilisateur</Label>
               <Input
                 id="user"
                 placeholder="admin"
@@ -133,11 +135,11 @@ export default function SettingsRouterOS() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Mot de passe RouterOS</Label>
+              <Label htmlFor="password">Mot de passe</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="••••••••"
+                placeholder="(vide par défaut)"
                 value={form.password}
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                 disabled={!form.enabled}
@@ -148,13 +150,13 @@ export default function SettingsRouterOS() {
           <div className="flex items-center gap-3 rounded-md border p-3 bg-muted/30">
             <ShieldCheck className="h-4 w-4 text-muted-foreground shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">Connexion HTTPS (SSL)</p>
-              <p className="text-xs text-muted-foreground">Utiliser HTTPS pour chiffrer la communication (port 443 par défaut)</p>
+              <p className="text-sm font-medium">TLS sécurisé</p>
+              <p className="text-xs text-muted-foreground">Chiffrement TLS — port 8729 par défaut (API sécurisée MikroTik)</p>
             </div>
             <Switch
               checked={form.ssl}
               onCheckedChange={(v) => {
-                setForm((f) => ({ ...f, ssl: v, port: v ? 443 : 80 }));
+                setForm((f) => ({ ...f, ssl: v, port: v ? 8729 : 8728 }));
               }}
               disabled={!form.enabled}
             />
@@ -216,24 +218,33 @@ export default function SettingsRouterOS() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Comment ça fonctionne</CardTitle>
+          <CardTitle className="text-base">Informations de connexion</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <div className="flex gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">1</span>
-            <p>Activez l'intégration et entrez l'adresse IP de votre routeur MikroTik ainsi que les identifiants administrateur.</p>
-          </div>
-          <div className="flex gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">2</span>
-            <p>Testez la connexion pour vérifier que VoucherNet peut communiquer avec votre routeur via l'API REST RouterOS.</p>
-          </div>
-          <div className="flex gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">3</span>
-            <p>Lors de la génération d'un lot de vouchers, chaque code est automatiquement créé en tant qu'utilisateur hotspot dans RouterOS (nom = mot de passe = code du voucher, profil = identifiant MikroTik du forfait).</p>
-          </div>
-          <div className="flex gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">4</span>
-            <p>Les vouchers sont créés dans la base de données locale même si RouterOS est inaccessible. Vous pouvez toujours exporter en CSV pour importation manuelle.</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2 p-3 rounded-md bg-muted/40 border">
+              <p className="font-semibold text-foreground text-xs uppercase tracking-wide">Paramètres MikHmon</p>
+              <div className="space-y-1 text-xs font-mono">
+                <div className="flex justify-between"><span>Port API :</span> <span className="font-bold">8728</span></div>
+                <div className="flex justify-between"><span>Port API (TLS) :</span> <span className="font-bold">8729</span></div>
+                <div className="flex justify-between"><span>Utilisateur :</span> <span className="font-bold">admin</span></div>
+                <div className="flex justify-between"><span>Mot de passe :</span> <span className="italic">(vide)</span></div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">1</span>
+                <p className="text-xs">Activez l'API RouterOS dans Winbox : <span className="font-mono text-foreground">IP &gt; Services &gt; api</span></p>
+              </div>
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">2</span>
+                <p className="text-xs">Entrez l'IP locale du routeur et le port API (8728 par défaut, comme MikHmon).</p>
+              </div>
+              <div className="flex gap-3">
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">3</span>
+                <p className="text-xs">Lors de la génération, chaque voucher est créé comme utilisateur hotspot (nom = mot de passe = code).</p>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
