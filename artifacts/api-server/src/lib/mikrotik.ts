@@ -182,6 +182,28 @@ export async function listSessions(conn: RouterConnection): Promise<HotspotSessi
   });
 }
 
+export interface LogEntry {
+  id: string;
+  time: string;
+  topics: string;
+  message: string;
+}
+
+export async function listLogs(conn: RouterConnection, limit = 50): Promise<LogEntry[]> {
+  return withRouter(conn, async (api) => {
+    const entries = await api.write("/log/print");
+    return entries
+      .slice(-limit)
+      .reverse()
+      .map((e) => ({
+        id: (e[".id"] as string) ?? "",
+        time: (e["time"] as string) ?? "",
+        topics: (e["topics"] as string) ?? "",
+        message: (e["message"] as string) ?? "",
+      }));
+  });
+}
+
 export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
   return withRouter(conn, async (api) => {
     const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);

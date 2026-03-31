@@ -184,6 +184,26 @@ export const listRouterUsersResponse = zod.object({
 
 
 /**
+ * @summary Fetch system log from MikroTik router
+ */
+export const listRouterLogsParams = zod.object({
+  "id": zod.number()
+})
+
+export const listRouterLogsQueryParams = zod.object({
+  "limit": zod.number().optional()
+})
+
+export const listRouterLogsResponseItem = zod.object({
+  "id": zod.string(),
+  "time": zod.string(),
+  "topics": zod.string(),
+  "message": zod.string()
+})
+export const listRouterLogsResponse = zod.array(listRouterLogsResponseItem)
+
+
+/**
  * @summary Disconnect an active hotspot session
  */
 export const disconnectRouterSessionParams = zod.object({

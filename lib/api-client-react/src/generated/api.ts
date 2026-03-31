@@ -30,8 +30,10 @@ import type {
   HotspotProfile,
   HotspotSession,
   HotspotUserListResponse,
+  ListRouterLogsParams,
   ListRouterUsersParams,
   ListVouchersParams,
+  LogEntry,
   Router,
   SyncResult,
   TestResult,
@@ -711,6 +713,80 @@ export function useListRouterUsers<TData = Awaited<ReturnType<typeof listRouterU
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListRouterUsersQueryOptions(id,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+/**
+ * @summary Fetch system log from MikroTik router
+ */
+export const listRouterLogs = (
+    id: number,
+    params?: ListRouterLogsParams,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<LogEntry[]>(
+      {url: `/routers/${id}/logs`, method: 'GET',
+        params, signal
+    },
+      options);
+    }
+  
+
+
+
+export const getListRouterLogsQueryKey = (id?: number,
+    params?: ListRouterLogsParams,) => {
+    return [
+    `/routers/${id}/logs`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+    
+export const getListRouterLogsQueryOptions = <TData = Awaited<ReturnType<typeof listRouterLogs>>, TError = ErrorResponse>(id: number,
+    params?: ListRouterLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterLogs>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListRouterLogsQueryKey(id,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRouterLogs>>> = ({ signal }) => listRouterLogs(id,params, requestOptions, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listRouterLogs>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListRouterLogsQueryResult = NonNullable<Awaited<ReturnType<typeof listRouterLogs>>>
+export type ListRouterLogsQueryError = ErrorResponse
+
+
+/**
+ * @summary Fetch system log from MikroTik router
+ */
+
+export function useListRouterLogs<TData = Awaited<ReturnType<typeof listRouterLogs>>, TError = ErrorResponse>(
+ id: number,
+    params?: ListRouterLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRouterLogs>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+  
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListRouterLogsQueryOptions(id,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

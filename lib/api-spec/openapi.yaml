@@ -264,6 +264,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /routers/{id}/logs:
+    get:
+      operationId: listRouterLogs
+      summary: Fetch system log from MikroTik router
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogEntry"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /routers/{id}/sessions/disconnect:
     post:
       operationId: disconnectRouterSession
@@ -845,6 +875,19 @@ components:
         passwordMode:
           type: string
           enum: [same, random]
+
+    LogEntry:
+      type: object
+      required: [id, time, topics, message]
+      properties:
+        id:
+          type: string
+        time:
+          type: string
+        topics:
+          type: string
+        message:
+          type: string
 
     DisconnectSessionBody:
       type: object
