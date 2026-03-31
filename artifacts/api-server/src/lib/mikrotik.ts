@@ -403,6 +403,27 @@ export async function listSessions(conn: RouterConnection): Promise<HotspotSessi
   });
 }
 
+export interface InterfaceTraffic {
+  rxBps: number;
+  txBps: number;
+}
+
+export async function fetchInterfaceTraffic(conn: RouterConnection): Promise<InterfaceTraffic> {
+  return withRouter(conn, async (api) => {
+    const ifaces = await api.write("/interface/print", [
+      "=.proplist=rx-bits-per-second,tx-bits-per-second,disabled,running",
+    ]);
+    let rxBps = 0;
+    let txBps = 0;
+    for (const iface of ifaces) {
+      if ((iface["disabled"] as string) === "true") continue;
+      rxBps += parseInt((iface["rx-bits-per-second"] as string) || "0", 10);
+      txBps += parseInt((iface["tx-bits-per-second"] as string) || "0", 10);
+    }
+    return { rxBps, txBps };
+  }, 8000);
+}
+
 export interface SalesReport {
   dailyCount: number;
   dailyAmount: number;

@@ -4,7 +4,7 @@ import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspac
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Zap } from "lucide-react";
+import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Zap, Activity, ArrowDown, ArrowUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -107,6 +107,48 @@ function relativeTime(ms: number): string {
   if (diff < 60) return "à l'instant";
   if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
   return `il y a ${Math.floor(diff / 3600)}h`;
+}
+
+function formatBps(bps: number): string {
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`;
+  if (bps >= 1_000)     return `${Math.round(bps / 1_000)} Kbps`;
+  return `${bps} bps`;
+}
+
+function TrafficMonitor({ routerId }: { routerId: number | null }) {
+  const { data, isError } = useQuery<{ rxBps: number; txBps: number }>({
+    queryKey: ["traffic", routerId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/routers/${routerId}/traffic`);
+      if (!res.ok) throw new Error("traffic unavailable");
+      return res.json();
+    },
+    enabled: !!routerId,
+    refetchInterval: 5_000,
+    staleTime: 4_000,
+    retry: false,
+    throwOnError: false,
+  });
+
+  if (!routerId || isError || !data) {
+    return <span className="text-xs text-gray-400">↻ 5s</span>;
+  }
+
+  const active = data.rxBps > 0 || data.txBps > 0;
+
+  return (
+    <div className="flex items-center gap-2.5 text-xs font-mono">
+      <Activity className={`h-3.5 w-3.5 ${active ? "text-emerald-500" : "text-gray-300"}`} />
+      <span className="flex items-center gap-1 text-sky-600 font-medium">
+        <ArrowDown className="h-3 w-3" />
+        {formatBps(data.rxBps)}
+      </span>
+      <span className="flex items-center gap-1 text-orange-500 font-medium">
+        <ArrowUp className="h-3 w-3" />
+        {formatBps(data.txBps)}
+      </span>
+    </div>
+  );
 }
 
 function SyncPill({ status, onSync }: { status: SyncStatus | undefined; onSync: () => void }) {
@@ -505,7 +547,7 @@ export default function Dashboard() {
                 </span>
               )}
             </CardTitle>
-            <span className="text-xs text-gray-400">↻ 5s</span>
+            <TrafficMonitor routerId={selectedRouterId} />
           </div>
         </CardHeader>
 

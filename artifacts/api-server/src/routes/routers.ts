@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchInterfaceTraffic, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -511,6 +511,22 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
     updated:   entry?.updated  ?? 0,
     total:     entry?.total    ?? 0,
   });
+});
+
+router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const traffic = await fetchInterfaceTraffic(conn);
+    res.json(traffic);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
 });
 
 router.get("/routers/:id/logs", async (req, res): Promise<void> => {
