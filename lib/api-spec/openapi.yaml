@@ -956,18 +956,20 @@ components:
 
     DashboardStats:
       type: object
-      required: [totalVouchers, unprintedVouchers, printedVouchers, routerCount, activeRouters]
+      required: [totalVouchers, routerCount, dailySalesCount, dailySalesAmount, monthlySalesCount, monthlySalesAmount]
       properties:
         totalVouchers:
           type: integer
-        unprintedVouchers:
-          type: integer
-        printedVouchers:
-          type: integer
         routerCount:
           type: integer
-        activeRouters:
+        dailySalesCount:
           type: integer
+        dailySalesAmount:
+          type: number
+        monthlySalesCount:
+          type: integer
+        monthlySalesAmount:
+          type: number
         recentVouchers:
           type: array
           items:

@@ -8,9 +8,10 @@ import type { Voucher } from './voucher';
 
 export interface DashboardStats {
   totalVouchers: number;
-  unprintedVouchers: number;
-  printedVouchers: number;
   routerCount: number;
-  activeRouters: number;
+  dailySalesCount: number;
+  dailySalesAmount: number;
+  monthlySalesCount: number;
+  monthlySalesAmount: number;
   recentVouchers?: Voucher[];
 }

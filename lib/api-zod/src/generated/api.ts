@@ -426,10 +426,11 @@ export const markVoucherPrintedResponse = zod.object({
  */
 export const getDashboardResponse = zod.object({
   "totalVouchers": zod.number(),
-  "unprintedVouchers": zod.number(),
-  "printedVouchers": zod.number(),
   "routerCount": zod.number(),
-  "activeRouters": zod.number(),
+  "dailySalesCount": zod.number(),
+  "dailySalesAmount": zod.number(),
+  "monthlySalesCount": zod.number(),
+  "monthlySalesAmount": zod.number(),
   "recentVouchers": zod.array(zod.object({
   "id": zod.number(),
   "routerId": zod.number(),

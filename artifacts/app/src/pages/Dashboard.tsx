@@ -3,9 +3,14 @@ import { useGetDashboard, useListRouterLogs } from "@workspace/api-client-react"
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Ticket, Printer, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info } from "lucide-react";
+import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info } from "lucide-react";
 
 type LogEntry = { id: string; time: string; topics: string; message: string };
+
+function formatAmount(amount: number): string {
+  if (amount === 0) return "";
+  return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " HTG";
+}
 
 function classifyLog(entry: LogEntry): {
   icon: React.ReactNode;
@@ -123,15 +128,17 @@ export default function Dashboard() {
           loading={isLoading}
         />
         <StatCard
-          title="Non imprimés"
-          value={data?.unprintedVouchers ?? 0}
-          icon={<Ticket className="h-5 w-5 text-orange-500" />}
+          title="Vente journalière"
+          value={data?.dailySalesCount ?? 0}
+          sub={data?.dailySalesAmount ? formatAmount(data.dailySalesAmount) : undefined}
+          icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
           loading={isLoading}
         />
         <StatCard
-          title="Imprimés"
-          value={data?.printedVouchers ?? 0}
-          icon={<Printer className="h-5 w-5 text-green-500" />}
+          title="Vente mensuelle"
+          value={data?.monthlySalesCount ?? 0}
+          sub={data?.monthlySalesAmount ? formatAmount(data.monthlySalesAmount) : undefined}
+          icon={<TrendingUp className="h-5 w-5 text-green-500" />}
           loading={isLoading}
         />
         <StatCard
@@ -212,11 +219,13 @@ export default function Dashboard() {
 function StatCard({
   title,
   value,
+  sub,
   icon,
   loading,
 }: {
   title: string;
   value: number;
+  sub?: string;
   icon: React.ReactNode;
   loading: boolean;
 }) {
@@ -224,13 +233,16 @@ function StatCard({
     <Card>
       <CardContent className="pt-5">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-gray-100 rounded-lg">{icon}</div>
-          <div>
-            <p className="text-xs text-gray-500 font-medium">{title}</p>
+          <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0">{icon}</div>
+          <div className="min-w-0">
+            <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
             {loading ? (
               <div className="h-7 w-12 bg-gray-200 rounded animate-pulse mt-1" />
             ) : (
-              <p className="text-2xl font-bold text-gray-900">{value.toLocaleString()}</p>
+              <>
+                <p className="text-2xl font-bold text-gray-900">{value.toLocaleString()}</p>
+                {sub && <p className="text-xs text-gray-400 -mt-0.5">{sub}</p>}
+              </>
             )}
           </div>
         </div>
