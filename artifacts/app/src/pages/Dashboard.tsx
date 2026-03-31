@@ -280,7 +280,7 @@ function StatCard({
               </>
             ) : label !== undefined ? (
               <>
-                <p className="text-xl font-bold text-gray-900 leading-tight mt-0.5 truncate">{label || "0 FCFA"}</p>
+                <p className="text-base font-bold text-gray-900 leading-tight mt-0.5">{label || "0 FCFA"}</p>
                 {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
               </>
             ) : (
