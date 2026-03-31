@@ -67,8 +67,8 @@ function parseProfileOnLogin(onLogin: string): { price: string; validity: string
   const parts = onLogin.split(",");
   const price = (parts[2] ?? "").trim();
   const validity = (parts[3] ?? "").trim();
-  const lockField = (parts[6] ?? "").trim();
-  const lockMac = lockField !== "" && !lockField.startsWith(";");
+  // MAC lock is only active when the on-login script explicitly sets mac-address on the user
+  const lockMac = /mac-address/i.test(onLogin);
   return { price, validity, lockMac };
 }
 
