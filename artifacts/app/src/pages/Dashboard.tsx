@@ -115,8 +115,8 @@ function formatBps(bps: number): string {
   return `${bps} bps`;
 }
 
-function TrafficMonitor({ routerId }: { routerId: number | null }) {
-  const { data, isError } = useQuery<{ rxBps: number; txBps: number }>({
+function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
+  const { data, isError, isFetching } = useQuery<{ rxBps: number; txBps: number }>({
     queryKey: ["traffic", routerId],
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/routers/${routerId}/traffic`);
@@ -130,24 +130,67 @@ function TrafficMonitor({ routerId }: { routerId: number | null }) {
     throwOnError: false,
   });
 
-  if (!routerId || isError || !data) {
-    return <span className="text-xs text-gray-400">↻ 5s</span>;
-  }
-
-  const active = data.rxBps > 0 || data.txBps > 0;
+  const active = !!data && (data.rxBps > 0 || data.txBps > 0);
 
   return (
-    <div className="flex items-center gap-2.5 text-xs font-mono">
-      <Activity className={`h-3.5 w-3.5 ${active ? "text-emerald-500" : "text-gray-300"}`} />
-      <span className="flex items-center gap-1 text-sky-600 font-medium">
-        <ArrowDown className="h-3 w-3" />
-        {formatBps(data.rxBps)}
-      </span>
-      <span className="flex items-center gap-1 text-orange-500 font-medium">
-        <ArrowUp className="h-3 w-3" />
-        {formatBps(data.txBps)}
-      </span>
-    </div>
+    <Card className="flex flex-col w-64 shrink-0">
+      <CardHeader className="pb-2 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            Trafic
+            {routerId && !isError && (
+              <span className="flex items-center gap-1 text-xs font-normal text-green-600">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                </span>
+                Live
+              </span>
+            )}
+          </CardTitle>
+          <span className="text-xs text-gray-400">↻ 5s</span>
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1 flex flex-col items-center justify-center gap-4 py-6">
+        {!routerId ? (
+          <div className="text-center">
+            <Activity className="h-8 w-8 text-gray-200 mx-auto mb-2" />
+            <p className="text-xs text-gray-400">Sélectionnez un routeur</p>
+          </div>
+        ) : isError ? (
+          <div className="text-center">
+            <Activity className="h-8 w-8 text-red-200 mx-auto mb-2" />
+            <p className="text-xs text-red-400">Indisponible</p>
+          </div>
+        ) : !data ? (
+          <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
+        ) : (
+          <>
+            <Activity className={`h-6 w-6 ${active ? "text-emerald-500" : "text-gray-300"}`} />
+            <div className="w-full space-y-3 px-2">
+              <div className="flex items-center justify-between gap-2 bg-sky-50 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-1.5 text-sky-600">
+                  <ArrowDown className="h-4 w-4" />
+                  <span className="text-xs font-medium">Download</span>
+                </div>
+                <span className="font-mono text-sm font-semibold text-sky-700">
+                  {isFetching && !data ? "…" : formatBps(data.rxBps)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 bg-orange-50 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-1.5 text-orange-500">
+                  <ArrowUp className="h-4 w-4" />
+                  <span className="text-xs font-medium">Upload</span>
+                </div>
+                <span className="font-mono text-sm font-semibold text-orange-600">
+                  {isFetching && !data ? "…" : formatBps(data.txBps)}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -532,7 +575,8 @@ export default function Dashboard() {
         />
       </div>
 
-      <Card>
+      <div className="flex gap-4 items-start">
+      <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
@@ -547,7 +591,7 @@ export default function Dashboard() {
                 </span>
               )}
             </CardTitle>
-            <TrafficMonitor routerId={selectedRouterId} />
+            <span className="text-xs text-gray-400">↻ 5s</span>
           </div>
         </CardHeader>
 
@@ -595,6 +639,8 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+      <TrafficMonitorCard routerId={selectedRouterId} />
+      </div>
     </div>
   );
 }
