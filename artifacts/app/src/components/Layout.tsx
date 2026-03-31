@@ -1,17 +1,27 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Router, Ticket, Zap, Wifi, PackageOpen } from "lucide-react";
+import { LayoutDashboard, Router, Ticket, Zap, Wifi, PackageOpen, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRouterContext } from "@/contexts/RouterContext";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const navItems = [
   { href: "/", label: "Tableau de bord", icon: LayoutDashboard },
   { href: "/routers", label: "Routeurs", icon: Router },
   { href: "/forfaits", label: "Forfaits", icon: PackageOpen },
+  { href: "/sessions", label: "Sessions", icon: Activity },
   { href: "/generate", label: "Générer", icon: Zap },
   { href: "/vouchers", label: "Vouchers", icon: Ticket },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const { selectedRouterId, setSelectedRouterId, routers } = useRouterContext();
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -23,7 +33,29 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
           <p className="text-xs text-gray-400 mt-0.5">Gestion Hotspot MikroTik</p>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
+
+        {routers.length > 0 && (
+          <div className="px-3 pt-4 pb-2">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 px-1">Routeur actif</p>
+            <Select
+              value={selectedRouterId ? String(selectedRouterId) : ""}
+              onValueChange={(v) => setSelectedRouterId(v ? parseInt(v, 10) : null)}
+            >
+              <SelectTrigger className="h-8 text-xs bg-gray-800 border-gray-700 text-white hover:bg-gray-700 focus:ring-0 focus:ring-offset-0">
+                <SelectValue placeholder="Sélectionner..." />
+              </SelectTrigger>
+              <SelectContent>
+                {routers.map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)} className="text-xs">
+                    {r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        <nav className="flex-1 px-3 py-2 space-y-1">
           {navItems.map(({ href, label, icon: Icon }) => {
             const isActive = href === "/" ? location === "/" : location.startsWith(href);
             return (
