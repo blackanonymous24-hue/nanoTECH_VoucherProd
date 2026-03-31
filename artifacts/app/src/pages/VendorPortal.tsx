@@ -205,7 +205,7 @@ function AvailableVouchersModal({
                     <p className="text-xs text-gray-500">{v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}</p>
                   </div>
                   <Badge variant="outline" className="border-green-300 text-green-600 bg-green-50 flex-shrink-0 text-xs">
-                    Disponible
+                    Non vendu
                   </Badge>
                 </div>
               ))}
