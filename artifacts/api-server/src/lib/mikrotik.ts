@@ -231,7 +231,7 @@ export async function generateVouchers(
     const generated: GeneratedVoucher[] = [];
 
     for (let i = 0; i < opts.qty; i++) {
-      const { username, password } = generateCode(5, opts.prefix);
+      const { username, password } = generateCode(opts.prefix ? 5 : 8, opts.prefix);
       const addParams: string[] = [
         `=name=${username}`,
         `=password=${password}`,
