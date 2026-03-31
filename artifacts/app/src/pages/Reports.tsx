@@ -222,9 +222,9 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-500">{v.profileName}</span>
                       {(v as any).usedAt ? (
-                        <Badge className="text-xs bg-red-600 hover:bg-red-600">Vendu</Badge>
+                        <Badge variant="outline" className="text-xs text-red-600 border-red-400 bg-transparent">Vendu</Badge>
                       ) : (
-                        <Badge variant="outline" className="text-xs text-green-600 border-green-400">Non vendu</Badge>
+                        <Badge variant="outline" className="text-xs text-green-600 border-green-400 bg-transparent">Non vendu</Badge>
                       )}
                     </div>
                   </div>
