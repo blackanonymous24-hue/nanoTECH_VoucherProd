@@ -14,6 +14,7 @@ interface RouterContextValue {
   pingTrigger: number;
   pinging: boolean;
   routerOnline: boolean | null;
+  setRouterOnline: (online: boolean) => void;
 }
 
 const RouterContext = createContext<RouterContextValue>({
@@ -25,6 +26,7 @@ const RouterContext = createContext<RouterContextValue>({
   pingTrigger: 0,
   pinging: false,
   routerOnline: null,
+  setRouterOnline: () => {},
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
@@ -135,6 +137,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       pingTrigger,
       pinging,
       routerOnline,
+      setRouterOnline,
     }}>
       {children}
     </RouterContext.Provider>

@@ -97,7 +97,7 @@ export default function Dashboard() {
   const { data, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: { refetchInterval: 10_000, staleTime: 9_000 },
   });
-  const { selectedRouterId, pingTrigger } = useRouterContext();
+  const { selectedRouterId, pingTrigger, setRouterOnline } = useRouterContext();
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
@@ -105,12 +105,13 @@ export default function Dashboard() {
   const {
     data: activeSessions,
     isFetching: sessionsFetching,
+    dataUpdatedAt: sessionsUpdatedAt,
     refetch: refetchSessions,
   } = useQuery({
     queryKey: ["router-sessions", selectedRouterId],
     queryFn: async (): Promise<number> => {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions`);
-      if (!res.ok) return 0;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: unknown = await res.json();
       return Array.isArray(data) ? data.length : 0;
     },
@@ -118,6 +119,7 @@ export default function Dashboard() {
     refetchInterval: 10_000,
     staleTime: 9_000,
     throwOnError: false,
+    retry: false,
   });
 
   const {
@@ -187,6 +189,43 @@ export default function Dashboard() {
     }
     prevIdsRef.current = incoming;
   }, [logs]);
+
+  // ── Online indicator driven by real data ──────────────────────────────────
+  // Track timestamp of the last successful data receive from MikroTik
+  const lastSuccessRef = useRef<number>(0);
+
+  // Sessions success → green
+  useEffect(() => {
+    if (!selectedRouterId || sessionsUpdatedAt === 0) return;
+    lastSuccessRef.current = Math.max(lastSuccessRef.current, sessionsUpdatedAt);
+    setRouterOnline(true);
+  }, [sessionsUpdatedAt, selectedRouterId, setRouterOnline]);
+
+  // Logs success → green
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    if (!logsFetching && logs.length > 0) {
+      lastSuccessRef.current = Date.now();
+      setRouterOnline(true);
+    }
+  }, [logs, logsFetching, selectedRouterId, setRouterOnline]);
+
+  // Stale detector: if no successful data for 45s → red
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    const interval = setInterval(() => {
+      if (lastSuccessRef.current > 0 && Date.now() - lastSuccessRef.current > 45_000) {
+        setRouterOnline(false);
+      }
+    }, 5_000);
+    return () => clearInterval(interval);
+  }, [selectedRouterId, setRouterOnline]);
+
+  // Reset tracker when router changes
+  useEffect(() => {
+    lastSuccessRef.current = 0;
+  }, [selectedRouterId]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   const {
     data: routerInfo,
