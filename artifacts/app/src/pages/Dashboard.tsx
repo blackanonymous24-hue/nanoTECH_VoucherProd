@@ -56,7 +56,9 @@ function classifyLog(entry: LogEntry): {
 }
 
 export default function Dashboard() {
-  const { data, isLoading, isError, refetch } = useGetDashboard();
+  const { data, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
+    query: { refetchInterval: 10_000, staleTime: 9_000 },
+  });
   const { selectedRouterId } = useRouterContext();
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
@@ -140,9 +142,9 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
-          title="Total Vouchers"
-          value={data?.totalVouchers ?? 0}
-          icon={<Ticket className="h-5 w-5 text-blue-500" />}
+          title="Clients actifs"
+          value={data?.routerCount ?? 0}
+          icon={<Router className="h-5 w-5 text-purple-500" />}
           loading={isLoading}
         />
         <StatCard
@@ -164,9 +166,11 @@ export default function Dashboard() {
           loading={!sales && !!selectedRouterId}
         />
         <StatCard
-          title="Routeurs"
-          value={data?.routerCount ?? 0}
-          icon={<Router className="h-5 w-5 text-purple-500" />}
+          title="Total Vouchers"
+          value={data?.totalVouchers ?? 0}
+          live
+          fetching={dashFetching}
+          icon={<Ticket className="h-5 w-5 text-blue-500" />}
           loading={isLoading}
         />
       </div>
