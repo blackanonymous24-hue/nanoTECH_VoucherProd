@@ -14,6 +14,12 @@ export interface DistributorDailyReport {
   status: string;
   vouchersSoldToday: number;
   revenueToday: number;
+  vouchersSoldYesterday: number;
+  revenueYesterday: number;
+  vouchersSoldLastWeek: number;
+  revenueLastWeek: number;
+  vouchersSoldCurrentMonth: number;
+  revenueCurrentMonth: number;
   vouchersSoldTotal: number;
   revenueTotal: number;
   /** @nullable */

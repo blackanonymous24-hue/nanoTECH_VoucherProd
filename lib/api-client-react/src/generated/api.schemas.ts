@@ -122,6 +122,8 @@ export interface Distributor {
   phone: string | null;
   /** @nullable */
   email: string | null;
+  /** @nullable */
+  pin: string | null;
   status: DistributorStatus;
   createdAt: string;
 }
@@ -140,6 +142,8 @@ export interface CreateDistributorBody {
   phone?: string | null;
   /** @nullable */
   email?: string | null;
+  /** @nullable */
+  pin?: string | null;
   status?: CreateDistributorBodyStatus;
 }
 
@@ -157,7 +161,21 @@ export interface UpdateDistributorBody {
   phone?: string | null;
   /** @nullable */
   email?: string | null;
+  /** @nullable */
+  pin?: string | null;
   status?: UpdateDistributorBodyStatus;
+}
+
+export interface VendorLoginBody {
+  phone: string;
+  pin: string;
+}
+
+export interface VendorSession {
+  id: number;
+  name: string;
+  phone: string;
+  status: string;
 }
 
 export interface DistributorDailyStats {
@@ -177,6 +195,12 @@ export interface DistributorDailyReport {
   status: string;
   vouchersSoldToday: number;
   revenueToday: number;
+  vouchersSoldYesterday: number;
+  revenueYesterday: number;
+  vouchersSoldLastWeek: number;
+  revenueLastWeek: number;
+  vouchersSoldCurrentMonth: number;
+  revenueCurrentMonth: number;
   vouchersSoldTotal: number;
   revenueTotal: number;
   /** @nullable */

@@ -23,6 +23,7 @@ export const GetDistributorsResponseItem = zod.object({
   name: zod.string(),
   phone: zod.string().nullable(),
   email: zod.string().nullable(),
+  pin: zod.string().nullable(),
   status: zod.enum(["active", "inactive"]),
   createdAt: zod.coerce.date(),
 });
@@ -35,6 +36,7 @@ export const CreateDistributorBody = zod.object({
   name: zod.string(),
   phone: zod.string().nullish(),
   email: zod.string().nullish(),
+  pin: zod.string().nullish(),
   status: zod.enum(["active", "inactive"]).optional(),
 });
 
@@ -50,6 +52,7 @@ export const GetDistributorResponse = zod.object({
   name: zod.string(),
   phone: zod.string().nullable(),
   email: zod.string().nullable(),
+  pin: zod.string().nullable(),
   status: zod.enum(["active", "inactive"]),
   createdAt: zod.coerce.date(),
 });
@@ -65,6 +68,7 @@ export const UpdateDistributorBody = zod.object({
   name: zod.string().optional(),
   phone: zod.string().nullish(),
   email: zod.string().nullish(),
+  pin: zod.string().nullish(),
   status: zod.enum(["active", "inactive"]).optional(),
 });
 
@@ -73,6 +77,7 @@ export const UpdateDistributorResponse = zod.object({
   name: zod.string(),
   phone: zod.string().nullable(),
   email: zod.string().nullable(),
+  pin: zod.string().nullable(),
   status: zod.enum(["active", "inactive"]),
   createdAt: zod.coerce.date(),
 });
@@ -82,6 +87,21 @@ export const UpdateDistributorResponse = zod.object({
  */
 export const DeleteDistributorParams = zod.object({
   id: zod.coerce.number(),
+});
+
+/**
+ * @summary Connexion vendeur par téléphone et PIN
+ */
+export const VendorLoginBody = zod.object({
+  phone: zod.string(),
+  pin: zod.string(),
+});
+
+export const VendorLoginResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  phone: zod.string(),
+  status: zod.string(),
 });
 
 /**
@@ -331,6 +351,12 @@ export const GetDistributorsDailyReportResponseItem = zod.object({
   status: zod.string(),
   vouchersSoldToday: zod.number(),
   revenueToday: zod.number(),
+  vouchersSoldYesterday: zod.number(),
+  revenueYesterday: zod.number(),
+  vouchersSoldLastWeek: zod.number(),
+  revenueLastWeek: zod.number(),
+  vouchersSoldCurrentMonth: zod.number(),
+  revenueCurrentMonth: zod.number(),
   vouchersSoldTotal: zod.number(),
   revenueTotal: zod.number(),
   lastSaleAt: zod.coerce.date().nullable(),

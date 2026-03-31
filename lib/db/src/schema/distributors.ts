@@ -7,6 +7,7 @@ export const distributorsTable = pgTable("distributors", {
   name: text("name").notNull(),
   phone: text("phone"),
   email: text("email"),
+  pin: text("pin"),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

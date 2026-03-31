@@ -127,6 +127,27 @@ paths:
         "404":
           description: Distributeur introuvable
 
+  /vendors/login:
+    post:
+      operationId: vendorLogin
+      tags: [distributors]
+      summary: Connexion vendeur par téléphone et PIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VendorLoginBody"
+      responses:
+        "200":
+          description: Connexion réussie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VendorSession"
+        "401":
+          description: Identifiants invalides
+
   /distributors/{id}/daily-stats:
     get:
       operationId: getDistributorDailyStats
@@ -632,6 +653,8 @@ components:
           type: ["string", "null"]
         email:
           type: ["string", "null"]
+        pin:
+          type: ["string", "null"]
         status:
           type: string
           enum: [active, inactive]
@@ -643,6 +666,7 @@ components:
         - name
         - phone
         - email
+        - pin
         - status
         - createdAt
 
@@ -654,6 +678,8 @@ components:
         phone:
           type: ["string", "null"]
         email:
+          type: ["string", "null"]
+        pin:
           type: ["string", "null"]
         status:
           type: string
@@ -670,9 +696,39 @@ components:
           type: ["string", "null"]
         email:
           type: ["string", "null"]
+        pin:
+          type: ["string", "null"]
         status:
           type: string
           enum: [active, inactive]
+
+    VendorLoginBody:
+      type: object
+      properties:
+        phone:
+          type: string
+        pin:
+          type: string
+      required:
+        - phone
+        - pin
+
+    VendorSession:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+        status:
+          type: string
+      required:
+        - id
+        - name
+        - phone
+        - status
 
     DistributorDailyStats:
       type: object
@@ -712,6 +768,18 @@ components:
           type: integer
         revenueToday:
           type: number
+        vouchersSoldYesterday:
+          type: integer
+        revenueYesterday:
+          type: number
+        vouchersSoldLastWeek:
+          type: integer
+        revenueLastWeek:
+          type: number
+        vouchersSoldCurrentMonth:
+          type: integer
+        revenueCurrentMonth:
+          type: number
         vouchersSoldTotal:
           type: integer
         revenueTotal:
@@ -726,6 +794,12 @@ components:
         - status
         - vouchersSoldToday
         - revenueToday
+        - vouchersSoldYesterday
+        - revenueYesterday
+        - vouchersSoldLastWeek
+        - revenueLastWeek
+        - vouchersSoldCurrentMonth
+        - revenueCurrentMonth
         - vouchersSoldTotal
         - revenueTotal
         - lastSaleAt

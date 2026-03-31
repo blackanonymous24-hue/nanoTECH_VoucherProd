@@ -13,5 +13,7 @@ export interface UpdateDistributorBody {
   phone?: string | null;
   /** @nullable */
   email?: string | null;
+  /** @nullable */
+  pin?: string | null;
   status?: UpdateDistributorBodyStatus;
 }

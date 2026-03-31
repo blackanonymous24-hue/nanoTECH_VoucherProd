@@ -108,14 +108,16 @@ React + Vite + Tailwind + shadcn/ui. All text in French, currency in Ariary (e.g
 - `/profils` — Forfaits & Profils (CRUD for hotspot profiles)
 - `/ventes` — Historique des ventes
 - `/distributeurs` — Gestion des distributeurs (CRUD)
-- `/distributeurs/journalier` — Rapport journalier des distributeurs (daily rankings)
+- `/distributeurs/journalier` — Rapport journalier des distributeurs (4 périodes : aujourd'hui, hier, semaine préc., mois en cours)
+- `/vendeur` — Page de connexion vendeur (téléphone + PIN)
+- `/vendeur/vente` — POS vendeur authentifié (session stockée en localStorage)
 
 ### Backend Routes (`artifacts/api-server/src/routes/`)
 
 - `profiles.ts` — CRUD for hotspot profiles (duration, bandwidth, price)
 - `vouchers.ts` — list/generate/delete vouchers
 - `sales.ts` — create/list sales (supports `distributorId`)
-- `distributors.ts` — full CRUD + daily stats per distributor + GET /dashboard/distributors-daily
+- `distributors.ts` — full CRUD + daily stats per distributor + GET /dashboard/distributors-daily (4 periods) + POST /vendors/login
 - `dashboard.ts` — stats, recent sales, vouchers-by-profile
 
 ### Database Schema (`lib/db/src/schema/`)
@@ -123,7 +125,7 @@ React + Vite + Tailwind + shadcn/ui. All text in French, currency in Ariary (e.g
 - `profiles` — id, name, duration (mins), bandwidth (bytes), price (Ar), createdAt
 - `vouchers` — id, code, profileId, profileName, status (available/sold), soldAt, createdAt
 - `sales` — id, voucherId, voucherCode, profileId, profileName, amount, paymentMethod, operatorName, customerName, distributorId (nullable), distributorName (nullable), createdAt
-- `distributors` — id, name, phone (nullable), email (nullable), status (active/inactive), createdAt
+- `distributors` — id, name, phone (nullable), email (nullable), pin (nullable, for vendor login), status (active/inactive), createdAt
 
 ### Codegen Workflow
 

@@ -33,6 +33,8 @@ import type {
   Sale,
   UpdateDistributorBody,
   UpdateProfileBody,
+  VendorLoginBody,
+  VendorSession,
   Voucher,
   VouchersByProfile,
 } from "./api.schemas";
@@ -539,6 +541,92 @@ export const useDeleteDistributor = <
   TContext
 > => {
   return useMutation(getDeleteDistributorMutationOptions(options));
+};
+
+/**
+ * @summary Connexion vendeur par téléphone et PIN
+ */
+export const getVendorLoginUrl = () => {
+  return `/api/vendors/login`;
+};
+
+export const vendorLogin = async (
+  vendorLoginBody: VendorLoginBody,
+  options?: RequestInit,
+): Promise<VendorSession> => {
+  return customFetch<VendorSession>(getVendorLoginUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(vendorLoginBody),
+  });
+};
+
+export const getVendorLoginMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof vendorLogin>>,
+    TError,
+    { data: BodyType<VendorLoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof vendorLogin>>,
+  TError,
+  { data: BodyType<VendorLoginBody> },
+  TContext
+> => {
+  const mutationKey = ["vendorLogin"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof vendorLogin>>,
+    { data: BodyType<VendorLoginBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return vendorLogin(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type VendorLoginMutationResult = NonNullable<
+  Awaited<ReturnType<typeof vendorLogin>>
+>;
+export type VendorLoginMutationBody = BodyType<VendorLoginBody>;
+export type VendorLoginMutationError = ErrorType<void>;
+
+/**
+ * @summary Connexion vendeur par téléphone et PIN
+ */
+export const useVendorLogin = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof vendorLogin>>,
+    TError,
+    { data: BodyType<VendorLoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof vendorLogin>>,
+  TError,
+  { data: BodyType<VendorLoginBody> },
+  TContext
+> => {
+  return useMutation(getVendorLoginMutationOptions(options));
 };
 
 /**

@@ -24,13 +24,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Edit2, Trash2, Users, Search, Activity, Wallet, Ticket } from "lucide-react";
+import { Plus, Edit2, Trash2, Users, Search, Activity, Wallet, KeyRound } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const distributorFormSchema = z.object({
   name: z.string().min(2, "Le nom est requis (min 2 caractères)"),
   phone: z.string().optional(),
   email: z.string().email("Email invalide").optional().or(z.literal("")),
+  pin: z.string().min(4, "Le PIN doit comporter au moins 4 caractères").optional().or(z.literal("")),
   status: z.enum(["active", "inactive"]),
 });
 
@@ -69,6 +70,7 @@ export default function Distributors() {
       name: data.name,
       phone: data.phone || null,
       email: data.email || null,
+      pin: data.pin || null,
       status: data.status as "active" | "inactive",
     };
 
@@ -128,6 +130,7 @@ export default function Distributors() {
       name: distributor.name,
       phone: distributor.phone || "",
       email: distributor.email || "",
+      pin: distributor.pin || "",
       status: distributor.status,
     });
     setEditingDistributor(distributor);
@@ -270,6 +273,21 @@ export default function Distributors() {
                       <FormLabel>Email (Optionnel)</FormLabel>
                       <FormControl>
                         <Input type="email" placeholder="contact@boutique.com" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="pin"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center gap-1">
+                        <KeyRound className="h-3.5 w-3.5" /> Code PIN vendeur
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="password" placeholder="4 chiffres minimum" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

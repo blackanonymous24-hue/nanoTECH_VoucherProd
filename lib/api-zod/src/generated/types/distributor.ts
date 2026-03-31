@@ -14,6 +14,8 @@ export interface Distributor {
   phone: string | null;
   /** @nullable */
   email: string | null;
+  /** @nullable */
+  pin: string | null;
   status: DistributorStatus;
   createdAt: Date;
 }

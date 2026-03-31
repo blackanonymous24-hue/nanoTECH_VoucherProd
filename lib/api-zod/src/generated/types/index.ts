@@ -26,6 +26,8 @@ export * from "./sale";
 export * from "./updateDistributorBody";
 export * from "./updateDistributorBodyStatus";
 export * from "./updateProfileBody";
+export * from "./vendorLoginBody";
+export * from "./vendorSession";
 export * from "./voucher";
 export * from "./vouchersByProfile";
 export * from "./voucherStatus";
