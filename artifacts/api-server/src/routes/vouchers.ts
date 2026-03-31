@@ -28,6 +28,7 @@ router.get("/vouchers/batches", async (_req, res): Promise<void> => {
       batchName: vouchersTable.batchName,
       profileId: vouchersTable.profileId,
       profileName: profilesTable.name,
+      mikrotikProfile: profilesTable.mikrotikProfile,
       total: sql<number>`count(*)::int`,
       available: sql<number>`count(*) filter (where ${vouchersTable.status} = 'available')::int`,
       sold: sql<number>`count(*) filter (where ${vouchersTable.status} = 'sold')::int`,
@@ -40,9 +41,13 @@ router.get("/vouchers/batches", async (_req, res): Promise<void> => {
       vouchersTable.batchId,
       vouchersTable.batchName,
       vouchersTable.profileId,
-      profilesTable.name
+      profilesTable.name,
+      profilesTable.mikrotikProfile
     )
     .orderBy(sql`min(${vouchersTable.createdAt}) desc`);
+
+  const sanitize = (name: string) =>
+    name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16) || "profile";
 
   res.json(
     rows.map((r) => ({
@@ -50,6 +55,7 @@ router.get("/vouchers/batches", async (_req, res): Promise<void> => {
       batchName: r.batchName ?? r.batchId!,
       profileId: r.profileId,
       profileName: r.profileName ?? "",
+      mikrotikProfile: r.mikrotikProfile ?? sanitize(r.profileName ?? ""),
       total: r.total,
       available: r.available,
       sold: r.sold,

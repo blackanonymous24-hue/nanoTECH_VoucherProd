@@ -75,10 +75,12 @@ function BatchDetailDialog({
   batchId,
   batchName,
   profileName,
+  mikrotikProfile,
 }: {
   batchId: string;
   batchName: string;
   profileName: string;
+  mikrotikProfile: string;
 }) {
   const [open, setOpen] = useState(false);
   const { data: vouchers, isLoading } = useGetVouchersByBatch(
@@ -91,7 +93,7 @@ function BatchDetailDialog({
     const available = vouchers.filter((v) => v.status === "available");
     const lines = [
       `=== ${batchName} ===`,
-      `Forfait : ${profileName}`,
+      `Forfait : ${profileName} (profil MikroTik : ${mikrotikProfile})`,
       `Total : ${vouchers.length} codes — Disponibles : ${available.length} — Vendus : ${vouchers.length - available.length}`,
       `Généré le : ${new Date().toLocaleString("fr-FR")}`,
       "",
@@ -104,8 +106,10 @@ function BatchDetailDialog({
   const exportCsv = () => {
     if (!vouchers) return;
     const available = vouchers.filter((v) => v.status === "available");
+    // Format MikHmon : Name,Password,Profile,Comment
+    // Profile = nom du profil hotspot MikroTik (identifiant court)
     const header = "Name,Password,Profile,Comment";
-    const rows = available.map((v) => `${v.code},${v.code},${profileName},`);
+    const rows = available.map((v) => `${v.code},${v.code},${mikrotikProfile},`);
     downloadCSV([header, ...rows].join("\n"), `${batchId}.csv`);
   };
 
@@ -490,6 +494,7 @@ export default function Vouchers() {
                                   batchId={batch.batchId}
                                   batchName={batch.batchName}
                                   profileName={batch.profileName}
+                                  mikrotikProfile={batch.mikrotikProfile}
                                 />
                                 <Button
                                   variant="ghost"

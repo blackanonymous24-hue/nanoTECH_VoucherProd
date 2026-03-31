@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 export const profilesTable = pgTable("profiles", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  mikrotikProfile: text("mikrotik_profile"),
   price: real("price").notNull(),
   durationMinutes: integer("duration_minutes").notNull(),
   speedDownload: integer("speed_download"),

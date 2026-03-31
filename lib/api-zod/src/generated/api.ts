@@ -126,6 +126,7 @@ export const GetDistributorDailyStatsResponse = zod.object({
 export const GetProfilesResponseItem = zod.object({
   id: zod.number(),
   name: zod.string(),
+  mikrotikProfile: zod.string().nullable(),
   price: zod.number(),
   durationMinutes: zod.number(),
   speedDownload: zod.number().nullable(),
@@ -141,6 +142,7 @@ export const GetProfilesResponse = zod.array(GetProfilesResponseItem);
  */
 export const CreateProfileBody = zod.object({
   name: zod.string(),
+  mikrotikProfile: zod.string().nullish(),
   price: zod.number(),
   durationMinutes: zod.number(),
   speedDownload: zod.number().nullish(),
@@ -159,6 +161,7 @@ export const GetProfileParams = zod.object({
 export const GetProfileResponse = zod.object({
   id: zod.number(),
   name: zod.string(),
+  mikrotikProfile: zod.string().nullable(),
   price: zod.number(),
   durationMinutes: zod.number(),
   speedDownload: zod.number().nullable(),
@@ -177,6 +180,7 @@ export const UpdateProfileParams = zod.object({
 
 export const UpdateProfileBody = zod.object({
   name: zod.string().optional(),
+  mikrotikProfile: zod.string().nullish(),
   price: zod.number().optional(),
   durationMinutes: zod.number().optional(),
   speedDownload: zod.number().nullish(),
@@ -188,6 +192,7 @@ export const UpdateProfileBody = zod.object({
 export const UpdateProfileResponse = zod.object({
   id: zod.number(),
   name: zod.string(),
+  mikrotikProfile: zod.string().nullable(),
   price: zod.number(),
   durationMinutes: zod.number(),
   speedDownload: zod.number().nullable(),
@@ -234,6 +239,7 @@ export const GetVoucherBatchesResponseItem = zod.object({
   batchName: zod.string(),
   profileId: zod.number(),
   profileName: zod.string(),
+  mikrotikProfile: zod.string(),
   total: zod.number(),
   available: zod.number(),
   sold: zod.number(),

@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Wifi, Clock, Download, Upload, Database, Plus, Edit2, Trash2, Code2, Copy, Check } from "lucide-react";
+import { Wifi, Clock, Download, Upload, Database, Plus, Edit2, Trash2, Code2, Copy, Check, Server } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -34,12 +34,13 @@ function profileLabel(name: string): string {
 
 function generateRouterOSScript(profile: {
   name: string;
+  mikrotikProfile?: string | null;
   price: number;
   durationMinutes: number;
   speedDownload: number | null;
   dataLimitMb: number | null;
 }): string {
-  const code = sanitizeCode(profile.name);
+  const code = profile.mikrotikProfile || sanitizeCode(profile.name);
   const dur = formatDuration(profile.durationMinutes);
   const price = Math.round(profile.price);
   const speed = profile.speedDownload != null ? profile.speedDownload * 1000 : 0;
@@ -75,7 +76,7 @@ function generateRouterOSScript(profile: {
 }
 
 function ScriptDialog({ profile }: {
-  profile: { name: string; price: number; durationMinutes: number; speedDownload: number | null; dataLimitMb: number | null }
+  profile: { name: string; mikrotikProfile?: string | null; price: number; durationMinutes: number; speedDownload: number | null; dataLimitMb: number | null }
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -117,7 +118,7 @@ function ScriptDialog({ profile }: {
           </Button>
         </div>
         <div className="text-xs text-muted-foreground space-y-1 border rounded-md p-3 bg-muted/30">
-          <p><strong>Profil MikroTik :</strong> {sanitizeCode(profile.name)}</p>
+          <p><strong>Profil MikroTik :</strong> {profile.mikrotikProfile || sanitizeCode(profile.name)}</p>
           <p><strong>Prix :</strong> {Math.round(profile.price)} FCFA</p>
           <p><strong>Validité :</strong> {formatDuration(profile.durationMinutes)}</p>
           <p><strong>Vitesse :</strong> {profile.speedDownload != null ? `${profile.speedDownload * 1000} kbps` : 'Illimitée (0)'}</p>
@@ -129,6 +130,7 @@ function ScriptDialog({ profile }: {
 
 const profileSchema = z.object({
   name: z.string().min(1, "Nom requis"),
+  mikrotikProfile: z.string().optional().nullable(),
   price: z.coerce.number().min(0, "Prix invalide"),
   durationValue: z.coerce.number().min(1, "Durée invalide"),
   durationUnit: z.enum(['m', 'd', 'w']),
@@ -164,6 +166,7 @@ export default function Profiles() {
     resolver: zodResolver(profileSchema),
     defaultValues: {
       name: "",
+      mikrotikProfile: "",
       price: 0,
       durationValue: 1,
       durationUnit: 'd',
@@ -174,10 +177,15 @@ export default function Profiles() {
     },
   });
 
+  // Auto-fill mikrotikProfile from name when creating
+  const watchName = form.watch("name");
+  const watchMikrotikProfile = form.watch("mikrotikProfile");
+
   const handleOpenCreate = () => {
     setEditingId(null);
     form.reset({
       name: "",
+      mikrotikProfile: "",
       price: 0,
       durationValue: 1,
       durationUnit: 'd',
@@ -194,6 +202,7 @@ export default function Profiles() {
     const { value, unit } = minutesToParts(profile.durationMinutes);
     form.reset({
       name: profile.name,
+      mikrotikProfile: profile.mikrotikProfile ?? sanitizeCode(profile.name),
       price: profile.price,
       durationValue: value,
       durationUnit: unit,
@@ -219,8 +228,10 @@ export default function Profiles() {
   };
 
   const onSubmit = (data: ProfileFormValues) => {
+    const mProfile = (data.mikrotikProfile || "").trim() || sanitizeCode(data.name);
     const payload = {
       name: data.name,
+      mikrotikProfile: mProfile,
       price: data.price,
       durationMinutes: partsToMinutes(data.durationValue, data.durationUnit),
       speedDownload: data.speedDownload ?? null,
@@ -290,6 +301,12 @@ export default function Profiles() {
                   <Clock className="h-4 w-4" />
                   <span>Durée : <strong className="text-foreground">{formatDuration(profile.durationMinutes)}</strong></span>
                 </div>
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Server className="h-4 w-4 shrink-0" />
+                  <span className="font-mono text-xs text-foreground bg-muted px-1.5 py-0.5 rounded">
+                    {profile.mikrotikProfile || sanitizeCode(profile.name)}
+                  </span>
+                </div>
                 {profile.speedDownload != null && (
                   <div className="flex items-center gap-3 text-muted-foreground">
                     <Download className="h-4 w-4" />
@@ -351,7 +368,38 @@ export default function Profiles() {
                     <FormItem className="col-span-2">
                       <FormLabel>Nom du forfait</FormLabel>
                       <FormControl>
-                        <Input placeholder="Ex: 1 Heure Illimité" {...field} />
+                        <Input
+                          placeholder="Ex: 1 Heure Illimité"
+                          {...field}
+                          onChange={(e) => {
+                            field.onChange(e);
+                            // Auto-fill mikrotikProfile only if still empty / was auto-generated
+                            if (!editingId || !watchMikrotikProfile) {
+                              form.setValue("mikrotikProfile", sanitizeCode(e.target.value));
+                            }
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="mikrotikProfile"
+                  render={({ field }) => (
+                    <FormItem className="col-span-2">
+                      <FormLabel>
+                        Profil MikroTik
+                        <span className="text-muted-foreground font-normal ml-1">— nom du profil hotspot RouterOS</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder={sanitizeCode(watchName || "") || "ex: 1heure"}
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value.toLowerCase().replace(/[^a-z0-9\-_]/g, ""))}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -370,8 +418,8 @@ export default function Profiles() {
                     </FormItem>
                   )}
                 />
-                <FormItem>
-                  <FormLabel>Validité</FormLabel>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium leading-none">Validité</label>
                   <div className="flex gap-2">
                     <FormField
                       control={form.control}
@@ -401,8 +449,7 @@ export default function Profiles() {
                       )}
                     />
                   </div>
-                  <FormField control={form.control} name="durationValue" render={() => <FormMessage />} />
-                </FormItem>
+                </div>
                 <FormField
                   control={form.control}
                   name="speedDownload"

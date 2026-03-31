@@ -8,6 +8,8 @@
 
 export interface UpdateProfileBody {
   name?: string;
+  /** @nullable */
+  mikrotikProfile?: string | null;
   price?: number;
   durationMinutes?: number;
   /** @nullable */

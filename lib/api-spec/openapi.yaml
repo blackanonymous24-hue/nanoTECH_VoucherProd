@@ -545,6 +545,8 @@ components:
           type: integer
         name:
           type: string
+        mikrotikProfile:
+          type: ["string", "null"]
         price:
           type: number
         durationMinutes:
@@ -563,6 +565,7 @@ components:
       required:
         - id
         - name
+        - mikrotikProfile
         - price
         - durationMinutes
         - speedDownload
@@ -576,6 +579,8 @@ components:
       properties:
         name:
           type: string
+        mikrotikProfile:
+          type: ["string", "null"]
         price:
           type: number
         durationMinutes:
@@ -598,6 +603,8 @@ components:
       properties:
         name:
           type: string
+        mikrotikProfile:
+          type: ["string", "null"]
         price:
           type: number
         durationMinutes:
@@ -657,6 +664,8 @@ components:
           type: integer
         profileName:
           type: string
+        mikrotikProfile:
+          type: string
         total:
           type: integer
         available:
@@ -671,6 +680,7 @@ components:
         - batchName
         - profileId
         - profileName
+        - mikrotikProfile
         - total
         - available
         - sold

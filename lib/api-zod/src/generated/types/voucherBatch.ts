@@ -11,6 +11,7 @@ export interface VoucherBatch {
   batchName: string;
   profileId: number;
   profileName: string;
+  mikrotikProfile: string;
   total: number;
   available: number;
   sold: number;
