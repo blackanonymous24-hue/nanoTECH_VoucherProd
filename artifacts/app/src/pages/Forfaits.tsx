@@ -215,12 +215,13 @@ export default function Forfaits() {
       )}
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Ajouter un forfait</DialogTitle>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 gap-4 py-2">
+          <div className="overflow-y-auto flex-1 pr-1">
+          <div className="grid grid-cols-2 gap-3 py-1">
 
             <div className="col-span-2 space-y-1.5">
               <Label>Nom <span className="text-red-500">*</span></Label>
@@ -339,12 +340,13 @@ export default function Forfaits() {
             </div>
 
           </div>
+          </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 flex-shrink-0">{error}</p>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 pt-2">
             <Button variant="outline" onClick={() => setShowDialog(false)} disabled={saving}>
               Annuler
             </Button>
