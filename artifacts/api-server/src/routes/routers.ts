@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNotNull, inArray } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, listProfiles, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts } from "../lib/mikrotik.js";
+import { testConnection, listProfiles, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -345,6 +345,74 @@ router.post("/routers/:id/sync", async (req, res): Promise<void> => {
     }
 
     res.json({ imported, skipped, total: users.length });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+/**
+ * POST /routers/:id/sync-usage
+ * Fetches used usernames from MikroTik (hotspot logs + MikHmon scripts)
+ * and marks matching vouchers in the DB with usedAt if not already set.
+ */
+router.post("/routers/:id/sync-usage", async (req, res): Promise<void> => {
+  const routerId = parseInt(req.params.id, 10);
+  if (isNaN(routerId)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [routerRow] = await db
+    .select()
+    .from(routersTable)
+    .where(eq(routersTable.id, routerId));
+
+  if (!routerRow) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn = {
+    host: routerRow.host,
+    port: routerRow.port,
+    username: routerRow.username,
+    password: routerRow.password,
+  };
+
+  try {
+    const usedUsernames = await fetchUsedUsernames(conn);
+
+    if (usedUsernames.size === 0) {
+      res.json({ updated: 0, total: 0, message: "Aucun utilisateur trouvé dans les logs/scripts" });
+      return;
+    }
+
+    // Get all vouchers for this router that are not yet marked as used
+    const vouchers = await db
+      .select({ id: vouchersTable.id, username: vouchersTable.username })
+      .from(vouchersTable)
+      .where(and(
+        eq(vouchersTable.routerId, routerId),
+        isNotNull(vouchersTable.vendorId),
+      ));
+
+    const toUpdate = vouchers
+      .filter((v) => usedUsernames.has(v.username.toLowerCase()))
+      .map((v) => v.id);
+
+    let updated = 0;
+    if (toUpdate.length > 0) {
+      const now = new Date();
+      // Only set usedAt if not already set
+      await db
+        .update(vouchersTable)
+        .set({ usedAt: now })
+        .where(and(
+          inArray(vouchersTable.id, toUpdate),
+          isNotNull(vouchersTable.printedAt),
+        ));
+      updated = toUpdate.length;
+    }
+
+    res.json({
+      updated,
+      total: vouchers.length,
+      usedOnRouter: usedUsernames.size,
+    });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

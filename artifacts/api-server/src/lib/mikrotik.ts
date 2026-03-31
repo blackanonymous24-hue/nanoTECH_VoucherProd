@@ -290,6 +290,66 @@ export async function listLogs(conn: RouterConnection, limit = 50, topicFilter?:
   });
 }
 
+/**
+ * Fetches all usernames that have been "used" from MikroTik.
+ * Sources:
+ *   1. Hotspot logs — lines with topic "hotspot" and message containing "logged in"
+ *   2. MikHmon sales scripts — script names like "date-|-time-|-username-|-price-..."
+ *      (new format: "2025-11-01-|-07:46:47-|-user-|-300-...", owner mmYYYY)
+ *      (legacy: "mar/31/2026-|-time-|-user-|-price", owner marYYYY)
+ * Returns a Set of lowercase usernames seen in either source.
+ */
+export async function fetchUsedUsernames(conn: RouterConnection): Promise<Set<string>> {
+  const used = new Set<string>();
+
+  await withRouter(conn, async (api) => {
+    // — Source 1: hotspot logs —
+    const logs = await api.write("/log/print").catch(() => []);
+    for (const entry of logs) {
+      const topics  = ((entry["topics"]  as string) ?? "").toLowerCase();
+      const message = ((entry["message"] as string) ?? "").toLowerCase();
+      if (!topics.includes("hotspot")) continue;
+      // MikroTik hotspot login message: "<username> logged in"
+      const loginMatch = message.match(/^(.+?) logged in/);
+      if (loginMatch) {
+        used.add(loginMatch[1].trim());
+        continue;
+      }
+      // Also match "user <username> logged in by ..."
+      const userMatch = message.match(/user (.+?) logged in/);
+      if (userMatch) {
+        used.add(userMatch[1].trim());
+      }
+    }
+
+    // — Source 2: MikHmon sales scripts —
+    const now    = new Date();
+    const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+    const m  = MONTHS[now.getMonth()];
+    const y  = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const isoOwner    = `${mm}${y}`;   // "032026"
+    const legacyOwner = `${m}${y}`;    // "mar2026"
+
+    let scripts = await api.write("/system/script/print", [`?owner=${isoOwner}`]).catch(() => []);
+    if (scripts.length === 0) {
+      scripts = await api.write("/system/script/print", [`?owner=${legacyOwner}`]).catch(() => []);
+    }
+
+    for (const s of scripts) {
+      const name = (s["name"] as string) ?? "";
+      const parts = name.split("-|-");
+      // format: date-|-time-|-username-|-price-...
+      if (parts.length >= 3) {
+        const username = parts[2].trim().toLowerCase();
+        if (username) used.add(username);
+      }
+    }
+  }, 30_000);
+
+  return used;
+}
+
 export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
   return withRouter(conn, async (api) => {
     const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);

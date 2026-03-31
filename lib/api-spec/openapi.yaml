@@ -394,6 +394,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /routers/{id}/sync-usage:
+    post:
+      operationId: syncVoucherUsage
+      summary: Sync voucher usage from MikroTik logs and MikHmon scripts
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, total, usedOnRouter]
+                properties:
+                  updated:
+                    type: integer
+                  total:
+                    type: integer
+                  usedOnRouter:
+                    type: integer
+                  message:
+                    type: string
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /vendors:
     get:
       operationId: listVendors
@@ -786,6 +826,9 @@ components:
         printedAt:
           type: ["string", "null"]
           format: date-time
+        usedAt:
+          type: ["string", "null"]
+          format: date-time
         createdAt:
           type: string
           format: date-time
@@ -852,13 +895,15 @@ components:
 
     VendorReport:
       type: object
-      required: [vendor, totalVouchers, totalPrinted, byProfile, recentVouchers, salesStats]
+      required: [vendor, totalVouchers, totalPrinted, totalUsed, byProfile, recentVouchers, salesStats]
       properties:
         vendor:
           $ref: "#/components/schemas/Vendor"
         totalVouchers:
           type: integer
         totalPrinted:
+          type: integer
+        totalUsed:
           type: integer
         salesStats:
           $ref: "#/components/schemas/VendorSalesStats"
@@ -886,13 +931,15 @@ components:
 
     VendorSummary:
       type: object
-      required: [vendor, totalVouchers, totalPrinted, salesStats]
+      required: [vendor, totalVouchers, totalPrinted, totalUsed, salesStats]
       properties:
         vendor:
           $ref: "#/components/schemas/Vendor"
         totalVouchers:
           type: integer
         totalPrinted:
+          type: integer
+        totalUsed:
           type: integer
         salesStats:
           $ref: "#/components/schemas/VendorSalesStats"

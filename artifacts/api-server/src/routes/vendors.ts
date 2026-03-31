@@ -1,8 +1,18 @@
 import { Router } from "express";
-import { eq, desc, and, count, sql } from "drizzle-orm";
+import { eq, desc, and, count, sql, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable } from "@workspace/db";
 
 const router = Router();
+
+function buildTotals(vendorId: number) {
+  return db.select({
+    total:   count(),
+    printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
+    used:    sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
+  })
+  .from(vouchersTable)
+  .where(eq(vouchersTable.vendorId, vendorId));
+}
 
 function buildSalesStats(vendorId: number) {
   return db.select({
@@ -101,12 +111,15 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
 
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
 
-  const [stats, salesRow, recentVouchers] = await Promise.all([
+  const [totalsRows, byProfile, salesRow, recentVouchers] = await Promise.all([
+    buildTotals(id),
+
     db
       .select({
         profileName: vouchersTable.profileName,
         total: count(),
         printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
+        used:    sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
       })
       .from(vouchersTable)
       .where(eq(vouchersTable.vendorId, id))
@@ -123,20 +136,20 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
       .limit(50),
   ]);
 
-  const totalVouchers = stats.reduce((s, r) => s + r.total, 0);
-  const totalPrinted  = stats.reduce((s, r) => s + Number(r.printed), 0);
+  const totals = totalsRows[0];
 
   res.json({
     vendor,
-    totalVouchers,
-    totalPrinted,
+    totalVouchers: totals?.total        ?? 0,
+    totalPrinted:  Number(totals?.printed ?? 0),
+    totalUsed:     Number(totals?.used    ?? 0),
     salesStats: {
       todaySold:     Number(salesRow?.todaySold     ?? 0),
       yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),
       weekSold:      Number(salesRow?.weekSold      ?? 0),
       lastMonthSold: Number(salesRow?.lastMonthSold ?? 0),
     },
-    byProfile: stats,
+    byProfile,
     recentVouchers,
   });
 });
@@ -150,21 +163,15 @@ router.get("/vendors/reports/summary", async (_req, res): Promise<void> => {
   const summaries = await Promise.all(
     vendors.map(async (vendor) => {
       const [[row], [salesRow]] = await Promise.all([
-        db
-          .select({
-            total:   count(),
-            printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
-          })
-          .from(vouchersTable)
-          .where(eq(vouchersTable.vendorId, vendor.id)),
-
+        buildTotals(vendor.id),
         buildSalesStats(vendor.id),
       ]);
 
       return {
         vendor,
-        totalVouchers: row?.total ?? 0,
-        totalPrinted:  row ? Number(row.printed) : 0,
+        totalVouchers: row?.total        ?? 0,
+        totalPrinted:  Number(row?.printed ?? 0),
+        totalUsed:     Number(row?.used    ?? 0),
         salesStats: {
           todaySold:     Number(salesRow?.todaySold     ?? 0),
           yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),

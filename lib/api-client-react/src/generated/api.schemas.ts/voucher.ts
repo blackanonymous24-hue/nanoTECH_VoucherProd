@@ -6,6 +6,7 @@
  */
 import type { VoucherComment } from './voucherComment';
 import type { VoucherPrintedAt } from './voucherPrintedAt';
+import type { VoucherUsedAt } from './voucherUsedAt';
 
 export interface Voucher {
   id: number;
@@ -17,5 +18,6 @@ export interface Voucher {
   validity: string;
   comment?: VoucherComment;
   printedAt?: VoucherPrintedAt;
+  usedAt?: VoucherUsedAt;
   createdAt: string;
 }

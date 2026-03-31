@@ -15,6 +15,7 @@ export const vouchersTable = pgTable("vouchers", {
   validity: text("validity").notNull().default(""),
   comment: text("comment"),
   printedAt: timestamp("printed_at", { withTimezone: true }),
+  usedAt: timestamp("used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

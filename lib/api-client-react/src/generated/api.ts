@@ -37,6 +37,7 @@ import type {
   Router,
   SalesReport,
   SyncResult,
+  SyncVoucherUsage200,
   TestResult,
   UpdateRouterBody,
   UpdateVendorBody,
@@ -994,6 +995,69 @@ export const useSyncRouterVouchers = <TError = ErrorResponse,
       > => {
 
       const mutationOptions = getSyncRouterVouchersMutationOptions(options);
+
+      return useMutation(mutationOptions);
+    }
+    
+/**
+ * @summary Sync voucher usage from MikroTik logs and MikHmon scripts
+ */
+export const syncVoucherUsage = (
+    id: number,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<SyncVoucherUsage200>(
+      {url: `/routers/${id}/sync-usage`, method: 'POST', signal
+    },
+      options);
+    }
+  
+
+
+export const getSyncVoucherUsageMutationOptions = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncVoucherUsage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncVoucherUsage>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['syncVoucherUsage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncVoucherUsage>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  syncVoucherUsage(id,requestOptions)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncVoucherUsageMutationResult = NonNullable<Awaited<ReturnType<typeof syncVoucherUsage>>>
+    
+    export type SyncVoucherUsageMutationError = ErrorResponse
+
+    /**
+ * @summary Sync voucher usage from MikroTik logs and MikHmon scripts
+ */
+export const useSyncVoucherUsage = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncVoucherUsage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof syncVoucherUsage>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+
+      const mutationOptions = getSyncVoucherUsageMutationOptions(options);
 
       return useMutation(mutationOptions);
     }

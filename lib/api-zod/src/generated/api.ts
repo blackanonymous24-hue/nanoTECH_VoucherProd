@@ -253,6 +253,21 @@ export const syncRouterVouchersResponse = zod.object({
 
 
 /**
+ * @summary Sync voucher usage from MikroTik logs and MikHmon scripts
+ */
+export const syncVoucherUsageParams = zod.object({
+  "id": zod.number()
+})
+
+export const syncVoucherUsageResponse = zod.object({
+  "updated": zod.number(),
+  "total": zod.number(),
+  "usedOnRouter": zod.number(),
+  "message": zod.string().optional()
+})
+
+
+/**
  * @summary List all vendors
  */
 export const listVendorsResponseItem = zod.object({
@@ -324,6 +339,7 @@ export const getVendorReportResponse = zod.object({
 }),
   "totalVouchers": zod.number(),
   "totalPrinted": zod.number(),
+  "totalUsed": zod.number(),
   "salesStats": zod.object({
   "todaySold": zod.number(),
   "yesterdaySold": zod.number(),
@@ -345,6 +361,7 @@ export const getVendorReportResponse = zod.object({
   "validity": zod.string(),
   "comment": zod.string().nullish(),
   "printedAt": zod.string().datetime({}).nullish(),
+  "usedAt": zod.string().datetime({}).nullish(),
   "createdAt": zod.string().datetime({})
 }))
 })
@@ -364,6 +381,7 @@ export const getVendorReportsSummaryResponseItem = zod.object({
 }),
   "totalVouchers": zod.number(),
   "totalPrinted": zod.number(),
+  "totalUsed": zod.number(),
   "salesStats": zod.object({
   "todaySold": zod.number(),
   "yesterdaySold": zod.number(),
@@ -396,6 +414,7 @@ export const listVouchersResponse = zod.object({
   "validity": zod.string(),
   "comment": zod.string().nullish(),
   "printedAt": zod.string().datetime({}).nullish(),
+  "usedAt": zod.string().datetime({}).nullish(),
   "createdAt": zod.string().datetime({})
 })),
   "total": zod.number()
@@ -446,6 +465,7 @@ export const markVoucherPrintedResponse = zod.object({
   "validity": zod.string(),
   "comment": zod.string().nullish(),
   "printedAt": zod.string().datetime({}).nullish(),
+  "usedAt": zod.string().datetime({}).nullish(),
   "createdAt": zod.string().datetime({})
 })
 
@@ -470,6 +490,7 @@ export const getDashboardResponse = zod.object({
   "validity": zod.string(),
   "comment": zod.string().nullish(),
   "printedAt": zod.string().datetime({}).nullish(),
+  "usedAt": zod.string().datetime({}).nullish(),
   "createdAt": zod.string().datetime({})
 })).optional()
 })
