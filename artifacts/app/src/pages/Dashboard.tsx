@@ -378,29 +378,15 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
         </div>
-        <div className="flex items-center gap-2">
-          {selectedRouterId && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSync}
-              disabled={syncing || syncStatus?.running}
-              className="gap-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-            >
-              <Zap className={`h-4 w-4 ${syncing || syncStatus?.running ? "animate-pulse" : ""}`} />
-              {syncing || syncStatus?.running ? "Sync…" : "Synchroniser"}
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleRefresh}
-            className="gap-1.5 text-gray-500"
-          >
-            <RefreshCw className={`h-4 w-4 ${logsFetching ? "animate-spin" : ""}`} />
-            Actualiser
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleRefresh}
+          className="gap-1.5 text-gray-500"
+        >
+          <RefreshCw className={`h-4 w-4 ${logsFetching ? "animate-spin" : ""}`} />
+          Actualiser
+        </Button>
       </div>
 
       {/* Router hardware/software info bar */}
