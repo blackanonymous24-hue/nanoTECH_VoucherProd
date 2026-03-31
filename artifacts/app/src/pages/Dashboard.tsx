@@ -636,6 +636,7 @@ export default function Dashboard() {
       </div>
 
       <div className="flex gap-4 items-stretch">
+      <TrafficMonitorCard routerId={selectedRouterId} />
       <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
@@ -699,7 +700,6 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
-      <TrafficMonitorCard routerId={selectedRouterId} />
       </div>
     </div>
   );
