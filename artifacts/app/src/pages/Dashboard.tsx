@@ -688,7 +688,7 @@ export default function Dashboard() {
           ) : (
             <div
               ref={listRef}
-              className="divide-y divide-gray-50 max-h-[330px] overflow-y-auto"
+              className="divide-y divide-gray-50 max-h-[260px] overflow-y-auto"
             >
               {logs.map((entry, i) => {
                 const { icon, rowClass, timeClass } = classifyLog(entry);
