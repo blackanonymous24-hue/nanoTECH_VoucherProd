@@ -182,6 +182,54 @@ export async function listSessions(conn: RouterConnection): Promise<HotspotSessi
   });
 }
 
+export interface SalesReport {
+  dailyCount: number;
+  dailyAmount: number;
+  monthlyCount: number;
+  monthlyAmount: number;
+  dateLabel: string;
+  monthLabel: string;
+}
+
+/** Reproduces MikHmon's live-report logic:
+ *  script name format: "mar/31/2026-|-10:30:00-|-username-|-500"
+ *  script owner:       "mar2026"
+ */
+export async function fetchSalesFromScripts(conn: RouterConnection): Promise<SalesReport> {
+  return withRouter(conn, async (api) => {
+    const now = new Date();
+    const months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+    const m = months[now.getMonth()];
+    const d = String(now.getDate()).padStart(2, "0");
+    const y = now.getFullYear();
+    const dateLabel = `${m}/${d}/${y}`;   // e.g. "mar/31/2026"
+    const monthLabel = `${m}${y}`;        // e.g. "mar2026"
+
+    const scripts = await api.write("/system/script/print", [`?owner=${monthLabel}`]);
+
+    let dailyCount = 0;
+    let dailyAmount = 0;
+    let monthlyCount = 0;
+    let monthlyAmount = 0;
+
+    for (const s of scripts) {
+      const name = (s["name"] as string) ?? "";
+      const parts = name.split("-|-");
+      const price = parseFloat(parts[3] ?? "0") || 0;
+
+      monthlyCount++;
+      monthlyAmount += price;
+
+      if (parts[0] === dateLabel) {
+        dailyCount++;
+        dailyAmount += price;
+      }
+    }
+
+    return { dailyCount, dailyAmount, monthlyCount, monthlyAmount, dateLabel, monthLabel };
+  });
+}
+
 export interface LogEntry {
   id: string;
   time: string;

@@ -42,6 +42,7 @@ export * from './listRouterUsersParams';
 export * from './listVouchersParams';
 export * from './logEntry';
 export * from './router';
+export * from './salesReport';
 export * from './syncResult';
 export * from './testResult';
 export * from './testResultRouterBoard';

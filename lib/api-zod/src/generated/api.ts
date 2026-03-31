@@ -184,6 +184,23 @@ export const listRouterUsersResponse = zod.object({
 
 
 /**
+ * @summary Fetch live sales report from MikroTik scripts (MikHmon-compatible)
+ */
+export const getRouterSalesParams = zod.object({
+  "id": zod.number()
+})
+
+export const getRouterSalesResponse = zod.object({
+  "dailyCount": zod.number(),
+  "dailyAmount": zod.number(),
+  "monthlyCount": zod.number(),
+  "monthlyAmount": zod.number(),
+  "dateLabel": zod.string(),
+  "monthLabel": zod.string()
+})
+
+
+/**
  * @summary Fetch system log from MikroTik router
  */
 export const listRouterLogsParams = zod.object({

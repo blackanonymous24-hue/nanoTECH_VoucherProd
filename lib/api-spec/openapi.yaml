@@ -264,6 +264,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /routers/{id}/sales:
+    get:
+      operationId: getRouterSales
+      summary: Fetch live sales report from MikroTik scripts (MikHmon-compatible)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Sales report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesReport"
+        "502":
+          description: Cannot reach router
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /routers/{id}/logs:
     get:
       operationId: listRouterLogs
@@ -879,6 +903,23 @@ components:
         passwordMode:
           type: string
           enum: [same, random]
+
+    SalesReport:
+      type: object
+      required: [dailyCount, dailyAmount, monthlyCount, monthlyAmount, dateLabel, monthLabel]
+      properties:
+        dailyCount:
+          type: integer
+        dailyAmount:
+          type: number
+        monthlyCount:
+          type: integer
+        monthlyAmount:
+          type: number
+        dateLabel:
+          type: string
+        monthLabel:
+          type: string
 
     LogEntry:
       type: object

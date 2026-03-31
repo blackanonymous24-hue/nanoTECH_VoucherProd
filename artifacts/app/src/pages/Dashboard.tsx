@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useGetDashboard, useListRouterLogs } from "@workspace/api-client-react";
+import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,21 @@ export default function Dashboard() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const {
+    data: sales,
+    isFetching: salesFetching,
+    refetch: refetchSales,
+  } = useGetRouterSales(
+    selectedRouterId ?? 0,
+    {
+      query: {
+        enabled: !!selectedRouterId,
+        refetchInterval: 10_000,
+        staleTime: 9_000,
+      },
+    },
+  );
+
+  const {
     data: logs = [],
     isLoading: logsLoading,
     isFetching: logsFetching,
@@ -93,7 +108,10 @@ export default function Dashboard() {
 
   const handleRefresh = () => {
     refetch();
-    if (selectedRouterId) refetchLogs();
+    if (selectedRouterId) {
+      refetchLogs();
+      refetchSales();
+    }
   };
 
   return (
@@ -129,17 +147,21 @@ export default function Dashboard() {
         />
         <StatCard
           title="Vente journalière"
-          value={data?.dailySalesCount ?? 0}
-          sub={data?.dailySalesAmount ? formatAmount(data.dailySalesAmount) : undefined}
+          value={sales?.dailyCount ?? 0}
+          sub={sales?.dailyAmount ? formatAmount(sales.dailyAmount) : undefined}
+          live={!!selectedRouterId}
+          fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
-          loading={isLoading}
+          loading={!sales && !!selectedRouterId}
         />
         <StatCard
           title="Vente mensuelle"
-          value={data?.monthlySalesCount ?? 0}
-          sub={data?.monthlySalesAmount ? formatAmount(data.monthlySalesAmount) : undefined}
+          value={sales?.monthlyCount ?? 0}
+          sub={sales?.monthlyAmount ? formatAmount(sales.monthlyAmount) : undefined}
+          live={!!selectedRouterId}
+          fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
-          loading={isLoading}
+          loading={!sales && !!selectedRouterId}
         />
         <StatCard
           title="Routeurs"
@@ -222,26 +244,39 @@ function StatCard({
   sub,
   icon,
   loading,
+  live,
+  fetching,
 }: {
   title: string;
   value: number;
   sub?: string;
   icon: React.ReactNode;
   loading: boolean;
+  live?: boolean;
+  fetching?: boolean;
 }) {
   return (
     <Card>
       <CardContent className="pt-5">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0">{icon}</div>
-          <div className="min-w-0">
-            <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
+        <div className="flex items-start gap-3">
+          <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0 mt-0.5">{icon}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
+              {live && (
+                <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+                </span>
+              )}
+              {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
+            </div>
             {loading ? (
               <div className="h-7 w-12 bg-gray-200 rounded animate-pulse mt-1" />
             ) : (
               <>
                 <p className="text-2xl font-bold text-gray-900">{value.toLocaleString()}</p>
-                {sub && <p className="text-xs text-gray-400 -mt-0.5">{sub}</p>}
+                {sub && <p className="text-xs text-gray-400 -mt-0.5 font-medium">{sub}</p>}
               </>
             )}
           </div>

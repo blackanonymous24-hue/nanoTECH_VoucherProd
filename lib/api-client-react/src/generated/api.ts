@@ -35,6 +35,7 @@ import type {
   ListVouchersParams,
   LogEntry,
   Router,
+  SalesReport,
   SyncResult,
   TestResult,
   UpdateRouterBody,
@@ -713,6 +714,75 @@ export function useListRouterUsers<TData = Awaited<ReturnType<typeof listRouterU
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListRouterUsersQueryOptions(id,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+
+/**
+ * @summary Fetch live sales report from MikroTik scripts (MikHmon-compatible)
+ */
+export const getRouterSales = (
+    id: number,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<SalesReport>(
+      {url: `/routers/${id}/sales`, method: 'GET', signal
+    },
+      options);
+    }
+  
+
+
+
+export const getGetRouterSalesQueryKey = (id?: number,) => {
+    return [
+    `/routers/${id}/sales`
+    ] as const;
+    }
+
+    
+export const getGetRouterSalesQueryOptions = <TData = Awaited<ReturnType<typeof getRouterSales>>, TError = ErrorResponse>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRouterSales>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRouterSalesQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRouterSales>>> = ({ signal }) => getRouterSales(id, requestOptions, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRouterSales>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetRouterSalesQueryResult = NonNullable<Awaited<ReturnType<typeof getRouterSales>>>
+export type GetRouterSalesQueryError = ErrorResponse
+
+
+/**
+ * @summary Fetch live sales report from MikroTik scripts (MikHmon-compatible)
+ */
+
+export function useGetRouterSales<TData = Awaited<ReturnType<typeof getRouterSales>>, TError = ErrorResponse>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRouterSales>>, TError, TData>, request?: SecondParameter<typeof customInstance>}
+  
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetRouterSalesQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
