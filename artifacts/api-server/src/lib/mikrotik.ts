@@ -218,6 +218,8 @@ export interface RouterInfo {
   freeMemory: string | null;
   uptime: string | null;
   architecture: string | null;
+  clockDate: string | null;
+  clockTime: string | null;
 }
 
 export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo> {
@@ -240,6 +242,14 @@ export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo>
       firmwareVersion = (board?.["current-firmware"] as string) ?? null;
     } catch { /* routerboard may be restricted */ }
 
+    let clockDate: string | null = null;
+    let clockTime: string | null = null;
+    try {
+      const [clock] = await api.write("/system/clock/print");
+      clockDate = (clock?.["date"] as string) ?? null;
+      clockTime = (clock?.["time"] as string) ?? null;
+    } catch { /* clock may be restricted */ }
+
     return {
       identity,
       boardName: (res?.["board-name"] as string) ?? null,
@@ -253,6 +263,8 @@ export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo>
       freeMemory: (res?.["free-memory"] as string) ?? null,
       uptime: (res?.["uptime"] as string) ?? null,
       architecture: (res?.["architecture-name"] as string) ?? null,
+      clockDate,
+      clockTime,
     };
   }, 12000);
 }

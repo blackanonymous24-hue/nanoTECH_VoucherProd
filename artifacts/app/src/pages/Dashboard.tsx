@@ -16,6 +16,8 @@ interface RouterInfo {
   boardName: string | null;
   model: string | null;
   serialNumber: string | null;
+  clockDate: string | null;
+  clockTime: string | null;
   routerOsVersion: string | null;
   firmwareVersion: string | null;
   cpu: string | null;
@@ -491,9 +493,10 @@ export default function Dashboard() {
                   En ligne {formatUptime(routerInfo.uptime)}
                 </span>
               )}
-              {routerInfo.serialNumber && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-xs text-gray-500">
-                  S/N {routerInfo.serialNumber}
+              {(routerInfo.clockDate || routerInfo.clockTime) && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-xs text-gray-500 font-mono">
+                  <Clock className="h-3 w-3" />
+                  {[routerInfo.clockDate, routerInfo.clockTime].filter(Boolean).join(" ")}
                 </span>
               )}
             </div>
