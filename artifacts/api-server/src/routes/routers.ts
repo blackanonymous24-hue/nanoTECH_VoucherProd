@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, type SalesReport } from "../lib/mikrotik.js";
 
@@ -559,13 +559,14 @@ router.post("/routers/:id/sync-usage", async (req, res): Promise<void> => {
       return;
     }
 
-    // Get all vouchers for this router that are not yet marked as used
+    // Get all vouchers for this router assigned to a vendor, not yet marked as used
     const vouchers = await db
-      .select({ id: vouchersTable.id, username: vouchersTable.username })
+      .select({ id: vouchersTable.id, username: vouchersTable.username, printedAt: vouchersTable.printedAt })
       .from(vouchersTable)
       .where(and(
         eq(vouchersTable.routerId, routerId),
         isNotNull(vouchersTable.vendorId),
+        isNull(vouchersTable.usedAt),
       ));
 
     const toUpdate = vouchers
@@ -575,14 +576,12 @@ router.post("/routers/:id/sync-usage", async (req, res): Promise<void> => {
     let updated = 0;
     if (toUpdate.length > 0) {
       const now = new Date();
-      // Only set usedAt if not already set
+      // Mark usedAt; also backfill printedAt if it was never set
+      // (voucher was sold outside VoucherNet's print flow)
       await db
         .update(vouchersTable)
-        .set({ usedAt: now })
-        .where(and(
-          inArray(vouchersTable.id, toUpdate),
-          isNotNull(vouchersTable.printedAt),
-        ));
+        .set({ usedAt: now, printedAt: sql`coalesce(${vouchersTable.printedAt}, ${now.toISOString()})` })
+        .where(inArray(vouchersTable.id, toUpdate));
       updated = toUpdate.length;
     }
 
