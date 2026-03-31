@@ -355,6 +355,8 @@ export async function fetchUsedUsernames(conn: RouterConnection): Promise<Set<st
 
 /**
  * Enable or disable a list of hotspot users on a MikroTik router.
+ * Fetches all users in one shot, then sends one set-command per target user.
+ * Uses a long timeout (120 s) to handle large vendor voucher batches.
  * Users not found on the router are silently skipped.
  */
 export async function enableDisableHotspotUsers(
@@ -363,27 +365,39 @@ export async function enableDisableHotspotUsers(
   enable: boolean,
 ): Promise<{ done: number; notFound: string[] }> {
   if (usernames.length === 0) return { done: 0, notFound: [] };
+
+  const target = new Set(usernames.map((u) => u.toLowerCase()));
+
   return withRouter(conn, async (api) => {
+    // Fetch all hotspot users once
     const all = await api.write("/ip/hotspot/user/print");
-    const map = new Map<string, string>();
+
+    const toSet: string[] = [];   // .id values to update
+    const found = new Set<string>();
+
     for (const u of all) {
-      const name = (u["name"] as string) ?? "";
+      const name = ((u["name"] as string) ?? "").toLowerCase();
       const id   = (u[".id"]  as string) ?? "";
-      if (name && id) map.set(name.toLowerCase(), id);
+      if (!name || !id) continue;
+      if (target.has(name)) {
+        toSet.push(id);
+        found.add(name);
+      }
     }
-    const notFound: string[] = [];
-    let done = 0;
-    for (const username of usernames) {
-      const id = map.get(username.toLowerCase());
-      if (!id) { notFound.push(username); continue; }
+
+    const notFound = usernames.filter((u) => !found.has(u.toLowerCase()));
+    const disabledVal = enable ? "no" : "yes";
+
+    // Send one set command per user (RouterOS API doesn't support multi-ID set)
+    for (const id of toSet) {
       await api.write("/ip/hotspot/user/set", [
         `=.id=${id}`,
-        `=disabled=${enable ? "no" : "yes"}`,
+        `=disabled=${disabledVal}`,
       ]);
-      done++;
     }
-    return { done, notFound };
-  });
+
+    return { done: toSet.length, notFound };
+  }, 120_000);   // 120 s — enough for 200+ users at ~0.3 s each
 }
 
 export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
