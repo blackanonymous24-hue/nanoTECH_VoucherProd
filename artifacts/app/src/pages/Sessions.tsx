@@ -64,7 +64,7 @@ export default function Sessions() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Sessions actives</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Clients actifs</h1>
           <p className="text-sm text-gray-500">Utilisateurs connectés en temps réel sur votre hotspot</p>
         </div>
         {activeId && (
@@ -99,7 +99,7 @@ export default function Sessions() {
         {activeId && !isLoading && (
           <Badge variant="outline" className="gap-1.5 text-green-600 border-green-200">
             <Users className="h-3 w-3" />
-            {sessions.length} session(s)
+            {sessions.length} client(s) connecté(s)
           </Badge>
         )}
         {activeId && (
@@ -112,19 +112,19 @@ export default function Sessions() {
           <CardContent className="py-16 text-center">
             <Activity className="h-12 w-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 font-medium">Sélectionnez un routeur</p>
-            <p className="text-sm text-gray-400 mt-1">Les sessions actives s&apos;afficheront ici</p>
+            <p className="text-sm text-gray-400 mt-1">Les clients actifs s&apos;afficheront ici</p>
           </CardContent>
         </Card>
       )}
 
       {activeId && isLoading && (
-        <div className="text-sm text-gray-400">Chargement des sessions...</div>
+        <div className="text-sm text-gray-400">Chargement des clients actifs...</div>
       )}
 
       {activeId && error && (
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-red-500 text-sm">Impossible de récupérer les sessions. Vérifiez la connexion au routeur.</p>
+            <p className="text-red-500 text-sm">Impossible de récupérer les clients actifs. Vérifiez la connexion au routeur.</p>
           </CardContent>
         </Card>
       )}
@@ -133,7 +133,7 @@ export default function Sessions() {
         <Card>
           <CardContent className="py-12 text-center">
             <Wifi className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 font-medium">Aucune session active</p>
+            <p className="text-gray-500 font-medium">Aucun client actif</p>
             <p className="text-sm text-gray-400 mt-1">Personne n&apos;est connecté au hotspot pour l&apos;instant</p>
           </CardContent>
         </Card>
@@ -144,7 +144,7 @@ export default function Sessions() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Activity className="h-4 w-4 text-green-500" />
-              Sessions en cours
+              Clients connectés
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">

@@ -14,7 +14,7 @@ const navItems = [
   { href: "/", label: "Tableau de bord", icon: LayoutDashboard },
   { href: "/routers", label: "Routeurs", icon: Router },
   { href: "/forfaits", label: "Forfaits", icon: PackageOpen },
-  { href: "/sessions", label: "Sessions", icon: Activity },
+  { href: "/sessions", label: "Clients actifs", icon: Activity },
   { href: "/generate", label: "Générer", icon: Zap },
   { href: "/vouchers", label: "Vouchers", icon: Ticket },
 ];
