@@ -147,6 +147,39 @@ export async function listProfiles(conn: RouterConnection): Promise<HotspotProfi
   });
 }
 
+export interface CreateProfileOptions {
+  name: string;
+  label: string;
+  price: string;
+  validity: string;
+  sharedUsers: string;
+  addrPool: string;
+  rateLimit: string;
+  lockMac: boolean;
+}
+
+function generateMikHmonOnLogin(opts: CreateProfileOptions): string {
+  const lockMacStr = opts.lockMac ? "Enable" : "Disable";
+  const macLockPart = opts.lockMac
+    ? ` :if ([/ip hotspot user get [find name=$user] mac-address]="") do={ /ip hotspot user set mac-address=[/ip hotspot active get [find user=$user] mac-address] [find where name="$user"];};`
+    : "";
+  return `:put (",${opts.label},${opts.price},${opts.validity},${opts.sharedUsers},${opts.addrPool},${lockMacStr},"); {:local comment [ /ip hotspot user get [/ip hotspot user find where name="$user"] comment]; :local ucode [:pic $comment 0 2]; :if ($ucode = "vc" or $ucode = "up" or $comment = "") do={ :local date [ /system clock get date ];:local year [ :pick $date 0 4 ];:local month [ :pick $date 5 7 ]; /sys sch add name="$user" disable=no start-date=$date interval="${opts.validity}"; :delay 5s; :local exp [ /sys sch get [ /sys sch find where name="$user" ] next-run]; :local getxp [len $exp]; :if ($getxp = 15) do={ :local d [:pic $exp 0 6]; :local t [:pic $exp 7 16]; :local s ("/"); :local exp ("$d$s$year $t"); /ip hotspot user set comment="$exp" [find where name="$user"];}; :if ($getxp = 8) do={ /ip hotspot user set comment="$date $exp" [find where name="$user"];}; :if ($getxp > 15) do={ /ip hotspot user set comment="$exp" [find where name="$user"];};:delay 5s; /sys sch remove [find where name="$user"];${macLockPart} :local mac $"mac-address"; :local time [/system clock get time ]; /system script add name="$date-|-$time-|-$user-|-${opts.price}-|-$address-|-$mac-|-${opts.validity}-|-${opts.name}-|-$comment" owner="$month$year" source="$date" comment="mikhmon"}}`;
+}
+
+export async function createProfile(conn: RouterConnection, opts: CreateProfileOptions): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const onLogin = generateMikHmonOnLogin(opts);
+    const args = [
+      `=name=${opts.name}`,
+      `=on-login=${onLogin}`,
+      `=shared-users=${opts.sharedUsers || "1"}`,
+    ];
+    if (opts.rateLimit) args.push(`=rate-limit=${opts.rateLimit}`);
+    if (opts.addrPool)  args.push(`=address-pool=${opts.addrPool}`);
+    await api.write("/ip/hotspot/user/profile/add", args);
+  });
+}
+
 export interface HotspotUser {
   username: string;
   password: string;
