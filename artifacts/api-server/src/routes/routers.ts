@@ -176,12 +176,13 @@ router.post("/routers/:id/profiles", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const { name, label, price, validity, sharedUsers, addrPool, rateLimit, lockMac } = req.body as {
-    name?: string; label?: string; price?: string; validity?: string;
-    sharedUsers?: string; addrPool?: string; rateLimit?: string; lockMac?: boolean;
+  const { name, validity, price, sellingPrice, sharedUsers, addrPool, rateLimit, expiredMode, lockMac, parentQueue } = req.body as {
+    name?: string; validity?: string; price?: string; sellingPrice?: string;
+    sharedUsers?: string; addrPool?: string; rateLimit?: string;
+    expiredMode?: string; lockMac?: boolean; parentQueue?: string;
   };
-  if (!name || !label || !price || !validity) {
-    res.status(400).json({ error: "Champs obligatoires manquants : name, label, price, validity" }); return;
+  if (!name || !price || !validity) {
+    res.status(400).json({ error: "Champs obligatoires manquants : name, price, validity" }); return;
   }
 
   try {
@@ -189,13 +190,15 @@ router.post("/routers/:id/profiles", async (req, res): Promise<void> => {
       { host: r.host, port: r.port, username: r.username, password: r.password },
       {
         name: name.trim(),
-        label: label.trim(),
-        price: price.trim(),
         validity: validity.trim(),
+        price: price.trim(),
+        sellingPrice: (sellingPrice ?? "").trim(),
         sharedUsers: (sharedUsers ?? "1").trim(),
         addrPool: (addrPool ?? "").trim(),
         rateLimit: (rateLimit ?? "").trim(),
+        expiredMode: (expiredMode ?? "nothing").trim(),
         lockMac: lockMac === true,
+        parentQueue: (parentQueue ?? "").trim(),
       },
     );
     res.json({ ok: true });

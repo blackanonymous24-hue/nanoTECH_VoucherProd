@@ -33,13 +33,15 @@ function formatValidity(v: string | null | undefined): string {
 
 const defaultForm = {
   name: "",
-  label: "",
-  price: "",
-  validity: "",
-  sharedUsers: "1",
   addrPool: "",
+  sharedUsers: "1",
   rateLimit: "",
+  expiredMode: "nothing",
+  price: "",
+  sellingPrice: "",
   lockMac: false,
+  parentQueue: "",
+  validity: "",
 };
 
 export default function Forfaits() {
@@ -66,8 +68,8 @@ export default function Forfaits() {
   async function handleCreate() {
     setError(null);
     if (!routerId) { setError("Sélectionnez un routeur d'abord."); return; }
-    if (!form.name.trim() || !form.label.trim() || !form.price.trim() || !form.validity.trim()) {
-      setError("Nom, code, prix et validité sont obligatoires."); return;
+    if (!form.name.trim() || !form.price.trim() || !form.validity.trim()) {
+      setError("Nom, prix et validité sont obligatoires."); return;
     }
     setSaving(true);
     try {
@@ -219,8 +221,9 @@ export default function Forfaits() {
           </DialogHeader>
 
           <div className="grid grid-cols-2 gap-4 py-2">
+
             <div className="col-span-2 space-y-1.5">
-              <Label>Nom du profil <span className="text-red-500">*</span></Label>
+              <Label>Nom <span className="text-red-500">*</span></Label>
               <Input
                 placeholder="ex: 3-Heure"
                 value={form.name}
@@ -228,57 +231,7 @@ export default function Forfaits() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Code court <span className="text-red-500">*</span></Label>
-              <Input
-                placeholder="ex: remc"
-                value={form.label}
-                onChange={(e) => setField("label", e.target.value)}
-              />
-              <p className="text-xs text-gray-400">Identifiant court utilisé dans les logs</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Prix (FCFA) <span className="text-red-500">*</span></Label>
-              <Input
-                placeholder="ex: 100"
-                type="number"
-                min="0"
-                value={form.price}
-                onChange={(e) => setField("price", e.target.value)}
-              />
-            </div>
-
             <div className="col-span-2 space-y-1.5">
-              <Label>Validité <span className="text-red-500">*</span></Label>
-              <Input
-                placeholder="ex: 3h, 1d, 7d, 30m"
-                value={form.validity}
-                onChange={(e) => setField("validity", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Appareils simultanés</Label>
-              <Input
-                placeholder="1"
-                type="number"
-                min="1"
-                value={form.sharedUsers}
-                onChange={(e) => setField("sharedUsers", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Débit max</Label>
-              <Input
-                placeholder="ex: 1M/1M"
-                value={form.rateLimit}
-                onChange={(e) => setField("rateLimit", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
               <Label>Pool d&apos;adresses</Label>
               <Select
                 value={form.addrPool || "__none"}
@@ -297,7 +250,81 @@ export default function Forfaits() {
               </Select>
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="space-y-1.5">
+              <Label>Utilisateurs simultanés</Label>
+              <Input
+                placeholder="1"
+                type="number"
+                min="1"
+                value={form.sharedUsers}
+                onChange={(e) => setField("sharedUsers", e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Débit max [montant/descendant]</Label>
+              <Input
+                placeholder="ex: 1M/1M"
+                value={form.rateLimit}
+                onChange={(e) => setField("rateLimit", e.target.value)}
+              />
+            </div>
+
+            <div className="col-span-2 space-y-1.5">
+              <Label>Mode d&apos;expiration</Label>
+              <Select value={form.expiredMode} onValueChange={(v) => setField("expiredMode", v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="nothing">Aucun</SelectItem>
+                  <SelectItem value="disable">Désactiver l&apos;utilisateur</SelectItem>
+                  <SelectItem value="remove">Supprimer l&apos;utilisateur</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Prix FCFA <span className="text-red-500">*</span></Label>
+              <Input
+                placeholder="ex: 100"
+                type="number"
+                min="0"
+                value={form.price}
+                onChange={(e) => setField("price", e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Prix de vente FCFA</Label>
+              <Input
+                placeholder="ex: 150"
+                type="number"
+                min="0"
+                value={form.sellingPrice}
+                onChange={(e) => setField("sellingPrice", e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Validité <span className="text-red-500">*</span></Label>
+              <Input
+                placeholder="ex: 3h, 1d, 7d"
+                value={form.validity}
+                onChange={(e) => setField("validity", e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>File parente</Label>
+              <Input
+                placeholder="ex: PCQ-queue"
+                value={form.parentQueue}
+                onChange={(e) => setField("parentQueue", e.target.value)}
+              />
+            </div>
+
+            <div className="col-span-2 flex items-center gap-3 pt-1">
               <Switch
                 id="lockMac"
                 checked={form.lockMac}
@@ -305,9 +332,10 @@ export default function Forfaits() {
               />
               <Label htmlFor="lockMac" className="cursor-pointer">
                 <Lock className="h-3.5 w-3.5 inline mr-1 text-amber-500" />
-                Verrouillage MAC
+                Verrouillage utilisateur (MAC)
               </Label>
             </div>
+
           </div>
 
           {error && (
