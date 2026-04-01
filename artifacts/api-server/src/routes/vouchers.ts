@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, desc } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { generateVouchers, listProfiles } from "../lib/mikrotik.js";
+import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -101,6 +101,43 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
       .returning();
 
     res.status(201).json(inserted);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
+  const { routerId, comment, enable } = req.body as {
+    routerId?: number;
+    comment?: string;
+    enable?: boolean;
+  };
+  if (!routerId || !comment) {
+    res.status(400).json({ error: "routerId et comment sont requis" });
+    return;
+  }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const vouchers = await db
+    .select({ username: vouchersTable.username })
+    .from(vouchersTable)
+    .where(and(eq(vouchersTable.routerId, routerId), eq(vouchersTable.comment, comment)));
+
+  if (vouchers.length === 0) {
+    res.json({ done: 0, notFound: [] });
+    return;
+  }
+
+  try {
+    const usernames = vouchers.map((v) => v.username);
+    const result = await enableDisableHotspotUsers(
+      { host: r.host, port: r.port, username: r.username, password: r.password },
+      usernames,
+      enable ?? false,
+    );
+    res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

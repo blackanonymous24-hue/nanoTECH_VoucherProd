@@ -46,6 +46,7 @@ import {
   Trash2,
   Package,
   List,
+  PowerOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, format } from "date-fns";
@@ -53,6 +54,7 @@ import { fr } from "date-fns/locale";
 import { useDebounce } from "@/hooks/use-debounce";
 
 const PAGE_SIZE = 100;
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function downloadFile(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -76,6 +78,7 @@ export default function Vouchers() {
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
+  const [isDisabling, setIsDisabling] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -264,6 +267,31 @@ export default function Vouchers() {
     setPage(0);
   };
 
+  const handleDisableLot = async (comment: string, enable: boolean) => {
+    if (!activeRouterId) return;
+    setIsDisabling(true);
+    try {
+      const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routerId: activeRouterId, comment, enable }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { done: number; notFound: string[] };
+      toast({
+        title: enable
+          ? `${data.done} voucher(s) réactivé(s)`
+          : `${data.done} voucher(s) désactivé(s)`,
+        description: `Lot : ${comment}`,
+      });
+      refetch();
+    } catch {
+      toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
+    } finally {
+      setIsDisabling(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -393,20 +421,42 @@ export default function Vouchers() {
               </Card>
 
               {filterComment !== "all" && (
-                <div className="flex items-center justify-between mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+                <div className="flex items-center justify-between mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 gap-3 flex-wrap">
                   <span className="text-sm text-amber-800 font-medium flex items-center gap-2">
                     <Package className="h-4 w-4" />
                     Lot&nbsp;: <span className="font-mono">{filterComment}</span>
                     &nbsp;—&nbsp;{filtered.length} affiché(s)
                   </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setDeletingLot(filterComment)}
-                    className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> Supprimer ce lot
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={isDisabling}
+                      onClick={() => handleDisableLot(filterComment, false)}
+                      className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
+                    >
+                      <PowerOff className="h-3.5 w-3.5" />
+                      {isDisabling ? "En cours..." : "Désactiver"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={isDisabling}
+                      onClick={() => handleDisableLot(filterComment, true)}
+                      className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
+                    >
+                      <PowerOff className="h-3.5 w-3.5 rotate-180" />
+                      {isDisabling ? "En cours..." : "Réactiver"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setDeletingLot(filterComment)}
+                      className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Supprimer
+                    </Button>
+                  </div>
                 </div>
               )}
 
