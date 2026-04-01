@@ -368,7 +368,7 @@ export default function Vouchers() {
                       <SelectTrigger className="w-48">
                         <SelectValue placeholder="Tous les forfaits" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-64 overflow-y-auto">
                         <SelectItem value="all">Tous les forfaits</SelectItem>
                         {profilesList.map((p) => (
                           <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
