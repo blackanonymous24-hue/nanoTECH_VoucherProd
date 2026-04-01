@@ -129,13 +129,13 @@ export default function Vouchers() {
     [allLocalVouchers],
   );
 
-  // Unique comments from MikroTik users for the lot filter
+  // Unique comments starting with "vc" from MikroTik users for the lot filter
   const uniqueComments = useMemo(() => {
     const seen = new Set<string>();
     const result: string[] = [];
     for (const u of mikrotikUsers) {
       const c = u.comment;
-      if (c && !seen.has(c)) { seen.add(c); result.push(c); }
+      if (c && c.startsWith("vc") && !seen.has(c)) { seen.add(c); result.push(c); }
     }
     return result.sort();
   }, [mikrotikUsers]);
@@ -379,7 +379,7 @@ export default function Vouchers() {
                       <SelectTrigger className="w-52">
                         <SelectValue placeholder="Tous les lots" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-64 overflow-y-auto">
                         <SelectItem value="all">Tous</SelectItem>
                         {uniqueComments.map((c) => (
                           <SelectItem key={c} value={c}>{c}</SelectItem>
@@ -503,7 +503,7 @@ export default function Vouchers() {
                         <div className="flex items-center gap-3 min-w-0">
                           <Package className="h-5 w-5 text-blue-400 flex-shrink-0" />
                           <div className="min-w-0">
-                            <p className="font-mono font-semibold text-gray-900 text-sm truncate">
+                            <p className="font-mono font-semibold text-gray-900 text-sm break-all">
                               {lot.name}
                             </p>
                             <div className="flex flex-wrap items-center gap-2 mt-0.5">
