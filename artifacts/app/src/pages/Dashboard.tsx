@@ -691,22 +691,24 @@ function StatCard({
               )}
               {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
             </div>
-            {loading ? (
-              <>
-                <div className="h-7 w-24 bg-gray-200 rounded animate-pulse mt-1" />
-                <div className="h-3 w-16 bg-gray-100 rounded animate-pulse mt-1.5" />
-              </>
-            ) : label !== undefined ? (
-              <>
-                <p className="text-base font-bold text-gray-900 leading-tight mt-0.5">{label || "0 FCFA"}</p>
-                {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-              </>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-gray-900">{(value ?? 0).toLocaleString()}</p>
-                {sub && <p className="text-xs text-gray-400 -mt-0.5">{sub}</p>}
-              </>
-            )}
+            <div className="min-h-[2.75rem] flex flex-col justify-center">
+              {loading ? (
+                <>
+                  <div className="h-7 w-24 bg-gray-200 rounded animate-pulse mt-1" />
+                  <div className="h-3 w-16 bg-gray-100 rounded animate-pulse mt-1.5" />
+                </>
+              ) : label !== undefined ? (
+                <>
+                  <p className="text-xl font-bold text-gray-900 leading-tight">{label || "0 FCFA"}</p>
+                  {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+                </>
+              ) : (
+                <>
+                  <p className="text-2xl font-bold text-gray-900">{(value ?? 0).toLocaleString()}</p>
+                  {sub && <p className="text-xs text-gray-400 -mt-0.5">{sub}</p>}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </CardContent>
