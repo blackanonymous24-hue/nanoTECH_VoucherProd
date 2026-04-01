@@ -132,15 +132,16 @@ export default function Vouchers() {
     [allLocalVouchers],
   );
 
-  // Unique "vc-" comments from ALL local vouchers (covers all MikroTik pages)
+  // Unique "vc" comments with per-lot count from ALL local vouchers
   const uniqueComments = useMemo(() => {
-    const seen = new Set<string>();
-    const result: string[] = [];
+    const counts = new Map<string, number>();
     for (const v of allLocalVouchers) {
       const c = v.comment;
-      if (c && c.startsWith("vc") && !seen.has(c)) { seen.add(c); result.push(c); }
+      if (c && c.startsWith("vc")) counts.set(c, (counts.get(c) ?? 0) + 1);
     }
-    return result.sort((a, b) => b.localeCompare(a)); // newest first (reverse alpha)
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.name.localeCompare(a.name)); // newest first
   }, [allLocalVouchers]);
 
   const filtered = useMemo(() => {
@@ -410,8 +411,13 @@ export default function Vouchers() {
                       </SelectTrigger>
                       <SelectContent className="max-h-64 overflow-y-scroll">
                         <SelectItem value="all">Tous</SelectItem>
-                        {uniqueComments.map((c) => (
-                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        {uniqueComments.map(({ name, count }) => (
+                          <SelectItem key={name} value={name}>
+                            <span className="flex items-center justify-between w-full gap-3">
+                              <span className="font-mono text-xs truncate">{name}</span>
+                              <span className="text-xs text-gray-400 flex-shrink-0">{count}</span>
+                            </span>
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
