@@ -206,6 +206,7 @@ export default function Vouchers() {
     toast({ title: `Lot « ${lotName} » supprimé`, description: `${deleted} voucher(s) retirés de la base locale` });
     invalidate();
     setDeletingLot(null);
+    if (filterComment === lotName) setFilterComment("all");
   };
 
   const handleExportTxt = (lot: { name: string; vouchers: Voucher[] }) => {
@@ -390,6 +391,24 @@ export default function Vouchers() {
                   </div>
                 </CardContent>
               </Card>
+
+              {filterComment !== "all" && (
+                <div className="flex items-center justify-between mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+                  <span className="text-sm text-amber-800 font-medium flex items-center gap-2">
+                    <Package className="h-4 w-4" />
+                    Lot&nbsp;: <span className="font-mono">{filterComment}</span>
+                    &nbsp;—&nbsp;{filtered.length} affiché(s)
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setDeletingLot(filterComment)}
+                    className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Supprimer ce lot
+                  </Button>
+                </div>
+              )}
 
               {selectedUsernames.size > 0 && (
                 <div className="flex items-center gap-3 mb-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5">
