@@ -415,7 +415,7 @@ export default function Vouchers() {
                           <SelectItem key={name} value={name}>
                             <span className="flex items-center justify-between w-full gap-3">
                               <span className="font-mono text-xs truncate">{name}</span>
-                              <span className="text-xs text-gray-400 flex-shrink-0">{count}</span>
+                              <span className="text-xs text-green-600 flex-shrink-0">({count})</span>
                             </span>
                           </SelectItem>
                         ))}
