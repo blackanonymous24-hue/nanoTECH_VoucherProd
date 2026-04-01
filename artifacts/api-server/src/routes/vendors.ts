@@ -39,6 +39,11 @@ function buildSalesStats(vendorId: number) {
         ${vouchersTable.printedAt} >= date_trunc('month', current_date - interval '1 month')
         and ${vouchersTable.printedAt} < date_trunc('month', current_date)
       )`,
+    thisMonthSold: sql<number>`
+      count(*) filter (where
+        ${vouchersTable.printedAt} >= date_trunc('month', current_date)
+        and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'
+      )`,
   })
   .from(vouchersTable)
   .where(eq(vouchersTable.vendorId, vendorId));
@@ -245,6 +250,7 @@ router.get("/vendors/reports/summary", async (_req, res): Promise<void> => {
           yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),
           weekSold:      Number(salesRow?.weekSold      ?? 0),
           lastMonthSold: Number(salesRow?.lastMonthSold ?? 0),
+          thisMonthSold: Number(salesRow?.thisMonthSold ?? 0),
         },
       };
     }),

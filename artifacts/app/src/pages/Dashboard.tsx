@@ -561,6 +561,7 @@ export default function Dashboard() {
           fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
           loading={!sales && !!selectedRouterId}
+          href="/sales/daily"
         />
         <StatCard
           title="Vente mensuelle"
@@ -570,6 +571,7 @@ export default function Dashboard() {
           fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
           loading={!sales && !!selectedRouterId}
+          href="/sales/monthly"
         />
         <StatCard
           title="Total Vouchers"
