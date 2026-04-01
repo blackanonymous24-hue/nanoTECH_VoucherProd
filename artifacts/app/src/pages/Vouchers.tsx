@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import {
   useListRouterUsers,
+  useListRouterProfiles,
   useListVouchers,
   useMarkVoucherPrinted,
   useDeleteVoucher,
@@ -71,7 +72,7 @@ export default function Vouchers() {
   const [view, setView] = useState<"list" | "lots">("list");
   const [search, setSearch] = useState("");
   const [filterProfile, setFilterProfile] = useState<string>("all");
-  const [filterPrinted, setFilterPrinted] = useState<string>("all");
+  const [filterComment, setFilterComment] = useState<string>("all");
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
@@ -109,6 +110,10 @@ export default function Vouchers() {
   const totalUsers = usersData?.total ?? 0;
   const totalPages = Math.ceil(totalUsers / PAGE_SIZE);
 
+  const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
+    query: { enabled: !!activeRouterId, staleTime: 60_000 },
+  });
+
   const { data: localData, refetch: refetchLocal } = useListVouchers(
     { routerId: activeRouterId ?? undefined, limit: 10000 },
     { query: { enabled: !!activeRouterId } },
@@ -124,15 +129,21 @@ export default function Vouchers() {
     [allLocalVouchers],
   );
 
+  // Unique comments from MikroTik users for the lot filter
+  const uniqueComments = useMemo(() => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const u of mikrotikUsers) {
+      const c = u.comment;
+      if (c && !seen.has(c)) { seen.add(c); result.push(c); }
+    }
+    return result.sort();
+  }, [mikrotikUsers]);
+
   const filtered = useMemo(() => {
-    if (filterPrinted === "all") return mikrotikUsers;
-    return mikrotikUsers.filter((u) => {
-      const lv = localByUsername.get(u.username);
-      if (filterPrinted === "true") return !!lv?.printedAt;
-      if (filterPrinted === "false") return !lv?.printedAt;
-      return true;
-    });
-  }, [mikrotikUsers, filterPrinted, localByUsername]);
+    if (filterComment === "all") return mikrotikUsers;
+    return mikrotikUsers.filter((u) => u.comment === filterComment);
+  }, [mikrotikUsers, filterComment]);
 
   const lots = useMemo(() => {
     const map = new Map<string, Voucher[]>();
@@ -247,6 +258,11 @@ export default function Vouchers() {
     setPage(0);
   };
 
+  const handleCommentChange = (v: string) => {
+    setFilterComment(v);
+    setPage(0);
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -354,16 +370,20 @@ export default function Vouchers() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">Tous les forfaits</SelectItem>
+                        {profilesList.map((p) => (
+                          <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                    <Select value={filterPrinted} onValueChange={setFilterPrinted}>
-                      <SelectTrigger className="w-40">
-                        <SelectValue placeholder="Tous" />
+                    <Select value={filterComment} onValueChange={handleCommentChange}>
+                      <SelectTrigger className="w-52">
+                        <SelectValue placeholder="Tous les lots" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">Tous</SelectItem>
-                        <SelectItem value="false">Non imprimés</SelectItem>
-                        <SelectItem value="true">Imprimés</SelectItem>
+                        {uniqueComments.map((c) => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <span className="text-xs text-gray-400">↻ 30s</span>
