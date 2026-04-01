@@ -697,10 +697,7 @@ export async function disconnectSession(conn: RouterConnection, username: string
   });
 }
 
-const ALPHA_LOWER = "abcdefghjkmnpqrstuvwxyz"; // no i, l, o (ambiguous)
-const ALPHA_UPPER = "ABCDEFGHJKMNPQRSTUVWXYZ";
-const DIGITS      = "23456789";                 // no 0, 1 (ambiguous)
-const ALPHA_MIXED = ALPHA_LOWER + ALPHA_UPPER;
+const VOUCHER_CHARS = "5ab2c34d";
 
 function randomFrom(chars: string, length: number): string {
   return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
@@ -711,14 +708,11 @@ function generateCode(
   prefix: string | undefined,
   passwordMode: "same" | "random",
 ): { username: string; password: string } {
-  // In "same" mode (voucher): username = password — compatible with captive portal "session vouchers" tab
-  // Letters part + digits part, like MikHmon "vc" mode: prefix+letters+digits
-  const lettersLen = Math.ceil(length / 2);
-  const digitsLen  = length - lettersLen;
-  const code = randomFrom(ALPHA_MIXED, lettersLen) + randomFrom(DIGITS, digitsLen);
+  const code = randomFrom(VOUCHER_CHARS, length);
   const username = prefix ? `${prefix}${code}` : code;
-  // In "random" mode (user+pass): username is letters, password is digits (like MikHmon "up" mode)
-  const password = passwordMode === "same" ? username : randomFrom(DIGITS, length);
+  // "same" (Mode Voucher): password = username — compatible captive portal "Session Voucher"
+  // "random" (Mode Compte): password is a separate random code
+  const password = passwordMode === "same" ? username : randomFrom(VOUCHER_CHARS, length);
   return { username, password };
 }
 
