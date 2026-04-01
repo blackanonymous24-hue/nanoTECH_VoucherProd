@@ -1,9 +1,11 @@
-import { pgTable, serial, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { routersTable } from "./routers.js";
 
 export const vendorsTable = pgTable("vendors", {
   id: serial("id").primaryKey(),
+  routerId: integer("router_id").references(() => routersTable.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   phone: text("phone"),
   email: text("email"),

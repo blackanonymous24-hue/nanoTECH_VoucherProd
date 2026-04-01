@@ -1,13 +1,12 @@
 import { useState } from "react";
 import {
-  useListVendors,
   useCreateVendor,
   useUpdateVendor,
   useDeleteVendor,
-  getListVendorsQueryKey,
 } from "@workspace/api-client-react";
 import type { Vendor } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -145,8 +144,10 @@ function VendorForm({
   );
 }
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 export default function Vendors() {
-  const { data: vendors = [], isLoading } = useListVendors();
+  const { selectedRouterId } = useRouterContext();
   const createMutation = useCreateVendor();
   const updateMutation = useUpdateVendor();
   const deleteMutation = useDeleteVendor();
@@ -157,7 +158,23 @@ export default function Vendors() {
   const [editVendor, setEditVendor] = useState<Vendor | null>(null);
   const [deleteVendorId, setDeleteVendorId] = useState<number | null>(null);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: getListVendorsQueryKey() });
+  const { data: vendors = [], isLoading, refetch: refetchVendors } = useQuery<Vendor[]>({
+    queryKey: ["vendors", selectedRouterId],
+    queryFn: async () => {
+      const url = selectedRouterId
+        ? `${BASE}/api/vendors?routerId=${selectedRouterId}`
+        : `${BASE}/api/vendors`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<Vendor[]>;
+    },
+    staleTime: 30_000,
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["vendors", selectedRouterId] });
+    void refetchVendors();
+  };
 
   const handleCreate = async (data: FormData) => {
     await createMutation.mutateAsync({
@@ -167,6 +184,7 @@ export default function Vendors() {
         email: data.email || null,
         username: data.username || null,
         ...(data.password ? { password: data.password } : {}),
+        ...(selectedRouterId ? { routerId: selectedRouterId } : {}),
       } as any,
     });
     invalidate();
@@ -215,7 +233,11 @@ export default function Vendors() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Vendeurs</h1>
-          <p className="text-sm text-gray-500">Gérez les vendeurs et leur accès au portail</p>
+          <p className="text-sm text-gray-500">
+            {selectedRouterId
+              ? "Vendeurs du routeur sélectionné"
+              : "Sélectionnez un routeur pour gérer ses vendeurs"}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -225,11 +247,18 @@ export default function Vendors() {
           >
             <ExternalLink className="h-4 w-4" /> Portail vendeur
           </Button>
-          <Button onClick={() => setShowCreate(true)} className="gap-2">
+          <Button onClick={() => setShowCreate(true)} className="gap-2" disabled={!selectedRouterId}>
             <Plus className="h-4 w-4" /> Ajouter un vendeur
           </Button>
         </div>
       </div>
+
+      {!selectedRouterId && (
+        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg mb-6 text-sm">
+          <Users className="h-4 w-4 flex-shrink-0" />
+          Sélectionnez un routeur dans la barre latérale pour afficher et gérer les vendeurs associés.
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center py-12 text-gray-400">Chargement...</div>

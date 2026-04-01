@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Trophy, Medal, Users, ArrowLeft, RefreshCw } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { useRouterContext } from "@/contexts/RouterContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -25,6 +26,7 @@ function getRankStyle(rank: number) {
 }
 
 export default function SalesRanking({ period }: { period: "daily" | "monthly" }) {
+  const { selectedRouterId } = useRouterContext();
   const isDaily = period === "daily";
   const title = isDaily ? "Ventes journalières" : "Ventes mensuelles";
   const subtitle = isDaily ? "Classement du jour" : "Classement du mois en cours";
@@ -32,9 +34,12 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
   const otherLabel = isDaily ? "Voir mensuel" : "Voir journalier";
 
   const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery<VendorSummary[]>({
-    queryKey: ["vendors-summary"],
+    queryKey: ["vendors-summary", selectedRouterId],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/vendors/reports/summary`);
+      const url = selectedRouterId
+        ? `${BASE}/api/vendors/reports/summary?routerId=${selectedRouterId}`
+        : `${BASE}/api/vendors/reports/summary`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<VendorSummary[]>;
     },

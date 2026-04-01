@@ -54,21 +54,24 @@ function safeVendor(v: typeof vendorsTable.$inferSelect) {
   return rest;
 }
 
-router.get("/vendors", async (_req, res): Promise<void> => {
+router.get("/vendors", async (req, res): Promise<void> => {
+  const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
   const vendors = await db
     .select()
     .from(vendorsTable)
+    .where(routerId ? eq(vendorsTable.routerId, routerId) : undefined)
     .orderBy(vendorsTable.name);
   res.json(vendors.map(safeVendor));
 });
 
 router.post("/vendors", async (req, res): Promise<void> => {
-  const { name, phone, email, username, password } = req.body as {
+  const { name, phone, email, username, password, routerId } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
     username?: string;
     password?: string;
+    routerId?: number;
   };
 
   if (!name || name.trim() === "") {
@@ -99,6 +102,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
   const [vendor] = await db
     .insert(vendorsTable)
     .values({
+      routerId: routerId ?? null,
       name: name.trim(),
       phone: phone?.trim() || null,
       email: email?.trim() || null,
@@ -227,10 +231,12 @@ router.delete("/vendors/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
-router.get("/vendors/reports/summary", async (_req, res): Promise<void> => {
+router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
+  const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
   const vendors = await db
     .select()
     .from(vendorsTable)
+    .where(routerId ? eq(vendorsTable.routerId, routerId) : undefined)
     .orderBy(vendorsTable.name);
 
   const summaries = await Promise.all(

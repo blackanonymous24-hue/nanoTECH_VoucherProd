@@ -3,12 +3,11 @@ import {
   useListRouters,
   useListRouterProfiles,
   useGenerateVouchers,
-  useListVendors,
   getListVouchersQueryKey,
 } from "@workspace/api-client-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
-import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +34,6 @@ function makeBatchId(): string {
 
 export default function GenerateVouchers() {
   const { data: routers = [] } = useListRouters();
-  const { data: vendors = [] } = useListVendors();
   const { selectedRouterId, setSelectedRouterId, selectedRouter } = useRouterContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -53,6 +51,20 @@ export default function GenerateVouchers() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const activeRouterId = selectedRouterId ?? (localRouterId ? parseInt(localRouterId, 10) : null);
+
+  const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const { data: vendors = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["vendors", activeRouterId],
+    queryFn: async () => {
+      const url = activeRouterId
+        ? `${GEN_BASE}/api/vendors?routerId=${activeRouterId}`
+        : `${GEN_BASE}/api/vendors`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      return res.json() as Promise<{ id: number; name: string }[]>;
+    },
+    staleTime: 60_000,
+  });
 
   const { data: profiles = [], isLoading: loadingProfiles } = useListRouterProfiles(
     activeRouterId ?? 0,
