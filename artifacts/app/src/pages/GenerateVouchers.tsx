@@ -248,31 +248,33 @@ export default function GenerateVouchers() {
               </div>
 
               <div>
-                <Label className="mb-2 block">Mode du mot de passe</Label>
+                <Label className="mb-2 block">Mode de connexion</Label>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setPasswordMode("same")}
-                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                    className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
                       passwordMode === "same"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
                     }`}
                   >
-                    <span className="font-mono text-xs block mb-0.5">user = password</span>
-                    <span className="text-xs font-normal text-current opacity-70">Identiques</span>
+                    <span className="font-semibold block mb-0.5">Mode Voucher</span>
+                    <span className="text-xs font-normal block">Code unique (user = password)</span>
+                    <span className="text-xs font-normal opacity-60">✓ Portail captif &quot;Session Voucher&quot;</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setPasswordMode("random")}
-                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                    className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
                       passwordMode === "random"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
                     }`}
                   >
-                    <span className="font-mono text-xs block mb-0.5">user &amp; password</span>
-                    <span className="text-xs font-normal text-current opacity-70">Codes différents</span>
+                    <span className="font-semibold block mb-0.5">Mode Compte</span>
+                    <span className="text-xs font-normal block">Identifiants séparés</span>
+                    <span className="text-xs font-normal opacity-60">→ Portail captif &quot;Session Compte&quot;</span>
                   </button>
                 </div>
               </div>
