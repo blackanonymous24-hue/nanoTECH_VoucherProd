@@ -129,13 +129,13 @@ export default function Vouchers() {
     [allLocalVouchers],
   );
 
-  // Unique comments starting with "vc" from MikroTik users for the lot filter
+  // All unique comments from MikroTik users for the lot filter
   const uniqueComments = useMemo(() => {
     const seen = new Set<string>();
     const result: string[] = [];
     for (const u of mikrotikUsers) {
       const c = u.comment;
-      if (c && c.startsWith("vc") && !seen.has(c)) { seen.add(c); result.push(c); }
+      if (c && !seen.has(c)) { seen.add(c); result.push(c); }
     }
     return result.sort();
   }, [mikrotikUsers]);
@@ -368,7 +368,7 @@ export default function Vouchers() {
                       <SelectTrigger className="w-48">
                         <SelectValue placeholder="Tous les forfaits" />
                       </SelectTrigger>
-                      <SelectContent className="max-h-64 overflow-y-auto">
+                      <SelectContent className="max-h-64 overflow-y-scroll">
                         <SelectItem value="all">Tous les forfaits</SelectItem>
                         {profilesList.map((p) => (
                           <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
@@ -379,7 +379,7 @@ export default function Vouchers() {
                       <SelectTrigger className="w-52">
                         <SelectValue placeholder="Tous les lots" />
                       </SelectTrigger>
-                      <SelectContent className="max-h-64 overflow-y-auto">
+                      <SelectContent className="max-h-64 overflow-y-scroll">
                         <SelectItem value="all">Tous</SelectItem>
                         {uniqueComments.map((c) => (
                           <SelectItem key={c} value={c}>{c}</SelectItem>
