@@ -129,16 +129,16 @@ export default function Vouchers() {
     [allLocalVouchers],
   );
 
-  // All unique comments from MikroTik users for the lot filter
+  // Unique "vc-" comments from ALL local vouchers (covers all MikroTik pages)
   const uniqueComments = useMemo(() => {
     const seen = new Set<string>();
     const result: string[] = [];
-    for (const u of mikrotikUsers) {
-      const c = u.comment;
-      if (c && !seen.has(c)) { seen.add(c); result.push(c); }
+    for (const v of allLocalVouchers) {
+      const c = v.comment;
+      if (c && c.startsWith("vc") && !seen.has(c)) { seen.add(c); result.push(c); }
     }
-    return result.sort();
-  }, [mikrotikUsers]);
+    return result.sort((a, b) => b.localeCompare(a)); // newest first (reverse alpha)
+  }, [allLocalVouchers]);
 
   const filtered = useMemo(() => {
     if (filterComment === "all") return mikrotikUsers;
