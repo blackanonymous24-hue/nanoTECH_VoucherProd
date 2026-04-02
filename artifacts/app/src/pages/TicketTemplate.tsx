@@ -12,11 +12,11 @@ const TEMPLATE_KEY = "voucher-ticket-template";
 //             {{qrcode}} {{num}}
 // {{codeblock}} est pré-calculé selon le mode (Voucher ou Compte) avant rendu.
 export const DEFAULT_TEMPLATE = `<!--mks-mulai-->
-<table style="display:inline-block;border-collapse:collapse;border:1px solid #444;margin:0px;width:215px;overflow:hidden;position:relative;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
+<table style="display:inline-block;border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;overflow:hidden;position:relative;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
 <tbody>
 <tr>
 <td style="background:{{color}};color:#676;padding:0px;" valign="top" colspan="2">
-<div style="text-align:center;color:#fff;font-size:10px;font-weight:bold;margin:1px;padding:2.5px;">
+<div style="text-align:center;color:#fff;font-size:8px;font-weight:bold;margin:1px;padding:2.5px;">
 <b>{{hotspotname}}</b>
 </div>
 </td>
@@ -26,14 +26,13 @@ export const DEFAULT_TEMPLATE = `<!--mks-mulai-->
 <table style="width:100%;">
 <tbody>
 <tr>
-<td style="width:115px;">
+<td style="width:35px;">
 <div style="position:relative;z-index:-1;padding:0px;float:left;">
-<div style="position:absolute;top:0;display:inline;margin-top:-100px;width:0;height:0;border-top:230px solid transparent;border-left:50px solid transparent;border-right:170px solid #DCDCDC;"></div>
+<div style="position:absolute;top:0;display:inline;margin-top:-100px;width:0;height:0;border-top:170px solid transparent;border-left:30px solid transparent;border-right:170px solid #DCDCDC;"></div>
 </div>
 </td>
-<td style="width:115px;">
-<div style="margin:-10px;text-align:right;font-weight:bold;font-size:15px;padding-left:17px;color:{{color}};">
-<small style="font-size:11px;margin-left:-65px;position:absolute;">{{price}} {{currency}}</small>
+<td style="width:30px;">
+<div style="margin:-10px;text-align:right;font-weight:bold;font-size:10px;padding-left:18px;color:{{color}};"><small style="font-size:10px;margin-left:-65px;position:absolute;">{{price}} {{currency}}</small>
 </div>
 </td>
 </tr>
@@ -46,25 +45,25 @@ export const DEFAULT_TEMPLATE = `<!--mks-mulai-->
 <table style="width:100%;border-collapse:collapse;">
 <tbody>
 <tr>
-<td style="width:115px;" valign="top">
-<div style="clear:both;color:#555;margin-top:5px;margin-bottom:2.5px;">
+<td style="width:80px;" valign="top">
+<div style="clear:both;color:#555;margin-top:-7px;margin-bottom:2.5px;">
 {{codeblock}}
 </div>
-<div style="text-align:center;color:#111;font-size:7px;font-weight:bold;margin:0px;padding:2.5px;">
-Veuillez conserver ce ticket jusqu'à l'épuisement du forfait. En cas de litige, elle atteste votre véracité. Aucune réclamation ne sera prise en compte sans présentation de ce bon d'achat.
+<div style="text-align:center;color:#111;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
+Veuillez conserver ce ticket jusqu'à l'épuisement du forfait.
 </div>
 </td>
-<td style="width:100px;text-align:right;" valign="top">
+<td style="width:120px;text-align:right;" valign="top">
 <div style="clear:both;padding:0 2.5px;font-size:7px;font-weight:bold;color:#000000;">
 {{validity}}<br>{{timelimit}}<br>{{datalimit}}
 </div>
-<img style="border:1px solid {{color}};border-radius:3px;width:50px;height:50px;float:right;margin:0 1px -5px 0;" src="{{qrcode}}" alt="QR" />
+<img style="border:1px {{color}} solid;border-radius:3px;width:32px;height:32px;float:right;margin:0 1px -5px 0;" src="{{qrcode}}" alt="QR" />
 </td>
 </tr>
 <tr>
-<td style="background:{{color}};padding:0px;" valign="top" colspan="2">
-<div style="text-align:left;color:#fff;font-size:8px;font-weight:bold;margin:0px;padding:2.5px;">
-<b>{{dnsname}}</b> <span style="float:right;">[{{num}}]</span>
+<td style="background:{{color}};color:#666;padding:0px;" valign="top" colspan="2">
+<div style="text-align:left;color:#fff;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
+<b>{{dnsname}}</b><span style="float:right;"> [{{num}}]</span>
 </div>
 </td>
 </tr>
@@ -93,7 +92,7 @@ export function getStoredTemplate(): string {
 
 const CODEBLOCK_VC = (color: string, username: string) =>
   `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div>` +
-  `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:17px;color:${color};">${username}</div>`;
+  `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">${username}</div>`;
 
 const CODEBLOCK_UP = (color: string, username: string, password: string) =>
   `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div>` +

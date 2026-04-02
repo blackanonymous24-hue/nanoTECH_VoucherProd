@@ -951,148 +951,32 @@ function VoucherPrintCard({
     : `User:${user.username} Pass:${user.password}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(qrData)}&margin=2`;
 
-  // ── Template rendering (custom from localStorage or default) ──
+  // ── Template rendering — toujours via le modèle HTML (défaut ou personnalisé) ──
   const storedTpl = getStoredTemplate();
-  const hasCustomTpl = (() => { try { return localStorage.getItem("voucher-ticket-template") !== null; } catch { return false; } })();
 
-  // Compute codeblock — equivalent of PHP $usermode == "vc" / "up"
+  // Compute codeblock — equivalent de PHP $usermode == "vc" / "up"
   const codeblock = isVoucherMode
     ? `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div>` +
-      `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:17px;color:${color};">${user.username}</div>`
+      `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">${user.username}</div>`
     : `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div>` +
       `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">User: ${user.username}<br>Pass: ${user.password}</div>`;
 
-  if (hasCustomTpl) {
-    const vars: Record<string, string> = {
-      hotspotname: hotspotName,
-      dnsname: dnsName,
-      username: user.username,
-      password: user.password,
-      price: String(price ?? ""),
-      currency: "FCFA",
-      validity: validityStr,
-      timelimit: uptimeStr,
-      datalimit: user.limitBytesTotal ?? "",
-      num: String(num),
-      profile: user.profile,
-      color,
-      codeblock,
-      qrcode: qrUrl,
-    };
-    const html = applyVars(storedTpl, vars);
-    return <div dangerouslySetInnerHTML={{ __html: html }} style={{ display: "inline-block", verticalAlign: "top" }} />;
-  }
-
-  const cardStyle: React.CSSProperties = {
-    display: "inline-block",
-    borderCollapse: "collapse",
-    border: "1px solid #444",
-    width: "215px",
-    overflow: "hidden",
-    position: "relative",
-    margin: "1px",
-    fontFamily: "Arial, sans-serif",
-    verticalAlign: "top",
+  const vars: Record<string, string> = {
+    hotspotname: hotspotName,
+    dnsname: dnsName,
+    username: user.username,
+    password: user.password,
+    price: String(price ?? ""),
+    currency: "FCFA",
+    validity: validityStr,
+    timelimit: uptimeStr,
+    datalimit: user.limitBytesTotal ?? "",
+    num: String(num),
+    profile: user.profile,
+    color,
+    codeblock,
+    qrcode: qrUrl,
   };
 
-  return (
-    <table style={cardStyle}>
-      <tbody>
-        {/* ── Header ── */}
-        <tr>
-          <td colSpan={2} style={{ background: color, padding: 0 }}>
-            <div style={{ textAlign: "center", color: "#fff", fontSize: "10px", fontWeight: "bold", margin: "1px", padding: "2.5px" }}>
-              {hotspotName}
-            </div>
-          </td>
-        </tr>
-
-        {/* ── Price row ── */}
-        <tr>
-          <td colSpan={2} style={{ color: "#666", padding: 0, position: "relative", overflow: "hidden", height: "26px" }}>
-            {/* Diagonal background */}
-            <div style={{ position: "absolute", top: 0, right: 0, width: 0, height: 0, borderTop: "52px solid transparent", borderLeft: "50px solid transparent", borderRight: "170px solid #DCDCDC" }} />
-            {/* Price */}
-            {price != null && (
-              <div style={{ position: "absolute", right: "4px", top: "4px", fontWeight: "bold", color, textAlign: "right" }}>
-                <span style={{ fontSize: "11px" }}>{price}</span>{" "}
-                <span style={{ fontSize: "8px", color: "#888" }}>FCFA</span>
-              </div>
-            )}
-          </td>
-        </tr>
-
-        {/* ── Code + Info ── */}
-        <tr>
-          <td colSpan={2} style={{ padding: 0 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <tbody>
-                <tr>
-                  {/* Left: voucher code */}
-                  <td style={{ width: "115px", verticalAlign: "top" }}>
-                    <div style={{ color: "#555", marginTop: "5px", marginBottom: "2.5px" }}>
-                      {isVoucherMode ? (
-                        <>
-                          <div style={{ padding: "0", borderBottom: "1px solid #ccc", textAlign: "center", fontWeight: "bold", fontSize: "9px", color: "#444" }}>
-                            Code Ticket
-                          </div>
-                          <div style={{ padding: "2px 0", textAlign: "center", fontWeight: "bold", fontSize: "17px", color }}>
-                            {user.username}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div style={{ padding: "0", borderBottom: "1px solid #ccc", textAlign: "center", fontWeight: "bold", fontSize: "9px", color: "#444" }}>
-                            Compte Utilisateur
-                          </div>
-                          <div style={{ padding: "2px 0", textAlign: "center", fontWeight: "bold", fontSize: "11px", color }}>
-                            User: {user.username}<br />Pass: {user.password}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    <div style={{ textAlign: "center", color: "#111", fontSize: "7px", fontWeight: "bold", padding: "2.5px", lineHeight: "1.3" }}>
-                      Veuillez conserver ce ticket jusqu'à l'épuisement du forfait. En cas de litige, elle atteste votre véracité. Aucune réclamation ne sera prise en compte sans présentation de ce bon d'achat.
-                    </div>
-                  </td>
-
-                  {/* Right: validity + QR */}
-                  <td style={{ width: "100px", textAlign: "right", verticalAlign: "top", paddingRight: "2px" }}>
-                    <div style={{ fontSize: "7px", fontWeight: "bold", color: "#000", padding: "2px 2.5px", textAlign: "right" }}>
-                      {validityStr && <div>{validityStr}</div>}
-                      {uptimeStr && <div>{uptimeStr}</div>}
-                      {user.limitBytesTotal && <div>{user.limitBytesTotal}</div>}
-                    </div>
-                    <img
-                      src={qrUrl}
-                      alt="QR"
-                      style={{
-                        display: "block",
-                        marginLeft: "auto",
-                        border: `1px solid ${color}`,
-                        borderRadius: "3px",
-                        width: "50px",
-                        height: "50px",
-                        marginRight: "1px",
-                      }}
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </td>
-        </tr>
-
-        {/* ── Footer ── */}
-        <tr>
-          <td colSpan={2} style={{ background: color, padding: 0 }}>
-            <div style={{ textAlign: "left", color: "#fff", fontSize: "8px", fontWeight: "bold", padding: "2.5px", display: "flex", justifyContent: "space-between" }}>
-              <span>{dnsName}</span>
-              <span>[{num}]</span>
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  );
+  return <div dangerouslySetInnerHTML={{ __html: applyVars(storedTpl, vars) }} style={{ display: "inline-block", verticalAlign: "top" }} />;
 }

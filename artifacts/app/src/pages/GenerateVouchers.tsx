@@ -457,7 +457,7 @@ export default function GenerateVouchers() {
           const validity = vl === "d" ? `Validité : ${vn} Jour(s)` : vl === "h" ? `Validité : ${vn} Heure(s)` : vl === "w" ? `Validité : ${vn} Semaine(s)` : rawV;
           const isVC = v.username === v.password;
           const codeblock = isVC
-            ? `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div><div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:17px;color:${color};">${v.username}</div>`
+            ? `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div><div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">${v.username}</div>`
             : `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div><div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">User: ${v.username}<br>Pass: ${v.password}</div>`;
           const qrData = isVC ? v.username : `${v.username}:${v.password}`;
           const qrcode = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(qrData)}&margin=2`;
