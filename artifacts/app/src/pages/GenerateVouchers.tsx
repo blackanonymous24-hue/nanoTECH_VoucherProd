@@ -26,6 +26,15 @@ import { applyVars, getStoredTemplate, getStoredPHP, isPHPMode } from "@/pages/T
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+/** "3h"→"3H", "1d"→"1J", "30m"→"30M", "1w"→"1S" */
+function validityCode(validity: string | null | undefined): string {
+  if (!validity) return "";
+  const m = validity.trim().match(/^(\d+)([a-zA-Z]+)$/);
+  if (!m) return "";
+  const map: Record<string, string> = { h: "H", d: "J", m: "M", w: "S" };
+  return m[1] + (map[m[2].toLowerCase()] ?? m[2].toUpperCase());
+}
+
 function makeBatchId(): string {
   const now = new Date();
   const M = String(now.getMonth() + 1).padStart(2, "0");
@@ -56,7 +65,7 @@ export default function GenerateVouchers() {
   const activeRouterId = selectedRouterId ?? (localRouterId ? parseInt(localRouterId, 10) : null);
 
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const { data: vendors = [] } = useQuery<{ id: number; name: string }[]>({
+  const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null }[]>({
     queryKey: ["vendors", activeRouterId],
     queryFn: async () => {
       const url = activeRouterId
@@ -86,6 +95,15 @@ export default function GenerateVouchers() {
 
   const selectedProfile = profiles.find((p) => p.name === profile);
 
+  const selectedVendor = vendors.find((v) => String(v.id) === vendorId);
+  const vendorSuffix =
+    selectedVendor && selectedProfile?.validity
+      ? `-${validityCode(selectedProfile.validity)}${selectedVendor.name.toUpperCase()}`
+      : selectedVendor
+      ? `-${selectedVendor.name.toUpperCase()}`
+      : "";
+  const effectiveComment = comment + vendorSuffix;
+
   const handleLocalRouterChange = (val: string) => {
     setLocalRouterId(val);
     setSelectedRouterId(val ? parseInt(val, 10) : null);
@@ -111,7 +129,7 @@ export default function GenerateVouchers() {
             profile,
             qty: batchQty,
             prefix: prefix || null,
-            comment: comment || null,
+            comment: effectiveComment || null,
             vendorId: vendorId ? parseInt(vendorId, 10) : null,
             passwordMode,
           },
@@ -363,9 +381,18 @@ export default function GenerateVouchers() {
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="ex: LOT-20260101-0900"
                 />
-                <p className="text-xs text-gray-400 mt-1">
-                  Sert à regrouper ce lot pour l&apos;export ou la suppression groupée
-                </p>
+                {vendorSuffix && (
+                  <p className="text-xs mt-1 font-mono">
+                    <span className="text-gray-400">ID final : </span>
+                    <span className="text-gray-600">{comment}</span>
+                    <span className="text-blue-600 font-semibold">{vendorSuffix}</span>
+                  </p>
+                )}
+                {!vendorSuffix && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Sert à regrouper ce lot pour l&apos;export ou la suppression groupée
+                  </p>
+                )}
               </div>
 
               {vendors.length > 0 && (
