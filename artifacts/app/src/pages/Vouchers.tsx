@@ -135,8 +135,8 @@ export default function Vouchers() {
     {
       query: {
         enabled: !!activeRouterId,
-        refetchInterval: 30_000,
-        staleTime: 25_000,
+        refetchInterval: 120_000,
+        staleTime: 115_000,
       },
     },
   );
