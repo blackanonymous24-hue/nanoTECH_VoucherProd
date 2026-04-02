@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchInterfaceTraffic, listInterfaces, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -395,6 +395,39 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
     const paged = users.slice(offset, offset + limit);
 
     res.json({ users: paged, total });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// DELETE /routers/:id/users — bulk delete MikroTik hotspot users
+// Query param ?comment=xxx  → delete all users with that comment
+// Body { usernames: string[] }  → delete specific users by username
+router.delete("/routers/:id/users", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+  const { comment: commentFilter } = req.query as { comment?: string };
+  const { usernames } = (req.body ?? {}) as { usernames?: string[] };
+
+  try {
+    let deleted = 0;
+    if (commentFilter) {
+      deleted = await deleteHotspotUsersByComment(conn, commentFilter);
+    } else if (Array.isArray(usernames) && usernames.length > 0) {
+      deleted = await deleteHotspotUsersByNames(conn, usernames);
+    } else {
+      res.status(400).json({ error: "Fournir comment ou usernames" });
+      return;
+    }
+    // Invalidate cache so subsequent requests get fresh data
+    userCache.delete(id);
+    res.json({ deleted });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

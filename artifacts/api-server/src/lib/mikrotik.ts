@@ -682,6 +682,53 @@ export async function enableDisableHotspotUsers(
   }, 30_000);   // 30 s is plenty — batch set is a single round-trip
 }
 
+/**
+ * Delete all hotspot users whose comment exactly matches the given string.
+ */
+export async function deleteHotspotUsersByComment(
+  conn: RouterConnection,
+  comment: string,
+): Promise<number> {
+  return withRouter(conn, async (api) => {
+    const all = await api.write("/ip/hotspot/user/print");
+    const toDelete: string[] = [];
+    for (const u of all) {
+      if ((u["comment"] as string ?? "") === comment) {
+        const id = u[".id"] as string | undefined;
+        if (id) toDelete.push(id);
+      }
+    }
+    if (toDelete.length > 0) {
+      await api.write("/ip/hotspot/user/remove", [`=.id=${toDelete.join(",")}`]);
+    }
+    return toDelete.length;
+  }, 30_000);
+}
+
+/**
+ * Delete specific hotspot users by their usernames.
+ */
+export async function deleteHotspotUsersByNames(
+  conn: RouterConnection,
+  usernames: string[],
+): Promise<number> {
+  if (usernames.length === 0) return 0;
+  const target = new Set(usernames.map((u) => u.toLowerCase()));
+  return withRouter(conn, async (api) => {
+    const all = await api.write("/ip/hotspot/user/print");
+    const toDelete: string[] = [];
+    for (const u of all) {
+      const name = (u["name"] as string ?? "").toLowerCase();
+      const id = u[".id"] as string | undefined;
+      if (name && id && target.has(name)) toDelete.push(id);
+    }
+    if (toDelete.length > 0) {
+      await api.write("/ip/hotspot/user/remove", [`=.id=${toDelete.join(",")}`]);
+    }
+    return toDelete.length;
+  }, 30_000);
+}
+
 export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
   return withRouter(conn, async (api) => {
     const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);

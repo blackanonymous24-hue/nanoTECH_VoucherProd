@@ -2,18 +2,12 @@ import { useState, useMemo } from "react";
 import {
   useListRouterUsers,
   useListRouterProfiles,
-  useListVouchers,
-  useMarkVoucherPrinted,
-  useDeleteVoucher,
-  getListVouchersQueryKey,
-  getGetDashboardQueryKey,
 } from "@workspace/api-client-react";
-import type { HotspotUser, Voucher } from "@workspace/api-client-react";
+import type { HotspotUser } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -52,8 +46,6 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { formatDistanceToNow, format } from "date-fns";
-import { fr } from "date-fns/locale";
 import { useDebounce } from "@/hooks/use-debounce";
 import { applyVars, getStoredTemplate, getStoredPHP, isPHPMode } from "@/pages/TicketTemplate";
 
@@ -120,6 +112,7 @@ export default function Vouchers() {
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
+  const [isDeletingLot, setIsDeletingLot] = useState(false);
   const [isDisabling, setIsDisabling] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
@@ -129,6 +122,7 @@ export default function Vouchers() {
   const activeRouterId = selectedRouterId ?? null;
   const activeRouter = routers.find((r) => r.id === activeRouterId);
 
+  // ── Paginated query for the list view ────────────────────────────────────────
   const queryParams = useMemo(
     () => ({
       search: debouncedSearch || undefined,
@@ -158,33 +152,31 @@ export default function Vouchers() {
   const totalUsers = usersData?.total ?? 0;
   const totalPages = Math.ceil(totalUsers / PAGE_SIZE);
 
+  // ── All users query — for lots grouping and unique comments filter ────────────
+  const { data: allUsersData, refetch: refetchAll } = useListRouterUsers(
+    activeRouterId ?? 0,
+    { limit: 9999 },
+    {
+      query: {
+        enabled: !!activeRouterId,
+        refetchInterval: 60_000,
+        staleTime: 55_000,
+      },
+    },
+  );
+  const allMikrotikUsers = allUsersData?.users ?? [];
+
   const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
     query: { enabled: !!activeRouterId, staleTime: 60_000 },
   });
 
-  const { data: localData, refetch: refetchLocal } = useListVouchers(
-    { routerId: activeRouterId ?? undefined, limit: 10000 },
-    { query: { enabled: !!activeRouterId } },
-  );
-
-  const allLocalVouchers = localData?.vouchers ?? [];
-
-  const markPrintedMutation = useMarkVoucherPrinted();
-  const deleteMutation = useDeleteVoucher();
-
-  const localByUsername = useMemo(
-    () => new Map<string, Voucher>(allLocalVouchers.map((v) => [v.username, v])),
-    [allLocalVouchers],
-  );
-
-  // Unique "vc" comments with per-lot count from ALL local vouchers
+  // ── Unique comments (lots filter) from ALL MikroTik users ────────────────────
   const uniqueComments = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const v of allLocalVouchers) {
-      const c = v.comment;
+    for (const u of allMikrotikUsers) {
+      const c = u.comment;
       if (c && c.startsWith("vc")) counts.set(c, (counts.get(c) ?? 0) + 1);
     }
-    // sort by date part "MM.DD.YY" (index 2 after split by "-"), newest first
     const datePart = (n: string) => {
       const parts = n.split("-");
       if (parts.length < 3) return n;
@@ -197,74 +189,97 @@ export default function Vouchers() {
         const cmp = datePart(b.name).localeCompare(datePart(a.name));
         return cmp !== 0 ? cmp : b.name.localeCompare(a.name);
       });
-  }, [allLocalVouchers]);
+  }, [allMikrotikUsers]);
+
+  // ── Lots grouped from ALL MikroTik users ─────────────────────────────────────
+  const lots = useMemo(() => {
+    const map = new Map<string, HotspotUser[]>();
+    for (const u of allMikrotikUsers) {
+      const key = u.comment ?? "— Sans lot —";
+      const arr = map.get(key) ?? [];
+      arr.push(u);
+      map.set(key, arr);
+    }
+    const datePart = (n: string) => {
+      const parts = n.split("-");
+      if (parts.length < 3) return n;
+      const [mm, dd, yy] = parts.slice(2).join("-").split(".");
+      return `${yy ?? "00"}.${mm ?? "00"}.${dd ?? "00"}`;
+    };
+    return Array.from(map.entries())
+      .map(([name, users]) => ({
+        name,
+        users,
+        count: users.length,
+        profile: users.every((u) => u.profile === users[0].profile) ? users[0].profile : null,
+      }))
+      .sort((a, b) => {
+        const cmp = datePart(b.name).localeCompare(datePart(a.name));
+        return cmp !== 0 ? cmp : b.name.localeCompare(a.name);
+      });
+  }, [allMikrotikUsers]);
 
   const filtered = mikrotikUsers;
 
-  const lots = useMemo(() => {
-    const map = new Map<string, Voucher[]>();
-    for (const v of allLocalVouchers) {
-      const key = v.comment ?? "— Sans lot —";
-      const arr = map.get(key) ?? [];
-      arr.push(v);
-      map.set(key, arr);
-    }
-    return Array.from(map.entries())
-      .map(([name, vouchers]) => ({
-        name,
-        vouchers,
-        count: vouchers.length,
-        date: vouchers.reduce((min, v) =>
-          v.createdAt && (!min || v.createdAt < min) ? v.createdAt : min,
-          "" as string,
-        ),
-        profile: vouchers.every((v) => v.profileName === vouchers[0].profileName)
-          ? vouchers[0].profileName
-          : null,
-      }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [allLocalVouchers]);
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
-    refetchLocal();
+  const refreshAll = () => {
+    queryClient.invalidateQueries();
+    refetch();
+    refetchAll();
   };
 
-  const handleMarkPrinted = async (username: string) => {
-    const local = localByUsername.get(username);
-    if (local) {
-      await markPrintedMutation.mutateAsync({ id: local.id });
-      toast({ title: `${username} marqué comme imprimé` });
-      invalidate();
-    } else {
-      toast({ title: "Voucher non enregistré localement", variant: "destructive" });
+  // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
+  const handleDisableLot = async (comment: string, enable: boolean) => {
+    if (!activeRouterId) return;
+    setIsDisabling(true);
+    try {
+      const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routerId: activeRouterId, comment, enable }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { done: number; notFound: string[] };
+      toast({
+        title: enable
+          ? `${data.done} voucher(s) réactivé(s)`
+          : `${data.done} voucher(s) désactivé(s)`,
+        description: `Lot : ${comment}`,
+      });
+      refetch();
+      refetchAll();
+    } catch {
+      toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
+    } finally {
+      setIsDisabling(false);
     }
   };
 
-  const handleDeleteLocal = async (username: string) => {
-    const local = localByUsername.get(username);
-    if (!local) return;
-    if (!confirm(`Supprimer l'entrée locale de ${username} ?`)) return;
-    await deleteMutation.mutateAsync({ id: local.id });
-    toast({ title: `${username} supprimé` });
-    invalidate();
-  };
-
+  // ── Lot delete — removes users from MikroTik ────────────────────────────────
   const handleDeleteLot = async (lotName: string) => {
-    const lot = lots.find((l) => l.name === lotName);
-    if (!lot) return;
-    let deleted = 0;
-    for (const v of lot.vouchers) {
-      await deleteMutation.mutateAsync({ id: v.id });
-      deleted++;
+    if (!activeRouterId) return;
+    setIsDeletingLot(true);
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users?comment=${encodeURIComponent(lotName)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { deleted: number };
+      toast({
+        title: `Lot « ${lotName} » supprimé`,
+        description: `${data.deleted} utilisateur(s) supprimé(s) de MikroTik`,
+      });
+      refreshAll();
+      setDeletingLot(null);
+      if (filterComment === lotName) setFilterComment("all");
+    } catch (err) {
+      toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
+    } finally {
+      setIsDeletingLot(false);
     }
-    toast({ title: `Lot « ${lotName} » supprimé`, description: `${deleted} voucher(s) retirés de la base locale` });
-    invalidate();
-    setDeletingLot(null);
-    if (filterComment === lotName) setFilterComment("all");
   };
 
+  // ── Print ────────────────────────────────────────────────────────────────────
   const handlePrintVouchers = async () => {
     if (!isPHPMode()) { window.print(); return; }
     const php = getStoredPHP()!;
@@ -272,15 +287,15 @@ export default function Vouchers() {
       ? filtered.filter((u) => selectedUsernames.has(u.username))
       : filtered;
     const vouchers = usersForPrint.map((user, idx) => {
-      const lv = localByUsername.get(user.username);
+      const profile = profilesList.find((p) => p.name === user.profile);
       return {
         hotspotname: activeRouter?.name ?? "",
         dnsname: (activeRouter as any)?.contact ?? "",
         username: user.username,
         password: user.password,
-        price: String(lv?.price ?? ""),
+        price: profile?.price ?? "",
         currency: "FCFA",
-        validity: lv?.validity ?? "",
+        validity: profile?.validity ?? "",
         timelimit: user.limitUptime ?? "",
         datalimit: user.limitBytesTotal ?? "",
         num: idx + 1,
@@ -307,22 +322,22 @@ export default function Vouchers() {
     }
   };
 
-  const handleExportTxt = (lot: { name: string; vouchers: Voucher[] }) => {
-    const lines = lot.vouchers.map((v) => `${v.username} / ${v.password}`).join("\n");
+  // ── Export .txt / .csv ───────────────────────────────────────────────────────
+  const handleExportTxt = (lot: { name: string; users: HotspotUser[] }) => {
+    const lines = lot.users.map((u) => `${u.username} / ${u.password}`).join("\n");
     downloadFile(lines, `${lot.name}.txt`, "text/plain;charset=utf-8");
   };
 
-  const handleExportCsv = (lot: { name: string; vouchers: Voucher[] }) => {
-    const header = "username,password,profil,validite,prix,lot,date";
-    const rows = lot.vouchers.map((v) =>
+  const handleExportCsv = (lot: { name: string; users: HotspotUser[] }) => {
+    const header = "username,password,profil,lot,uptime,data";
+    const rows = lot.users.map((u) =>
       [
-        v.username,
-        v.password,
-        v.profileName ?? "",
-        v.validity ?? "",
-        v.price ?? "",
-        v.comment ?? "",
-        v.createdAt ? format(new Date(v.createdAt), "yyyy-MM-dd HH:mm") : "",
+        u.username,
+        u.password,
+        u.profile,
+        u.comment ?? "",
+        u.limitUptime ?? "",
+        u.limitBytesTotal ?? "",
       ]
         .map((s) => `"${String(s).replace(/"/g, '""')}"`)
         .join(","),
@@ -330,6 +345,7 @@ export default function Vouchers() {
     downloadFile([header, ...rows].join("\n"), `${lot.name}.csv`, "text/csv;charset=utf-8");
   };
 
+  // ── Selection helpers ────────────────────────────────────────────────────────
   const toggleSelect = (username: string) => {
     setSelectedUsernames((prev) => {
       const next = new Set(prev);
@@ -360,31 +376,6 @@ export default function Vouchers() {
   const handleCommentChange = (v: string) => {
     setFilterComment(v);
     setPage(0);
-  };
-
-  const handleDisableLot = async (comment: string, enable: boolean) => {
-    if (!activeRouterId) return;
-    setIsDisabling(true);
-    try {
-      const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routerId: activeRouterId, comment, enable }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { done: number; notFound: string[] };
-      toast({
-        title: enable
-          ? `${data.done} voucher(s) réactivé(s)`
-          : `${data.done} voucher(s) désactivé(s)`,
-        description: `Lot : ${comment}`,
-      });
-      refetch();
-    } catch {
-      toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
-    } finally {
-      setIsDisabling(false);
-    }
   };
 
   return (
@@ -679,11 +670,8 @@ export default function Vouchers() {
                         <UserRow
                           key={user.username}
                           user={user}
-                          localVoucher={localByUsername.get(user.username)}
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
-                          onMarkPrinted={() => handleMarkPrinted(user.username)}
-                          onDeleteLocal={() => handleDeleteLocal(user.username)}
                         />
                       ))}
                     </div>
@@ -755,17 +743,6 @@ export default function Vouchers() {
                                   <span className="text-xs text-gray-400">{lot.profile}</span>
                                 </>
                               )}
-                              {lot.date && (
-                                <>
-                                  <span className="text-gray-300">·</span>
-                                  <span className="text-xs text-gray-400">
-                                    {formatDistanceToNow(new Date(lot.date), {
-                                      addSuffix: true,
-                                      locale: fr,
-                                    })}
-                                  </span>
-                                </>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -794,18 +771,18 @@ export default function Vouchers() {
                             variant="ghost"
                             className="gap-1.5 text-xs text-red-400 hover:text-red-600 hover:bg-red-50"
                             onClick={() => setDeletingLot(lot.name)}
-                            title="Supprimer ce lot"
+                            title="Supprimer ce lot de MikroTik"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>
 
-                      {/* Preview: first 3 vouchers */}
+                      {/* Preview: first 4 vouchers */}
                       <div className="border-t border-gray-100 bg-gray-50 px-5 py-2 flex flex-wrap gap-3">
-                        {lot.vouchers.slice(0, 4).map((v) => (
-                          <span key={v.id} className="font-mono text-xs text-gray-500">
-                            {v.username} / {v.password}
+                        {lot.users.slice(0, 4).map((u) => (
+                          <span key={u.username} className="font-mono text-xs text-gray-500">
+                            {u.username} / {u.password}
                           </span>
                         ))}
                         {lot.count > 4 && (
@@ -830,7 +807,7 @@ export default function Vouchers() {
             <AlertDialogTitle>Supprimer le lot ?</AlertDialogTitle>
             <AlertDialogDescription>
               Le lot <strong className="font-mono">{deletingLot}</strong> et tous ses vouchers seront
-              supprimés de la base locale. Les comptes MikroTik ne seront pas affectés.
+              définitivement supprimés de MikroTik. Cette action est irréversible.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -838,9 +815,9 @@ export default function Vouchers() {
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
               onClick={() => deletingLot && handleDeleteLot(deletingLot)}
-              disabled={deleteMutation.isPending}
+              disabled={isDeletingLot}
             >
-              {deleteMutation.isPending ? "Suppression..." : "Supprimer"}
+              {isDeletingLot ? "Suppression..." : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -858,7 +835,8 @@ export default function Vouchers() {
           <VoucherPrintCard
             key={user.username}
             user={user}
-            localVoucher={localByUsername.get(user.username)}
+            profilePrice={profilesList.find((p) => p.name === user.profile)?.price ?? ""}
+            profileValidity={profilesList.find((p) => p.name === user.profile)?.validity ?? ""}
             hotspotName={activeRouter?.name ?? ""}
             dnsName={(activeRouter as any)?.contact ?? ""}
             num={idx + 1}
@@ -871,21 +849,13 @@ export default function Vouchers() {
 
 function UserRow({
   user,
-  localVoucher,
   selected,
   onToggle,
-  onMarkPrinted,
-  onDeleteLocal,
 }: {
   user: HotspotUser;
-  localVoucher?: Voucher;
   selected: boolean;
   onToggle: () => void;
-  onMarkPrinted: () => void;
-  onDeleteLocal: () => void;
 }) {
-  const isPrinted = !!localVoucher?.printedAt;
-
   return (
     <div
       className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 ${selected ? "bg-blue-50" : ""}`}
@@ -923,62 +893,8 @@ function UserRow({
                 <span className="text-orange-400">désactivé</span>
               </>
             )}
-            {localVoucher?.price && (
-              <>
-                <span>·</span>
-                <span>{localVoucher.price}</span>
-              </>
-            )}
-            {localVoucher?.createdAt && (
-              <>
-                <span>·</span>
-                <span>
-                  {formatDistanceToNow(new Date(localVoucher.createdAt), {
-                    addSuffix: true,
-                    locale: fr,
-                  })}
-                </span>
-              </>
-            )}
           </div>
         </div>
-      </div>
-      <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0 ml-2">
-        {isPrinted ? (
-          <Badge variant="outline" className="text-green-600 border-green-200 text-xs">
-            Imprimé
-          </Badge>
-        ) : localVoucher ? (
-          <Badge variant="outline" className="text-orange-500 border-orange-200 text-xs">
-            En attente
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-gray-400 border-gray-200 text-xs">
-            MikroTik
-          </Badge>
-        )}
-        {!isPrinted && localVoucher && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onMarkPrinted}
-            title="Marquer comme imprimé"
-            className="h-7 w-7 p-0"
-          >
-            <Printer className="h-3.5 w-3.5 text-gray-400" />
-          </Button>
-        )}
-        {localVoucher && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onDeleteLocal}
-            className="h-7 w-7 p-0"
-            title="Supprimer l'entrée locale"
-          >
-            <span className="text-red-300 text-xs">✕</span>
-          </Button>
-        )}
       </div>
     </div>
   );
@@ -988,36 +904,32 @@ function UserRow({
 
 function VoucherPrintCard({
   user,
-  localVoucher,
+  profilePrice,
+  profileValidity,
   hotspotName,
   dnsName,
   num,
 }: {
   user: HotspotUser;
-  localVoucher?: Voucher;
+  profilePrice: string;
+  profileValidity: string;
   hotspotName: string;
   dnsName: string;
   num: number;
 }) {
-  const price = localVoucher?.price ?? null;
-  const validity = localVoucher?.validity ?? null;
-  const color = getPriceColor(price);
+  const color = getPriceColor(profilePrice || null);
 
-  const lv = localVoucher;
-  const isVoucherMode =
-    (lv?.username ?? user.username) === (lv?.password ?? user.password);
+  const isVoucherMode = user.username === user.password;
 
-  const validityStr = formatValidityLabel(validity);
+  const validityStr = formatValidityLabel(profileValidity || null);
   const uptimeStr = formatUptimeLabel(user.limitUptime);
   const qrData = isVoucherMode
     ? user.username
     : `User:${user.username} Pass:${user.password}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(qrData)}&margin=2`;
 
-  // ── Template rendering — toujours via le modèle HTML (défaut ou personnalisé) ──
   const storedTpl = getStoredTemplate();
 
-  // Compute codeblock — equivalent de PHP $usermode == "vc" / "up"
   const codeblock = isVoucherMode
     ? `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div>` +
       `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">${user.username}</div>`
@@ -1029,7 +941,7 @@ function VoucherPrintCard({
     dnsname: dnsName,
     username: user.username,
     password: user.password,
-    price: String(price ?? ""),
+    price: String(profilePrice ?? ""),
     currency: "FCFA",
     validity: validityStr,
     timelimit: uptimeStr,
