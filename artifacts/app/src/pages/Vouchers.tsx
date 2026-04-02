@@ -431,17 +431,6 @@ export default function Vouchers() {
             </p>
           </CardContent>
         </Card>
-      ) : error && view === "list" ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <WifiOff className="h-10 w-10 text-red-300 mx-auto mb-3" />
-            <p className="text-red-500 font-medium">Impossible de contacter le routeur</p>
-            <p className="text-sm text-gray-400 mt-1">Vérifiez la connexion et réessayez</p>
-            <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
-              <RefreshCw className="h-4 w-4 mr-2" /> Réessayer
-            </Button>
-          </CardContent>
-        </Card>
       ) : (
         <>
           {/* Tab toggle */}
@@ -476,7 +465,19 @@ export default function Vouchers() {
           {/* ─── LIST VIEW ─── */}
           {view === "list" && (
             <>
-              <Card className="mb-4">
+              {error ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <WifiOff className="h-10 w-10 text-red-300 mx-auto mb-3" />
+                    <p className="text-red-500 font-medium">Impossible de contacter le routeur</p>
+                    <p className="text-sm text-gray-400 mt-1">Vérifiez la connexion et réessayez</p>
+                    <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+                      <RefreshCw className="h-4 w-4 mr-2" /> Réessayer
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+              <><Card className="mb-4">
                 <CardContent className="py-3">
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="relative flex-1 min-w-48">
@@ -504,7 +505,7 @@ export default function Vouchers() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-48 p-0" align="start">
-                        <Command>
+                        <Command shouldFilter={false}>
                           <CommandList>
                             <CommandEmpty>Aucun forfait.</CommandEmpty>
                             <CommandGroup>
@@ -547,7 +548,7 @@ export default function Vouchers() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto min-w-52 max-w-sm p-0" align="start">
-                        <Command>
+                        <Command shouldFilter={false}>
                           <CommandList>
                             <CommandEmpty>Aucun lot.</CommandEmpty>
                             <CommandGroup>
@@ -715,6 +716,8 @@ export default function Vouchers() {
                   </div>
                 )}
               </Card>
+              </>
+              )}
             </>
           )}
 

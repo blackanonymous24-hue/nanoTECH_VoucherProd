@@ -260,7 +260,7 @@ export default function GenerateVouchers() {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                    <Command>
+                    <Command shouldFilter={false}>
                       <CommandList className="max-h-52 overflow-y-auto">
                         <CommandEmpty>Aucun profil disponible.</CommandEmpty>
                         <CommandGroup>
@@ -409,7 +409,7 @@ export default function GenerateVouchers() {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                      <Command>
+                      <Command shouldFilter={false}>
                         <CommandList className="max-h-52 overflow-y-auto">
                           <CommandEmpty>Aucun vendeur disponible.</CommandEmpty>
                           <CommandGroup>
