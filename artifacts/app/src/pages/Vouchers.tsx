@@ -457,7 +457,7 @@ export default function Vouchers() {
                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-64 p-0" align="start">
+                      <PopoverContent className="w-auto min-w-52 max-w-sm p-0" align="start">
                         <Command>
                           <CommandList>
                             <CommandEmpty>Aucun lot.</CommandEmpty>
@@ -476,7 +476,7 @@ export default function Vouchers() {
                                   onSelect={() => { handleCommentChange(name); setCommentPopoverOpen(false); }}
                                 >
                                   <Check className={`mr-2 h-4 w-4 ${filterComment === name ? "opacity-100" : "opacity-0"}`} />
-                                  <span className="font-mono text-xs break-all flex-1">{name}</span>
+                                  <span className="font-mono text-xs whitespace-nowrap flex-1">{name}</span>
                                   <span className="text-xs text-green-600 ml-2">({count})</span>
                                 </CommandItem>
                               ))}
