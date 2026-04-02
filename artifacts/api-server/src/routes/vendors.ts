@@ -135,7 +135,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
       .from(vendorsTable)
       .where(eq(vendorsTable.username, resolvedUsername));
     if (existing) {
-      res.status(400).json({ error: "Ce numéro est déjà pris" });
+      res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" });
       return;
     }
   }
@@ -200,7 +200,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
       .from(vendorsTable)
       .where(eq(vendorsTable.username, resolvedUsername));
     if (existing && existing.id !== id) {
-      res.status(400).json({ error: "Ce numéro est déjà pris" });
+      res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" });
       return;
     }
   }

@@ -59,7 +59,7 @@ export function PersonForm({
   serverError,
   forManager = false,
   nameLabel = "Nom",
-  usernameLabel = "Numéro",
+  usernameLabel = "Nom d'utilisateur",
   portalSectionLabel = "Accès portail vendeur",
 }: {
   initial?: Partial<{
