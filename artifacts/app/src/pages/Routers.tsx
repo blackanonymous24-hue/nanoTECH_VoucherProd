@@ -22,9 +22,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube, KeyRound, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube, KeyRound, CheckCircle2, MoreHorizontal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -338,19 +345,29 @@ export default function Routers() {
                       >
                         <TestTube className="h-3.5 w-3.5" /> Tester
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>
-                        <Edit className="h-3.5 w-3.5" />
-                      </Button>
-                      {!isManager && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-red-500 hover:text-red-600"
-                          onClick={() => handleDelete(r.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-gray-400">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEdit(r)}>
+                            <Edit className="h-3.5 w-3.5 mr-2" /> Modifier
+                          </DropdownMenuItem>
+                          {!isManager && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                onClick={() => handleDelete(r.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 </CardContent>

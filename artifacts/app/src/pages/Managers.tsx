@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { UserCog, Plus, Pencil, Trash2, Check, X } from "lucide-react";
+import { UserCog, Plus, Pencil, Trash2, Check, X, MoreHorizontal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -15,6 +15,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -162,30 +169,31 @@ export default function Managers() {
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-2 pt-2 border-t">
-                  <Button size="sm" variant="outline" onClick={() => setEditManager(m)} className="gap-1.5 flex-1">
-                    <Pencil className="h-3.5 w-3.5" /> Modifier
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    title={m.isActive ? "Désactiver" : "Activer"}
-                    onClick={() => toggleMutation.mutate({ id: m.id, isActive: !m.isActive })}
-                    className={m.isActive ? "text-orange-600 hover:bg-orange-50" : "text-green-600 hover:bg-green-50"}
-                  >
-                    {m.isActive ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    title="Supprimer"
-                    onClick={() => setDeleteId(m.id)}
-                    className="text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+              <CardContent className="pt-0 pb-3 px-4 flex justify-end">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setEditManager(m)}>
+                      <Pencil className="h-3.5 w-3.5 mr-2" /> Modifier
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => toggleMutation.mutate({ id: m.id, isActive: !m.isActive })}>
+                      {m.isActive
+                        ? <><X className="h-3.5 w-3.5 mr-2" /> Désactiver</>
+                        : <><Check className="h-3.5 w-3.5 mr-2" /> Activer</>}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                      onClick={() => setDeleteId(m.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </CardContent>
             </Card>
           ))}

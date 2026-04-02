@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Pencil, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink } from "lucide-react";
+import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, MoreHorizontal, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -32,6 +32,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type FormData = {
   name: string;
@@ -47,12 +54,14 @@ function VendorForm({
   onCancel,
   loading,
   isEdit,
+  serverError,
 }: {
   initial?: Partial<Vendor & { username?: string; email?: string }>;
   onSubmit: (data: FormData) => void;
   onCancel: () => void;
   loading: boolean;
   isEdit?: boolean;
+  serverError?: string;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [phone, setPhone] = useState(initial?.phone ?? "");
@@ -68,6 +77,12 @@ function VendorForm({
       }}
       className="space-y-4"
     >
+      {serverError && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          {serverError}
+        </div>
+      )}
+
       <div>
         <Label htmlFor="v-name">Nom du vendeur *</Label>
         <Input
@@ -158,7 +173,9 @@ export default function Vendors() {
   const { toast } = useToast();
 
   const [showCreate, setShowCreate] = useState(false);
+  const [createError, setCreateError] = useState<string>("");
   const [editVendor, setEditVendor] = useState<Vendor | null>(null);
+  const [editError, setEditError] = useState<string>("");
   const [deleteVendorId, setDeleteVendorId] = useState<number | null>(null);
 
   const { data: vendors = [], isLoading, refetch: refetchVendors } = useQuery<Vendor[]>({
@@ -180,53 +197,79 @@ export default function Vendors() {
   };
 
   const handleCreate = async (data: FormData) => {
-    await createMutation.mutateAsync({
-      data: {
-        name: data.name,
-        phone: data.phone || null,
-        email: data.email || null,
-        username: data.username || null,
-        ...(data.password ? { password: data.password } : {}),
-        ...(selectedRouterId ? { routerId: selectedRouterId } : {}),
-      } as any,
-    });
-    invalidate();
-    setShowCreate(false);
-    toast({ title: "Vendeur créé avec succès" });
+    setCreateError("");
+    try {
+      await createMutation.mutateAsync({
+        data: {
+          name: data.name,
+          phone: data.phone || null,
+          email: data.email || null,
+          username: data.username || null,
+          ...(data.password ? { password: data.password } : {}),
+          ...(selectedRouterId ? { routerId: selectedRouterId } : {}),
+        } as any,
+      });
+      invalidate();
+      setShowCreate(false);
+      toast({ title: "Vendeur créé avec succès" });
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.error ??
+        err?.message ??
+        "Une erreur est survenue";
+      setCreateError(msg);
+    }
   };
 
   const handleEdit = async (data: FormData) => {
     if (!editVendor) return;
-    await updateMutation.mutateAsync({
-      id: editVendor.id,
-      data: {
-        name: data.name,
-        phone: data.phone || null,
-        email: data.email || null,
-        username: data.username || null,
-        ...(data.password ? { password: data.password } : {}),
-      } as any,
-    });
-    invalidate();
-    setEditVendor(null);
-    toast({ title: "Vendeur mis à jour" });
+    setEditError("");
+    try {
+      await updateMutation.mutateAsync({
+        id: editVendor.id,
+        data: {
+          name: data.name,
+          phone: data.phone || null,
+          email: data.email || null,
+          username: data.username || null,
+          ...(data.password ? { password: data.password } : {}),
+        } as any,
+      });
+      invalidate();
+      setEditVendor(null);
+      toast({ title: "Vendeur mis à jour" });
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.error ??
+        err?.message ??
+        "Une erreur est survenue";
+      setEditError(msg);
+    }
   };
 
   const handleToggleActive = async (vendor: Vendor) => {
-    await updateMutation.mutateAsync({
-      id: vendor.id,
-      data: { isActive: !vendor.isActive },
-    });
-    invalidate();
-    toast({ title: `Vendeur ${vendor.isActive ? "désactivé" : "activé"}` });
+    try {
+      await updateMutation.mutateAsync({
+        id: vendor.id,
+        data: { isActive: !vendor.isActive },
+      });
+      invalidate();
+      toast({ title: `Vendeur ${vendor.isActive ? "désactivé" : "activé"}` });
+    } catch {
+      toast({ title: "Erreur", description: "Impossible de modifier le statut", variant: "destructive" });
+    }
   };
 
   const handleDelete = async () => {
     if (!deleteVendorId) return;
-    await deleteMutation.mutateAsync({ id: deleteVendorId });
-    invalidate();
-    setDeleteVendorId(null);
-    toast({ title: "Vendeur supprimé" });
+    try {
+      await deleteMutation.mutateAsync({ id: deleteVendorId });
+      invalidate();
+      setDeleteVendorId(null);
+      toast({ title: "Vendeur supprimé" });
+    } catch {
+      toast({ title: "Erreur", description: "Impossible de supprimer le vendeur", variant: "destructive" });
+    }
   };
 
   const portalBase = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -251,7 +294,11 @@ export default function Vendors() {
             <ExternalLink className="h-4 w-4" /> Portail vendeur
           </Button>
           {!isManager && (
-            <Button onClick={() => setShowCreate(true)} className="gap-2" disabled={!selectedRouterId}>
+            <Button
+              onClick={() => { setCreateError(""); setShowCreate(true); }}
+              className="gap-2"
+              disabled={!selectedRouterId}
+            >
               <Plus className="h-4 w-4" /> Ajouter un vendeur
             </Button>
           )}
@@ -273,7 +320,7 @@ export default function Vendors() {
             <Users className="h-12 w-12 text-gray-300 mb-4" />
             <p className="text-gray-500 font-medium">Aucun vendeur enregistré</p>
             <p className="text-sm text-gray-400 mt-1">Ajoutez votre premier vendeur pour commencer</p>
-            <Button className="mt-4 gap-2" onClick={() => setShowCreate(true)}>
+            <Button className="mt-4 gap-2" onClick={() => { setCreateError(""); setShowCreate(true); }}>
               <Plus className="h-4 w-4" /> Ajouter un vendeur
             </Button>
           </CardContent>
@@ -310,61 +357,61 @@ export default function Vendors() {
                       )}
                     </div>
                   </div>
-                  <Badge variant={vendor.isActive ? "default" : "secondary"}>
-                    {vendor.isActive ? "Actif" : "Inactif"}
-                  </Badge>
+                  <div className="flex items-center gap-1">
+                    <Badge variant={vendor.isActive ? "default" : "secondary"}>
+                      {vendor.isActive ? "Actif" : "Inactif"}
+                    </Badge>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => { setEditError(""); setEditVendor(vendor); }}>
+                          <Pencil className="h-3.5 w-3.5 mr-2" /> Modifier
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleToggleActive(vendor)}>
+                          {vendor.isActive
+                            ? <><X className="h-3.5 w-3.5 mr-2" /> Désactiver</>
+                            : <><Check className="h-3.5 w-3.5 mr-2" /> Activer</>}
+                        </DropdownMenuItem>
+                        {!isManager && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                              onClick={() => setDeleteVendorId(vendor.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-0">
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 gap-1.5"
-                    onClick={() => setEditVendor(vendor)}
-                  >
-                    <Pencil className="h-3.5 w-3.5" /> Modifier
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    onClick={() => handleToggleActive(vendor)}
-                    title={vendor.isActive ? "Désactiver" : "Activer"}
-                  >
-                    {vendor.isActive ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
-                  </Button>
-                  {!isManager && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5 text-red-500 hover:text-red-600 hover:bg-red-50"
-                      onClick={() => setDeleteVendorId(vendor.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
             </Card>
           ))}
         </div>
       )}
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <Dialog open={showCreate} onOpenChange={(o) => { if (!o) { setShowCreate(false); setCreateError(""); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Ajouter un vendeur</DialogTitle>
           </DialogHeader>
           <VendorForm
             onSubmit={handleCreate}
-            onCancel={() => setShowCreate(false)}
+            onCancel={() => { setShowCreate(false); setCreateError(""); }}
             loading={createMutation.isPending}
+            serverError={createError}
           />
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editVendor} onOpenChange={(o) => { if (!o) setEditVendor(null); }}>
+      <Dialog open={!!editVendor} onOpenChange={(o) => { if (!o) { setEditVendor(null); setEditError(""); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Modifier le vendeur</DialogTitle>
@@ -373,9 +420,10 @@ export default function Vendors() {
             <VendorForm
               initial={editVendor}
               onSubmit={handleEdit}
-              onCancel={() => setEditVendor(null)}
+              onCancel={() => { setEditVendor(null); setEditError(""); }}
               loading={updateMutation.isPending}
               isEdit
+              serverError={editError}
             />
           )}
         </DialogContent>

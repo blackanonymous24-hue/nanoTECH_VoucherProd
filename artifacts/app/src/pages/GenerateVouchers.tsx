@@ -12,14 +12,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2 } from "lucide-react";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { applyVars, getStoredTemplate, getStoredPHP, isPHPMode } from "@/pages/TicketTemplate";
 
@@ -56,6 +57,8 @@ export default function GenerateVouchers() {
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
+  const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
 
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null }[]>({
@@ -237,25 +240,50 @@ export default function GenerateVouchers() {
 
               <div>
                 <Label>Profil</Label>
-                <Select
-                  value={profile || "__none__"}
-                  onValueChange={(v) => setProfile(v === "__none__" ? "" : v)}
-                  disabled={!selectedRouterId || loadingProfiles}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder={loadingProfiles ? "Chargement..." : "Sélectionnez un profil"} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-56 overflow-y-auto">
-                    <SelectItem value="__none__" disabled>
-                      {loadingProfiles ? "Chargement..." : "Sélectionnez un profil"}
-                    </SelectItem>
-                    {profiles.map((p) => (
-                      <SelectItem key={p.name} value={p.name}>
-                        {p.name}{p.validity ? ` · ${p.validity}` : ""}{p.price ? ` · ${p.price}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={profilePopoverOpen}
+                      disabled={!selectedRouterId || loadingProfiles}
+                      className="w-full mt-1 justify-between font-normal"
+                    >
+                      <span className="truncate">
+                        {loadingProfiles
+                          ? "Chargement..."
+                          : profile
+                            ? (profiles.find((p) => p.name === profile)?.name ?? profile)
+                            : "Sélectionner un profil"}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command>
+                      <CommandList>
+                        <CommandEmpty>Aucun profil disponible.</CommandEmpty>
+                        <CommandGroup>
+                          {profiles.map((p) => (
+                            <CommandItem
+                              key={p.name}
+                              value={p.name}
+                              onSelect={() => { setProfile(p.name); setProfilePopoverOpen(false); }}
+                            >
+                              <Check className={`mr-2 h-4 w-4 ${profile === p.name ? "opacity-100" : "opacity-0"}`} />
+                              <span className="flex-1">{p.name}</span>
+                              {(p.validity || p.price) && (
+                                <span className="text-xs text-gray-400 ml-2">
+                                  {[p.validity, p.price].filter(Boolean).join(" · ")}
+                                </span>
+                              )}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
                 {selectedProfile && (
                   <div className="mt-2 p-2.5 bg-blue-50 rounded-lg text-xs text-blue-700 flex flex-wrap gap-2">
                     {selectedProfile.validity && (
@@ -364,19 +392,50 @@ export default function GenerateVouchers() {
               {vendors.length > 0 && (
                 <div>
                   <Label>Vendeur <span className="text-gray-400 text-xs">(optionnel)</span></Label>
-                  <Select value={vendorId || "none"} onValueChange={(v) => setVendorId(v === "none" ? "" : v)}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Aucun vendeur sélectionné" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-56 overflow-y-auto">
-                      <SelectItem value="none">— Aucun vendeur —</SelectItem>
-                      {vendors.filter((v) => v.isActive).map((v) => (
-                        <SelectItem key={v.id} value={String(v.id)}>
-                          {v.name}{v.phone ? ` · ${v.phone}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Popover open={vendorPopoverOpen} onOpenChange={setVendorPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={vendorPopoverOpen}
+                        className="w-full mt-1 justify-between font-normal"
+                      >
+                        <span className="truncate">
+                          {vendorId
+                            ? (vendors.find((v) => String(v.id) === vendorId)?.name ?? "Vendeur inconnu")
+                            : "— Aucun vendeur —"}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                      <Command>
+                        <CommandList>
+                          <CommandEmpty>Aucun vendeur disponible.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="none"
+                              onSelect={() => { setVendorId(""); setVendorPopoverOpen(false); }}
+                            >
+                              <Check className={`mr-2 h-4 w-4 ${!vendorId ? "opacity-100" : "opacity-0"}`} />
+                              — Aucun vendeur —
+                            </CommandItem>
+                            {vendors.filter((v) => v.isActive).map((v) => (
+                              <CommandItem
+                                key={v.id}
+                                value={String(v.id)}
+                                onSelect={() => { setVendorId(String(v.id)); setVendorPopoverOpen(false); }}
+                              >
+                                <Check className={`mr-2 h-4 w-4 ${vendorId === String(v.id) ? "opacity-100" : "opacity-0"}`} />
+                                <span className="flex-1">{v.name}</span>
+                                {v.phone && <span className="text-xs text-gray-400 ml-2">{v.phone}</span>}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               )}
 
