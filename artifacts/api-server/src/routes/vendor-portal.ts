@@ -2,6 +2,7 @@ import { Router } from "express";
 import { eq, desc, count, sql, and, gte, lt } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
+import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 
 const router = Router();
 
@@ -111,6 +112,12 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
   const routerRow = vendor.routerId
     ? await db.select({ hotspotName: routersTable.hotspotName }).from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
     : null;
+
+  // Real-time sync: import MikroTik hotspot users matching vendor suffixes
+  if (vendor.routerId) {
+    const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
+    await syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
+  }
 
   const [totalsRows, byProfile, salesRow, recentSales, availableVouchers] = await Promise.all([
     buildTotals(id),

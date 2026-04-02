@@ -4,6 +4,7 @@ import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers } from "../lib/mikrotik.js";
 import { logger } from "../lib/logger.js";
+import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 
 const router = Router();
 
@@ -164,9 +165,13 @@ router.post("/vendors", async (req, res): Promise<void> => {
     .returning();
   res.status(201).json(safeVendor(vendor));
 
-  // Background: attribute existing vouchers by suffixes
+  // Background: attribute local DB vouchers + import MikroTik users by suffix
   if (vendor.commentSuffix) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
   if (vendor.commentSuffix2) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
+  if (vendor.routerId) {
+    const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
+    void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
+  }
 });
 
 router.put("/vendors/:id", async (req, res): Promise<void> => {
@@ -231,12 +236,17 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
   res.json(safeVendor(vendor));
 
-  // Background: attribute existing vouchers by suffixes if they changed
+  // Background: attribute existing vouchers by suffixes if they changed,
+  // and also import matching MikroTik users into local DB
   if (vendor.commentSuffix && vendor.commentSuffix !== current.commentSuffix) {
     void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
   }
   if (vendor.commentSuffix2 && vendor.commentSuffix2 !== current.commentSuffix2) {
     void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
+  }
+  if (vendor.routerId) {
+    const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
+    if (suffixes.length > 0) void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
   }
 
   // If isActive changed, enable/disable all vouchers on MikroTik (background)
