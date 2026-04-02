@@ -166,6 +166,16 @@ export default function Vouchers() {
     query: { enabled: !!activeRouterId, staleTime: 60_000 },
   });
 
+  const sortedProfiles = useMemo(
+    () =>
+      [...profilesList].sort((a, b) => {
+        const pa = parseFloat((a.price ?? "").replace(/\s/g, "")) || 0;
+        const pb = parseFloat((b.price ?? "").replace(/\s/g, "")) || 0;
+        return pa - pb;
+      }),
+    [profilesList],
+  );
+
   // ── Unique comments (lots filter) from ALL MikroTik users ────────────────────
   const uniqueComments = useMemo(() => {
     const counts = new Map<string, number>();
@@ -484,10 +494,10 @@ export default function Vouchers() {
                       </PopoverTrigger>
                       <PopoverContent className="w-48 p-0" align="start">
                         <div className="overflow-y-auto max-h-60 py-1">
-                          {profilesList.length === 0 && (
+                          {sortedProfiles.length === 0 && (
                             <p className="px-3 py-2 text-sm text-gray-400">Aucun forfait.</p>
                           )}
-                          {[{ name: "all" as const }, ...profilesList].map((p) => (
+                          {[{ name: "all" as const }, ...sortedProfiles].map((p) => (
                             <button
                               key={p.name}
                               onClick={() => { handleProfileChange(p.name); setProfilePopoverOpen(false); }}
