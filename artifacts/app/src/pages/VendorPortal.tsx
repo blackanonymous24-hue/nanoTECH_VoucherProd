@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -803,24 +804,16 @@ function Dashboard({ token, vendor, onLogout }: {
 }
 
 export default function VendorPortal() {
-  const [token,  setToken]  = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
-  const [vendor, setVendor] = useState<VendorInfo | null>(() => {
-    try { const v = localStorage.getItem("vouchernet_vendor_info"); return v ? JSON.parse(v) : null; }
-    catch { return null; }
-  });
+  const { token, vendorInfo, logout } = useAuth();
 
-  const handleLogin = (t: string, v: VendorInfo) => {
-    localStorage.setItem(TOKEN_KEY, t);
-    localStorage.setItem("vouchernet_vendor_info", JSON.stringify(v));
-    setToken(t); setVendor(v);
+  if (!token || !vendorInfo) return null;
+
+  const vendor: VendorInfo = {
+    id: vendorInfo.id,
+    name: vendorInfo.name,
+    email: vendorInfo.email,
+    username: vendorInfo.username,
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem("vouchernet_vendor_info");
-    setToken(null); setVendor(null);
-  };
-
-  if (!token || !vendor) return <LoginPage onLogin={handleLogin} />;
-  return <Dashboard token={token} vendor={vendor} onLogout={handleLogout} />;
+  return <Dashboard token={token} vendor={vendor} onLogout={logout} />;
 }

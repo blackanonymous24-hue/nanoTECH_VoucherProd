@@ -69,11 +69,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  useEffect(() => {
-    if (routers.length === 1 && selectedRouterId === null) {
-      setSelectedRouterId(routers[0].id);
-    }
-  }, [routers, selectedRouterId, setSelectedRouterId]);
+  // No auto-selection: user must explicitly pick a router from the Routers page or sidebar
 
   // On initial load, if a router is already stored, trigger a fetch immediately
   const didInitialTrigger = useRef(false);

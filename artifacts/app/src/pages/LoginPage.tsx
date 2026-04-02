@@ -20,18 +20,22 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch(`${BASE}/api/admin/login`, {
+      const res = await fetch(`${BASE}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ login: form.login.trim(), password: form.password }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Erreur de connexion");
+        setError(data.error ?? "Identifiants incorrects");
         return;
       }
-      login(data.token);
-      navigate("/routers");
+      login(data.token, data.role, data.vendor ?? undefined);
+      if (data.role === "admin") {
+        navigate("/routers");
+      } else {
+        navigate("/vendor-portal");
+      }
     } catch {
       setError("Impossible de contacter le serveur");
     } finally {
@@ -51,28 +55,30 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-gray-900 rounded-2xl p-6 shadow-xl border border-gray-800">
-          <h2 className="text-lg font-semibold text-white mb-5">Connexion administrateur</h2>
+          <h2 className="text-lg font-semibold text-white mb-5">Connexion</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <Label className="text-gray-300 text-sm">Identifiant</Label>
               <Input
-                className="mt-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500 focus:border-blue-500 focus:ring-blue-500"
-                placeholder="admin"
+                className="mt-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500 focus:border-blue-500"
+                placeholder="admin ou nom du vendeur"
                 value={form.login}
                 onChange={(e) => setForm({ ...form, login: e.target.value })}
                 autoFocus
+                autoComplete="username"
                 required
               />
             </div>
             <div>
               <Label className="text-gray-300 text-sm">Mot de passe</Label>
               <Input
-                className="mt-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500 focus:border-blue-500 focus:ring-blue-500"
+                className="mt-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500 focus:border-blue-500"
                 type="password"
                 placeholder="••••••••"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
+                autoComplete="current-password"
                 required
               />
             </div>

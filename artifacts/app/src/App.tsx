@@ -30,14 +30,14 @@ const queryClient = new QueryClient({
 
 function AppRoutes() {
   const [location] = useLocation();
-  const { isAuthenticated } = useAuth();
-
-  if (location.startsWith("/vendor-portal")) {
-    return <VendorPortal />;
-  }
+  const { isAuthenticated, role } = useAuth();
 
   if (!isAuthenticated) {
     return <LoginPage />;
+  }
+
+  if (role === "vendor" || location.startsWith("/vendor-portal")) {
+    return <VendorPortal />;
   }
 
   return (
