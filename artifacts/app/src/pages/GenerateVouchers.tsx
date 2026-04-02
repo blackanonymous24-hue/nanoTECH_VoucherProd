@@ -20,8 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw } from "lucide-react";
+import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { DEFAULT_TEMPLATE } from "@/pages/TicketTemplate";
 
 function makeBatchId(): string {
   const now = new Date();
@@ -126,9 +127,7 @@ export default function GenerateVouchers() {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () => window.print();
 
   const handleCopyAll = () => {
     const text = generatedVouchers
@@ -136,6 +135,29 @@ export default function GenerateVouchers() {
       .join("\n");
     navigator.clipboard.writeText(text);
     toast({ title: "Codes copiés dans le presse-papier" });
+  };
+
+  const downloadFile = (content: string, filename: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportTxt = () => {
+    const lines = generatedVouchers.map((v, i) =>
+      `${i + 1}. ${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
+    );
+    downloadFile(`Lot: ${comment}\n\n${lines.join("\n")}`, `${comment}.txt`, "text/plain");
+  };
+
+  const handleExportCsv = () => {
+    const header = "N°,Username,Password,Profil,Validité,Prix\n";
+    const rows = generatedVouchers.map((v, i) =>
+      `${i + 1},"${v.username}","${v.password}","${v.profileName ?? ""}","${v.validity ?? ""}","${v.price ?? ""}"`
+    ).join("\n");
+    downloadFile(header + rows, `${comment}.csv`, "text/csv");
   };
 
   return (
@@ -355,41 +377,106 @@ export default function GenerateVouchers() {
 
         <div>
           {generatedVouchers.length > 0 && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">
-                    {generatedVouchers.length} voucher(s) générés
-                  </CardTitle>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={handleCopyAll} className="gap-1.5">
-                      <Copy className="h-3.5 w-3.5" /> Copier
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handlePrint} className="gap-1.5">
-                      <Printer className="h-3.5 w-3.5" /> Imprimer
-                    </Button>
+            <Card className="overflow-hidden">
+              {/* ── Lot header — styled like Tous les lots ── */}
+              <div className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-mono font-semibold text-gray-900 text-sm break-all">{comment}</p>
+                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                      <span className="text-xs text-green-600 font-medium">
+                        {generatedVouchers.length} voucher(s) générés
+                      </span>
+                      {generatedVouchers[0]?.profileName && (
+                        <>
+                          <span className="text-gray-300">·</span>
+                          <span className="text-xs text-gray-400">{generatedVouchers[0].profileName}</span>
+                        </>
+                      )}
+                      {generatedVouchers[0]?.price && (
+                        <>
+                          <span className="text-gray-300">·</span>
+                          <span className="text-xs text-gray-400">{generatedVouchers[0].price} FCFA</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-2 voucher-print-grid">
-                  {generatedVouchers.map((v) => (
-                    <div
-                      key={v.id}
-                      className="border-2 border-dashed border-blue-200 rounded-lg p-3 bg-blue-50 text-center"
-                    >
-                      <div className="text-xs text-gray-500 mb-1">{v.profileName}</div>
-                      <div className="font-mono font-bold text-gray-900 text-sm">{v.username}</div>
-                      <div className="font-mono text-gray-600 text-sm">/ {v.password}</div>
-                      {v.validity && <div className="text-xs text-blue-600 mt-1">{v.validity}</div>}
-                      {v.price && <Badge variant="outline" className="text-xs mt-1">{v.price}</Badge>}
+                <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleExportTxt} title="Exporter en .txt">
+                    <FileText className="h-3.5 w-3.5" /> .txt
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleExportCsv} title="Exporter en .csv">
+                    <Table2 className="h-3.5 w-3.5" /> .csv
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleCopyAll} title="Copier tous les codes">
+                    <Copy className="h-3.5 w-3.5" /> Copier
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handlePrint} title="Imprimer les tickets">
+                    <Printer className="h-3.5 w-3.5" /> Imprimer
+                  </Button>
+                </div>
+              </div>
+
+              {/* ── Compact codes list ── */}
+              <div className="border-t border-gray-100 max-h-80 overflow-y-auto">
+                <div className="divide-y divide-gray-50">
+                  {generatedVouchers.map((v, i) => (
+                    <div key={v.id} className="flex items-center gap-3 px-5 py-2">
+                      <span className="text-xs text-gray-300 w-6 text-right flex-shrink-0 tabular-nums">{i + 1}</span>
+                      <code className="font-mono text-sm font-semibold text-gray-900 flex-1">{v.username}</code>
+                      {v.username !== v.password && (
+                        <code className="font-mono text-xs text-gray-400 flex-shrink-0">{v.password}</code>
+                      )}
+                      {v.validity && (
+                        <span className="text-xs text-blue-500 flex-shrink-0">{v.validity}</span>
+                      )}
                     </div>
                   ))}
                 </div>
-              </CardContent>
+              </div>
             </Card>
           )}
         </div>
+      </div>
+
+      {/* ── Print section — uses global @media print CSS ── */}
+      <div id="voucher-print-section" style={{ display: "none" }}>
+        {generatedVouchers.map((v, idx) => {
+          const PRICE_COLORS: Record<string, string> = {
+            "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
+            "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
+            "13000":"#2E8B57","15000":"#2E8B57","17000":"#0000FF","20000":"#0000FF",
+            "35000":"#6495ED","40000":"#6495ED","80000":"#FF8C00","85000":"#FF8C00",
+            "160000":"#DC143C","170000":"#DC143C",
+          };
+          const color = PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD";
+          const rawValidity = v.validity ?? "";
+          const last = rawValidity.slice(-1);
+          const num = rawValidity.slice(0, -1);
+          const validity =
+            last === "d" ? `Validité : ${num} Jour(s)` :
+            last === "h" ? `Validité : ${num} Heure(s)` :
+            last === "w" ? `Validité : ${num} Semaine(s)` : rawValidity;
+          const tpl = (() => { try { return localStorage.getItem("voucher-ticket-template") ?? DEFAULT_TEMPLATE; } catch { return DEFAULT_TEMPLATE; } })();
+          const vars: Record<string, string> = {
+            hotspotname: selectedRouter?.name ?? "",
+            dnsname: (selectedRouter as any)?.contact ?? "",
+            username: v.username,
+            password: v.password,
+            price: String(v.price ?? ""),
+            validity,
+            num: String(idx + 1),
+            profile: v.profileName ?? "",
+            color,
+          };
+          const html = Object.entries(vars).reduce(
+            (s, [k, val]) => s.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), val),
+            tpl
+          );
+          return <div key={v.id} dangerouslySetInnerHTML={{ __html: html }} />;
+        })}
       </div>
     </div>
   );

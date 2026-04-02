@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Router, Ticket, Zap, Wifi, PackageOpen, Activity, Users, BarChart3 } from "lucide-react";
+import { LayoutDashboard, Router, Ticket, Zap, Wifi, PackageOpen, Activity, Users, BarChart3, FileCode } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
 import {
@@ -19,6 +19,7 @@ const navItems = [
   { href: "/vouchers", label: "Vouchers", icon: Ticket },
   { href: "/vendors", label: "Vendeurs", icon: Users },
   { href: "/reports", label: "Rapports", icon: BarChart3 },
+  { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {

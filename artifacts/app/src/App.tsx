@@ -14,6 +14,7 @@ import Vendors from "@/pages/Vendors";
 import Reports from "@/pages/Reports";
 import SalesRanking from "@/pages/SalesRanking";
 import VendorPortal from "@/pages/VendorPortal";
+import TicketTemplate from "@/pages/TicketTemplate";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -46,6 +47,7 @@ function AppRoutes() {
           <Route path="/reports" component={Reports} />
           <Route path="/sales/daily" component={() => <SalesRanking period="daily" />} />
           <Route path="/sales/monthly" component={() => <SalesRanking period="monthly" />} />
+          <Route path="/ticket-template" component={TicketTemplate} />
           <Route component={NotFound} />
         </Switch>
       </Layout>

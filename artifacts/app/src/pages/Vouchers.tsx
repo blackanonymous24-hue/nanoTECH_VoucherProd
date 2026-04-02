@@ -950,6 +950,27 @@ function VoucherPrintCard({
     : `User:${user.username} Pass:${user.password}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(qrData)}&margin=2`;
 
+  // Use custom template from localStorage if available
+  const customTpl = (() => { try { return localStorage.getItem("voucher-ticket-template"); } catch { return null; } })();
+  if (customTpl !== null) {
+    const vars: Record<string, string> = {
+      hotspotname: hotspotName,
+      dnsname: dnsName,
+      username: user.username,
+      password: user.password,
+      price: String(price ?? ""),
+      validity: validityStr,
+      num: String(num),
+      profile: user.profile,
+      color,
+    };
+    const html = Object.entries(vars).reduce(
+      (s, [k, v]) => s.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), v),
+      customTpl
+    );
+    return <div dangerouslySetInnerHTML={{ __html: html }} style={{ display: "inline-block", verticalAlign: "top" }} />;
+  }
+
   const cardStyle: React.CSSProperties = {
     display: "inline-block",
     borderCollapse: "collapse",
