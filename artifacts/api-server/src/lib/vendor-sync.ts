@@ -3,8 +3,8 @@ import { db, routersTable, vouchersTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles } from "./mikrotik.js";
 import { logger } from "./logger.js";
 
-/** Throttle: don't sync the same vendor more than once every 5 minutes */
-const SYNC_TTL = 5 * 60_000;
+/** Throttle: don't sync the same vendor more than once every 2 minutes */
+const SYNC_TTL = 2 * 60_000;
 const lastSyncAt = new Map<number, number>();
 
 /**

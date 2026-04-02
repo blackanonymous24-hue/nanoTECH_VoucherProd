@@ -100,7 +100,7 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
-  const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: 60_000 } });
+  const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: 30_000 } });
 
   if (isLoading || !data) return <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>;
 
@@ -325,7 +325,7 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 
 /* ─── main page ───────────────────────────────────────────────── */
 export default function Reports() {
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 60_000 } });
+  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 30_000 } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
 
