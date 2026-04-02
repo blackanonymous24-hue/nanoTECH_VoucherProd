@@ -3,7 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RouterProvider } from "@/contexts/RouterContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import Layout from "@/components/Layout";
+import LoginPage from "@/pages/LoginPage";
 import Dashboard from "@/pages/Dashboard";
 import Routers from "@/pages/Routers";
 import Forfaits from "@/pages/Forfaits";
@@ -28,9 +30,14 @@ const queryClient = new QueryClient({
 
 function AppRoutes() {
   const [location] = useLocation();
+  const { isAuthenticated } = useAuth();
 
   if (location.startsWith("/vendor-portal")) {
     return <VendorPortal />;
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
   }
 
   return (
@@ -60,7 +67,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AppRoutes />
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

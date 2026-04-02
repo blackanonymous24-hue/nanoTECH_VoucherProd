@@ -1,10 +1,11 @@
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
-  PackageOpen, Activity, Users, BarChart3, FileCode,
+  PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -42,6 +43,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     selectedRouterId, setSelectedRouterId,
     routers, routersLoading, routerOnline, routerIdentity,
   } = useRouterContext();
+  const { logout } = useAuth();
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -131,8 +133,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* ── Footer ── */}
-        <div className="px-4 py-3 border-t border-gray-700 text-xs text-gray-500 flex-shrink-0">
-          Compatible MikHmon 7.x
+        <div className="px-4 py-3 border-t border-gray-700 flex-shrink-0 flex items-center justify-between">
+          <span className="text-xs text-gray-500">Compatible MikHmon 7.x</span>
+          <button
+            onClick={logout}
+            title="Déconnexion"
+            className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </aside>
 

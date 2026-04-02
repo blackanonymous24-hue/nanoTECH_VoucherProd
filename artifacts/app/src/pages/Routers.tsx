@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import {
   useListRouters,
   useCreateRouter,
@@ -20,8 +21,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube, KeyRound, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouterContext } from "@/contexts/RouterContext";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type RouterFormData = {
   name: string;
@@ -52,6 +57,103 @@ function parseAddress(address: string): { host: string; port: number } {
   return { host: address, port: 8728 };
 }
 
+function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [form, setForm] = useState({ login: "", password: "", confirm: "" });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (form.password !== form.confirm) {
+      setError("Les mots de passe ne correspondent pas");
+      return;
+    }
+    if (!form.login.trim() || !form.password) {
+      setError("Tous les champs sont obligatoires");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/credentials`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ login: form.login.trim(), password: form.password }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error ?? "Erreur");
+        return;
+      }
+      toast({ title: "Identifiants mis à jour" });
+      setForm({ login: "", password: "", confirm: "" });
+      onClose();
+    } catch {
+      setError("Erreur de communication avec le serveur");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Changer les identifiants admin</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+          <div>
+            <Label>Nouvel identifiant</Label>
+            <Input
+              className="mt-1"
+              placeholder="admin"
+              value={form.login}
+              onChange={(e) => setForm({ ...form, login: e.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <Label>Nouveau mot de passe</Label>
+            <Input
+              className="mt-1"
+              type="password"
+              placeholder="••••••••"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <Label>Confirmer le mot de passe</Label>
+            <Input
+              className="mt-1"
+              type="password"
+              placeholder="••••••••"
+              value={form.confirm}
+              onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+              required
+            />
+          </div>
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Enregistrement..." : "Enregistrer"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Routers() {
   const { data: routers = [], isLoading } = useListRouters();
   const createMutation = useCreateRouter();
@@ -60,8 +162,11 @@ export default function Routers() {
   const testMutation = useTestRouterConnection();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { setSelectedRouterId, selectedRouterId } = useRouterContext();
+  const [, navigate] = useLocation();
 
   const [showForm, setShowForm] = useState(false);
+  const [showCredentials, setShowCredentials] = useState(false);
   const [editRouter, setEditRouter] = useState<RouterType | null>(null);
   const [form, setForm] = useState<RouterFormData>(emptyForm);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
@@ -130,16 +235,26 @@ export default function Routers() {
     }
   };
 
+  const handleSelect = (id: number) => {
+    setSelectedRouterId(id);
+    navigate("/");
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Routeurs MikroTik</h1>
-          <p className="text-sm text-gray-500">Gérez vos connexions RouterOS</p>
+          <p className="text-sm text-gray-500">Sélectionnez un routeur pour commencer</p>
         </div>
-        <Button onClick={openCreate} className="gap-2">
-          <Plus className="h-4 w-4" /> Ajouter un routeur
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => setShowCredentials(true)}>
+            <KeyRound className="h-4 w-4" /> Identifiants admin
+          </Button>
+          <Button onClick={openCreate} className="gap-2">
+            <Plus className="h-4 w-4" /> Ajouter un routeur
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -157,66 +272,83 @@ export default function Routers() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {routers.map((r) => (
-            <Card key={r.id}>
-              <CardContent className="py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="p-2 bg-blue-50 rounded-lg">
-                      <Wifi className="h-5 w-5 text-blue-500" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-gray-900">{r.name}</span>
-                        {(r as any).hotspotName && (
-                          <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono">{(r as any).hotspotName}</span>
-                        )}
-                        <Badge
-                          variant="outline"
-                          className={r.isActive ? "text-green-600 border-green-200" : "text-gray-400"}
-                        >
-                          {r.isActive ? "Actif" : "Inactif"}
-                        </Badge>
-                        {testResults[r.id] && (
+          {routers.map((r) => {
+            const isSelected = r.id === selectedRouterId;
+            return (
+              <Card key={r.id} className={isSelected ? "ring-2 ring-blue-500" : ""}>
+                <CardContent className="py-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className={`p-2 rounded-lg ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
+                        <Wifi className={`h-5 w-5 ${isSelected ? "text-white" : "text-blue-500"}`} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900">{r.name}</span>
+                          {(r as any).hotspotName && (
+                            <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono">{(r as any).hotspotName}</span>
+                          )}
+                          {isSelected && (
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-300 gap-1">
+                              <CheckCircle2 className="h-3 w-3" /> Actif
+                            </Badge>
+                          )}
                           <Badge
                             variant="outline"
-                            className={testResults[r.id].success ? "text-green-600 border-green-200" : "text-red-500 border-red-200"}
+                            className={r.isActive ? "text-green-600 border-green-200" : "text-gray-400"}
                           >
-                            {testResults[r.id].success ? "✓ En ligne" : "✗ Hors ligne"}
+                            {r.isActive ? "Connecté" : "Inactif"}
                           </Badge>
-                        )}
+                          {testResults[r.id] && (
+                            <Badge
+                              variant="outline"
+                              className={testResults[r.id].success ? "text-green-600 border-green-200" : "text-red-500 border-red-200"}
+                            >
+                              {testResults[r.id].success ? "✓ En ligne" : "✗ Hors ligne"}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                          {r.host}:{r.port} · {r.username}
+                        </p>
                       </div>
-                      <p className="text-sm text-gray-500 mt-0.5">
-                        {r.host}:{r.port} · {r.username}
-                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!isSelected && (
+                        <Button
+                          size="sm"
+                          className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                          onClick={() => handleSelect(r.id)}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Sélectionner
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-blue-600"
+                        onClick={() => handleTest(r.id)}
+                        disabled={testMutation.isPending}
+                      >
+                        <TestTube className="h-3.5 w-3.5" /> Tester
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-500 hover:text-red-600"
+                        onClick={() => handleDelete(r.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5 text-blue-600"
-                      onClick={() => handleTest(r.id)}
-                      disabled={testMutation.isPending}
-                    >
-                      <TestTube className="h-3.5 w-3.5" /> Tester
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-red-500 hover:text-red-600"
-                      onClick={() => handleDelete(r.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -301,6 +433,8 @@ export default function Routers() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <CredentialsDialog open={showCredentials} onClose={() => setShowCredentials(false)} />
     </div>
   );
 }
