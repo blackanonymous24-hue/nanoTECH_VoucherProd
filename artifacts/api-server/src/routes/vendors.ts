@@ -126,11 +126,14 @@ router.post("/vendors", async (req, res): Promise<void> => {
     return;
   }
 
-  if (username && username.trim()) {
+  // If username not provided, fall back to phone number
+  const resolvedUsername = username?.trim() || phone?.trim() || null;
+
+  if (resolvedUsername) {
     const [existing] = await db
       .select({ id: vendorsTable.id })
       .from(vendorsTable)
-      .where(eq(vendorsTable.username, username.trim()));
+      .where(eq(vendorsTable.username, resolvedUsername));
     if (existing) {
       res.status(400).json({ error: "Ce numéro est déjà pris" });
       return;
@@ -153,7 +156,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
       name: name.trim().toUpperCase(),
       phone: phone?.trim() || null,
       email: email?.trim() || null,
-      username: username?.trim() || null,
+      username: resolvedUsername,
       passwordHash,
       commentSuffix: commentSuffix?.trim() || null,
       commentSuffix2: commentSuffix2?.trim() || null,
@@ -181,26 +184,32 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     commentSuffix2?: string;
   };
 
-  if (username !== undefined && username.trim()) {
+  // Fetch current vendor early (needed for username fallback)
+  const [current] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
+  if (!current) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
+
+  // If username is being set to empty, fall back to phone (new or current)
+  let resolvedUsername: string | null | undefined = undefined;
+  if (username !== undefined) {
+    resolvedUsername = username.trim() || phone?.trim() || current.phone || null;
+  }
+
+  if (resolvedUsername) {
     const [existing] = await db
       .select({ id: vendorsTable.id })
       .from(vendorsTable)
-      .where(eq(vendorsTable.username, username.trim()));
+      .where(eq(vendorsTable.username, resolvedUsername));
     if (existing && existing.id !== id) {
       res.status(400).json({ error: "Ce numéro est déjà pris" });
       return;
     }
   }
 
-  // Fetch current vendor to detect isActive change
-  const [current] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
-  if (!current) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
-
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name.trim().toUpperCase();
   if (phone !== undefined) updates.phone = phone?.trim() || null;
   if (email !== undefined) updates.email = email?.trim() || null;
-  if (username !== undefined) updates.username = username?.trim() || null;
+  if (resolvedUsername !== undefined) updates.username = resolvedUsername;
   if (isActive !== undefined) updates.isActive = isActive;
   if (commentSuffix !== undefined) updates.commentSuffix = commentSuffix?.trim() || null;
   if (commentSuffix2 !== undefined) updates.commentSuffix2 = commentSuffix2?.trim() || null;

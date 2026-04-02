@@ -153,7 +153,12 @@ export function PersonForm({
           </p>
           <div className="space-y-2">
             <div>
-              <Label htmlFor="pf-username">{usernameLabel}</Label>
+              <Label htmlFor="pf-username">
+                {usernameLabel}
+                {!forManager && (
+                  <span className="text-gray-400 text-xs ml-1">(vide = utilise le téléphone)</span>
+                )}
+              </Label>
               <Input
                 id="pf-username"
                 className="mt-1"
