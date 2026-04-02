@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, and, count, sql, isNotNull } from "drizzle-orm";
+import { eq, desc, and, count, sql, isNotNull, ilike } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers } from "../lib/mikrotik.js";
@@ -76,6 +76,29 @@ function safeVendor(v: typeof vendorsTable.$inferSelect) {
   return rest;
 }
 
+/** Attribute existing unlinked vouchers whose comment ends with commentSuffix to the vendor */
+async function attributeVouchersBySuffix(vendorId: number, commentSuffix: string) {
+  if (!commentSuffix || !commentSuffix.trim()) return;
+  const suffix = commentSuffix.trim();
+  try {
+    const result = await db
+      .update(vouchersTable)
+      .set({ vendorId })
+      .where(
+        and(
+          sql`${vouchersTable.vendorId} IS NULL`,
+          sql`${vouchersTable.comment} LIKE ${'%' + suffix}`,
+        )
+      )
+      .returning({ id: vouchersTable.id });
+    if (result.length > 0) {
+      logger.info({ vendorId, suffix, count: result.length }, "vouchers attributed by comment suffix");
+    }
+  } catch (err) {
+    logger.warn({ vendorId, suffix, err }, "failed to attribute vouchers by suffix");
+  }
+}
+
 router.get("/vendors", async (req, res): Promise<void> => {
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
   const vendors = await db
@@ -87,13 +110,14 @@ router.get("/vendors", async (req, res): Promise<void> => {
 });
 
 router.post("/vendors", async (req, res): Promise<void> => {
-  const { name, phone, email, username, password, routerId } = req.body as {
+  const { name, phone, email, username, password, routerId, commentSuffix } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
     username?: string;
     password?: string;
     routerId?: number;
+    commentSuffix?: string;
   };
 
   if (!name || name.trim() === "") {
@@ -107,7 +131,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
       .from(vendorsTable)
       .where(eq(vendorsTable.username, username.trim()));
     if (existing) {
-      res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" });
+      res.status(400).json({ error: "Ce numéro est déjà pris" });
       return;
     }
   }
@@ -125,27 +149,34 @@ router.post("/vendors", async (req, res): Promise<void> => {
     .insert(vendorsTable)
     .values({
       routerId: routerId ?? null,
-      name: name.trim(),
+      name: name.trim().toUpperCase(),
       phone: phone?.trim() || null,
       email: email?.trim() || null,
       username: username?.trim() || null,
       passwordHash,
+      commentSuffix: commentSuffix?.trim() || null,
     })
     .returning();
   res.status(201).json(safeVendor(vendor));
+
+  // Background: attribute existing vouchers by suffix
+  if (vendor.commentSuffix) {
+    void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
+  }
 });
 
 router.put("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, phone, email, username, password, isActive } = req.body as {
+  const { name, phone, email, username, password, isActive, commentSuffix } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
     username?: string;
     password?: string;
     isActive?: boolean;
+    commentSuffix?: string;
   };
 
   if (username !== undefined && username.trim()) {
@@ -154,7 +185,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
       .from(vendorsTable)
       .where(eq(vendorsTable.username, username.trim()));
     if (existing && existing.id !== id) {
-      res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" });
+      res.status(400).json({ error: "Ce numéro est déjà pris" });
       return;
     }
   }
@@ -164,11 +195,12 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (!current) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
 
   const updates: Record<string, unknown> = {};
-  if (name !== undefined) updates.name = name.trim();
+  if (name !== undefined) updates.name = name.trim().toUpperCase();
   if (phone !== undefined) updates.phone = phone?.trim() || null;
   if (email !== undefined) updates.email = email?.trim() || null;
   if (username !== undefined) updates.username = username?.trim() || null;
   if (isActive !== undefined) updates.isActive = isActive;
+  if (commentSuffix !== undefined) updates.commentSuffix = commentSuffix?.trim() || null;
 
   if (password !== undefined && password.trim()) {
     if (password.length < 6) {
@@ -187,12 +219,17 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
   res.json(safeVendor(vendor));
 
+  // Background: attribute existing vouchers by suffix if suffix changed or just set
+  const newSuffix = vendor.commentSuffix;
+  if (newSuffix && newSuffix !== current.commentSuffix) {
+    void attributeVouchersBySuffix(vendor.id, newSuffix);
+  }
+
   // If isActive changed, enable/disable all vouchers on MikroTik (background)
   if (isActive !== undefined && isActive !== current.isActive) {
     const enable = isActive;
     (async () => {
       try {
-        // Get all vouchers for this vendor, grouped by router
         const vouchers = await db
           .select({
             username: vouchersTable.username,
@@ -201,7 +238,6 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
           .from(vouchersTable)
           .where(eq(vouchersTable.vendorId, id));
 
-        // Group by routerId
         const byRouter = new Map<number, string[]>();
         for (const v of vouchers) {
           const list = byRouter.get(v.routerId) ?? [];
@@ -209,7 +245,6 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
           byRouter.set(v.routerId, list);
         }
 
-        // For each router, connect and enable/disable
         for (const [routerId, usernames] of byRouter) {
           const [routerRow] = await db
             .select()

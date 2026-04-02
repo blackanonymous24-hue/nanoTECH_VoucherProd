@@ -8,12 +8,12 @@ import {
 import type { Vendor } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, MoreHorizontal, Pencil } from "lucide-react";
+import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, MoreHorizontal, Pencil, Tag } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -40,42 +40,58 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-type FormData = {
+export type PersonFormData = {
   name: string;
   phone: string;
   email: string;
   username: string;
   password: string;
+  commentSuffix: string;
 };
 
-function VendorForm({
+export function PersonForm({
   initial,
   onSubmit,
   onCancel,
   loading,
   isEdit,
   serverError,
+  forManager = false,
+  nameLabel = "Nom",
+  usernameLabel = "Numéro",
+  portalSectionLabel = "Accès portail vendeur",
 }: {
-  initial?: Partial<Vendor & { username?: string; email?: string }>;
-  onSubmit: (data: FormData) => void;
+  initial?: Partial<{
+    name: string;
+    phone: string | null;
+    email: string | null;
+    username: string | null;
+    commentSuffix: string | null;
+  }>;
+  onSubmit: (data: PersonFormData) => void;
   onCancel: () => void;
   loading: boolean;
   isEdit?: boolean;
   serverError?: string;
+  forManager?: boolean;
+  nameLabel?: string;
+  usernameLabel?: string;
+  portalSectionLabel?: string;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [phone, setPhone] = useState(initial?.phone ?? "");
-  const [email, setEmail] = useState((initial as any)?.email ?? "");
-  const [username, setUsername] = useState((initial as any)?.username ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
+  const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
+  const [commentSuffix, setCommentSuffix] = useState(initial?.commentSuffix ?? "");
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, phone, email, username, password });
+        onSubmit({ name, phone, email, username, password, commentSuffix });
       }}
-      className="space-y-4"
+      className="space-y-3"
     >
       {serverError && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
@@ -84,69 +100,88 @@ function VendorForm({
       )}
 
       <div>
-        <Label htmlFor="v-name">Nom du vendeur *</Label>
+        <Label htmlFor="pf-name">{nameLabel} *</Label>
         <Input
-          id="v-name"
+          id="pf-name"
           className="mt-1"
-          placeholder="ex: Jean Dupont"
+          placeholder={forManager ? "ex: Jean Dupont" : "ex: JEAN DUPONT"}
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => setName(forManager ? e.target.value : e.target.value.toUpperCase())}
           required
           autoFocus
         />
       </div>
 
-      <div>
-        <Label htmlFor="v-phone">Téléphone <span className="text-gray-400 text-xs">(optionnel)</span></Label>
-        <Input
-          id="v-phone"
-          className="mt-1"
-          placeholder="ex: +225 07 00 00 00"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="v-email">Email <span className="text-gray-400 text-xs">(optionnel)</span></Label>
-        <Input
-          id="v-email"
-          type="email"
-          className="mt-1"
-          placeholder="ex: jean@email.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-      </div>
+      {!forManager && (
+        <>
+          <div>
+            <Label htmlFor="pf-phone">Téléphone <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+            <Input
+              id="pf-phone"
+              className="mt-1"
+              placeholder="ex: +225 07 00 00 00"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="pf-email">Email <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+            <Input
+              id="pf-email"
+              type="email"
+              className="mt-1"
+              placeholder="ex: jean@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+        </>
+      )}
 
       <div className="pt-2 border-t">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Accès au portail vendeur</p>
-        <div className="space-y-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{portalSectionLabel}</p>
+        <div className="space-y-2">
           <div>
-            <Label htmlFor="v-username">Nom d'utilisateur</Label>
+            <Label htmlFor="pf-username">{usernameLabel}</Label>
             <Input
-              id="v-username"
+              id="pf-username"
               className="mt-1"
-              placeholder="ex: jean2025"
+              placeholder={forManager ? "ex: 07001234" : "ex: 070012345"}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
           </div>
           <div>
-            <Label htmlFor="v-password">
+            <Label htmlFor="pf-password">
               {isEdit ? "Nouveau mot de passe" : "Mot de passe"}
               <span className="text-gray-400 text-xs ml-1">{isEdit ? "(laisser vide = inchangé)" : "(min. 6 caractères)"}</span>
             </Label>
             <Input
-              id="v-password"
+              id="pf-password"
               type="password"
               className="mt-1"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              minLength={isEdit ? 0 : undefined}
             />
           </div>
+          {!forManager && (
+            <div>
+              <Label htmlFor="pf-suffix">
+                Identifiant lot <span className="text-gray-400 text-xs">(suffixe du commentaire)</span>
+              </Label>
+              <Input
+                id="pf-suffix"
+                className="mt-1 font-mono"
+                placeholder="ex: HOME"
+                value={commentSuffix}
+                onChange={(e) => setCommentSuffix(e.target.value.toUpperCase())}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Les vouchers dont le commentaire se termine par cet identifiant seront automatiquement attribués à ce vendeur.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -196,7 +231,7 @@ export default function Vendors() {
     void refetchVendors();
   };
 
-  const handleCreate = async (data: FormData) => {
+  const handleCreate = async (data: PersonFormData) => {
     setCreateError("");
     try {
       await createMutation.mutateAsync({
@@ -207,6 +242,7 @@ export default function Vendors() {
           username: data.username || null,
           ...(data.password ? { password: data.password } : {}),
           ...(selectedRouterId ? { routerId: selectedRouterId } : {}),
+          ...(data.commentSuffix ? { commentSuffix: data.commentSuffix } : {}),
         } as any,
       });
       invalidate();
@@ -221,7 +257,7 @@ export default function Vendors() {
     }
   };
 
-  const handleEdit = async (data: FormData) => {
+  const handleEdit = async (data: PersonFormData) => {
     if (!editVendor) return;
     setEditError("");
     try {
@@ -233,6 +269,7 @@ export default function Vendors() {
           email: data.email || null,
           username: data.username || null,
           ...(data.password ? { password: data.password } : {}),
+          commentSuffix: data.commentSuffix || null,
         } as any,
       });
       invalidate();
@@ -316,14 +353,14 @@ export default function Vendors() {
         <div className="text-center py-12 text-gray-400">Chargement...</div>
       ) : vendors.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="flex flex-col items-center justify-center py-16 text-center">
             <Users className="h-12 w-12 text-gray-300 mb-4" />
             <p className="text-gray-500 font-medium">Aucun vendeur enregistré</p>
             <p className="text-sm text-gray-400 mt-1">Ajoutez votre premier vendeur pour commencer</p>
             <Button className="mt-4 gap-2" onClick={() => { setCreateError(""); setShowCreate(true); }}>
               <Plus className="h-4 w-4" /> Ajouter un vendeur
             </Button>
-          </CardContent>
+          </div>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -352,12 +389,18 @@ export default function Vendors() {
                       {(vendor as any).username && (
                         <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5">
                           <KeyRound className="h-3 w-3 flex-shrink-0" />
-                          @{(vendor as any).username}
+                          {(vendor as any).username}
+                        </div>
+                      )}
+                      {(vendor as any).commentSuffix && (
+                        <div className="flex items-center gap-1 text-xs text-orange-500 mt-0.5">
+                          <Tag className="h-3 w-3 flex-shrink-0" />
+                          <span className="font-mono">{(vendor as any).commentSuffix}</span>
                         </div>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     <Badge variant={vendor.isActive ? "default" : "secondary"}>
                       {vendor.isActive ? "Actif" : "Inactif"}
                     </Badge>
@@ -367,11 +410,11 @@ export default function Vendors() {
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { setEditError(""); setEditVendor(vendor); }}>
+                      <DropdownMenuContent align="end" className="text-sm">
+                        <DropdownMenuItem className="py-1.5 text-sm" onClick={() => { setEditError(""); setEditVendor(vendor); }}>
                           <Pencil className="h-3.5 w-3.5 mr-2" /> Modifier
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleToggleActive(vendor)}>
+                        <DropdownMenuItem className="py-1.5 text-sm" onClick={() => handleToggleActive(vendor)}>
                           {vendor.isActive
                             ? <><X className="h-3.5 w-3.5 mr-2" /> Désactiver</>
                             : <><Check className="h-3.5 w-3.5 mr-2" /> Activer</>}
@@ -380,7 +423,7 @@ export default function Vendors() {
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                              className="py-1.5 text-sm text-red-600 focus:text-red-600 focus:bg-red-50"
                               onClick={() => setDeleteVendorId(vendor.id)}
                             >
                               <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
@@ -402,11 +445,12 @@ export default function Vendors() {
           <DialogHeader>
             <DialogTitle>Ajouter un vendeur</DialogTitle>
           </DialogHeader>
-          <VendorForm
+          <PersonForm
             onSubmit={handleCreate}
             onCancel={() => { setShowCreate(false); setCreateError(""); }}
             loading={createMutation.isPending}
             serverError={createError}
+            nameLabel="Nom du vendeur"
           />
         </DialogContent>
       </Dialog>
@@ -417,13 +461,20 @@ export default function Vendors() {
             <DialogTitle>Modifier le vendeur</DialogTitle>
           </DialogHeader>
           {editVendor && (
-            <VendorForm
-              initial={editVendor}
+            <PersonForm
+              initial={{
+                name: editVendor.name,
+                phone: editVendor.phone ?? null,
+                email: (editVendor as any).email ?? null,
+                username: (editVendor as any).username ?? null,
+                commentSuffix: (editVendor as any).commentSuffix ?? null,
+              }}
               onSubmit={handleEdit}
               onCancel={() => { setEditVendor(null); setEditError(""); }}
               loading={updateMutation.isPending}
               isEdit
               serverError={editError}
+              nameLabel="Nom du vendeur"
             />
           )}
         </DialogContent>

@@ -352,14 +352,14 @@ export default function Routers() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEdit(r)}>
+                          <DropdownMenuItem className="py-1.5 text-sm" onClick={() => openEdit(r)}>
                             <Edit className="h-3.5 w-3.5 mr-2" /> Modifier
                           </DropdownMenuItem>
                           {!isManager && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                className="py-1.5 text-sm text-red-600 focus:text-red-600 focus:bg-red-50"
                                 onClick={() => handleDelete(r.id)}
                               >
                                 <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer

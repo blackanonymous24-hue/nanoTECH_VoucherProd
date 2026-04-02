@@ -11,6 +11,7 @@ export const vendorsTable = pgTable("vendors", {
   email: text("email"),
   username: text("username"),
   passwordHash: text("password_hash"),
+  commentSuffix: text("comment_suffix"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

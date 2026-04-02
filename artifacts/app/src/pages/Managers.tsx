@@ -1,15 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { UserCog, Plus, Pencil, Trash2, Check, X, MoreHorizontal } from "lucide-react";
+import { UserCog, Plus, Pencil, Trash2, Check, X, MoreHorizontal, KeyRound } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -22,55 +20,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PersonForm, type PersonFormData } from "@/pages/Vendors";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type Manager = { id: number; name: string; username: string; isActive: boolean; createdAt: string };
-type FormData = { name: string; username: string; password: string };
-
-function ManagerForm({
-  initial, onSubmit, onCancel, loading, isEdit,
-}: {
-  initial?: Partial<Manager>;
-  onSubmit: (d: FormData) => void;
-  onCancel: () => void;
-  loading: boolean;
-  isEdit?: boolean;
-}) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [username, setUsername] = useState(initial?.username ?? "");
-  const [password, setPassword] = useState("");
-
-  return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit({ name, username, password }); }} className="space-y-4">
-      <div>
-        <Label>Nom complet</Label>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jean Dupont" required />
-      </div>
-      <div>
-        <Label>Nom d'utilisateur</Label>
-        <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="jean.dupont" required />
-      </div>
-      <div>
-        <Label>{isEdit ? "Nouveau mot de passe (laisser vide = inchangé)" : "Mot de passe"}</Label>
-        <Input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••"
-          required={!isEdit}
-          minLength={isEdit && !password ? undefined : 6}
-        />
-      </div>
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
-        <Button type="submit" disabled={loading}>
-          {loading ? "Enregistrement..." : isEdit ? "Mettre à jour" : "Créer"}
-        </Button>
-      </DialogFooter>
-    </form>
-  );
-}
 
 export default function Managers() {
   const { token } = useAuth();
@@ -78,7 +32,9 @@ export default function Managers() {
   const qc = useQueryClient();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [createError, setCreateError] = useState("");
   const [editManager, setEditManager] = useState<Manager | null>(null);
+  const [editError, setEditError] = useState("");
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
@@ -93,23 +49,21 @@ export default function Managers() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (d: FormData) => {
+    mutationFn: async (d: { name: string; username: string; password: string }) => {
       const r = await fetch(`${BASE}/api/managers`, { method: "POST", headers, body: JSON.stringify(d) });
       if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Erreur"); }
       return r.json();
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["managers"] }); setCreateOpen(false); toast({ title: "Gérant créé" }); },
-    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, ...d }: FormData & { id: number }) => {
+    mutationFn: async ({ id, ...d }: { id: number; name: string; username: string; password: string }) => {
       const r = await fetch(`${BASE}/api/managers/${id}`, { method: "PUT", headers, body: JSON.stringify(d) });
       if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Erreur"); }
       return r.json();
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["managers"] }); setEditManager(null); toast({ title: "Gérant mis à jour" }); },
-    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
   });
 
   const toggleMutation = useMutation({
@@ -129,6 +83,25 @@ export default function Managers() {
     onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
   });
 
+  const handleCreate = async (data: PersonFormData) => {
+    setCreateError("");
+    try {
+      await createMutation.mutateAsync({ name: data.name, username: data.username, password: data.password });
+    } catch (err: any) {
+      setCreateError(err?.message ?? "Une erreur est survenue");
+    }
+  };
+
+  const handleEdit = async (data: PersonFormData) => {
+    if (!editManager) return;
+    setEditError("");
+    try {
+      await updateMutation.mutateAsync({ id: editManager.id, name: data.name, username: data.username, password: data.password });
+    } catch (err: any) {
+      setEditError(err?.message ?? "Une erreur est survenue");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -140,7 +113,7 @@ export default function Managers() {
             Comptes avec accès complet sauf création/suppression de ressources
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2">
+        <Button onClick={() => { setCreateError(""); setCreateOpen(true); }} className="gap-2">
           <Plus className="h-4 w-4" /> Ajouter un gérant
         </Button>
       </div>
@@ -162,65 +135,76 @@ export default function Managers() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <CardTitle className="text-base truncate">{m.name}</CardTitle>
-                    <p className="text-xs text-gray-500 mt-0.5">@{m.username}</p>
+                    <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5">
+                      <KeyRound className="h-3 w-3 flex-shrink-0" />
+                      {m.username}
+                    </div>
                   </div>
-                  <Badge variant={m.isActive ? "default" : "secondary"} className="flex-shrink-0">
-                    {m.isActive ? "Actif" : "Inactif"}
-                  </Badge>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Badge variant={m.isActive ? "default" : "secondary"}>
+                      {m.isActive ? "Actif" : "Inactif"}
+                    </Badge>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem className="py-1.5 text-sm" onClick={() => { setEditError(""); setEditManager(m); }}>
+                          <Pencil className="h-3.5 w-3.5 mr-2" /> Modifier
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="py-1.5 text-sm" onClick={() => toggleMutation.mutate({ id: m.id, isActive: !m.isActive })}>
+                          {m.isActive
+                            ? <><X className="h-3.5 w-3.5 mr-2" /> Désactiver</>
+                            : <><Check className="h-3.5 w-3.5 mr-2" /> Activer</>}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="py-1.5 text-sm text-red-600 focus:text-red-600 focus:bg-red-50"
+                          onClick={() => setDeleteId(m.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-0 pb-3 px-4 flex justify-end">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setEditManager(m)}>
-                      <Pencil className="h-3.5 w-3.5 mr-2" /> Modifier
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => toggleMutation.mutate({ id: m.id, isActive: !m.isActive })}>
-                      {m.isActive
-                        ? <><X className="h-3.5 w-3.5 mr-2" /> Désactiver</>
-                        : <><Check className="h-3.5 w-3.5 mr-2" /> Activer</>}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                      onClick={() => setDeleteId(m.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </CardContent>
             </Card>
           ))}
         </div>
       )}
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+      <Dialog open={createOpen} onOpenChange={(o) => { if (!o) { setCreateOpen(false); setCreateError(""); } }}>
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Ajouter un gérant de zone</DialogTitle></DialogHeader>
-          <ManagerForm
-            onSubmit={(d) => createMutation.mutate(d)}
-            onCancel={() => setCreateOpen(false)}
+          <PersonForm
+            onSubmit={handleCreate}
+            onCancel={() => { setCreateOpen(false); setCreateError(""); }}
             loading={createMutation.isPending}
+            serverError={createError}
+            forManager
+            nameLabel="Nom complet"
+            portalSectionLabel="Accès gérant"
           />
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editManager} onOpenChange={(o) => !o && setEditManager(null)}>
-        <DialogContent>
+      <Dialog open={!!editManager} onOpenChange={(o) => { if (!o) { setEditManager(null); setEditError(""); } }}>
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Modifier le gérant</DialogTitle></DialogHeader>
           {editManager && (
-            <ManagerForm
-              initial={editManager}
-              onSubmit={(d) => updateMutation.mutate({ id: editManager.id, ...d })}
-              onCancel={() => setEditManager(null)}
+            <PersonForm
+              initial={{ name: editManager.name, username: editManager.username }}
+              onSubmit={handleEdit}
+              onCancel={() => { setEditManager(null); setEditError(""); }}
               loading={updateMutation.isPending}
               isEdit
+              serverError={editError}
+              forManager
+              nameLabel="Nom complet"
+              portalSectionLabel="Accès gérant"
             />
           )}
         </DialogContent>
