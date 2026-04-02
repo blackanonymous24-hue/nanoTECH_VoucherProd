@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { DEFAULT_TEMPLATE } from "@/pages/TicketTemplate";
+import { applyVars, getStoredTemplate } from "@/pages/TicketTemplate";
 
 function makeBatchId(): string {
   const now = new Date();
@@ -452,30 +452,33 @@ export default function GenerateVouchers() {
             "160000":"#DC143C","170000":"#DC143C",
           };
           const color = PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD";
-          const rawValidity = v.validity ?? "";
-          const last = rawValidity.slice(-1);
-          const num = rawValidity.slice(0, -1);
-          const validity =
-            last === "d" ? `Validité : ${num} Jour(s)` :
-            last === "h" ? `Validité : ${num} Heure(s)` :
-            last === "w" ? `Validité : ${num} Semaine(s)` : rawValidity;
-          const tpl = (() => { try { return localStorage.getItem("voucher-ticket-template") ?? DEFAULT_TEMPLATE; } catch { return DEFAULT_TEMPLATE; } })();
+          const rawV = v.validity ?? "";
+          const vl = rawV.slice(-1), vn = rawV.slice(0, -1);
+          const validity = vl === "d" ? `Validité : ${vn} Jour(s)` : vl === "h" ? `Validité : ${vn} Heure(s)` : vl === "w" ? `Validité : ${vn} Semaine(s)` : rawV;
+          const isVC = v.username === v.password;
+          const codeblock = isVC
+            ? `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div><div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:17px;color:${color};">${v.username}</div>`
+            : `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div><div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">User: ${v.username}<br>Pass: ${v.password}</div>`;
+          const qrData = isVC ? v.username : `${v.username}:${v.password}`;
+          const qrcode = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(qrData)}&margin=2`;
+          const tpl = getStoredTemplate();
           const vars: Record<string, string> = {
             hotspotname: selectedRouter?.name ?? "",
             dnsname: (selectedRouter as any)?.contact ?? "",
             username: v.username,
             password: v.password,
             price: String(v.price ?? ""),
+            currency: "FCFA",
             validity,
+            timelimit: "",
+            datalimit: "",
             num: String(idx + 1),
             profile: v.profileName ?? "",
             color,
+            codeblock,
+            qrcode,
           };
-          const html = Object.entries(vars).reduce(
-            (s, [k, val]) => s.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), val),
-            tpl
-          );
-          return <div key={v.id} dangerouslySetInnerHTML={{ __html: html }} />;
+          return <div key={v.id} dangerouslySetInnerHTML={{ __html: applyVars(tpl, vars) }} />;
         })}
       </div>
     </div>

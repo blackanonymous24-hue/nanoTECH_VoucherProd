@@ -55,6 +55,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useDebounce } from "@/hooks/use-debounce";
+import { applyVars, getStoredTemplate } from "@/pages/TicketTemplate";
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -950,24 +951,35 @@ function VoucherPrintCard({
     : `User:${user.username} Pass:${user.password}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(qrData)}&margin=2`;
 
-  // Use custom template from localStorage if available
-  const customTpl = (() => { try { return localStorage.getItem("voucher-ticket-template"); } catch { return null; } })();
-  if (customTpl !== null) {
+  // ── Template rendering (custom from localStorage or default) ──
+  const storedTpl = getStoredTemplate();
+  const hasCustomTpl = (() => { try { return localStorage.getItem("voucher-ticket-template") !== null; } catch { return false; } })();
+
+  // Compute codeblock — equivalent of PHP $usermode == "vc" / "up"
+  const codeblock = isVoucherMode
+    ? `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div>` +
+      `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:17px;color:${color};">${user.username}</div>`
+    : `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div>` +
+      `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">User: ${user.username}<br>Pass: ${user.password}</div>`;
+
+  if (hasCustomTpl) {
     const vars: Record<string, string> = {
       hotspotname: hotspotName,
       dnsname: dnsName,
       username: user.username,
       password: user.password,
       price: String(price ?? ""),
+      currency: "FCFA",
       validity: validityStr,
+      timelimit: uptimeStr,
+      datalimit: user.limitBytesTotal ?? "",
       num: String(num),
       profile: user.profile,
       color,
+      codeblock,
+      qrcode: qrUrl,
     };
-    const html = Object.entries(vars).reduce(
-      (s, [k, v]) => s.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), v),
-      customTpl
-    );
+    const html = applyVars(storedTpl, vars);
     return <div dangerouslySetInnerHTML={{ __html: html }} style={{ display: "inline-block", verticalAlign: "top" }} />;
   }
 
