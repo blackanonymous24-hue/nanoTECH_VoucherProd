@@ -402,16 +402,16 @@ function Dashboard({ token, vendor, onLogout }: {
               <StatCard label="Mois en cours"        value={data.salesStats.lastMonthSold}   icon={TrendingUp}   color="bg-purple-500" />
 
               <Card className="col-span-2 md:col-span-1">
-                <CardContent className="p-3 flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-7 w-7 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
-                      <Search className="h-3.5 w-3.5 text-white" />
+                <CardContent className="p-3 flex flex-col gap-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-6 w-6 rounded-md bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                      <Search className="h-3 w-3 text-white" />
                     </div>
                     <p className="text-xs font-medium text-gray-700 leading-tight">Ventes d&apos;une période</p>
                   </div>
-                  <div className="grid grid-cols-3 gap-1">
+                  <div className="flex gap-1">
                     <Select value={reportDay} onValueChange={setReportDay}>
-                      <SelectTrigger className="text-xs h-7 px-2"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="text-[11px] h-7 px-1.5 flex-1 min-w-0"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {days.map((d) => (
                           <SelectItem key={d} value={String(d)} className="text-xs">{String(d).padStart(2,"0")}</SelectItem>
@@ -419,7 +419,7 @@ function Dashboard({ token, vendor, onLogout }: {
                       </SelectContent>
                     </Select>
                     <Select value={reportMonth} onValueChange={setReportMonth}>
-                      <SelectTrigger className="text-xs h-7 px-2"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="text-[11px] h-7 px-1.5 flex-1 min-w-0"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {MONTHS.map((m, i) => (
                           <SelectItem key={i + 1} value={String(i + 1)} className="text-xs">{m.slice(0, 3)}</SelectItem>
@@ -427,21 +427,21 @@ function Dashboard({ token, vendor, onLogout }: {
                       </SelectContent>
                     </Select>
                     <Select value={reportYear} onValueChange={setReportYear}>
-                      <SelectTrigger className="text-xs h-7 px-2"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="text-[11px] h-7 px-1.5 flex-1 min-w-0"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {years.map((y) => (
                           <SelectItem key={y} value={String(y)} className="text-xs">{y}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 bg-indigo-600 hover:bg-indigo-700 text-[11px] flex-shrink-0"
+                      onClick={() => setReportView({ day: reportDay, month: reportMonth, year: reportYear })}
+                    >
+                      Voir
+                    </Button>
                   </div>
-                  <Button
-                    size="sm"
-                    className="w-full h-7 bg-indigo-600 hover:bg-indigo-700 text-xs"
-                    onClick={() => setReportView({ day: reportDay, month: reportMonth, year: reportYear })}
-                  >
-                    Voir le rapport
-                  </Button>
                 </CardContent>
               </Card>
             </div>
