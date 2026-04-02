@@ -4,6 +4,7 @@ import vouchersRouter from "./vouchers.js";
 import vendorsRouter from "./vendors.js";
 import dashboardRouter from "./dashboard.js";
 import vendorPortalRouter from "./vendor-portal.js";
+import renderRouter from "./render.js";
 
 export const router = Router();
 
@@ -16,3 +17,4 @@ router.use(vouchersRouter);
 router.use(vendorsRouter);
 router.use(dashboardRouter);
 router.use(vendorPortalRouter);
+router.use(renderRouter);

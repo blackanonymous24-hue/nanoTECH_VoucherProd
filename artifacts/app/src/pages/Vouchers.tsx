@@ -55,7 +55,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useDebounce } from "@/hooks/use-debounce";
-import { applyVars, getStoredTemplate } from "@/pages/TicketTemplate";
+import { applyVars, getStoredTemplate, getStoredPHP, isPHPMode } from "@/pages/TicketTemplate";
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -253,6 +253,48 @@ export default function Vouchers() {
     invalidate();
     setDeletingLot(null);
     if (filterComment === lotName) setFilterComment("all");
+  };
+
+  const handlePrintVouchers = async () => {
+    if (!isPHPMode()) { window.print(); return; }
+    const php = getStoredPHP()!;
+    const usersForPrint = selectedUsernames.size > 0
+      ? filtered.filter((u) => selectedUsernames.has(u.username))
+      : filtered;
+    const vouchers = usersForPrint.map((user, idx) => {
+      const lv = localByUsername.get(user.username);
+      return {
+        hotspotname: activeRouter?.name ?? "",
+        dnsname: (activeRouter as any)?.contact ?? "",
+        username: user.username,
+        password: user.password,
+        price: String(lv?.price ?? ""),
+        currency: "FCFA",
+        validity: lv?.validity ?? "",
+        timelimit: user.limitUptime ?? "",
+        datalimit: user.limitBytesTotal ?? "",
+        num: idx + 1,
+      };
+    });
+    try {
+      const resp = await fetch(`${BASE}/api/render-tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ php, vouchers }),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      const sec = document.getElementById("voucher-print-section");
+      if (sec) {
+        sec.innerHTML = (data.html as string[]).join("");
+        sec.style.display = "flex";
+        sec.style.flexWrap = "wrap";
+      }
+      window.print();
+      if (sec) { sec.innerHTML = ""; sec.style.display = "none"; }
+    } catch (err: unknown) {
+      toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
+    }
   };
 
   const handleExportTxt = (lot: { name: string; vouchers: Voucher[] }) => {
@@ -575,7 +617,7 @@ export default function Vouchers() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => window.print()}
+                    onClick={handlePrintVouchers}
                     className="gap-1.5"
                   >
                     <Printer className="h-3.5 w-3.5" /> Imprimer

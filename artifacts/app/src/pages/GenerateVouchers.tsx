@@ -22,7 +22,9 @@ import {
 } from "@/components/ui/select";
 import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { applyVars, getStoredTemplate } from "@/pages/TicketTemplate";
+import { applyVars, getStoredTemplate, getStoredPHP, isPHPMode } from "@/pages/TicketTemplate";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function makeBatchId(): string {
   const now = new Date();
@@ -127,7 +129,46 @@ export default function GenerateVouchers() {
     }
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = async () => {
+    if (!isPHPMode()) { window.print(); return; }
+    const php = getStoredPHP()!;
+    const PRICE_COLORS: Record<string, string> = {
+      "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
+      "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
+    };
+    const vouchers = generatedVouchers.map((v, idx) => ({
+      hotspotname: selectedRouter?.name ?? "",
+      dnsname: (selectedRouter as any)?.contact ?? "",
+      username: v.username,
+      password: v.password,
+      price: String(v.price ?? ""),
+      currency: "FCFA",
+      validity: v.validity ?? "",
+      timelimit: "",
+      datalimit: "",
+      num: idx + 1,
+      color: PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD",
+    }));
+    try {
+      const resp = await fetch(`${BASE}/api/render-tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ php, vouchers }),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      const sec = document.getElementById("voucher-print-section");
+      if (sec) {
+        sec.innerHTML = (data.html as string[]).join("");
+        sec.style.display = "flex";
+        sec.style.flexWrap = "wrap";
+      }
+      window.print();
+      if (sec) { sec.innerHTML = ""; sec.style.display = "none"; }
+    } catch (err: unknown) {
+      toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
+    }
+  };
 
   const handleCopyAll = () => {
     const text = generatedVouchers

@@ -178,15 +178,23 @@ export function parsePHPTemplate(raw: string): string {
   return s.trim();
 }
 
+// ─── Helpers PHP mode ──────────────────────────────────────────────────────────
+
+const PHP_KEY = "voucher-ticket-php";
+
+export function getStoredPHP(): string | null {
+  try { return localStorage.getItem(PHP_KEY); } catch { return null; }
+}
+
+export function isPHPMode(): boolean {
+  return getStoredPHP() !== null;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const CODEBLOCK_VC = (color: string, username: string) =>
   `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div>` +
   `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">${username}</div>`;
-
-const CODEBLOCK_UP = (color: string, username: string, password: string) =>
-  `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div>` +
-  `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">User: ${username}<br>Pass: ${password}</div>`;
 
 const SAMPLE_COLOR = "#ECA352";
 const SAMPLE_USERNAME = "abc12345";
@@ -199,7 +207,7 @@ const SAMPLE_VARS: Record<string, string> = {
   price: "500",
   currency: "FCFA",
   validity: "Validité : 1 Jour(s)",
-  timelimit: "Durasi: 2 Heure(s)",
+  timelimit: "6h",
   datalimit: "",
   num: "1",
   profile: "default",
@@ -208,80 +216,142 @@ const SAMPLE_VARS: Record<string, string> = {
   qrcode: `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${SAMPLE_USERNAME}&margin=2`,
 };
 
+const SAMPLE_VARS_2: Record<string, string> = {
+  ...SAMPLE_VARS,
+  username: "xyz67890",
+  password: "pass9999",
+  price: "1000",
+  color: "#F75418",
+  num: "2",
+  validity: "1d",
+  codeblock:
+    `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div>` +
+    `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:#F75418;">User: xyz67890<br>Pass: pass9999</div>`,
+  qrcode: `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=xyz67890&margin=2`,
+};
+
 const VARIABLES = [
-  { name: "{{hotspotname}}", desc: "Nom du routeur (= $hotspotname)" },
-  { name: "{{dnsname}}", desc: "Contact du routeur — pied de ticket (= $dnsname)" },
-  { name: "{{color}}", desc: "Couleur calculée selon le prix (= $color)" },
-  { name: "{{price}}", desc: "Prix affiché (= $getprice)" },
-  { name: "{{currency}}", desc: "Devise — ex: FCFA (= $currency)" },
-  { name: "{{codeblock}}", desc: "Bloc Code Ticket ou Compte Utilisateur selon le mode (= if $usermode)" },
-  { name: "{{username}}", desc: "Identifiant de connexion (= $username)" },
-  { name: "{{password}}", desc: "Mot de passe — Mode Compte uniquement (= $password)" },
-  { name: "{{validity}}", desc: "Validité formatée (= $validity)" },
-  { name: "{{timelimit}}", desc: "Durée de session formatée (= $timelimit)" },
-  { name: "{{datalimit}}", desc: "Limite de données (= $datalimit)" },
-  { name: "{{qrcode}}", desc: "URL de l'image QR code (= src du img)" },
-  { name: "{{num}}", desc: "Numéro séquentiel du ticket (= $num)" },
+  { name: "{{hotspotname}}", php: "$hotspotname", desc: "Nom du routeur" },
+  { name: "{{dnsname}}",     php: "$dnsname",     desc: "Contact — pied de ticket" },
+  { name: "{{color}}",       php: "$color",       desc: "Couleur calculée selon le prix" },
+  { name: "{{price}}",       php: "$getprice",    desc: "Prix (nombre)" },
+  { name: "{{currency}}",    php: "$currency",    desc: "Devise (FCFA)" },
+  { name: "{{codeblock}}",   php: "if($usermode)", desc: "Bloc vc ou up (pré-calculé)" },
+  { name: "{{username}}",    php: "$username",    desc: "Identifiant" },
+  { name: "{{password}}",    php: "$password",    desc: "Mot de passe (mode Compte)" },
+  { name: "{{validity}}",    php: "$validity",    desc: "Validité formatée" },
+  { name: "{{timelimit}}",   php: "$timelimit",   desc: "Durée de session" },
+  { name: "{{datalimit}}",   php: "$datalimit",   desc: "Limite de données" },
+  { name: "{{qrcode}}",      php: "$qrcode",      desc: "src de l'image QR code" },
+  { name: "{{num}}",         php: "$num",         desc: "Numéro séquentiel" },
 ];
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function TicketTemplate() {
   const { toast } = useToast();
-  const [code, setCode] = useState<string>(
+
+  // ── Mode: "php" (exécution serveur) ou "html" (variables côté client)
+  const [mode, setMode] = useState<"php" | "html">(() =>
+    getStoredPHP() !== null ? "php" : "html"
+  );
+
+  // ── Contenu PHP brut
+  const [phpCode, setPhpCode] = useState<string>(
+    () => getStoredPHP() ?? ""
+  );
+
+  // ── Contenu HTML avec {{variables}}
+  const [htmlCode, setHtmlCode] = useState<string>(
     () => { try { return localStorage.getItem(TEMPLATE_KEY) ?? DEFAULT_TEMPLATE; } catch { return DEFAULT_TEMPLATE; } }
   );
+
   const [tab, setTab] = useState<"code" | "preview">("code");
   const [saved, setSaved] = useState(false);
+  const [previewHtmls, setPreviewHtmls] = useState<string[]>([]);
+  const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const hasCustom = (() => { try { return localStorage.getItem(TEMPLATE_KEY) !== null; } catch { return false; } })();
-
+  // ── Importer un fichier .php
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const raw = ev.target?.result as string;
-      try {
-        const converted = parsePHPTemplate(raw);
-        setCode(converted);
-        setTab("code");
-        toast({
-          title: "Template PHP importé",
-          description: `Converti depuis « ${file.name} » — vérifiez et sauvegardez.`,
-        });
-      } catch {
-        toast({ title: "Erreur d'import", description: "Fichier PHP non reconnu.", variant: "destructive" });
-      }
+      setPhpCode(raw);
+      setMode("php");
+      setTab("code");
+      toast({
+        title: "Fichier PHP chargé",
+        description: `« ${file.name} » prêt — cliquez Sauvegarder pour l'activer.`,
+      });
     };
     reader.readAsText(file, "UTF-8");
     e.target.value = "";
   }, [toast]);
 
+  // ── Sauvegarder
   const handleSave = useCallback(() => {
-    try { localStorage.setItem(TEMPLATE_KEY, code); } catch { /* ignore */ }
+    try {
+      if (mode === "php") {
+        localStorage.setItem(PHP_KEY, phpCode);
+        localStorage.removeItem(TEMPLATE_KEY);
+      } else {
+        localStorage.setItem(TEMPLATE_KEY, htmlCode);
+        localStorage.removeItem(PHP_KEY);
+      }
+    } catch { /* ignore */ }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
     toast({ title: "Modèle sauvegardé", description: "Appliqué à toutes les impressions." });
-  }, [code, toast]);
+  }, [mode, phpCode, htmlCode, toast]);
 
+  // ── Réinitialiser
   const handleReset = useCallback(() => {
-    setCode(DEFAULT_TEMPLATE);
-    try { localStorage.removeItem(TEMPLATE_KEY); } catch { /* ignore */ }
+    if (mode === "php") {
+      setPhpCode("");
+      setMode("html");
+      try { localStorage.removeItem(PHP_KEY); } catch { /* ignore */ }
+    } else {
+      setHtmlCode(DEFAULT_TEMPLATE);
+      try { localStorage.removeItem(TEMPLATE_KEY); } catch { /* ignore */ }
+    }
     toast({ title: "Modèle réinitialisé", description: "Le modèle par défaut a été restauré." });
-  }, [toast]);
+  }, [mode, toast]);
 
-  const previewHtml = applyVars(code, SAMPLE_VARS);
-  const previewHtml2 = applyVars(code, {
-    ...SAMPLE_VARS,
-    username: "xyz67890",
-    password: "xyz67890",
-    price: "1000",
-    color: "#F75418",
-    num: "2",
-    codeblock: CODEBLOCK_VC("#F75418", "xyz67890"),
-    qrcode: `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=xyz67890&margin=2`,
-    validity: "Validité : 30 Minutes",
-  });
+  // ── Aperçu PHP — appel serveur avec données d'exemple
+  const handlePhpPreview = useCallback(async () => {
+    if (!phpCode.trim()) return;
+    setPreviewing(true);
+    setTab("preview");
+    try {
+      const resp = await fetch(`${BASE}/api/render-tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          php: phpCode,
+          vouchers: [SAMPLE_VARS, SAMPLE_VARS_2],
+        }),
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      setPreviewHtmls(data.html as string[]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: "Erreur de prévisualisation PHP", description: msg, variant: "destructive" });
+    } finally {
+      setPreviewing(false);
+    }
+  }, [phpCode, toast]);
+
+  // ── Aperçu HTML côté client
+  const htmlPreview1 = applyVars(htmlCode, SAMPLE_VARS);
+  const htmlPreview2 = applyVars(htmlCode, SAMPLE_VARS_2);
+
+  const hasSaved = mode === "php"
+    ? (() => { try { return localStorage.getItem(PHP_KEY) !== null; } catch { return false; } })()
+    : (() => { try { return localStorage.getItem(TEMPLATE_KEY) !== null; } catch { return false; } })();
 
   return (
     <div>
@@ -292,19 +362,42 @@ export default function TicketTemplate() {
             Modèle de ticket
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Code HTML du ticket — les variables <code className="text-xs bg-gray-100 px-1 rounded">{"{{var}}"}</code> remplacent les valeurs dynamiques (équivalent PHP)
+            {mode === "php"
+              ? "Fichier PHP MikHmon — exécuté côté serveur avec les vraies variables"
+              : <>Code HTML — les variables <code className="text-xs bg-gray-100 px-1 rounded">{"{{var}}"}</code> remplacent les valeurs dynamiques</>
+            }
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {hasCustom && (
+          {/* ── Sélecteur de mode ── */}
+          <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 mr-1">
+            <button
+              onClick={() => { setMode("php"); setTab("code"); }}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${mode === "php" ? "bg-violet-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+            >
+              PHP
+            </button>
+            <button
+              onClick={() => { setMode("html"); setTab("code"); }}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${mode === "html" ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+            >
+              HTML
+            </button>
+          </div>
+
+          {hasSaved && (
             <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50">
               <RotateCcw className="h-3.5 w-3.5" /> Réinitialiser
             </Button>
           )}
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fileRef.current?.click()}>
-            <Upload className="h-3.5 w-3.5" /> Importer PHP
-          </Button>
-          <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
+          {mode === "php" && (
+            <>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fileRef.current?.click()}>
+                <Upload className="h-3.5 w-3.5" /> Importer .php
+              </Button>
+              <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
+            </>
+          )}
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved}>
             <Save className="h-3.5 w-3.5" />
             {saved ? "Sauvegardé ✓" : "Sauvegarder"}
@@ -313,18 +406,23 @@ export default function TicketTemplate() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
-        {/* ── Editor ── */}
+        {/* ── Éditeur ── */}
         <div className="xl:col-span-3 space-y-4">
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold">Code HTML du ticket</CardTitle>
+                <CardTitle className="text-sm font-semibold">
+                  {mode === "php" ? "Code PHP du template" : "Code HTML du ticket"}
+                </CardTitle>
                 <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
                   <button onClick={() => setTab("code")} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${tab === "code" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
                     <Code2 className="h-3 w-3" /> Code
                   </button>
-                  <button onClick={() => setTab("preview")} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${tab === "preview" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
-                    <Eye className="h-3 w-3" /> Aperçu
+                  <button
+                    onClick={mode === "php" ? handlePhpPreview : () => setTab("preview")}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${tab === "preview" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                  >
+                    <Eye className="h-3 w-3" /> {previewing ? "Chargement…" : "Aperçu"}
                   </button>
                 </div>
               </div>
@@ -332,42 +430,89 @@ export default function TicketTemplate() {
             <CardContent className="p-0">
               {tab === "code" ? (
                 <textarea
-                  className="w-full font-mono text-xs bg-gray-950 text-green-300 p-4 resize-none focus:outline-none rounded-b-xl leading-relaxed"
+                  className={`w-full font-mono text-xs p-4 resize-none focus:outline-none rounded-b-xl leading-relaxed ${mode === "php" ? "bg-gray-950 text-purple-300" : "bg-gray-950 text-green-300"}`}
                   style={{ minHeight: "520px" }}
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
+                  value={mode === "php" ? phpCode : htmlCode}
+                  onChange={(e) => mode === "php" ? setPhpCode(e.target.value) : setHtmlCode(e.target.value)}
                   spellCheck={false}
+                  placeholder={mode === "php"
+                    ? "Importez un fichier template PHP de MikHmon (.php) ou collez le code ici…"
+                    : "Code HTML du ticket avec les variables {{...}}"}
                 />
               ) : (
-                <div className="p-6 bg-gray-50 rounded-b-xl min-h-64 flex flex-wrap gap-2">
-                  <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
-                  <div dangerouslySetInnerHTML={{ __html: previewHtml2 }} />
+                <div className="p-6 bg-gray-50 rounded-b-xl min-h-64 flex flex-wrap gap-3 items-start">
+                  {mode === "php" ? (
+                    previewHtmls.length > 0
+                      ? previewHtmls.map((h, i) => <div key={i} dangerouslySetInnerHTML={{ __html: h }} />)
+                      : <p className="text-sm text-gray-400">Cliquez "Aperçu" pour exécuter le PHP et voir le rendu.</p>
+                  ) : (
+                    <>
+                      <div dangerouslySetInnerHTML={{ __html: htmlPreview1 }} />
+                      <div dangerouslySetInnerHTML={{ __html: htmlPreview2 }} />
+                    </>
+                  )}
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        {/* ── Reference panel ── */}
+        {/* ── Panneau de référence ── */}
         <div className="xl:col-span-2 space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">Variables disponibles</CardTitle>
-              <p className="text-xs text-gray-400">Équivalent des variables PHP <code className="bg-gray-100 px-1 rounded">$var</code></p>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y divide-gray-100">
-                {VARIABLES.map((v) => (
-                  <div key={v.name} className="flex items-start gap-3 px-4 py-2">
-                    <code className="text-xs font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 whitespace-nowrap">
-                      {v.name}
-                    </code>
-                    <span className="text-xs text-gray-500">{v.desc}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          {mode === "php" ? (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">Mode PHP — Comment ça marche</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs text-gray-600">
+                <p>Le fichier PHP est exécuté <strong>côté serveur</strong> à chaque impression. Les variables sont injectées automatiquement avant l'exécution :</p>
+                <div className="bg-gray-950 text-purple-300 font-mono p-3 rounded-lg text-xs space-y-0.5">
+                  {[
+                    ["$hotspotname", "Nom du routeur"],
+                    ["$dnsname",     "Contact/pied"],
+                    ["$getprice",    "Prix (nombre)"],
+                    ["$currency",    "FCFA"],
+                    ["$username",    "Identifiant"],
+                    ["$password",    "Mot de passe"],
+                    ["$usermode",    "vc ou up"],
+                    ["$validity",    "ex: 1d"],
+                    ["$timelimit",   "ex: 6h"],
+                    ["$datalimit",   "octets bruts"],
+                    ["$num",         "numéro ticket"],
+                    ["$qrcode",      "<img src=...>"],
+                  ].map(([v, d]) => (
+                    <div key={v} className="flex gap-2">
+                      <span className="text-purple-400 w-28 flex-shrink-0">{v}</span>
+                      <span className="text-gray-500">{d}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-gray-400">La couleur <code>$color</code>, le formatage de <code>$validity</code> et <code>$timelimit</code> sont calculés par le PHP du template lui-même (comme dans MikHmon). Le <code>$qrcode</code> devient une image statique.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">Variables disponibles</CardTitle>
+                <p className="text-xs text-gray-400">Équivalent des variables PHP</p>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-gray-100">
+                  {VARIABLES.map((v) => (
+                    <div key={v.name} className="flex items-start gap-2 px-4 py-2">
+                      <code className="text-xs font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 whitespace-nowrap">
+                        {v.name}
+                      </code>
+                      <div className="min-w-0">
+                        <div className="text-xs text-gray-500">{v.desc}</div>
+                        <div className="text-xs text-gray-300 font-mono">{v.php}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="pb-3">
