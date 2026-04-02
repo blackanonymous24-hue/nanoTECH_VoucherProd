@@ -345,8 +345,8 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { search, profile, limit: limitStr, offset: offsetStr } = req.query as {
-    search?: string; profile?: string; limit?: string; offset?: string;
+  const { search, profile, comment: commentFilter, limit: limitStr, offset: offsetStr } = req.query as {
+    search?: string; profile?: string; comment?: string; limit?: string; offset?: string;
   };
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
@@ -368,6 +368,9 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
     }
     if (profile) {
       users = users.filter((u) => u.profile === profile);
+    }
+    if (commentFilter) {
+      users = users.filter((u) => (u.comment ?? "") === commentFilter);
     }
 
     const total = users.length;

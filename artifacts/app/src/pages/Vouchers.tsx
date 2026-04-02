@@ -94,10 +94,11 @@ export default function Vouchers() {
     () => ({
       search: debouncedSearch || undefined,
       profile: filterProfile !== "all" ? filterProfile : undefined,
+      comment: filterComment !== "all" ? filterComment : undefined,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     }),
-    [debouncedSearch, filterProfile, page],
+    [debouncedSearch, filterProfile, filterComment, page],
   );
 
   const {
@@ -149,10 +150,7 @@ export default function Vouchers() {
       .sort((a, b) => b.name.localeCompare(a.name)); // newest first
   }, [allLocalVouchers]);
 
-  const filtered = useMemo(() => {
-    if (filterComment === "all") return mikrotikUsers;
-    return mikrotikUsers.filter((u) => u.comment === filterComment);
-  }, [mikrotikUsers, filterComment]);
+  const filtered = mikrotikUsers;
 
   const lots = useMemo(() => {
     const map = new Map<string, Voucher[]>();
