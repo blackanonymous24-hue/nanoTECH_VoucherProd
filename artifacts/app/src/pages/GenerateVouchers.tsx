@@ -253,21 +253,25 @@ export default function GenerateVouchers() {
 
               <div>
                 <Label>Profil</Label>
-                <select
-                  className="mt-1 w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  value={profile}
-                  onChange={(e) => setProfile(e.target.value)}
+                <Select
+                  value={profile || "__none__"}
+                  onValueChange={(v) => setProfile(v === "__none__" ? "" : v)}
                   disabled={!activeRouterId || loadingProfiles}
                 >
-                  <option value="">{loadingProfiles ? "Chargement..." : "Sélectionnez un profil"}</option>
-                  {profiles.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                      {p.validity ? ` · ${p.validity}` : ""}
-                      {p.price ? ` · ${p.price}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder={loadingProfiles ? "Chargement..." : "Sélectionnez un profil"} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-56 overflow-y-auto">
+                    <SelectItem value="__none__" disabled>
+                      {loadingProfiles ? "Chargement..." : "Sélectionnez un profil"}
+                    </SelectItem>
+                    {profiles.map((p) => (
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.name}{p.validity ? ` · ${p.validity}` : ""}{p.price ? ` · ${p.price}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {selectedProfile && (
                   <div className="mt-2 p-2.5 bg-blue-50 rounded-lg text-xs text-blue-700 flex flex-wrap gap-2">
                     {selectedProfile.validity && (
@@ -371,7 +375,7 @@ export default function GenerateVouchers() {
                     <SelectTrigger className="mt-1">
                       <SelectValue placeholder="Aucun vendeur sélectionné" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-56 overflow-y-auto">
                       <SelectItem value="none">— Aucun vendeur —</SelectItem>
                       {vendors.filter((v) => v.isActive).map((v) => (
                         <SelectItem key={v.id} value={String(v.id)}>

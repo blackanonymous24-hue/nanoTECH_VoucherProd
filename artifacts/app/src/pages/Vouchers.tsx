@@ -184,9 +184,19 @@ export default function Vouchers() {
       const c = v.comment;
       if (c && c.startsWith("vc")) counts.set(c, (counts.get(c) ?? 0) + 1);
     }
+    // sort by date part "MM.DD.YY" (index 2 after split by "-"), newest first
+    const datePart = (n: string) => {
+      const parts = n.split("-");
+      if (parts.length < 3) return n;
+      const [mm, dd, yy] = parts.slice(2).join("-").split(".");
+      return `${yy ?? "00"}.${mm ?? "00"}.${dd ?? "00"}`;
+    };
     return Array.from(counts.entries())
       .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.name.localeCompare(a.name)); // newest first
+      .sort((a, b) => {
+        const cmp = datePart(b.name).localeCompare(datePart(a.name));
+        return cmp !== 0 ? cmp : b.name.localeCompare(a.name);
+      });
   }, [allLocalVouchers]);
 
   const filtered = mikrotikUsers;
@@ -596,6 +606,14 @@ export default function Vouchers() {
                     >
                       <PowerOff className="h-3.5 w-3.5 rotate-180" />
                       {isDisabling ? "En cours..." : "Réactiver"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handlePrintVouchers}
+                      className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                    >
+                      <Printer className="h-3.5 w-3.5" /> Imprimer
                     </Button>
                     <Button
                       size="sm"
