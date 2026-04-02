@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   useListRouters,
   useCreateRouter,
@@ -23,7 +24,6 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube, KeyRound, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/contexts/AuthContext";
 import { useRouterContext } from "@/contexts/RouterContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -163,6 +163,8 @@ export default function Routers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { setSelectedRouterId, selectedRouterId } = useRouterContext();
+  const { role } = useAuth();
+  const isManager = role === "manager";
   const [, navigate] = useLocation();
 
   const [showForm, setShowForm] = useState(false);
@@ -248,12 +250,16 @@ export default function Routers() {
           <p className="text-sm text-gray-500">Sélectionnez un routeur pour commencer</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => setShowCredentials(true)}>
-            <KeyRound className="h-4 w-4" /> Identifiants admin
-          </Button>
-          <Button onClick={openCreate} className="gap-2">
-            <Plus className="h-4 w-4" /> Ajouter un routeur
-          </Button>
+          {!isManager && (
+            <Button variant="outline" className="gap-2" onClick={() => setShowCredentials(true)}>
+              <KeyRound className="h-4 w-4" /> Identifiants admin
+            </Button>
+          )}
+          {!isManager && (
+            <Button onClick={openCreate} className="gap-2">
+              <Plus className="h-4 w-4" /> Ajouter un routeur
+            </Button>
+          )}
         </div>
       </div>
 
@@ -335,14 +341,16 @@ export default function Routers() {
                       <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-500 hover:text-red-600"
-                        onClick={() => handleDelete(r.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {!isManager && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-500 hover:text-red-600"
+                          onClick={() => handleDelete(r.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>

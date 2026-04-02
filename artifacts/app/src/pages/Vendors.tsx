@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   useCreateVendor,
   useUpdateVendor,
@@ -148,6 +149,8 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function Vendors() {
   const { selectedRouterId } = useRouterContext();
+  const { role } = useAuth();
+  const isManager = role === "manager";
   const createMutation = useCreateVendor();
   const updateMutation = useUpdateVendor();
   const deleteMutation = useDeleteVendor();
@@ -247,9 +250,11 @@ export default function Vendors() {
           >
             <ExternalLink className="h-4 w-4" /> Portail vendeur
           </Button>
-          <Button onClick={() => setShowCreate(true)} className="gap-2" disabled={!selectedRouterId}>
-            <Plus className="h-4 w-4" /> Ajouter un vendeur
-          </Button>
+          {!isManager && (
+            <Button onClick={() => setShowCreate(true)} className="gap-2" disabled={!selectedRouterId}>
+              <Plus className="h-4 w-4" /> Ajouter un vendeur
+            </Button>
+          )}
         </div>
       </div>
 
@@ -329,14 +334,16 @@ export default function Vendors() {
                   >
                     {vendor.isActive ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5 text-red-500 hover:text-red-600 hover:bg-red-50"
-                    onClick={() => setDeleteVendorId(vendor.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {!isManager && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-red-500 hover:text-red-600 hover:bg-red-50"
+                      onClick={() => setDeleteVendorId(vendor.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

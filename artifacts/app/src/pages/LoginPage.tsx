@@ -31,10 +31,10 @@ export default function LoginPage() {
         return;
       }
       login(data.token, data.role, data.vendor ?? undefined);
-      if (data.role === "admin") {
-        navigate("/routers");
-      } else {
+      if (data.role === "vendor") {
         navigate("/vendor-portal");
+      } else {
+        navigate("/routers");
       }
     } catch {
       setError("Impossible de contacter le serveur");

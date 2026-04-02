@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileCode, RotateCcw, Save, Eye, Code2, Upload } from "lucide-react";
@@ -249,6 +250,8 @@ const VARIABLES = [
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function TicketTemplate() {
+  const { role } = useAuth();
+  const isManager = role === "manager";
   const { toast } = useToast();
 
   // ── Mode: "php" (exécution serveur) ou "html" (variables côté client)
@@ -385,7 +388,7 @@ export default function TicketTemplate() {
             </button>
           </div>
 
-          {hasSaved && (
+          {hasSaved && !isManager && (
             <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50">
               <RotateCcw className="h-3.5 w-3.5" /> Réinitialiser
             </Button>

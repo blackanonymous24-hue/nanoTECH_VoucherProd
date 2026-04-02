@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { useListRouters, useListRouterProfiles } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +56,8 @@ const defaultForm = {
 };
 
 export default function Forfaits() {
+  const { role } = useAuth();
+  const isManager = role === "manager";
   const { data: routers = [], isLoading: loadingRouters } = useListRouters();
   const [routerId, setRouterId] = useState<string>("");
   const queryClient = useQueryClient();
@@ -172,9 +175,11 @@ export default function Forfaits() {
           <h1 className="text-2xl font-bold text-gray-900">Forfaits</h1>
           <p className="text-sm text-gray-500">Profils hotspot disponibles sur vos routeurs MikroTik</p>
         </div>
-        <Button onClick={openCreate} disabled={!routerId} className="flex-shrink-0">
-          <Plus className="h-4 w-4 mr-1.5" /> Ajouter un forfait
-        </Button>
+        {!isManager && (
+          <Button onClick={openCreate} disabled={!routerId} className="flex-shrink-0">
+            <Plus className="h-4 w-4 mr-1.5" /> Ajouter un forfait
+          </Button>
+        )}
       </div>
 
       <div className="mb-6 max-w-xs">
@@ -272,13 +277,15 @@ export default function Forfaits() {
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
-                    <button
-                      onClick={() => setDeletingName(p.name)}
-                      className="p-1 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"
-                      title="Supprimer"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    {!isManager && (
+                      <button
+                        onClick={() => setDeletingName(p.name)}
+                        className="p-1 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"
+                        title="Supprimer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </Card>

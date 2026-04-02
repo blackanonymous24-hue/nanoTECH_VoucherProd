@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
-  PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
+  PackageOpen, Activity, Users, BarChart3, FileCode, LogOut, UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -10,40 +10,42 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
-const navGroups = [
-  {
-    label: "Réseau",
-    items: [
-      { href: "/",         label: "Tableau de bord", icon: LayoutDashboard },
-      { href: "/routers",  label: "Routeurs",         icon: Router },
-      { href: "/forfaits", label: "Forfaits",          icon: PackageOpen },
-      { href: "/sessions", label: "Clients actifs",   icon: Activity },
-    ],
-  },
-  {
-    label: "Vouchers",
-    items: [
-      { href: "/generate", label: "Générer",  icon: Zap },
-      { href: "/vouchers", label: "Vouchers", icon: Ticket },
-      { href: "/vendors",  label: "Vendeurs", icon: Users },
-      { href: "/reports",  label: "Rapports", icon: BarChart3 },
-    ],
-  },
-  {
-    label: "Outils",
-    items: [
-      { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode },
-    ],
-  },
-];
-
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const {
     selectedRouterId, setSelectedRouterId,
     routers, routersLoading, routerOnline, routerIdentity,
   } = useRouterContext();
-  const { logout } = useAuth();
+  const { logout, role } = useAuth();
+  const isAdmin = role === "admin";
+
+  const navGroups = [
+    {
+      label: "Réseau",
+      items: [
+        { href: "/",         label: "Tableau de bord", icon: LayoutDashboard },
+        { href: "/routers",  label: "Routeurs",         icon: Router },
+        { href: "/forfaits", label: "Forfaits",          icon: PackageOpen },
+        { href: "/sessions", label: "Clients actifs",   icon: Activity },
+      ],
+    },
+    {
+      label: "Vouchers",
+      items: [
+        { href: "/generate", label: "Générer",  icon: Zap },
+        { href: "/vouchers", label: "Vouchers", icon: Ticket },
+        { href: "/vendors",  label: "Vendeurs", icon: Users },
+        { href: "/reports",  label: "Rapports", icon: BarChart3 },
+      ],
+    },
+    {
+      label: "Outils",
+      items: [
+        { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode },
+        ...(isAdmin ? [{ href: "/managers", label: "Gérants de zone", icon: UserCog }] : []),
+      ],
+    },
+  ];
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -134,7 +136,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* ── Footer ── */}
         <div className="px-4 py-3 border-t border-gray-700 flex-shrink-0 flex items-center justify-between">
-          <span className="text-xs text-gray-500">Compatible MikHmon 7.x</span>
+          <div>
+            <span className="text-xs text-gray-500">Compatible MikHmon 7.x</span>
+            {role === "manager" && (
+              <p className="text-[10px] text-amber-400 mt-0.5">Gérant de zone</p>
+            )}
+          </div>
           <button
             onClick={logout}
             title="Déconnexion"

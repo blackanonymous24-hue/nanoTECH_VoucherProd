@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
-import { db, adminSettingsTable, vendorsTable } from "@workspace/db";
+import { db, adminSettingsTable, vendorsTable, managersTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken } from "../lib/vendor-auth.js";
+import { verifyPassword as verifyManagerPassword, createToken as createManagerToken } from "../lib/manager-auth.js";
 
 const router = Router();
 
@@ -30,6 +31,23 @@ router.post("/login", async (req, res): Promise<void> => {
     const valid = await verifyPassword(password, admin.passwordHash);
     if (valid) {
       res.json({ role: "admin", token: createAdminToken() });
+      return;
+    }
+  }
+
+  const [manager] = await db
+    .select()
+    .from(managersTable)
+    .where(eq(managersTable.username, loginTrimmed));
+
+  if (manager?.passwordHash && manager.isActive) {
+    const valid = await verifyManagerPassword(password, manager.passwordHash);
+    if (valid) {
+      res.json({
+        role: "manager",
+        token: createManagerToken(manager.id),
+        manager: { id: manager.id, name: manager.name, username: manager.username },
+      });
       return;
     }
   }

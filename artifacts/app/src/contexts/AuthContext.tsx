@@ -5,7 +5,7 @@ const ROLE_KEY     = "vouchernet_role";
 const VENDOR_KEY   = "vouchernet_vendor_info";
 const ROUTER_KEY   = "vouchernet_router_id";
 
-export type UserRole = "admin" | "vendor";
+export type UserRole = "admin" | "manager" | "vendor";
 export type VendorInfo = { id: number; name: string; email: string | null; username: string };
 
 interface AuthContextValue {
