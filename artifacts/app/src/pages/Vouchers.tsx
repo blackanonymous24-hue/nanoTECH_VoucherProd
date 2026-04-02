@@ -4,7 +4,7 @@ import {
   useListRouterProfiles,
 } from "@workspace/api-client-react";
 import type { HotspotUser } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -103,7 +103,6 @@ function downloadFile(content: string, filename: string, mime: string) {
 export default function Vouchers() {
   const { selectedRouterId, routers } = useRouterContext();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const [view, setView] = useState<"list" | "lots">("list");
   const [search, setSearch] = useState("");
@@ -122,49 +121,54 @@ export default function Vouchers() {
   const activeRouterId = selectedRouterId ?? null;
   const activeRouter = routers.find((r) => r.id === activeRouterId);
 
-  // ── Paginated query for the list view ────────────────────────────────────────
-  const queryParams = useMemo(
-    () => ({
-      search: debouncedSearch || undefined,
-      profile: filterProfile !== "all" ? filterProfile : undefined,
-      comment: filterComment !== "all" ? filterComment : undefined,
-      limit: PAGE_SIZE,
-      offset: page * PAGE_SIZE,
-    }),
-    [debouncedSearch, filterProfile, filterComment, page],
-  );
-
+  // ── Single query — loads ALL MikroTik users; filtering + pagination done locally
+  // This ensures lots, filters, and list view are always in sync.
   const {
-    data: usersData,
+    data: allUsersData,
     isLoading,
     isFetching,
     refetch,
     error,
-  } = useListRouterUsers(activeRouterId ?? 0, queryParams, {
-    query: {
-      enabled: !!activeRouterId,
-      refetchInterval: 30_000,
-      staleTime: 25_000,
-    },
-  });
-
-  const mikrotikUsers = usersData?.users ?? [];
-  const totalUsers = usersData?.total ?? 0;
-  const totalPages = Math.ceil(totalUsers / PAGE_SIZE);
-
-  // ── All users query — for lots grouping and unique comments filter ────────────
-  const { data: allUsersData, refetch: refetchAll } = useListRouterUsers(
+  } = useListRouterUsers(
     activeRouterId ?? 0,
     { limit: 9999 },
     {
       query: {
         enabled: !!activeRouterId,
-        refetchInterval: 60_000,
-        staleTime: 55_000,
+        refetchInterval: 30_000,
+        staleTime: 25_000,
       },
     },
   );
+
   const allMikrotikUsers = allUsersData?.users ?? [];
+  const totalUsers = allMikrotikUsers.length;
+
+  // ── Local filtering ───────────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    let users = allMikrotikUsers;
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      users = users.filter(
+        (u) =>
+          u.username.toLowerCase().includes(q) ||
+          u.password.toLowerCase().includes(q) ||
+          (u.comment ?? "").toLowerCase().includes(q) ||
+          u.profile.toLowerCase().includes(q),
+      );
+    }
+    if (filterProfile !== "all") {
+      users = users.filter((u) => u.profile === filterProfile);
+    }
+    if (filterComment !== "all") {
+      users = users.filter((u) => (u.comment ?? "") === filterComment);
+    }
+    return users;
+  }, [allMikrotikUsers, debouncedSearch, filterProfile, filterComment]);
+
+  // ── Local pagination ──────────────────────────────────────────────────────────
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageUsers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
     query: { enabled: !!activeRouterId, staleTime: 60_000 },
@@ -219,14 +223,6 @@ export default function Vouchers() {
       });
   }, [allMikrotikUsers]);
 
-  const filtered = mikrotikUsers;
-
-  const refreshAll = () => {
-    queryClient.invalidateQueries();
-    refetch();
-    refetchAll();
-  };
-
   // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
   const handleDisableLot = async (comment: string, enable: boolean) => {
     if (!activeRouterId) return;
@@ -246,7 +242,6 @@ export default function Vouchers() {
         description: `Lot : ${comment}`,
       });
       refetch();
-      refetchAll();
     } catch {
       toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
     } finally {
@@ -269,7 +264,7 @@ export default function Vouchers() {
         title: `Lot « ${lotName} » supprimé`,
         description: `${data.deleted} utilisateur(s) supprimé(s) de MikroTik`,
       });
-      refreshAll();
+      refetch();
       setDeletingLot(null);
       if (filterComment === lotName) setFilterComment("all");
     } catch (err) {
@@ -356,10 +351,10 @@ export default function Vouchers() {
   };
 
   const selectAll = () => {
-    if (selectedUsernames.size === filtered.length) {
+    if (selectedUsernames.size === pageUsers.length) {
       setSelectedUsernames(new Set());
     } else {
-      setSelectedUsernames(new Set(filtered.map((u) => u.username)));
+      setSelectedUsernames(new Set(pageUsers.map((u) => u.username)));
     }
   };
 
@@ -641,7 +636,7 @@ export default function Vouchers() {
                     <input
                       type="checkbox"
                       checked={
-                        selectedUsernames.size === filtered.length && filtered.length > 0
+                        selectedUsernames.size === pageUsers.length && pageUsers.length > 0
                       }
                       onChange={selectAll}
                       className="h-4 w-4 rounded"
@@ -651,7 +646,9 @@ export default function Vouchers() {
                     </span>
                   </div>
                   <span className="text-xs text-gray-400">
-                    {filtered.length} / {totalUsers.toLocaleString("fr")} affiché(s)
+                    {filtered.length !== totalUsers
+                      ? `${filtered.length} filtrés / ${totalUsers.toLocaleString("fr")} total`
+                      : `${totalUsers.toLocaleString("fr")} total`}
                   </span>
                 </div>
                 <CardContent className="p-0">
@@ -666,7 +663,7 @@ export default function Vouchers() {
                     </div>
                   ) : (
                     <div className="divide-y divide-gray-100 print:block" id="voucher-print-area">
-                      {filtered.map((user) => (
+                      {pageUsers.map((user) => (
                         <UserRow
                           key={user.username}
                           user={user}
@@ -690,7 +687,7 @@ export default function Vouchers() {
                       <ChevronLeft className="h-4 w-4" /> Précédent
                     </Button>
                     <span className="text-xs text-gray-500">
-                      Page {page + 1} / {totalPages} ({totalUsers.toLocaleString("fr")} total)
+                      Page {page + 1} / {totalPages} ({filtered.length.toLocaleString("fr")} résultats)
                     </span>
                     <Button
                       variant="outline"
