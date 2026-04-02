@@ -476,7 +476,7 @@ export default function Vouchers() {
                                   onSelect={() => { handleCommentChange(name); setCommentPopoverOpen(false); }}
                                 >
                                   <Check className={`mr-2 h-4 w-4 ${filterComment === name ? "opacity-100" : "opacity-0"}`} />
-                                  <span className="font-mono text-xs truncate flex-1">{name}</span>
+                                  <span className="font-mono text-xs break-all flex-1">{name}</span>
                                   <span className="text-xs text-green-600 ml-2">({count})</span>
                                 </CommandItem>
                               ))}
