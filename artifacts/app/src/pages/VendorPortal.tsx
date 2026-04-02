@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
-  User, RefreshCw, Clock, ChevronLeft, Search, Banknote,
+  User, RefreshCw, Clock, ChevronLeft, Search, Banknote, Printer,
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
@@ -229,18 +229,27 @@ function DayReport({ token, day, month, year, onBack }: {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 no-print">
         <Button size="sm" variant="ghost" onClick={onBack} className="gap-1.5">
           <ChevronLeft className="h-4 w-4" /> Retour
         </Button>
         <div className="h-5 w-px bg-gray-200" />
-        <div>
+        <div className="flex-1">
           <p className="text-sm font-semibold text-gray-900 capitalize">{dateLabel}</p>
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
+        {data && (
+          <Button size="sm" variant="outline" onClick={() => window.print()} className="gap-1.5">
+            <Printer className="h-4 w-4" /> Imprimer
+          </Button>
+        )}
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+      <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        <div className="hidden print:block mb-4">
+          <p className="text-lg font-bold capitalize">{dateLabel}</p>
+          <p className="text-sm text-gray-500">Rapport de ventes</p>
+        </div>
         {loading && <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
@@ -331,18 +340,27 @@ function PeriodReport({ token, period, onBack }: {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 no-print">
         <Button size="sm" variant="ghost" onClick={onBack} className="gap-1.5">
           <ChevronLeft className="h-4 w-4" /> Retour
         </Button>
         <div className="h-5 w-px bg-gray-200" />
-        <div>
+        <div className="flex-1">
           <p className="text-sm font-semibold text-gray-900">{data?.label ?? "..."}</p>
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
+        {data && (
+          <Button size="sm" variant="outline" onClick={() => window.print()} className="gap-1.5">
+            <Printer className="h-4 w-4" /> Imprimer
+          </Button>
+        )}
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+      <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        <div className="hidden print:block mb-4">
+          <p className="text-lg font-bold">{data?.label}</p>
+          <p className="text-sm text-gray-500">Rapport de ventes — VoucherNet</p>
+        </div>
         {loading && <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
@@ -400,7 +418,7 @@ function PeriodReport({ token, period, onBack }: {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Dernières ventes ({data.total})</CardTitle>
+                <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
               </CardHeader>
               <CardContent>
                 {data.vouchers.length === 0 ? (
