@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 export const routersTable = pgTable("routers", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  hotspotName: text("hotspot_name"),
   contact: text("contact"),
   host: text("host").notNull(),
   port: integer("port").notNull().default(8728),

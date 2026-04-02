@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 
 type RouterFormData = {
   name: string;
+  hotspotName: string;
   contact: string;
   address: string;
   username: string;
@@ -33,6 +34,7 @@ type RouterFormData = {
 
 const emptyForm: RouterFormData = {
   name: "",
+  hotspotName: "",
   contact: "",
   address: "",
   username: "admin",
@@ -73,7 +75,7 @@ export default function Routers() {
   };
 
   const openEdit = (r: RouterType) => {
-    setForm({ name: r.name, contact: (r as any).contact ?? "", address: `${r.host}:${r.port}`, username: r.username, password: "" });
+    setForm({ name: r.name, hotspotName: (r as any).hotspotName ?? "", contact: (r as any).contact ?? "", address: `${r.host}:${r.port}`, username: r.username, password: "" });
     setEditRouter(r);
     setShowForm(true);
   };
@@ -87,6 +89,7 @@ export default function Routers() {
     }
     const payload = {
       name: form.name,
+      hotspotName: form.hotspotName || undefined,
       contact: form.contact || undefined,
       host,
       port,
@@ -165,6 +168,9 @@ export default function Routers() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-gray-900">{r.name}</span>
+                        {(r as any).hotspotName && (
+                          <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono">{(r as any).hotspotName}</span>
+                        )}
                         <Badge
                           variant="outline"
                           className={r.isActive ? "text-green-600 border-green-200" : "text-gray-400"}
@@ -229,6 +235,16 @@ export default function Routers() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
+            </div>
+            <div>
+              <Label>Nom du wifi</Label>
+              <Input
+                className="mt-1"
+                placeholder="ex : HotspotVille"
+                value={form.hotspotName}
+                onChange={(e) => setForm({ ...form, hotspotName: e.target.value })}
+              />
+              <p className="text-xs text-gray-400 mt-0.5">Affiché comme titre dans les impressions de rapports (facultatif)</p>
             </div>
             <div>
               <Label>Contact</Label>

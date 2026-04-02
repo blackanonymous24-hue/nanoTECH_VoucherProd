@@ -41,6 +41,7 @@ type Voucher = {
 };
 type PortalData = {
   vendor: VendorInfo;
+  hotspotName: string | null;
   totalVouchers: number;
   totalAvailable: number;
   totalPrinted: number;
@@ -197,12 +198,13 @@ function AvailableVouchersModal({ open, onClose, vouchers }: { open: boolean; on
   );
 }
 
-function DayReport({ token, day, month, year, onBack }: {
+function DayReport({ token, day, month, year, onBack, hotspotName }: {
   token: string;
   day: string;
   month: string;
   year: string;
   onBack: () => void;
+  hotspotName?: string | null;
 }) {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -313,7 +315,7 @@ function DayReport({ token, day, month, year, onBack }: {
 
               {/* ── Impression ── */}
               <div className="print-only">
-                <p className="report-print-title">VoucherNet — Rapport de ventes</p>
+                <p className="report-print-title">{hotspotName || "VoucherNet"} — Rapport de ventes</p>
                 <p className="report-print-meta">
                   {dateLabel} &nbsp;·&nbsp; Imprimé le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </p>
@@ -384,10 +386,11 @@ function DayReport({ token, day, month, year, onBack }: {
   );
 }
 
-function PeriodReport({ token, period, onBack }: {
+function PeriodReport({ token, period, onBack, hotspotName }: {
   token: string;
   period: "today" | "yesterday" | "week" | "month";
   onBack: () => void;
+  hotspotName?: string | null;
 }) {
   const [data, setData] = useState<PeriodSalesData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -505,7 +508,7 @@ function PeriodReport({ token, period, onBack }: {
 
             {/* ── Impression ── */}
             <div className="print-only">
-              <p className="report-print-title">VoucherNet — Rapport de ventes</p>
+              <p className="report-print-title">{hotspotName || "VoucherNet"} — Rapport de ventes</p>
               <p className="report-print-meta">
                 Période : <strong>{data.label}</strong> &nbsp;·&nbsp; Imprimé le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
               </p>
@@ -609,7 +612,7 @@ function Dashboard({ token, vendor, onLogout }: {
   }, [fetchData]);
 
   if (periodView) {
-    return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} />;
+    return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} hotspotName={data?.hotspotName} />;
   }
 
   if (reportView) {
@@ -620,6 +623,7 @@ function Dashboard({ token, vendor, onLogout }: {
         month={reportView.month}
         year={reportView.year}
         onBack={() => setReportView(null)}
+        hotspotName={data?.hotspotName}
       />
     );
   }

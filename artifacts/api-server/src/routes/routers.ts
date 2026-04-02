@@ -10,6 +10,7 @@ router.get("/routers", async (_req, res): Promise<void> => {
     .select({
       id: routersTable.id,
       name: routersTable.name,
+      hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
       host: routersTable.host,
       port: routersTable.port,
@@ -24,8 +25,9 @@ router.get("/routers", async (_req, res): Promise<void> => {
 });
 
 router.post("/routers", async (req, res): Promise<void> => {
-  const { name, contact, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, host, port, username, password, isActive } = req.body as {
     name?: string;
+    hotspotName?: string;
     contact?: string;
     host?: string;
     port?: number;
@@ -43,6 +45,7 @@ router.post("/routers", async (req, res): Promise<void> => {
     .insert(routersTable)
     .values({
       name,
+      hotspotName: hotspotName ?? null,
       contact: contact ?? null,
       host,
       port: port ?? 8728,
@@ -53,6 +56,7 @@ router.post("/routers", async (req, res): Promise<void> => {
     .returning({
       id: routersTable.id,
       name: routersTable.name,
+      hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
       host: routersTable.host,
       port: routersTable.port,
@@ -74,6 +78,7 @@ router.get("/routers/:id", async (req, res): Promise<void> => {
     .select({
       id: routersTable.id,
       name: routersTable.name,
+      hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
       host: routersTable.host,
       port: routersTable.port,
@@ -94,8 +99,9 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, contact, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, host, port, username, password, isActive } = req.body as {
     name?: string;
+    hotspotName?: string;
     contact?: string;
     host?: string;
     port?: number;
@@ -106,6 +112,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
 
   const updates: Partial<typeof routersTable.$inferInsert> = {};
   if (name !== undefined) updates.name = name;
+  if (hotspotName !== undefined) updates.hotspotName = hotspotName || null;
   if (contact !== undefined) updates.contact = contact || null;
   if (host !== undefined) updates.host = host;
   if (port !== undefined) updates.port = port;
@@ -125,6 +132,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
     .returning({
       id: routersTable.id,
       name: routersTable.name,
+      hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
       host: routersTable.host,
       port: routersTable.port,

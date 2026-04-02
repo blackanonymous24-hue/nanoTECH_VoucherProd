@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, desc, count, sql, and, gte, lt } from "drizzle-orm";
-import { db, vendorsTable, vouchersTable } from "@workspace/db";
+import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 
 const router = Router();
@@ -108,6 +108,10 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     return;
   }
 
+  const routerRow = vendor.routerId
+    ? await db.select({ hotspotName: routersTable.hotspotName }).from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
+    : null;
+
   const [totalsRows, byProfile, salesRow, recentSales, availableVouchers] = await Promise.all([
     buildTotals(id),
     db
@@ -140,6 +144,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
 
   res.json({
     vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
+    hotspotName: routerRow?.hotspotName ?? null,
     totalVouchers:  totals?.total        ?? 0,
     totalAvailable,
     totalPrinted:   Number(totals?.printed ?? 0),
