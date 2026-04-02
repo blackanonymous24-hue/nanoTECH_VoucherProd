@@ -70,7 +70,7 @@ function SalesMiniCard({ label, amount, count, icon: Icon, color }: {
       <Icon className="h-4 w-4 opacity-60" />
       <span className="text-base font-bold leading-none mt-0.5">{fmtFcfa(amount)}</span>
       <span className="text-[10px] font-semibold opacity-50 leading-none">FCFA</span>
-      <span className="text-[10px] opacity-60">{count} ticket{count !== 1 ? "s" : ""}</span>
+      <span className="text-[10px] opacity-60">{count} ticket{count !== 1 ? "s" : ""} vendu{count !== 1 ? "s" : ""}</span>
       <span className="text-xs text-center leading-tight opacity-80 font-medium mt-0.5">{label}</span>
     </div>
   );
