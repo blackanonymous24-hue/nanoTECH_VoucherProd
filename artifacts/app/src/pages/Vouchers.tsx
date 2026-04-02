@@ -11,13 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -141,12 +134,8 @@ export default function Vouchers() {
     },
   );
 
-  const FETCH_LIMIT = 9999;
   const allMikrotikUsers = allUsersData?.users ?? [];
-  const totalUsers = allMikrotikUsers.length;
-  const limitReached = totalUsers >= FETCH_LIMIT;
-  const fmtTotal = (n: number) =>
-    limitReached ? `${n.toLocaleString("fr")}+` : n.toLocaleString("fr");
+  const totalUsers = allUsersData?.total ?? allMikrotikUsers.length;
 
   // ── Local filtering ───────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -384,7 +373,7 @@ export default function Vouchers() {
           <h1 className="text-2xl font-bold text-gray-900">Vouchers</h1>
           <p className="text-sm text-gray-500">
             {activeRouter
-              ? `${fmtTotal(totalUsers)} voucher(s) — ${activeRouter.name}`
+              ? `${totalUsers.toLocaleString("fr")} voucher(s) — ${activeRouter.name}`
               : "Sélectionnez un routeur dans la barre latérale"}
           </p>
         </div>
@@ -495,30 +484,21 @@ export default function Vouchers() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-48 p-0" align="start">
-                        <Command shouldFilter={false}>
-                          <CommandList>
-                            <CommandEmpty>Aucun forfait.</CommandEmpty>
-                            <CommandGroup>
-                              <CommandItem
-                                value="all"
-                                onSelect={() => { handleProfileChange("all"); setProfilePopoverOpen(false); }}
-                              >
-                                <Check className={`mr-2 h-4 w-4 ${filterProfile === "all" ? "opacity-100" : "opacity-0"}`} />
-                                Tous les forfaits
-                              </CommandItem>
-                              {profilesList.map((p) => (
-                                <CommandItem
-                                  key={p.name}
-                                  value={p.name}
-                                  onSelect={() => { handleProfileChange(p.name); setProfilePopoverOpen(false); }}
-                                >
-                                  <Check className={`mr-2 h-4 w-4 ${filterProfile === p.name ? "opacity-100" : "opacity-0"}`} />
-                                  {p.name}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
+                        <div className="overflow-y-auto max-h-60 py-1">
+                          {profilesList.length === 0 && (
+                            <p className="px-3 py-2 text-sm text-gray-400">Aucun forfait.</p>
+                          )}
+                          {[{ name: "all" as const }, ...profilesList].map((p) => (
+                            <button
+                              key={p.name}
+                              onClick={() => { handleProfileChange(p.name); setProfilePopoverOpen(false); }}
+                              className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 transition-colors"
+                            >
+                              <Check className={`h-4 w-4 flex-shrink-0 ${(p.name === "all" ? filterProfile === "all" : filterProfile === p.name) ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                              {p.name === "all" ? "Tous les forfaits" : p.name}
+                            </button>
+                          ))}
+                        </div>
                       </PopoverContent>
                     </Popover>
 
@@ -538,31 +518,29 @@ export default function Vouchers() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto min-w-52 max-w-sm p-0" align="start">
-                        <Command shouldFilter={false}>
-                          <CommandList>
-                            <CommandEmpty>Aucun lot.</CommandEmpty>
-                            <CommandGroup>
-                              <CommandItem
-                                value="all"
-                                onSelect={() => { handleCommentChange("all"); setCommentPopoverOpen(false); }}
-                              >
-                                <Check className={`mr-2 h-4 w-4 ${filterComment === "all" ? "opacity-100" : "opacity-0"}`} />
-                                Tous
-                              </CommandItem>
-                              {uniqueComments.map(({ name, count }) => (
-                                <CommandItem
-                                  key={name}
-                                  value={name}
-                                  onSelect={() => { handleCommentChange(name); setCommentPopoverOpen(false); }}
-                                >
-                                  <Check className={`mr-2 h-4 w-4 ${filterComment === name ? "opacity-100" : "opacity-0"}`} />
-                                  <span className="font-mono text-xs whitespace-nowrap flex-1">{name}</span>
-                                  <span className="text-xs text-green-600 ml-2">({count})</span>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
+                        <div className="overflow-y-auto max-h-72 py-1">
+                          {uniqueComments.length === 0 && (
+                            <p className="px-3 py-2 text-sm text-gray-400">Aucun lot.</p>
+                          )}
+                          <button
+                            onClick={() => { handleCommentChange("all"); setCommentPopoverOpen(false); }}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 transition-colors"
+                          >
+                            <Check className={`h-4 w-4 flex-shrink-0 ${filterComment === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                            Tous
+                          </button>
+                          {uniqueComments.map(({ name, count }) => (
+                            <button
+                              key={name}
+                              onClick={() => { handleCommentChange(name); setCommentPopoverOpen(false); }}
+                              className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 transition-colors"
+                            >
+                              <Check className={`h-4 w-4 flex-shrink-0 ${filterComment === name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                              <span className="font-mono text-xs whitespace-nowrap flex-1">{name}</span>
+                              <span className="text-xs text-green-600 ml-2 flex-shrink-0">({count})</span>
+                            </button>
+                          ))}
+                        </div>
                       </PopoverContent>
                     </Popover>
                     <span className="text-xs text-gray-400">↻ 30s</span>
@@ -651,8 +629,8 @@ export default function Vouchers() {
                   </div>
                   <span className="text-xs text-gray-400">
                     {filtered.length !== totalUsers
-                      ? `${filtered.length} filtrés / ${fmtTotal(totalUsers)} total`
-                      : `${fmtTotal(totalUsers)} total`}
+                      ? `${filtered.length} filtrés / ${totalUsers.toLocaleString("fr")} total`
+                      : `${totalUsers.toLocaleString("fr")} total`}
                   </span>
                 </div>
                 <CardContent className="p-0">
