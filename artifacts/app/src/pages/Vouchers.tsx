@@ -141,8 +141,12 @@ export default function Vouchers() {
     },
   );
 
+  const FETCH_LIMIT = 9999;
   const allMikrotikUsers = allUsersData?.users ?? [];
   const totalUsers = allMikrotikUsers.length;
+  const limitReached = totalUsers >= FETCH_LIMIT;
+  const fmtTotal = (n: number) =>
+    limitReached ? `${n.toLocaleString("fr")}+` : n.toLocaleString("fr");
 
   // ── Local filtering ───────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -380,7 +384,7 @@ export default function Vouchers() {
           <h1 className="text-2xl font-bold text-gray-900">Vouchers</h1>
           <p className="text-sm text-gray-500">
             {activeRouter
-              ? `${totalUsers.toLocaleString("fr")} voucher(s) — ${activeRouter.name}`
+              ? `${fmtTotal(totalUsers)} voucher(s) — ${activeRouter.name}`
               : "Sélectionnez un routeur dans la barre latérale"}
           </p>
         </div>
@@ -647,8 +651,8 @@ export default function Vouchers() {
                   </div>
                   <span className="text-xs text-gray-400">
                     {filtered.length !== totalUsers
-                      ? `${filtered.length} filtrés / ${totalUsers.toLocaleString("fr")} total`
-                      : `${totalUsers.toLocaleString("fr")} total`}
+                      ? `${filtered.length} filtrés / ${fmtTotal(totalUsers)} total`
+                      : `${fmtTotal(totalUsers)} total`}
                   </span>
                 </div>
                 <CardContent className="p-0">
