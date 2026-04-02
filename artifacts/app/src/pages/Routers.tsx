@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 
 type RouterFormData = {
   name: string;
+  contact: string;
   address: string;
   username: string;
   password: string;
@@ -32,6 +33,7 @@ type RouterFormData = {
 
 const emptyForm: RouterFormData = {
   name: "",
+  contact: "",
   address: "",
   username: "admin",
   password: "",
@@ -71,7 +73,7 @@ export default function Routers() {
   };
 
   const openEdit = (r: RouterType) => {
-    setForm({ name: r.name, address: `${r.host}:${r.port}`, username: r.username, password: "" });
+    setForm({ name: r.name, contact: (r as any).contact ?? "", address: `${r.host}:${r.port}`, username: r.username, password: "" });
     setEditRouter(r);
     setShowForm(true);
   };
@@ -85,6 +87,7 @@ export default function Routers() {
     }
     const payload = {
       name: form.name,
+      contact: form.contact || undefined,
       host,
       port,
       username: form.username,
@@ -226,6 +229,16 @@ export default function Routers() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
+            </div>
+            <div>
+              <Label>Contact</Label>
+              <Input
+                className="mt-1"
+                placeholder="Tel : +243 XX XXX XXXX"
+                value={form.contact}
+                onChange={(e) => setForm({ ...form, contact: e.target.value })}
+              />
+              <p className="text-xs text-gray-400 mt-0.5">Affiché en bas de chaque ticket imprimé (facultatif)</p>
             </div>
             <div>
               <Label>Adresse (hôte:port)</Label>
