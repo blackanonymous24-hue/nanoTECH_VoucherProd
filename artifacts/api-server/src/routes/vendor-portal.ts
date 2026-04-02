@@ -192,4 +192,59 @@ router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
   res.json({ date: startStr, total: vouchers.length, revenue, vouchers });
 });
 
+router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const payload = verifyToken(auth.slice(7));
+  if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const { period } = req.query as { period?: string };
+  if (!["today", "yesterday", "week", "month"].includes(period ?? "")) {
+    res.status(400).json({ error: "Période invalide" }); return;
+  }
+
+  const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
+  if (!vendor || !vendor.isActive) { res.status(403).json({ error: "Compte introuvable ou désactivé" }); return; }
+
+  const id = payload.vendorId;
+
+  const periodFilter =
+    period === "today"
+      ? sql`${vouchersTable.printedAt} >= current_date and ${vouchersTable.printedAt} < current_date + interval '1 day'`
+    : period === "yesterday"
+      ? sql`${vouchersTable.printedAt} >= current_date - interval '1 day' and ${vouchersTable.printedAt} < current_date`
+    : period === "week"
+      ? sql`${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.printedAt} < date_trunc('week', current_date)`
+      : sql`${vouchersTable.printedAt} >= date_trunc('month', current_date) and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'`;
+
+  const labels: Record<string, string> = {
+    today: "Aujourd'hui",
+    yesterday: "Hier",
+    week: "Semaine dernière",
+    month: "Mois en cours",
+  };
+
+  const [vouchers, byProfile] = await Promise.all([
+    db
+      .select()
+      .from(vouchersTable)
+      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
+      .orderBy(desc(vouchersTable.printedAt)),
+    db
+      .select({
+        profileName: vouchersTable.profileName,
+        count: count(),
+        revenue: sql<number>`coalesce(sum(${vouchersTable.price}::numeric), 0)`,
+      })
+      .from(vouchersTable)
+      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
+      .groupBy(vouchersTable.profileName)
+      .orderBy(desc(count())),
+  ]);
+
+  const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
+
+  res.json({ period, label: labels[period!], total: vouchers.length, revenue, byProfile, vouchers });
+});
+
 export default router;

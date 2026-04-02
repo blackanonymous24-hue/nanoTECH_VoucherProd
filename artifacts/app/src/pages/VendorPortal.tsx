@@ -51,6 +51,14 @@ type PortalData = {
   availableVouchers: Voucher[];
 };
 type ReportData = { date: string; total: number; revenue: number; vouchers: Voucher[] };
+type PeriodSalesData = {
+  period: string;
+  label: string;
+  total: number;
+  revenue: number;
+  byProfile: { profileName: string; count: number; revenue: number }[];
+  vouchers: Voucher[];
+};
 
 function api(path: string, options?: RequestInit) {
   return fetch(`${BASE}/api${path}`, {
@@ -297,6 +305,133 @@ function DayReport({ token, day, month, year, onBack }: {
   );
 }
 
+function PeriodReport({ token, period, onBack }: {
+  token: string;
+  period: "today" | "yesterday" | "week" | "month";
+  onBack: () => void;
+}) {
+  const [data, setData] = useState<PeriodSalesData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    api(`/vendor-portal/me/period-sales?period=${period}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+        return res.json();
+      })
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [token, period]);
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+        <Button size="sm" variant="ghost" onClick={onBack} className="gap-1.5">
+          <ChevronLeft className="h-4 w-4" /> Retour
+        </Button>
+        <div className="h-5 w-px bg-gray-200" />
+        <div>
+          <p className="text-sm font-semibold text-gray-900">{data?.label ?? "..."}</p>
+          <p className="text-xs text-gray-500">Rapport de ventes</p>
+        </div>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        {loading && <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>}
+        {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
+
+        {data && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Card>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
+                    <ShoppingCart className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900">{data.total}</p>
+                    <p className="text-xs text-gray-500">Tickets vendus</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
+                    <Banknote className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
+                    <p className="text-xs text-gray-500">FCFA estimé</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Par forfait</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {data.byProfile.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
+                ) : (
+                  <div className="space-y-2">
+                    {data.byProfile.map((p) => (
+                      <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
+                        <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="text-gray-500">{p.count} ticket{p.count > 1 ? "s" : ""}</span>
+                          {Number(p.revenue) > 0 && (
+                            <span className="font-semibold text-gray-800">{Number(p.revenue).toLocaleString("fr-FR")} FCFA</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Dernières ventes ({data.total})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {data.vouchers.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">Aucune vente enregistrée</p>
+                ) : (
+                  <div className="space-y-1">
+                    {data.vouchers.map((v) => (
+                      <div key={v.id} className="flex items-center justify-between py-2.5 border-b last:border-0 gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
+                          <p className="text-xs text-gray-400">
+                            {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
+                            {v.printedAt ? ` · ${fmt(v.printedAt)}` : ""}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">
+                          Vendu
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
 function Dashboard({ token, vendor, onLogout }: {
   token: string;
   vendor: VendorInfo;
@@ -312,6 +447,7 @@ function Dashboard({ token, vendor, onLogout }: {
   const [reportMonth, setReportMonth] = useState(String(now.getMonth() + 1));
   const [reportYear,  setReportYear]  = useState(String(now.getFullYear()));
   const [reportView,  setReportView]  = useState<{ day: string; month: string; year: string } | null>(null);
+  const [periodView,  setPeriodView]  = useState<"today" | "yesterday" | "week" | "month" | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -332,6 +468,10 @@ function Dashboard({ token, vendor, onLogout }: {
     const id = setInterval(fetchData, 30_000);
     return () => clearInterval(id);
   }, [fetchData]);
+
+  if (periodView) {
+    return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} />;
+  }
 
   if (reportView) {
     return (
@@ -395,11 +535,11 @@ function Dashboard({ token, vendor, onLogout }: {
         {data && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <StatCard label="Tickets disponibles" value={data.totalAvailable} icon={Ticket} color="bg-blue-500" onClick={() => setShowAvailable(true)} />
-              <StatCard label="Vendus aujourd'hui"  value={data.salesStats.todaySold}      icon={ShoppingCart} color="bg-green-500" />
-              <StatCard label="Vendus hier"          value={data.salesStats.yesterdaySold}  icon={Clock}        color="bg-yellow-500" />
-              <StatCard label="Semaine dernière"     value={data.salesStats.weekSold}        icon={Calendar}     color="bg-orange-500" />
-              <StatCard label="Mois en cours"        value={data.salesStats.lastMonthSold}   icon={TrendingUp}   color="bg-purple-500" />
+              <StatCard label="Tickets disponibles" value={data.totalAvailable} icon={Ticket}       color="bg-blue-500"   onClick={() => setShowAvailable(true)} />
+              <StatCard label="Vendus aujourd'hui"  value={data.salesStats.todaySold}      icon={ShoppingCart} color="bg-green-500"  onClick={() => setPeriodView("today")} />
+              <StatCard label="Vendus hier"          value={data.salesStats.yesterdaySold}  icon={Clock}        color="bg-yellow-500" onClick={() => setPeriodView("yesterday")} />
+              <StatCard label="Semaine dernière"     value={data.salesStats.weekSold}        icon={Calendar}     color="bg-orange-500" onClick={() => setPeriodView("week")} />
+              <StatCard label="Mois en cours"        value={data.salesStats.lastMonthSold}   icon={TrendingUp}   color="bg-purple-500" onClick={() => setPeriodView("month")} />
 
               <Card className="col-span-2 md:col-span-1">
                 <CardContent className="p-3 flex flex-col gap-1.5">
