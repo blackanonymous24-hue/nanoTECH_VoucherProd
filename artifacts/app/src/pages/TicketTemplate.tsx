@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileCode, RotateCcw, Save, Eye, Code2 } from "lucide-react";
+import { FileCode, RotateCcw, Save, Eye, Code2, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const TEMPLATE_KEY = "voucher-ticket-template";
@@ -88,6 +88,96 @@ export function getStoredTemplate(): string {
   try { return localStorage.getItem(TEMPLATE_KEY) ?? DEFAULT_TEMPLATE; } catch { return DEFAULT_TEMPLATE; }
 }
 
+// ─── Parseur PHP → Template HTML ──────────────────────────────────────────────
+// Convertit un fichier template PHP de MikHmon en template {{variable}}.
+// Supporte template.php, template-small.php et template-thermal.php.
+export function parsePHPTemplate(raw: string): string {
+  let s = raw;
+
+  // 1. Extraire uniquement la section entre les marqueurs MikHmon
+  const mStart = s.indexOf("<!--mks-mulai-->");
+  const mEnd   = s.indexOf("<!--mks-akhir-->");
+  if (mStart !== -1 && mEnd !== -1) {
+    s = s.slice(mStart, mEnd + "<!--mks-akhir-->".length);
+  }
+
+  // 2. Remplacer le bloc conditionnel usermode (vc/up) par {{codeblock}}
+  //    Pattern: <?php if($usermode == "vc"){?> ... <?php }elseif($usermode == "up"){?> ... <?php }?>
+  s = s.replace(
+    /<\?php[^?]*if\s*\(\s*\$usermode\s*==\s*["']vc["']\s*\)\s*\{[^?]*\?>([\s\S]*?)<\?php[^?]*\}(?:else\s*if|elseif)\s*\(\s*\$usermode\s*==\s*["']up["']\s*\)\s*\{[^?]*\?>([\s\S]*?)<\?php[^?]*\}\s*\?>/,
+    "{{codeblock}}"
+  );
+  s = s.replace(/<!--mks-voucher-akhir-->/g, "");
+
+  // 3. Remplacer <?= $qrcode ?> par un img avec src="{{qrcode}}"
+  //    Dans le PHP original, $qrcode est un bloc <canvas> — on le remplace par un <img>
+  s = s.replace(/<img([^>]*)>\s*<\?=\s*\$qrcode\s*\?>/g, '<img$1 src="{{qrcode}}">');
+  s = s.replace(/<\?=\s*\$qrcode\s*\?>/g, '<img src="{{qrcode}}" style="width:32px;height:32px;" alt="QR">');
+  s = s.replace(/<\?php\s+echo\s+\$qrcode\s*;?\s*\?>/g, '<img src="{{qrcode}}" style="width:32px;height:32px;" alt="QR">');
+
+  // 4. Correspondances PHP var → template var (ordre important : getprice avant price)
+  const varMap: [string, string][] = [
+    ["hotspotname", "hotspotname"],
+    ["dnsname",     "dnsname"],
+    ["getprice",    "price"],
+    ["getsprice",   "price"],
+    ["currency",    "currency"],
+    ["username",    "username"],
+    ["password",    "password"],
+    ["validity",    "validity"],
+    ["timelimit",   "timelimit"],
+    ["datalimit",   "datalimit"],
+    ["num",         "num"],
+    ["profile",     "profile"],
+    ["comment",     "comment"],
+    ["color",       "color"],
+    ["logo",        "logo"],
+    ["price",       "price"],
+  ];
+
+  // Helper : substituer les variables PHP dans une expression
+  const subVars = (expr: string): string => {
+    let r = expr.trim().replace(/;$/, "").trim();
+    for (const [pv, tv] of varMap) {
+      r = r.replace(new RegExp(`\\$${pv}\\b`, "g"), `{{${tv}}}`);
+    }
+    return r;
+  };
+
+  // 5. <?= expr ?> → évaluer et substituer
+  s = s.replace(/<\?=([\s\S]*?)\?>/g, (_, inner) => {
+    let r = subVars(inner);
+    // Concaténation PHP : "User: ".$username."<br>Pass: ".$password → User: {{username}}<br>Pass: {{password}}
+    r = r.replace(/"([^"]*)"\s*\.\s*/g, "$1").replace(/\.\s*"([^"]*)"/g, "$1");
+    r = r.replace(/^["']|["']$/g, "");
+    // " [$num]" → [{{num}}]
+    r = r.replace(/"([^"]*)"/g, "$1");
+    r = r.replace(/^'|'$/g, "");
+    return r.trim();
+  });
+
+  // 6. <?php echo expr; ?> → substituer
+  s = s.replace(/<\?php\s+echo\s+([\s\S]*?);?\s*\?>/g, (_, inner) => {
+    let r = subVars(inner);
+    r = r.replace(/"([^"]*)"\s*\.\s*/g, "$1").replace(/\.\s*"([^"]*)"/g, "$1");
+    r = r.replace(/^["']|["']$/g, "").replace(/"([^"]*)"/g, "$1");
+    return r.trim();
+  });
+
+  // 7. Remplacer les $var restants (dans les attributs style inline etc.)
+  for (const [pv, tv] of varMap) {
+    s = s.replace(new RegExp(`\\$${pv}\\b`, "g"), `{{${tv}}}`);
+  }
+
+  // 8. Supprimer les blocs PHP de logique restants (<?php ... ?> et <?= ... ?>)
+  s = s.replace(/<\?php[\s\S]*?\?>/g, "");
+  s = s.replace(/<\?[\s\S]*?\?>/g, "");
+
+  // 9. Nettoyage final
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const CODEBLOCK_VC = (color: string, username: string) =>
@@ -141,8 +231,31 @@ export default function TicketTemplate() {
   );
   const [tab, setTab] = useState<"code" | "preview">("code");
   const [saved, setSaved] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const hasCustom = (() => { try { return localStorage.getItem(TEMPLATE_KEY) !== null; } catch { return false; } })();
+
+  const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const raw = ev.target?.result as string;
+      try {
+        const converted = parsePHPTemplate(raw);
+        setCode(converted);
+        setTab("code");
+        toast({
+          title: "Template PHP importé",
+          description: `Converti depuis « ${file.name} » — vérifiez et sauvegardez.`,
+        });
+      } catch {
+        toast({ title: "Erreur d'import", description: "Fichier PHP non reconnu.", variant: "destructive" });
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+    e.target.value = "";
+  }, [toast]);
 
   const handleSave = useCallback(() => {
     try { localStorage.setItem(TEMPLATE_KEY, code); } catch { /* ignore */ }
@@ -188,6 +301,10 @@ export default function TicketTemplate() {
               <RotateCcw className="h-3.5 w-3.5" /> Réinitialiser
             </Button>
           )}
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fileRef.current?.click()}>
+            <Upload className="h-3.5 w-3.5" /> Importer PHP
+          </Button>
+          <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved}>
             <Save className="h-3.5 w-3.5" />
             {saved ? "Sauvegardé ✓" : "Sauvegarder"}
