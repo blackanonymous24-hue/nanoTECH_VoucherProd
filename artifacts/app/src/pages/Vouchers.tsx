@@ -15,13 +15,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +48,8 @@ import {
   Package,
   List,
   PowerOff,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow, format } from "date-fns";
@@ -79,6 +82,8 @@ export default function Vouchers() {
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
   const [isDisabling, setIsDisabling] = useState(false);
+  const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
+  const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -394,33 +399,92 @@ export default function Vouchers() {
                         onChange={(e) => handleSearchChange(e.target.value)}
                       />
                     </div>
-                    <Select value={filterProfile} onValueChange={handleProfileChange}>
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Tous les forfaits" />
-                      </SelectTrigger>
-                      <SelectContent style={{ maxHeight: "14rem" }}>
-                        <SelectItem value="all">Tous les forfaits</SelectItem>
-                        {profilesList.map((p) => (
-                          <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={filterComment} onValueChange={handleCommentChange}>
-                      <SelectTrigger className="w-52">
-                        <SelectValue placeholder="Tous les lots" />
-                      </SelectTrigger>
-                      <SelectContent style={{ maxHeight: "14rem" }}>
-                        <SelectItem value="all">Tous</SelectItem>
-                        {uniqueComments.map(({ name, count }) => (
-                          <SelectItem key={name} value={name}>
-                            <span className="flex items-center justify-between w-full gap-3">
-                              <span className="font-mono text-xs truncate">{name}</span>
-                              <span className="text-xs text-green-600 flex-shrink-0">({count})</span>
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {/* Combobox — Forfait */}
+                    <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={profilePopoverOpen}
+                          className="w-48 justify-between font-normal"
+                        >
+                          <span className="truncate">
+                            {filterProfile === "all" ? "Tous les forfaits" : filterProfile}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-48 p-0" align="start">
+                        <Command>
+                          <CommandList>
+                            <CommandEmpty>Aucun forfait.</CommandEmpty>
+                            <CommandGroup>
+                              <CommandItem
+                                value="all"
+                                onSelect={() => { handleProfileChange("all"); setProfilePopoverOpen(false); }}
+                              >
+                                <Check className={`mr-2 h-4 w-4 ${filterProfile === "all" ? "opacity-100" : "opacity-0"}`} />
+                                Tous les forfaits
+                              </CommandItem>
+                              {profilesList.map((p) => (
+                                <CommandItem
+                                  key={p.name}
+                                  value={p.name}
+                                  onSelect={() => { handleProfileChange(p.name); setProfilePopoverOpen(false); }}
+                                >
+                                  <Check className={`mr-2 h-4 w-4 ${filterProfile === p.name ? "opacity-100" : "opacity-0"}`} />
+                                  {p.name}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+
+                    {/* Combobox — Lot */}
+                    <Popover open={commentPopoverOpen} onOpenChange={setCommentPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={commentPopoverOpen}
+                          className="w-52 justify-between font-normal"
+                        >
+                          <span className="font-mono text-xs truncate">
+                            {filterComment === "all" ? "Tous les lots" : filterComment}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 p-0" align="start">
+                        <Command>
+                          <CommandList>
+                            <CommandEmpty>Aucun lot.</CommandEmpty>
+                            <CommandGroup>
+                              <CommandItem
+                                value="all"
+                                onSelect={() => { handleCommentChange("all"); setCommentPopoverOpen(false); }}
+                              >
+                                <Check className={`mr-2 h-4 w-4 ${filterComment === "all" ? "opacity-100" : "opacity-0"}`} />
+                                Tous
+                              </CommandItem>
+                              {uniqueComments.map(({ name, count }) => (
+                                <CommandItem
+                                  key={name}
+                                  value={name}
+                                  onSelect={() => { handleCommentChange(name); setCommentPopoverOpen(false); }}
+                                >
+                                  <Check className={`mr-2 h-4 w-4 ${filterComment === name ? "opacity-100" : "opacity-0"}`} />
+                                  <span className="font-mono text-xs truncate flex-1">{name}</span>
+                                  <span className="text-xs text-green-600 ml-2">({count})</span>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                     <span className="text-xs text-gray-400">↻ 30s</span>
                   </div>
                 </CardContent>
