@@ -94,7 +94,7 @@ export default function Sessions() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Clients actifs</h1>
           <p className="text-sm text-gray-500">Utilisateurs connectés en temps réel sur votre hotspot</p>
@@ -105,7 +105,7 @@ export default function Sessions() {
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="gap-2"
+            className="gap-2 flex-shrink-0"
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
             Actualiser
@@ -186,8 +186,8 @@ export default function Sessions() {
               Clients connectés
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
-            <Table>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow className="bg-gray-50">
                   <TableHead className="pl-6">Utilisateur</TableHead>

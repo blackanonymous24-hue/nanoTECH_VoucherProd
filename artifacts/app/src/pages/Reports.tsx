@@ -345,7 +345,7 @@ export default function Reports() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Rapports de vente</h1>
           <p className="text-sm text-gray-500">Suivi des vouchers par vendeur</p>
@@ -409,7 +409,7 @@ export default function Reports() {
         </Card>
       ) : (
         <>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <p className="text-sm text-gray-500">{summaries.length} vendeur(s)</p>
             <div className="flex items-center gap-2">
               <ArrowDownUp className="h-3.5 w-3.5 text-gray-400" />

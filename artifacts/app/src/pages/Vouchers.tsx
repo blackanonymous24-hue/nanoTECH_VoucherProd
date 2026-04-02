@@ -389,7 +389,7 @@ export default function Vouchers() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Vouchers</h1>
           <p className="text-sm text-gray-500">
@@ -586,7 +586,7 @@ export default function Vouchers() {
                     Lot&nbsp;: <span className="font-mono">{filterComment}</span>
                     &nbsp;—&nbsp;{filtered.length} affiché(s)
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <Button
                       size="sm"
                       variant="ghost"
@@ -885,11 +885,11 @@ function UserRow({
 
   return (
     <div
-      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${selected ? "bg-blue-50" : ""}`}
+      className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 ${selected ? "bg-blue-50" : ""}`}
     >
-      <div className="flex items-center gap-3">
-        <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded" />
-        <div>
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+        <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded flex-shrink-0" />
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-mono font-semibold text-sm">{user.username}</span>
             <span className="text-gray-400 font-mono text-sm">/ {user.password}</span>
@@ -940,7 +940,7 @@ function UserRow({
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0 ml-2">
         {isPrinted ? (
           <Badge variant="outline" className="text-green-600 border-green-200 text-xs">
             Imprimé

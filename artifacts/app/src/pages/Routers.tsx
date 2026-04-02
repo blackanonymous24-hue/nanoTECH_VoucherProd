@@ -251,12 +251,12 @@ export default function Routers() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Routeurs MikroTik</h1>
           <p className="text-sm text-gray-500">Sélectionnez un routeur pour commencer</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!isManager && (
             <Button variant="outline" className="gap-2" onClick={() => setShowCredentials(true)}>
               <KeyRound className="h-4 w-4" /> Identifiants admin
