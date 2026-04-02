@@ -326,8 +326,35 @@
     left: 0 !important;
     width: 100% !important;
     background: white !important;
-    padding: 24px !important;
-    font-family: sans-serif !important;
+    padding: 20px 28px !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 12px !important;
+    color: #111 !important;
   }
   #report-print-section .no-print { display: none !important; }
+  #report-print-section .print-only { display: block !important; }
+}
+
+.print-only { display: none; }
+
+/* Print table styles (always available, only shown in print) */
+.report-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+.report-print-table th,
+.report-print-table td {
+  border: 1px solid #ccc;
+  padding: 5px 8px;
+  text-align: left;
+}
+.report-print-table th { background: #f3f4f6; font-weight: 600; }
+.report-print-table tfoot td { font-weight: 700; background: #f9fafb; }
+.report-print-title { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+.report-print-meta { font-size: 11px; color: #555; margin-bottom: 14px; }
+.report-print-section-label {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; margin: 14px 0 4px; color: #374151;
 }

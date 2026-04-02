@@ -246,69 +246,139 @@ function DayReport({ token, day, month, year, onBack }: {
       </header>
 
       <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        <div className="hidden print:block mb-4">
-          <p className="text-lg font-bold capitalize">{dateLabel}</p>
-          <p className="text-sm text-gray-500">Rapport de ventes</p>
-        </div>
         {loading && <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
-        {data && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <Card>
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-                    <ShoppingCart className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900">{data.total}</p>
-                    <p className="text-xs text-gray-500">Vendus ce jour</p>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
-                    <Banknote className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
-                    <p className="text-xs text-gray-500">FCFA estimé</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {data.vouchers.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-6">Aucune vente ce jour</p>
-                ) : (
-                  <div className="space-y-1">
-                    {data.vouchers.map((v) => (
-                      <div key={v.id} className="flex items-center justify-between py-2.5 border-b last:border-0 gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
-                          <p className="text-xs text-gray-400">
-                            {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
-                            {v.printedAt ? ` · ${fmt(v.printedAt)}` : ""}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">
-                          Vendu
-                        </Badge>
+        {data && (() => {
+          const byProfile = data.vouchers.reduce((acc, v) => {
+            if (!acc[v.profileName]) acc[v.profileName] = { count: 0, revenue: 0 };
+            acc[v.profileName].count++;
+            acc[v.profileName].revenue += parseFloat(v.price ?? "0") || 0;
+            return acc;
+          }, {} as Record<string, { count: number; revenue: number }>);
+          return (
+            <>
+              {/* ── Écran ── */}
+              <div className="no-print space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <Card>
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
+                        <ShoppingCart className="h-5 w-5 text-white" />
                       </div>
-                    ))}
-                  </div>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">{data.total}</p>
+                        <p className="text-xs text-gray-500">Vendus ce jour</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
+                        <Banknote className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
+                        <p className="text-xs text-gray-500">FCFA estimé</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {data.vouchers.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-6">Aucune vente ce jour</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {data.vouchers.map((v) => (
+                          <div key={v.id} className="flex items-center justify-between py-2.5 border-b last:border-0 gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
+                              <p className="text-xs text-gray-400">
+                                {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
+                                {v.printedAt ? ` · ${fmt(v.printedAt)}` : ""}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">Vendu</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* ── Impression ── */}
+              <div className="print-only">
+                <p className="report-print-title">VoucherNet — Rapport de ventes</p>
+                <p className="report-print-meta">
+                  {dateLabel} &nbsp;·&nbsp; Imprimé le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </p>
+
+                <p className="report-print-section-label">Résumé</p>
+                <table className="report-print-table">
+                  <thead>
+                    <tr><th>Total tickets vendus</th><th>Chiffre d'affaires estimé</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>{data.total}</strong></td>
+                      <td><strong>{data.revenue.toLocaleString("fr-FR")} FCFA</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {Object.keys(byProfile).length > 0 && (
+                  <>
+                    <p className="report-print-section-label">Par forfait</p>
+                    <table className="report-print-table">
+                      <thead>
+                        <tr><th>Forfait</th><th>Tickets</th><th>Montant FCFA</th></tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(byProfile).map(([name, s]) => (
+                          <tr key={name}>
+                            <td>{name}</td>
+                            <td>{s.count}</td>
+                            <td>{s.revenue.toLocaleString("fr-FR")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td>Total</td>
+                          <td>{data.total}</td>
+                          <td>{data.revenue.toLocaleString("fr-FR")}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
                 )}
-              </CardContent>
-            </Card>
-          </>
-        )}
+
+                <p className="report-print-section-label">Liste des tickets vendus ({data.total})</p>
+                <table className="report-print-table">
+                  <thead>
+                    <tr><th>#</th><th>Code</th><th>Forfait</th><th>Prix (FCFA)</th><th>Date / Heure</th></tr>
+                  </thead>
+                  <tbody>
+                    {data.vouchers.map((v, i) => (
+                      <tr key={v.id}>
+                        <td>{i + 1}</td>
+                        <td style={{ fontFamily: "monospace" }}>{v.username}</td>
+                        <td>{v.profileName}</td>
+                        <td>{v.price ?? "—"}</td>
+                        <td>{v.printedAt ? new Date(v.printedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          );
+        })()}
       </main>
     </div>
   );
@@ -357,92 +427,143 @@ function PeriodReport({ token, period, onBack }: {
       </header>
 
       <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        <div className="hidden print:block mb-4">
-          <p className="text-lg font-bold">{data?.label}</p>
-          <p className="text-sm text-gray-500">Rapport de ventes — VoucherNet</p>
-        </div>
         {loading && <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
         {data && (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            {/* ── Écran ── */}
+            <div className="no-print space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Card>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
+                      <ShoppingCart className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900">{data.total}</p>
+                      <p className="text-xs text-gray-500">Tickets vendus</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
+                      <Banknote className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
+                      <p className="text-xs text-gray-500">FCFA estimé</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
               <Card>
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-                    <ShoppingCart className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900">{data.total}</p>
-                    <p className="text-xs text-gray-500">Tickets vendus</p>
-                  </div>
+                <CardHeader className="pb-2"><CardTitle className="text-base">Par forfait</CardTitle></CardHeader>
+                <CardContent>
+                  {data.byProfile.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {data.byProfile.map((p) => (
+                        <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
+                          <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
+                          <div className="flex items-center gap-4 text-sm">
+                            <span className="text-gray-500">{p.count} ticket{p.count > 1 ? "s" : ""}</span>
+                            {Number(p.revenue) > 0 && <span className="font-semibold text-gray-800">{Number(p.revenue).toLocaleString("fr-FR")} FCFA</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
               <Card>
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
-                    <Banknote className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
-                    <p className="text-xs text-gray-500">FCFA estimé</p>
-                  </div>
+                <CardHeader className="pb-2"><CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle></CardHeader>
+                <CardContent>
+                  {data.vouchers.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-6">Aucune vente enregistrée</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {data.vouchers.map((v) => (
+                        <div key={v.id} className="flex items-center justify-between py-2.5 border-b last:border-0 gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
+                            <p className="text-xs text-gray-400">
+                              {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
+                              {v.printedAt ? ` · ${fmt(v.printedAt)}` : ""}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">Vendu</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Par forfait</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {data.byProfile.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
-                ) : (
-                  <div className="space-y-2">
-                    {data.byProfile.map((p) => (
-                      <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
-                        <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
-                        <div className="flex items-center gap-4 text-sm">
-                          <span className="text-gray-500">{p.count} ticket{p.count > 1 ? "s" : ""}</span>
-                          {Number(p.revenue) > 0 && (
-                            <span className="font-semibold text-gray-800">{Number(p.revenue).toLocaleString("fr-FR")} FCFA</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            {/* ── Impression ── */}
+            <div className="print-only">
+              <p className="report-print-title">VoucherNet — Rapport de ventes</p>
+              <p className="report-print-meta">
+                Période : <strong>{data.label}</strong> &nbsp;·&nbsp; Imprimé le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </p>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {data.vouchers.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-6">Aucune vente enregistrée</p>
-                ) : (
-                  <div className="space-y-1">
-                    {data.vouchers.map((v) => (
-                      <div key={v.id} className="flex items-center justify-between py-2.5 border-b last:border-0 gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
-                          <p className="text-xs text-gray-400">
-                            {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
-                            {v.printedAt ? ` · ${fmt(v.printedAt)}` : ""}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">
-                          Vendu
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+              <p className="report-print-section-label">Résumé</p>
+              <table className="report-print-table">
+                <thead><tr><th>Total tickets vendus</th><th>Chiffre d'affaires estimé</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td><strong>{data.total}</strong></td>
+                    <td><strong>{data.revenue.toLocaleString("fr-FR")} FCFA</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {data.byProfile.length > 0 && (
+                <>
+                  <p className="report-print-section-label">Par forfait</p>
+                  <table className="report-print-table">
+                    <thead><tr><th>Forfait</th><th>Tickets</th><th>Montant FCFA</th></tr></thead>
+                    <tbody>
+                      {data.byProfile.map((p) => (
+                        <tr key={p.profileName}>
+                          <td>{p.profileName}</td>
+                          <td>{p.count}</td>
+                          <td>{Number(p.revenue).toLocaleString("fr-FR")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td>Total</td>
+                        <td>{data.total}</td>
+                        <td>{data.revenue.toLocaleString("fr-FR")}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </>
+              )}
+
+              <p className="report-print-section-label">Liste des tickets vendus ({data.total})</p>
+              <table className="report-print-table">
+                <thead>
+                  <tr><th>#</th><th>Code</th><th>Forfait</th><th>Prix (FCFA)</th><th>Date / Heure</th></tr>
+                </thead>
+                <tbody>
+                  {data.vouchers.map((v, i) => (
+                    <tr key={v.id}>
+                      <td>{i + 1}</td>
+                      <td style={{ fontFamily: "monospace" }}>{v.username}</td>
+                      <td>{v.profileName}</td>
+                      <td>{v.price ?? "—"}</td>
+                      <td>{v.printedAt ? new Date(v.printedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </main>
