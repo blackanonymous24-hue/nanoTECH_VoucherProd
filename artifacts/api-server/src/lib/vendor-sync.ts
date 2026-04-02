@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles } from "./mikrotik.js";
 import { logger } from "./logger.js";
@@ -55,44 +55,57 @@ export async function syncMikrotikUsersToVendor(
     );
     if (matched.length === 0) return;
 
-    const matchedUsernames = matched.map((u) => u.username);
-
+    // Query existing vouchers by comment suffix (avoids large IN clauses)
+    const suffixConditions = activeSuffixes.map((s) => sql`${vouchersTable.comment} LIKE ${"%" + s}`);
     const existing = await db
       .select({ username: vouchersTable.username, vendorId: vouchersTable.vendorId, id: vouchersTable.id })
       .from(vouchersTable)
-      .where(and(eq(vouchersTable.routerId, routerId), inArray(vouchersTable.username, matchedUsernames)));
+      .where(and(
+        eq(vouchersTable.routerId, routerId),
+        sql`(${sql.join(suffixConditions, sql` OR `)})`,
+      ));
 
     const existingMap = new Map(existing.map((e) => [e.username, e]));
 
-    // Update all vouchers that match the suffix but are not yet correctly assigned to this vendor
+    // Update all existing vouchers not yet attributed to this vendor, in chunks
     const toUpdate = existing.filter((e) => e.vendorId !== vendorId).map((e) => e.id);
     if (toUpdate.length > 0) {
-      await db
-        .update(vouchersTable)
-        .set({ vendorId })
-        .where(inArray(vouchersTable.id, toUpdate));
+      const CHUNK = 200;
+      for (let i = 0; i < toUpdate.length; i += CHUNK) {
+        await db
+          .update(vouchersTable)
+          .set({ vendorId })
+          .where(inArray(vouchersTable.id, toUpdate.slice(i, i + CHUNK)));
+      }
       logger.info({ vendorId, routerId, count: toUpdate.length }, "vendor sync: updated vendorId on existing vouchers");
     }
 
     const profileMap = new Map(allProfiles.map((p) => [p.name, p]));
-    const toInsert = matched.filter((u) => !existingMap.has(u.username));
+    const toInsert = matched
+      .filter((u) => !existingMap.has(u.username) && u.username)
+      .map((u) => {
+        const prof = profileMap.get(u.profile);
+        return {
+          routerId,
+          vendorId,
+          username: u.username,
+          password: u.password ?? "",
+          profileName: u.profile || "default",
+          price: prof?.price ?? "",
+          validity: prof?.validity ?? "",
+          comment: u.comment ?? null,
+        };
+      });
+
     if (toInsert.length > 0) {
-      await db.insert(vouchersTable).values(
-        toInsert.map((u) => {
-          const prof = profileMap.get(u.profile);
-          return {
-            routerId,
-            vendorId,
-            username: u.username,
-            password: u.password,
-            profileName: u.profile,
-            price: prof?.price ?? "",
-            validity: prof?.validity ?? "",
-            comment: u.comment ?? null,
-          };
-        }),
-      ).onConflictDoNothing();
-      logger.info({ vendorId, routerId, count: toInsert.length }, "vendor sync: inserted new vouchers from MikroTik");
+      const CHUNK = 100;
+      let inserted = 0;
+      for (let i = 0; i < toInsert.length; i += CHUNK) {
+        const chunk = toInsert.slice(i, i + CHUNK);
+        await db.insert(vouchersTable).values(chunk).onConflictDoNothing();
+        inserted += chunk.length;
+      }
+      logger.info({ vendorId, routerId, count: inserted }, "vendor sync: inserted new vouchers from MikroTik");
     }
   } catch (err) {
     lastSyncAt.delete(vendorId); // reset on error so next call retries
