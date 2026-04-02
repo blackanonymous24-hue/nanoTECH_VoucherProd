@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   useCreateVendor,
@@ -8,12 +9,12 @@ import {
 import type { Vendor } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, MoreHorizontal, Pencil, Tag } from "lucide-react";
+import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -32,13 +33,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 export type PersonFormData = {
   name: string;
@@ -239,6 +233,7 @@ export default function Vendors() {
   const { selectedRouterId } = useRouterContext();
   const { role } = useAuth();
   const isManager = role === "manager";
+  const [, navigate] = useLocation();
   const createMutation = useCreateVendor();
   const updateMutation = useUpdateVendor();
   const deleteMutation = useDeleteVendor();
@@ -349,11 +344,16 @@ export default function Vendors() {
     }
   };
 
+  const handleViewReport = (vendorId: number) => {
+    sessionStorage.setItem("vouchernet_report_vendor_id", String(vendorId));
+    navigate("/reports");
+  };
+
   const portalBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Vendeurs</h1>
           <p className="text-sm text-gray-500">
@@ -405,15 +405,21 @@ export default function Vendors() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {vendors.map((vendor) => (
-            <Card key={vendor.id} className={vendor.isActive ? "" : "opacity-60"}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+            <Card key={vendor.id} className={`hover:shadow-md transition-shadow ${vendor.isActive ? "" : "opacity-60"}`}>
+              {/* Partie info — cliquable → rapport vendeur */}
+              <CardHeader
+                className="pb-3 cursor-pointer group"
+                onClick={() => handleViewReport(vendor.id)}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-200 transition-colors">
                       <Users className="h-5 w-5 text-blue-600" />
                     </div>
                     <div className="min-w-0">
-                      <CardTitle className="text-base">{vendor.name}</CardTitle>
+                      <CardTitle className="text-base group-hover:text-blue-700 transition-colors">
+                        {vendor.name}
+                      </CardTitle>
                       {vendor.phone && (
                         <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
                           <Phone className="h-3 w-3 flex-shrink-0" />
@@ -429,7 +435,7 @@ export default function Vendors() {
                       {(vendor as any).username && (
                         <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5">
                           <KeyRound className="h-3 w-3 flex-shrink-0" />
-                          {(vendor as any).username}
+                          @{(vendor as any).username}
                         </div>
                       )}
                       {((vendor as any).commentSuffix || (vendor as any).commentSuffix2) && (
@@ -444,41 +450,49 @@ export default function Vendors() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <Badge variant={vendor.isActive ? "default" : "secondary"}>
-                      {vendor.isActive ? "Actif" : "Inactif"}
-                    </Badge>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="text-sm">
-                        <DropdownMenuItem className="py-1.5 text-sm" onClick={() => { setEditError(""); setEditVendor(vendor); }}>
-                          <Pencil className="h-3.5 w-3.5 mr-2" /> Modifier
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="py-1.5 text-sm" onClick={() => handleToggleActive(vendor)}>
-                          {vendor.isActive
-                            ? <><X className="h-3.5 w-3.5 mr-2" /> Désactiver</>
-                            : <><Check className="h-3.5 w-3.5 mr-2" /> Activer</>}
-                        </DropdownMenuItem>
-                        {!isManager && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="py-1.5 text-sm text-red-600 focus:text-red-600 focus:bg-red-50"
-                              onClick={() => setDeleteVendorId(vendor.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                  <Badge variant={vendor.isActive ? "default" : "secondary"} className="flex-shrink-0 mt-0.5">
+                    {vendor.isActive ? "Actif" : "Inactif"}
+                  </Badge>
                 </div>
               </CardHeader>
+
+              {/* Boutons d'action visibles */}
+              <CardContent className="pt-0">
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 gap-1.5"
+                    onClick={() => { setEditError(""); setEditVendor(vendor); }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Modifier
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={`gap-1.5 ${vendor.isActive
+                      ? "text-orange-500 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                      : "text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"}`}
+                    onClick={() => handleToggleActive(vendor)}
+                    title={vendor.isActive ? "Désactiver" : "Activer"}
+                  >
+                    {vendor.isActive
+                      ? <><X className="h-3.5 w-3.5" /> Désactiver</>
+                      : <><Check className="h-3.5 w-3.5" /> Activer</>}
+                  </Button>
+                  {!isManager && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                      onClick={() => setDeleteVendorId(vendor.id)}
+                      title="Supprimer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
             </Card>
           ))}
         </div>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useGetVendorReportsSummary,
   useGetVendorReport,
@@ -328,6 +328,14 @@ export default function Reports() {
   const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 10_000 } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem("vouchernet_report_vendor_id");
+    if (stored) {
+      sessionStorage.removeItem("vouchernet_report_vendor_id");
+      setSelectedVendorId(parseInt(stored, 10));
+    }
+  }, []);
 
   const routerId = (() => {
     try { const v = localStorage.getItem("vouchernet_router_id"); return v ? parseInt(v) : null; } catch { return null; }
