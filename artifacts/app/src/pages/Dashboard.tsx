@@ -556,7 +556,7 @@ export default function Dashboard() {
         <StatCard
           title="Vente journalière"
           label={sales ? formatAmount(sales.dailyAmount) : undefined}
-          sub={sales ? `${sales.dailyCount.toLocaleString()} tickets` : undefined}
+          sub={sales ? `${sales.dailyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
@@ -566,7 +566,7 @@ export default function Dashboard() {
         <StatCard
           title="Vente mensuelle"
           label={sales ? formatAmount(sales.monthlyAmount) : undefined}
-          sub={sales ? `${sales.monthlyCount.toLocaleString()} tickets` : undefined}
+          sub={sales ? `${sales.monthlyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}

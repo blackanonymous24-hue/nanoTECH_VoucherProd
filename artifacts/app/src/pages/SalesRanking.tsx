@@ -128,7 +128,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
                       <p className="font-semibold text-gray-900 truncate">{entry.vendor.name}</p>
                       <span className="text-lg font-bold text-gray-900 ml-2 flex-shrink-0">
                         {entry.count.toLocaleString()}
-                        <span className="text-xs font-normal text-gray-400 ml-1">tickets</span>
+                        <span className="text-xs font-normal text-gray-400 ml-1">tickets vendus</span>
                       </span>
                     </div>
                     <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
