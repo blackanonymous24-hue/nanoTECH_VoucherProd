@@ -100,7 +100,6 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="text-center text-xs text-gray-600 mt-6">Compatible MikHmon 7.x</p>
       </div>
     </div>
   );

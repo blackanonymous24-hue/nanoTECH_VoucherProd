@@ -135,16 +135,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* ── Footer ── */}
-        <div className="px-4 py-3 border-t border-gray-700 flex-shrink-0 flex items-center justify-between">
-          <div>
-            <span className="text-xs text-gray-500">Compatible MikHmon 7.x</span>
-            {role === "manager" && (
-              <p className="text-[10px] text-amber-400 mt-0.5">Gérant de zone</p>
-            )}
-          </div>
+        <div className="px-4 py-3 border-t border-gray-700 flex-shrink-0 flex items-center justify-between gap-2">
+          {role === "manager" ? (
+            <span className="text-[10px] text-amber-400">Gérant de zone</span>
+          ) : (
+            <span />
+          )}
           <button
             onClick={logout}
-            className="flex items-center gap-1.5 text-xs font-medium text-red-400 hover:text-red-300 transition-colors px-2 py-1 rounded hover:bg-red-900/30"
+            className="flex items-center gap-1.5 text-xs font-medium text-red-400 hover:text-red-300 transition-colors px-2 py-1 rounded hover:bg-red-900/30 whitespace-nowrap"
           >
             <LogOut className="h-3.5 w-3.5" /> Se déconnecter
           </button>
