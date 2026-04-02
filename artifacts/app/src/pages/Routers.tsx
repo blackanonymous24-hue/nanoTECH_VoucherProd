@@ -378,76 +378,78 @@ export default function Routers() {
       )}
 
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md w-full flex flex-col">
           <DialogHeader>
             <DialogTitle>{editRouter ? "Modifier le routeur" : "Ajouter un routeur"}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-2">
-            <div>
-              <Label>Nom</Label>
-              <Input
-                className="mt-1"
-                placeholder="Mon routeur principal"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                required
-              />
-            </div>
-            <div>
-              <Label>Nom du wifi</Label>
-              <Input
-                className="mt-1"
-                placeholder="ex : HotspotVille"
-                value={form.hotspotName}
-                onChange={(e) => setForm({ ...form, hotspotName: e.target.value })}
-              />
-              <p className="text-xs text-gray-400 mt-0.5">Affiché comme titre dans les impressions de rapports (facultatif)</p>
-            </div>
-            <div>
-              <Label>Contact</Label>
-              <Input
-                className="mt-1"
-                placeholder="Tel : +243 XX XXX XXXX"
-                value={form.contact}
-                onChange={(e) => setForm({ ...form, contact: e.target.value })}
-              />
-              <p className="text-xs text-gray-400 mt-0.5">Affiché en bas de chaque ticket imprimé (facultatif)</p>
-            </div>
-            <div>
-              <Label>Adresse (hôte:port)</Label>
-              <Input
-                className="mt-1 font-mono"
-                placeholder="192.168.1.1:8728 ou mon.domaine.com:23728"
-                value={form.address}
-                onChange={(e) => setForm({ ...form, address: e.target.value })}
-                required
-              />
-              <p className="text-xs text-gray-400 mt-0.5">Port API RouterOS — par défaut 8728 (ou votre port NAT)</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-0">
+            <div className="overflow-y-auto px-1 space-y-4" style={{ maxHeight: "calc(90vh - 180px)" }}>
               <div>
-                <Label>Utilisateur</Label>
+                <Label>Nom</Label>
                 <Input
                   className="mt-1"
-                  placeholder="admin"
-                  value={form.username}
-                  onChange={(e) => setForm({ ...form, username: e.target.value })}
+                  placeholder="Mon routeur principal"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
                   required
                 />
               </div>
               <div>
-                <Label>Mot de passe</Label>
+                <Label>Nom du wifi</Label>
                 <Input
                   className="mt-1"
-                  type="password"
-                  placeholder={editRouter ? "(inchangé)" : ""}
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  required={!editRouter}
+                  placeholder="ex : HotspotVille"
+                  value={form.hotspotName}
+                  onChange={(e) => setForm({ ...form, hotspotName: e.target.value })}
                 />
+                <p className="text-xs text-gray-400 mt-0.5">Affiché comme titre dans les impressions de rapports (facultatif)</p>
+              </div>
+              <div>
+                <Label>Contact</Label>
+                <Input
+                  className="mt-1"
+                  placeholder="Tel : +243 XX XXX XXXX"
+                  value={form.contact}
+                  onChange={(e) => setForm({ ...form, contact: e.target.value })}
+                />
+                <p className="text-xs text-gray-400 mt-0.5">Affiché en bas de chaque ticket imprimé (facultatif)</p>
+              </div>
+              <div>
+                <Label>Adresse (hôte:port)</Label>
+                <Input
+                  className="mt-1 font-mono"
+                  placeholder="192.168.1.1:8728 ou mon.domaine.com:23728"
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  required
+                />
+                <p className="text-xs text-gray-400 mt-0.5">Port API RouterOS — par défaut 8728 (ou votre port NAT)</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Utilisateur</Label>
+                  <Input
+                    className="mt-1"
+                    placeholder="admin"
+                    value={form.username}
+                    onChange={(e) => setForm({ ...form, username: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>Mot de passe</Label>
+                  <Input
+                    className="mt-1"
+                    type="password"
+                    placeholder={editRouter ? "(inchangé)" : ""}
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    required={!editRouter}
+                  />
+                </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-4 mt-2 border-t">
               <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
                 Annuler
               </Button>
