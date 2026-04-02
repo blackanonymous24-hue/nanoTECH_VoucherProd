@@ -394,7 +394,7 @@ function Dashboard({ token, vendor, onLogout }: {
 
         {data && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 items-start">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <StatCard label="Tickets disponibles" value={data.totalAvailable} icon={Ticket} color="bg-blue-500" onClick={() => setShowAvailable(true)} />
               <StatCard label="Vendus aujourd'hui"  value={data.salesStats.todaySold}      icon={ShoppingCart} color="bg-green-500" />
               <StatCard label="Vendus hier"          value={data.salesStats.yesterdaySold}  icon={Clock}        color="bg-yellow-500" />
