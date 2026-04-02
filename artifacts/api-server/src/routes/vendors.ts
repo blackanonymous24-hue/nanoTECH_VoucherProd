@@ -170,7 +170,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
   if (vendor.commentSuffix2) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
-    void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
+    void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes, true); // force on creation
   }
 });
 
@@ -246,7 +246,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   }
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
-    if (suffixes.length > 0) void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
+    if (suffixes.length > 0) void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes, true); // force on update
   }
 
   // If isActive changed, enable/disable all vouchers on MikroTik (background)

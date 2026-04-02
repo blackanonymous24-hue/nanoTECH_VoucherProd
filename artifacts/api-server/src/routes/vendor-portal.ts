@@ -113,10 +113,10 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     ? await db.select({ hotspotName: routersTable.hotspotName }).from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
     : null;
 
-  // Real-time sync: import MikroTik hotspot users matching vendor suffixes
+  // Background sync: import MikroTik hotspot users matching vendor suffixes (non-blocking)
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
-    await syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
+    void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
   }
 
   const [totalsRows, byProfile, salesRow, recentSales, availableVouchers] = await Promise.all([

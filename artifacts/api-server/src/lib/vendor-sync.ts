@@ -3,22 +3,33 @@ import { db, routersTable, vouchersTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles } from "./mikrotik.js";
 import { logger } from "./logger.js";
 
+/** Throttle: don't sync the same vendor more than once every 5 minutes */
+const SYNC_TTL = 5 * 60_000;
+const lastSyncAt = new Map<number, number>();
+
 /**
  * Sync MikroTik hotspot users matching the vendor's comment suffixes
  * into the local vouchers table.
  *
+ * Throttled to max once every 5 minutes per vendor to avoid hammering MikroTik.
+ * Always runs immediately on first call (vendor creation / suffix update).
+ *
  * - MikroTik users not in local DB → inserted with vendorId set
  * - MikroTik users already in local DB but vendorId=null → vendorId updated
- *
- * Safe to call frequently: idempotent, non-blocking errors.
  */
 export async function syncMikrotikUsersToVendor(
   vendorId: number,
   routerId: number,
   suffixes: string[],
+  force = false,
 ): Promise<void> {
   const activeSuffixes = suffixes.filter(Boolean);
   if (activeSuffixes.length === 0) return;
+
+  const last = lastSyncAt.get(vendorId) ?? 0;
+  if (!force && Date.now() - last < SYNC_TTL) return; // throttled
+
+  lastSyncAt.set(vendorId, Date.now());
 
   try {
     const [router] = await db
@@ -83,6 +94,7 @@ export async function syncMikrotikUsersToVendor(
       logger.info({ vendorId, routerId, count: toInsert.length }, "vendor sync: inserted new vouchers from MikroTik");
     }
   } catch (err) {
+    lastSyncAt.delete(vendorId); // reset on error so next call retries
     logger.warn({ vendorId, routerId, err }, "vendor sync: failed (non-blocking)");
   }
 }

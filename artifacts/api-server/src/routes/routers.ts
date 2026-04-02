@@ -346,7 +346,7 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
 
 interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expiresAt: number; }
 const userCache = new Map<number, UserCache>();
-const USER_CACHE_TTL = 30_000;
+const USER_CACHE_TTL = 90_000; // 90s — frontend refreshes every 30s, always hits cache
 
 async function getCachedUsers(id: number, conn: Parameters<typeof listHotspotUsers>[0]) {
   const cached = userCache.get(id);
