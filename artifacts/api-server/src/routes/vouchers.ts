@@ -1,7 +1,40 @@
 import { Router } from "express";
-import { eq, and, isNotNull, isNull, desc } from "drizzle-orm";
-import { db, routersTable, vouchersTable } from "@workspace/db";
+import { eq, and, isNotNull, isNull, desc, sql } from "drizzle-orm";
+import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
+
+/**
+ * After inserting vouchers, attribute any with vendorId=null to the matching
+ * vendor if their comment ends with that vendor's commentSuffix or commentSuffix2.
+ * This ensures real-time assignment even when vendorId was not explicitly passed.
+ */
+async function autoAttributeInserted(insertedIds: number[]) {
+  if (insertedIds.length === 0) return;
+  try {
+    const vendors = await db
+      .select({ id: vendorsTable.id, s1: vendorsTable.commentSuffix, s2: vendorsTable.commentSuffix2 })
+      .from(vendorsTable)
+      .where(sql`${vendorsTable.commentSuffix} IS NOT NULL OR ${vendorsTable.commentSuffix2} IS NOT NULL`);
+
+    for (const v of vendors) {
+      const suffixes = [v.s1, v.s2].filter(Boolean) as string[];
+      for (const suffix of suffixes) {
+        await db
+          .update(vouchersTable)
+          .set({ vendorId: v.id })
+          .where(
+            and(
+              sql`${vouchersTable.id} = ANY(ARRAY[${sql.raw(insertedIds.join(","))}]::int[])`,
+              isNull(vouchersTable.vendorId),
+              sql`${vouchersTable.comment} LIKE ${"%" + suffix}`,
+            ),
+          );
+      }
+    }
+  } catch {
+    // non-blocking
+  }
+}
 
 const router = Router();
 
@@ -101,6 +134,9 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
       .returning();
 
     res.status(201).json(inserted);
+
+    // Background: auto-attribute vouchers without vendorId to the matching vendor by comment suffix
+    void autoAttributeInserted(inserted.map((v) => v.id));
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
