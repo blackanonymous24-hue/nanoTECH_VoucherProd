@@ -33,8 +33,8 @@ router.post("/managers", async (req, res): Promise<void> => {
   };
   if (!name?.trim()) { res.status(400).json({ error: "Le nom est requis" }); return; }
   if (!username?.trim()) { res.status(400).json({ error: "Le nom d'utilisateur est requis" }); return; }
-  if (!password || password.length < 6) {
-    res.status(400).json({ error: "Mot de passe requis (6 caractères minimum)" }); return;
+  if (!password || password.length < 4) {
+    res.status(400).json({ error: "Mot de passe requis (4 caractères minimum)" }); return;
   }
   const [existing] = await db.select({ id: managersTable.id })
     .from(managersTable).where(eq(managersTable.username, username.trim()));
@@ -69,7 +69,7 @@ router.put("/managers/:id", async (req, res): Promise<void> => {
   if (username !== undefined) updates.username = username.trim();
   if (isActive !== undefined) updates.isActive = isActive;
   if (password && password.trim()) {
-    if (password.length < 6) { res.status(400).json({ error: "Mot de passe trop court (6 car. minimum)" }); return; }
+    if (password.length < 4) { res.status(400).json({ error: "Mot de passe trop court (4 car. minimum)" }); return; }
     updates.passwordHash = await hashPassword(password);
   }
 

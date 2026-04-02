@@ -142,8 +142,8 @@ router.post("/vendors", async (req, res): Promise<void> => {
 
   let passwordHash: string | null = null;
   if (password && password.trim()) {
-    if (password.length < 6) {
-      res.status(400).json({ error: "Le mot de passe doit comporter au moins 6 caractères" });
+    if (password.length < 4) {
+      res.status(400).json({ error: "Le mot de passe doit comporter au moins 4 caractères" });
       return;
     }
     passwordHash = await hashPassword(password);
@@ -215,8 +215,8 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (commentSuffix2 !== undefined) updates.commentSuffix2 = commentSuffix2?.trim() || null;
 
   if (password !== undefined && password.trim()) {
-    if (password.length < 6) {
-      res.status(400).json({ error: "Le mot de passe doit comporter au moins 6 caractères" });
+    if (password.length < 4) {
+      res.status(400).json({ error: "Le mot de passe doit comporter au moins 4 caractères" });
       return;
     }
     updates.passwordHash = await hashPassword(password);

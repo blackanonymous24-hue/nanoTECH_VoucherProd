@@ -162,7 +162,7 @@ export function PersonForm({
               <Input
                 id="pf-username"
                 className="mt-1"
-                placeholder={forManager ? "ex: 07001234" : "ex: 070012345"}
+                placeholder="ex: jean.dupont"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
               />
@@ -171,7 +171,7 @@ export function PersonForm({
               <Label htmlFor="pf-password">
                 {isEdit ? "Nouveau mot de passe" : "Mot de passe"}
                 <span className="text-gray-400 text-xs ml-1">
-                  {isEdit ? "(laisser vide = inchangé)" : "(min. 6 caractères)"}
+                  {isEdit ? "(laisser vide = inchangé)" : "(min. 4 caractères)"}
                 </span>
               </Label>
               <Input
