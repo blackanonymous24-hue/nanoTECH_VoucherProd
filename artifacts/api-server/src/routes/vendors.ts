@@ -77,8 +77,10 @@ function safeVendor(v: typeof vendorsTable.$inferSelect) {
   return rest;
 }
 
-/** Attribute existing unlinked vouchers whose comment ends with commentSuffix to the vendor */
-async function attributeVouchersBySuffix(vendorId: number, commentSuffix: string) {
+/** Attribute existing vouchers whose comment ends with commentSuffix to the vendor.
+ *  Updates ALL matching rows on the vendor's router, regardless of current vendorId,
+ *  so pre-existing tickets and wrongly-assigned tickets are both fixed. */
+async function attributeVouchersBySuffix(vendorId: number, routerId: number, commentSuffix: string) {
   if (!commentSuffix || !commentSuffix.trim()) return;
   const suffix = commentSuffix.trim();
   try {
@@ -87,16 +89,17 @@ async function attributeVouchersBySuffix(vendorId: number, commentSuffix: string
       .set({ vendorId })
       .where(
         and(
-          sql`${vouchersTable.vendorId} IS NULL`,
+          eq(vouchersTable.routerId, routerId),
           sql`${vouchersTable.comment} LIKE ${'%' + suffix}`,
+          sql`(${vouchersTable.vendorId} IS NULL OR ${vouchersTable.vendorId} != ${vendorId})`,
         )
       )
       .returning({ id: vouchersTable.id });
     if (result.length > 0) {
-      logger.info({ vendorId, suffix, count: result.length }, "vouchers attributed by comment suffix");
+      logger.info({ vendorId, routerId, suffix, count: result.length }, "vouchers attributed by comment suffix");
     }
   } catch (err) {
-    logger.warn({ vendorId, suffix, err }, "failed to attribute vouchers by suffix");
+    logger.warn({ vendorId, routerId, suffix, err }, "failed to attribute vouchers by suffix");
   }
 }
 
@@ -166,8 +169,8 @@ router.post("/vendors", async (req, res): Promise<void> => {
   res.status(201).json(safeVendor(vendor));
 
   // Background: attribute local DB vouchers + import MikroTik users by suffix
-  if (vendor.commentSuffix) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
-  if (vendor.commentSuffix2) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
+  if (vendor.routerId && vendor.commentSuffix) void attributeVouchersBySuffix(vendor.id, vendor.routerId, vendor.commentSuffix);
+  if (vendor.routerId && vendor.commentSuffix2) void attributeVouchersBySuffix(vendor.id, vendor.routerId, vendor.commentSuffix2);
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
     void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes, true); // force on creation
@@ -238,11 +241,11 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
 
   // Background: attribute existing vouchers by suffixes if they changed,
   // and also import matching MikroTik users into local DB
-  if (vendor.commentSuffix && vendor.commentSuffix !== current.commentSuffix) {
-    void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
+  if (vendor.routerId && vendor.commentSuffix && vendor.commentSuffix !== current.commentSuffix) {
+    void attributeVouchersBySuffix(vendor.id, vendor.routerId, vendor.commentSuffix);
   }
-  if (vendor.commentSuffix2 && vendor.commentSuffix2 !== current.commentSuffix2) {
-    void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
+  if (vendor.routerId && vendor.commentSuffix2 && vendor.commentSuffix2 !== current.commentSuffix2) {
+    void attributeVouchersBySuffix(vendor.id, vendor.routerId, vendor.commentSuffix2);
   }
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
@@ -309,8 +312,8 @@ router.post("/vendors/:id/sync", async (req, res): Promise<void> => {
   res.json({ ok: true, message: "Synchronisation démarrée" });
 
   // Background: attribute existing DB vouchers + re-import from MikroTik
-  if (vendor.commentSuffix) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
-  if (vendor.commentSuffix2) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
+  if (vendor.routerId && vendor.commentSuffix) void attributeVouchersBySuffix(vendor.id, vendor.routerId, vendor.commentSuffix);
+  if (vendor.routerId && vendor.commentSuffix2) void attributeVouchersBySuffix(vendor.id, vendor.routerId, vendor.commentSuffix2);
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
     if (suffixes.length > 0) void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes, true);

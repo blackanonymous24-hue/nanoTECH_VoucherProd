@@ -1,4 +1,4 @@
-import { eq, and, inArray, isNull } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles } from "./mikrotik.js";
 import { logger } from "./logger.js";
@@ -64,12 +64,13 @@ export async function syncMikrotikUsersToVendor(
 
     const existingMap = new Map(existing.map((e) => [e.username, e]));
 
-    const toUpdate = existing.filter((e) => e.vendorId === null).map((e) => e.id);
+    // Update all vouchers that match the suffix but are not yet correctly assigned to this vendor
+    const toUpdate = existing.filter((e) => e.vendorId !== vendorId).map((e) => e.id);
     if (toUpdate.length > 0) {
       await db
         .update(vouchersTable)
         .set({ vendorId })
-        .where(and(inArray(vouchersTable.id, toUpdate), isNull(vouchersTable.vendorId)));
+        .where(inArray(vouchersTable.id, toUpdate));
       logger.info({ vendorId, routerId, count: toUpdate.length }, "vendor sync: updated vendorId on existing vouchers");
     }
 
