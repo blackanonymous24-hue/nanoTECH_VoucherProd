@@ -8,11 +8,14 @@ import {
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQuery } from "@tanstack/react-query";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function RouterSelector({ className }: { className?: string }) {
   const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline } = useRouterContext();
@@ -54,9 +57,30 @@ function RouterSelector({ className }: { className?: string }) {
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
-  const { routerIdentity } = useRouterContext();
+  const { routerIdentity, selectedRouterId } = useRouterContext();
   const { logout, role } = useAuth();
   const isAdmin = role === "admin";
+
+  /* Reuse the exact same query key as Dashboard → zero extra network call */
+  const { data: voucherCount } = useQuery<number>({
+    queryKey: ["router-users-count", selectedRouterId],
+    queryFn: async (): Promise<number> => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`);
+      if (!res.ok) return 0;
+      const data: unknown = await res.json();
+      if (Array.isArray(data)) return data.length;
+      if (data && typeof data === "object") {
+        const d = data as Record<string, unknown>;
+        if (typeof d.total === "number") return d.total;
+        if (Array.isArray(d.users)) return d.users.length;
+      }
+      return 0;
+    },
+    enabled: !!selectedRouterId,
+    refetchInterval: 120_000,
+    staleTime: 115_000,
+    throwOnError: false,
+  });
 
   const navGroups = [
     {
@@ -117,6 +141,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             <div className="space-y-0.5">
               {group.items.map(({ href, label, icon: Icon }) => {
                 const isActive = href === "/" ? location === "/" : location.startsWith(href);
+                const showCount = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
                 return (
                   <Link
                     key={href}
@@ -130,7 +155,17 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                     )}
                   >
                     <Icon className="h-4 w-4 flex-shrink-0" />
-                    {label}
+                    <span className="flex-1">{label}</span>
+                    {showCount && (
+                      <span className={cn(
+                        "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
+                        isActive
+                          ? "bg-white/20 text-white"
+                          : "bg-gray-700 text-gray-300",
+                      )}>
+                        {voucherCount.toLocaleString("fr-FR")}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
