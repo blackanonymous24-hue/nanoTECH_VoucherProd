@@ -55,14 +55,23 @@ function SaleBar({ used, total }: { used: number; total: number }) {
   );
 }
 
-function SalesMiniCard({ label, value, icon: Icon, color }: {
-  label: string; value: number; icon: React.ElementType; color: string;
+function fmtFcfa(n: number): string {
+  if (n === 0) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}k`;
+  return String(n);
+}
+
+function SalesMiniCard({ label, amount, count, icon: Icon, color }: {
+  label: string; amount: number; count: number; icon: React.ElementType; color: string;
 }) {
   return (
-    <div className={`flex flex-col items-center justify-center rounded-lg p-2 ${color}`}>
-      <Icon className="h-4 w-4 mb-0.5 opacity-70" />
-      <span className="text-lg font-bold leading-none">{value}</span>
-      <span className="text-xs mt-0.5 text-center leading-tight opacity-80">{label}</span>
+    <div className={`flex flex-col items-center justify-center rounded-lg p-3 gap-0.5 ${color}`}>
+      <Icon className="h-4 w-4 opacity-60" />
+      <span className="text-base font-bold leading-none mt-0.5">{fmtFcfa(amount)}</span>
+      <span className="text-[10px] font-semibold opacity-50 leading-none">FCFA</span>
+      <span className="text-[10px] opacity-60">{count} ticket{count !== 1 ? "s" : ""}</span>
+      <span className="text-xs text-center leading-tight opacity-80 font-medium mt-0.5">{label}</span>
     </div>
   );
 }
@@ -172,11 +181,11 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-4 gap-3">
-            <SalesMiniCard label="Aujourd'hui"  value={ss.todaySold}     icon={CalendarDays}  color="bg-green-50 text-green-700" />
-            <SalesMiniCard label="Hier"          value={ss.yesterdaySold} icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
-            <SalesMiniCard label="Cette semaine" value={ss.weekSold}      icon={CalendarClock} color="bg-blue-50 text-blue-700" />
-            <SalesMiniCard label="Mois dernier"  value={ss.lastMonthSold} icon={BarChart3}      color="bg-purple-50 text-purple-700" />
+          <div className="grid grid-cols-2 gap-3">
+            <SalesMiniCard label="Aujourd'hui"  amount={(ss as any).todayAmount     ?? 0} count={ss.todaySold}     icon={CalendarDays}  color="bg-green-50 text-green-700" />
+            <SalesMiniCard label="Hier"          amount={(ss as any).yesterdayAmount ?? 0} count={ss.yesterdaySold} icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
+            <SalesMiniCard label="Cette semaine" amount={(ss as any).weekAmount      ?? 0} count={ss.weekSold}      icon={CalendarClock} color="bg-blue-50 text-blue-700" />
+            <SalesMiniCard label="Mois dernier"  amount={(ss as any).lastMonthAmount ?? 0} count={ss.lastMonthSold} icon={BarChart3}      color="bg-purple-50 text-purple-700" />
           </div>
         </CardContent>
       </Card>
@@ -284,11 +293,11 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
 
         {/* Stats temporelles */}
         <div className="mt-3 pt-3 border-t border-gray-100">
-          <div className="grid grid-cols-4 gap-1.5">
-            <SalesMiniCard label="Auj."    value={ss.todaySold}     icon={CalendarDays}  color="bg-green-50 text-green-700" />
-            <SalesMiniCard label="Hier"    value={ss.yesterdaySold} icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
-            <SalesMiniCard label="Semaine" value={ss.weekSold}      icon={CalendarClock} color="bg-blue-50 text-blue-700" />
-            <SalesMiniCard label="Mois-1"  value={ss.lastMonthSold} icon={BarChart3}     color="bg-purple-50 text-purple-700" />
+          <div className="grid grid-cols-2 gap-1.5">
+            <SalesMiniCard label="Aujourd'hui"  amount={(ss as any).todayAmount     ?? 0} count={ss.todaySold}     icon={CalendarDays}  color="bg-green-50 text-green-700" />
+            <SalesMiniCard label="Hier"          amount={(ss as any).yesterdayAmount ?? 0} count={ss.yesterdaySold} icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
+            <SalesMiniCard label="Cette semaine" amount={(ss as any).weekAmount      ?? 0} count={ss.weekSold}      icon={CalendarClock} color="bg-blue-50 text-blue-700" />
+            <SalesMiniCard label="Mois dernier"  amount={(ss as any).lastMonthAmount ?? 0} count={ss.lastMonthSold} icon={BarChart3}      color="bg-purple-50 text-purple-700" />
           </div>
         </div>
       </CardContent>
