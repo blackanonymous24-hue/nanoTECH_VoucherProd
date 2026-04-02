@@ -394,7 +394,7 @@ function Dashboard({ token, vendor, onLogout }: {
 
         {data && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 items-start">
               <StatCard label="Tickets disponibles" value={data.totalAvailable} icon={Ticket} color="bg-blue-500" onClick={() => setShowAvailable(true)} />
               <StatCard label="Vendus aujourd'hui"  value={data.salesStats.todaySold}      icon={ShoppingCart} color="bg-green-500" />
               <StatCard label="Vendus hier"          value={data.salesStats.yesterdaySold}  icon={Clock}        color="bg-yellow-500" />
@@ -402,16 +402,16 @@ function Dashboard({ token, vendor, onLogout }: {
               <StatCard label="Mois en cours"        value={data.salesStats.lastMonthSold}   icon={TrendingUp}   color="bg-purple-500" />
 
               <Card className="col-span-2 md:col-span-1">
-                <CardContent className="p-4 h-full flex flex-col justify-between gap-3">
+                <CardContent className="p-3 flex flex-col gap-2">
                   <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
-                      <Search className="h-4 w-4 text-white" />
+                    <div className="h-7 w-7 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                      <Search className="h-3.5 w-3.5 text-white" />
                     </div>
-                    <p className="text-xs font-medium text-gray-700 leading-tight whitespace-nowrap">Vérifier les ventes d&apos;une période</p>
+                    <p className="text-xs font-medium text-gray-700 leading-tight">Ventes d&apos;une période</p>
                   </div>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-3 gap-1">
                     <Select value={reportDay} onValueChange={setReportDay}>
-                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="text-xs h-7 px-2"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {days.map((d) => (
                           <SelectItem key={d} value={String(d)} className="text-xs">{String(d).padStart(2,"0")}</SelectItem>
@@ -419,7 +419,7 @@ function Dashboard({ token, vendor, onLogout }: {
                       </SelectContent>
                     </Select>
                     <Select value={reportMonth} onValueChange={setReportMonth}>
-                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="text-xs h-7 px-2"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {MONTHS.map((m, i) => (
                           <SelectItem key={i + 1} value={String(i + 1)} className="text-xs">{m.slice(0, 3)}</SelectItem>
@@ -427,7 +427,7 @@ function Dashboard({ token, vendor, onLogout }: {
                       </SelectContent>
                     </Select>
                     <Select value={reportYear} onValueChange={setReportYear}>
-                      <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="text-xs h-7 px-2"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {years.map((y) => (
                           <SelectItem key={y} value={String(y)} className="text-xs">{y}</SelectItem>
@@ -437,7 +437,7 @@ function Dashboard({ token, vendor, onLogout }: {
                   </div>
                   <Button
                     size="sm"
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-xs"
+                    className="w-full h-7 bg-indigo-600 hover:bg-indigo-700 text-xs"
                     onClick={() => setReportView({ day: reportDay, month: reportMonth, year: reportYear })}
                   >
                     Voir le rapport
