@@ -110,7 +110,7 @@ router.get("/vendors", async (req, res): Promise<void> => {
 });
 
 router.post("/vendors", async (req, res): Promise<void> => {
-  const { name, phone, email, username, password, routerId, commentSuffix } = req.body as {
+  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2 } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -118,6 +118,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
     password?: string;
     routerId?: number;
     commentSuffix?: string;
+    commentSuffix2?: string;
   };
 
   if (!name || name.trim() === "") {
@@ -155,21 +156,21 @@ router.post("/vendors", async (req, res): Promise<void> => {
       username: username?.trim() || null,
       passwordHash,
       commentSuffix: commentSuffix?.trim() || null,
+      commentSuffix2: commentSuffix2?.trim() || null,
     })
     .returning();
   res.status(201).json(safeVendor(vendor));
 
-  // Background: attribute existing vouchers by suffix
-  if (vendor.commentSuffix) {
-    void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
-  }
+  // Background: attribute existing vouchers by suffixes
+  if (vendor.commentSuffix) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
+  if (vendor.commentSuffix2) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
 });
 
 router.put("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, phone, email, username, password, isActive, commentSuffix } = req.body as {
+  const { name, phone, email, username, password, isActive, commentSuffix, commentSuffix2 } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -177,6 +178,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     password?: string;
     isActive?: boolean;
     commentSuffix?: string;
+    commentSuffix2?: string;
   };
 
   if (username !== undefined && username.trim()) {
@@ -201,6 +203,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (username !== undefined) updates.username = username?.trim() || null;
   if (isActive !== undefined) updates.isActive = isActive;
   if (commentSuffix !== undefined) updates.commentSuffix = commentSuffix?.trim() || null;
+  if (commentSuffix2 !== undefined) updates.commentSuffix2 = commentSuffix2?.trim() || null;
 
   if (password !== undefined && password.trim()) {
     if (password.length < 6) {
@@ -219,10 +222,12 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
   res.json(safeVendor(vendor));
 
-  // Background: attribute existing vouchers by suffix if suffix changed or just set
-  const newSuffix = vendor.commentSuffix;
-  if (newSuffix && newSuffix !== current.commentSuffix) {
-    void attributeVouchersBySuffix(vendor.id, newSuffix);
+  // Background: attribute existing vouchers by suffixes if they changed
+  if (vendor.commentSuffix && vendor.commentSuffix !== current.commentSuffix) {
+    void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
+  }
+  if (vendor.commentSuffix2 && vendor.commentSuffix2 !== current.commentSuffix2) {
+    void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
   }
 
   // If isActive changed, enable/disable all vouchers on MikroTik (background)

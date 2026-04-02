@@ -47,6 +47,7 @@ export type PersonFormData = {
   username: string;
   password: string;
   commentSuffix: string;
+  commentSuffix2: string;
 };
 
 export function PersonForm({
@@ -67,6 +68,7 @@ export function PersonForm({
     email: string | null;
     username: string | null;
     commentSuffix: string | null;
+    commentSuffix2: string | null;
   }>;
   onSubmit: (data: PersonFormData) => void;
   onCancel: () => void;
@@ -84,109 +86,140 @@ export function PersonForm({
   const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
   const [commentSuffix, setCommentSuffix] = useState(initial?.commentSuffix ?? "");
+  const [commentSuffix2, setCommentSuffix2] = useState(initial?.commentSuffix2 ?? "");
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, phone, email, username, password, commentSuffix });
+        onSubmit({ name, phone, email, username, password, commentSuffix, commentSuffix2 });
       }}
-      className="space-y-3"
+      className="flex flex-col gap-0"
     >
-      {serverError && (
-        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-          {serverError}
+      {/* Scrollable fields */}
+      <div className="overflow-y-auto px-1 space-y-3" style={{ maxHeight: "calc(90vh - 180px)" }}>
+        {serverError && (
+          <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            {serverError}
+          </div>
+        )}
+
+        <div>
+          <Label htmlFor="pf-name">{nameLabel} *</Label>
+          <Input
+            id="pf-name"
+            className="mt-1"
+            placeholder={forManager ? "ex: Jean Dupont" : "ex: JEAN DUPONT"}
+            value={name}
+            onChange={(e) => setName(forManager ? e.target.value : e.target.value.toUpperCase())}
+            required
+            autoFocus
+          />
         </div>
-      )}
 
-      <div>
-        <Label htmlFor="pf-name">{nameLabel} *</Label>
-        <Input
-          id="pf-name"
-          className="mt-1"
-          placeholder={forManager ? "ex: Jean Dupont" : "ex: JEAN DUPONT"}
-          value={name}
-          onChange={(e) => setName(forManager ? e.target.value : e.target.value.toUpperCase())}
-          required
-          autoFocus
-        />
-      </div>
-
-      {!forManager && (
-        <>
-          <div>
-            <Label htmlFor="pf-phone">Téléphone <span className="text-gray-400 text-xs">(optionnel)</span></Label>
-            <Input
-              id="pf-phone"
-              className="mt-1"
-              placeholder="ex: +225 07 00 00 00"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="pf-email">Email <span className="text-gray-400 text-xs">(optionnel)</span></Label>
-            <Input
-              id="pf-email"
-              type="email"
-              className="mt-1"
-              placeholder="ex: jean@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-        </>
-      )}
-
-      <div className="pt-2 border-t">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{portalSectionLabel}</p>
-        <div className="space-y-2">
-          <div>
-            <Label htmlFor="pf-username">{usernameLabel}</Label>
-            <Input
-              id="pf-username"
-              className="mt-1"
-              placeholder={forManager ? "ex: 07001234" : "ex: 070012345"}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="pf-password">
-              {isEdit ? "Nouveau mot de passe" : "Mot de passe"}
-              <span className="text-gray-400 text-xs ml-1">{isEdit ? "(laisser vide = inchangé)" : "(min. 6 caractères)"}</span>
-            </Label>
-            <Input
-              id="pf-password"
-              type="password"
-              className="mt-1"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          {!forManager && (
+        {!forManager && (
+          <>
             <div>
-              <Label htmlFor="pf-suffix">
-                Identifiant lot <span className="text-gray-400 text-xs">(suffixe du commentaire)</span>
+              <Label htmlFor="pf-phone">
+                Téléphone <span className="text-gray-400 text-xs">(optionnel)</span>
               </Label>
               <Input
-                id="pf-suffix"
-                className="mt-1 font-mono"
-                placeholder="ex: HOME"
-                value={commentSuffix}
-                onChange={(e) => setCommentSuffix(e.target.value.toUpperCase())}
+                id="pf-phone"
+                className="mt-1"
+                placeholder="ex: +225 07 00 00 00"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
               />
-              <p className="text-xs text-gray-400 mt-1">
-                Les vouchers dont le commentaire se termine par cet identifiant seront automatiquement attribués à ce vendeur.
-              </p>
             </div>
-          )}
+            <div>
+              <Label htmlFor="pf-email">
+                Email <span className="text-gray-400 text-xs">(optionnel)</span>
+              </Label>
+              <Input
+                id="pf-email"
+                type="email"
+                className="mt-1"
+                placeholder="ex: jean@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+          </>
+        )}
+
+        <div className="pt-2 border-t">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            {portalSectionLabel}
+          </p>
+          <div className="space-y-2">
+            <div>
+              <Label htmlFor="pf-username">{usernameLabel}</Label>
+              <Input
+                id="pf-username"
+                className="mt-1"
+                placeholder={forManager ? "ex: 07001234" : "ex: 070012345"}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="pf-password">
+                {isEdit ? "Nouveau mot de passe" : "Mot de passe"}
+                <span className="text-gray-400 text-xs ml-1">
+                  {isEdit ? "(laisser vide = inchangé)" : "(min. 6 caractères)"}
+                </span>
+              </Label>
+              <Input
+                id="pf-password"
+                type="password"
+                className="mt-1"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
         </div>
+
+        {!forManager && (
+          <div className="pt-2 border-t">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Identifiants de lot <span className="font-normal normal-case text-gray-400">(optionnels)</span>
+            </p>
+            <p className="text-xs text-gray-400 mb-2">
+              Les vouchers dont le commentaire se termine par l'un de ces identifiants seront automatiquement attribués à ce vendeur.
+            </p>
+            <div className="space-y-2">
+              <div>
+                <Label htmlFor="pf-suffix">Identifiant 1</Label>
+                <Input
+                  id="pf-suffix"
+                  className="mt-1 font-mono"
+                  placeholder="ex: HOME"
+                  value={commentSuffix}
+                  onChange={(e) => setCommentSuffix(e.target.value.toUpperCase())}
+                />
+              </div>
+              <div>
+                <Label htmlFor="pf-suffix2">Identifiant 2</Label>
+                <Input
+                  id="pf-suffix2"
+                  className="mt-1 font-mono"
+                  placeholder="ex: BUREAU"
+                  value={commentSuffix2}
+                  onChange={(e) => setCommentSuffix2(e.target.value.toUpperCase())}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <DialogFooter className="pt-2">
-        <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+      {/* Fixed footer */}
+      <DialogFooter className="pt-4 mt-2 border-t">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Annuler
+        </Button>
         <Button type="submit" disabled={loading || !name.trim()}>
           {loading ? "Enregistrement..." : "Enregistrer"}
         </Button>
@@ -243,6 +276,7 @@ export default function Vendors() {
           ...(data.password ? { password: data.password } : {}),
           ...(selectedRouterId ? { routerId: selectedRouterId } : {}),
           ...(data.commentSuffix ? { commentSuffix: data.commentSuffix } : {}),
+          ...(data.commentSuffix2 ? { commentSuffix2: data.commentSuffix2 } : {}),
         } as any,
       });
       invalidate();
@@ -270,6 +304,7 @@ export default function Vendors() {
           username: data.username || null,
           ...(data.password ? { password: data.password } : {}),
           commentSuffix: data.commentSuffix || null,
+          commentSuffix2: data.commentSuffix2 || null,
         } as any,
       });
       invalidate();
@@ -322,7 +357,7 @@ export default function Vendors() {
               : "Sélectionnez un routeur pour gérer ses vendeurs"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
             variant="outline"
             className="gap-2"
@@ -392,10 +427,14 @@ export default function Vendors() {
                           {(vendor as any).username}
                         </div>
                       )}
-                      {(vendor as any).commentSuffix && (
+                      {((vendor as any).commentSuffix || (vendor as any).commentSuffix2) && (
                         <div className="flex items-center gap-1 text-xs text-orange-500 mt-0.5">
                           <Tag className="h-3 w-3 flex-shrink-0" />
-                          <span className="font-mono">{(vendor as any).commentSuffix}</span>
+                          <span className="font-mono">
+                            {[(vendor as any).commentSuffix, (vendor as any).commentSuffix2]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -440,8 +479,9 @@ export default function Vendors() {
         </div>
       )}
 
+      {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={(o) => { if (!o) { setShowCreate(false); setCreateError(""); } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md w-full">
           <DialogHeader>
             <DialogTitle>Ajouter un vendeur</DialogTitle>
           </DialogHeader>
@@ -455,8 +495,9 @@ export default function Vendors() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit Dialog */}
       <Dialog open={!!editVendor} onOpenChange={(o) => { if (!o) { setEditVendor(null); setEditError(""); } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md w-full">
           <DialogHeader>
             <DialogTitle>Modifier le vendeur</DialogTitle>
           </DialogHeader>
@@ -468,6 +509,7 @@ export default function Vendors() {
                 email: (editVendor as any).email ?? null,
                 username: (editVendor as any).username ?? null,
                 commentSuffix: (editVendor as any).commentSuffix ?? null,
+                commentSuffix2: (editVendor as any).commentSuffix2 ?? null,
               }}
               onSubmit={handleEdit}
               onCancel={() => { setEditVendor(null); setEditError(""); }}
