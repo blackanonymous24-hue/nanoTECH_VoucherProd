@@ -299,6 +299,24 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/vendors/:id/sync", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
+  if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
+
+  res.json({ ok: true, message: "Synchronisation démarrée" });
+
+  // Background: attribute existing DB vouchers + re-import from MikroTik
+  if (vendor.commentSuffix) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix);
+  if (vendor.commentSuffix2) void attributeVouchersBySuffix(vendor.id, vendor.commentSuffix2);
+  if (vendor.routerId) {
+    const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
+    if (suffixes.length > 0) void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes, true);
+  }
+});
+
 router.delete("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }

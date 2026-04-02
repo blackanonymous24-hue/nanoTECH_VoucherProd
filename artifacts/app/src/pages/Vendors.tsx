@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag } from "lucide-react";
+import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -81,6 +81,13 @@ export function PersonForm({
   const [password, setPassword] = useState("");
   const [commentSuffix, setCommentSuffix] = useState(initial?.commentSuffix ?? "");
   const [commentSuffix2, setCommentSuffix2] = useState(initial?.commentSuffix2 ?? "");
+  const [suffixTouched, setSuffixTouched] = useState(!!initial?.commentSuffix);
+
+  const handleNameChange = (v: string) => {
+    const upper = forManager ? v : v.toUpperCase();
+    setName(upper);
+    if (!forManager && !suffixTouched) setCommentSuffix(upper);
+  };
 
   return (
     <form
@@ -105,7 +112,7 @@ export function PersonForm({
             className="mt-1"
             placeholder={forManager ? "ex: Jean Dupont" : "ex: JEAN DUPONT"}
             value={name}
-            onChange={(e) => setName(forManager ? e.target.value : e.target.value.toUpperCase())}
+            onChange={(e) => handleNameChange(e.target.value)}
             required
             autoFocus
           />
@@ -196,7 +203,7 @@ export function PersonForm({
                   className="mt-1 font-mono"
                   placeholder="ex: HOME"
                   value={commentSuffix}
-                  onChange={(e) => setCommentSuffix(e.target.value.toUpperCase())}
+                  onChange={(e) => { setSuffixTouched(true); setCommentSuffix(e.target.value.toUpperCase()); }}
                 />
               </div>
               <div>
@@ -245,6 +252,21 @@ export default function Vendors() {
   const [editVendor, setEditVendor] = useState<Vendor | null>(null);
   const [editError, setEditError] = useState<string>("");
   const [deleteVendorId, setDeleteVendorId] = useState<number | null>(null);
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+
+  const handleSync = async (vendor: Vendor) => {
+    setSyncingId(vendor.id);
+    try {
+      const res = await fetch(`${BASE}/api/vendors/${vendor.id}/sync`, { method: "POST" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast({ title: `Synchronisation lancée pour ${vendor.name}`, description: "Les tickets vont être attribués dans quelques secondes." });
+      setTimeout(() => invalidate(), 4000);
+    } catch {
+      toast({ title: "Erreur de synchronisation", variant: "destructive" });
+    } finally {
+      setSyncingId(null);
+    }
+  };
 
   const { data: vendors = [], isLoading, refetch: refetchVendors } = useQuery<Vendor[]>({
     queryKey: ["vendors", selectedRouterId],
@@ -479,6 +501,16 @@ export default function Vendors() {
                     {vendor.isActive
                       ? <><X className="h-3.5 w-3.5" /> Désactiver</>
                       : <><Check className="h-3.5 w-3.5" /> Activer</>}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                    onClick={() => handleSync(vendor)}
+                    disabled={syncingId === vendor.id}
+                    title="Resynchroniser les tickets depuis MikroTik"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${syncingId === vendor.id ? "animate-spin" : ""}`} />
                   </Button>
                   {!isManager && (
                     <Button
