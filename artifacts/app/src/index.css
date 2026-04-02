@@ -294,6 +294,13 @@
   }
 }
 
+/* ── Sidebar nav scrollbar — thin dark style ── */
+.sidebar-nav::-webkit-scrollbar { width: 3px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: #374151; border-radius: 999px; }
+.sidebar-nav::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+.sidebar-nav { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
+
 @media print {
   body * { visibility: hidden !important; }
   #voucher-print-section,

@@ -99,7 +99,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* ── Nav — scrollable ── */}
-        <nav className="flex-1 overflow-y-auto px-3 py-2 min-h-0 scrollbar-thin">
+        <nav className="flex-1 overflow-y-auto px-3 py-2 min-h-0 sidebar-nav">
           {navGroups.map((group) => (
             <div key={group.label} className="mb-3">
               <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-500">

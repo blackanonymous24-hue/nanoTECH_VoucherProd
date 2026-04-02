@@ -322,8 +322,8 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     db
       .select()
       .from(vouchersTable)
-      .where(eq(vouchersTable.vendorId, id))
-      .orderBy(desc(vouchersTable.createdAt))
+      .where(and(eq(vouchersTable.vendorId, id), isNotNull(vouchersTable.usedAt)))
+      .orderBy(desc(vouchersTable.usedAt))
       .limit(50),
   ]);
 

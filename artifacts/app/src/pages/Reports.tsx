@@ -216,28 +216,29 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Derniers vouchers</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Dernières ventes</CardTitle></CardHeader>
           <CardContent>
             {data.recentVouchers.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-4">Aucun voucher</p>
+              <p className="text-sm text-gray-400 text-center py-4">Aucune vente enregistrée</p>
             ) : (
               <div className="space-y-1 max-h-64 overflow-y-auto">
-                {data.recentVouchers.map((v) => (
-                  <div key={v.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                    <div>
-                      <span className="text-sm font-mono font-medium">{v.username}</span>
-                      <span className="text-xs text-gray-400 ml-2">/ {v.password}</span>
+                {data.recentVouchers.map((v) => {
+                  const soldAt = (v as any).usedAt
+                    ? new Date((v as any).usedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+                    : null;
+                  return (
+                    <div key={v.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                      <div>
+                        <span className="text-sm font-mono font-medium">{v.username}</span>
+                        <span className="text-xs text-gray-400 ml-2">{v.profileName}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-right">
+                        {(v as any).price && <span className="text-xs font-semibold text-gray-700">{(v as any).price} FCFA</span>}
+                        {soldAt && <span className="text-[10px] text-gray-400 whitespace-nowrap">{soldAt}</span>}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">{v.profileName}</span>
-                      {(v as any).usedAt ? (
-                        <Badge variant="outline" className="text-xs text-red-600 border-red-400 bg-transparent">Vendu</Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-xs text-green-600 border-green-400 bg-transparent">Non vendu</Badge>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
