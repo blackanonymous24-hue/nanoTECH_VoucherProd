@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useListRouters, useListRouterProfiles } from "@workspace/api-client-react";
+import { useListRouterProfiles } from "@workspace/api-client-react";
+import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,13 +59,12 @@ const defaultForm = {
 export default function Forfaits() {
   const { role } = useAuth();
   const isManager = role === "manager";
-  const { data: routers = [], isLoading: loadingRouters } = useListRouters();
-  const [routerId, setRouterId] = useState<string>("");
+  const { selectedRouterId } = useRouterContext();
   const queryClient = useQueryClient();
 
   const { data: profiles = [], isLoading: loadingProfiles } = useListRouterProfiles(
-    parseInt(routerId, 10),
-    { query: { enabled: !!routerId } },
+    selectedRouterId ?? 0,
+    { query: { enabled: !!selectedRouterId } },
   );
 
   const [showDialog, setShowDialog] = useState(false);
@@ -82,10 +82,10 @@ export default function Forfaits() {
   }
 
   async function fetchPools() {
-    if (!routerId) return;
+    if (!selectedRouterId) return;
     setLoadingPools(true);
     try {
-      const res = await fetch(`/api/routers/${routerId}/pools`);
+      const res = await fetch(`/api/routers/${selectedRouterId}/pools`);
       if (res.ok) setPools(await res.json());
     } catch { /* ignore */ } finally {
       setLoadingPools(false);
@@ -123,15 +123,15 @@ export default function Forfaits() {
 
   async function handleSave() {
     setError(null);
-    if (!routerId) { setError("Sélectionnez un routeur d'abord."); return; }
+    if (!selectedRouterId) { setError("Sélectionnez un routeur d'abord."); return; }
     if (!form.name.trim() || !form.price.trim() || !form.validity.trim()) {
       setError("Nom, prix et validité sont obligatoires."); return;
     }
     setSaving(true);
     try {
       const url = editingName
-        ? `/api/routers/${routerId}/profiles/${encodeURIComponent(editingName)}`
-        : `/api/routers/${routerId}/profiles`;
+        ? `/api/routers/${selectedRouterId}/profiles/${encodeURIComponent(editingName)}`
+        : `/api/routers/${selectedRouterId}/profiles`;
       const method = editingName ? "PUT" : "POST";
       const res = await fetch(url, {
         method,
@@ -143,7 +143,7 @@ export default function Forfaits() {
       setShowDialog(false);
       setForm(defaultForm);
       setEditingName(null);
-      queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", parseInt(routerId, 10)] });
+      queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
     } catch {
       setError("Impossible de contacter le serveur.");
     } finally {
@@ -152,16 +152,16 @@ export default function Forfaits() {
   }
 
   async function handleDelete() {
-    if (!deletingName || !routerId) return;
+    if (!deletingName || !selectedRouterId) return;
     setDeleting(true);
     try {
       const res = await fetch(
-        `/api/routers/${routerId}/profiles/${encodeURIComponent(deletingName)}`,
+        `/api/routers/${selectedRouterId}/profiles/${encodeURIComponent(deletingName)}`,
         { method: "DELETE" },
       );
       if (res.ok) {
         setDeletingName(null);
-        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", parseInt(routerId, 10)] });
+        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
       }
     } catch { /* ignore */ } finally {
       setDeleting(false);
@@ -176,42 +176,27 @@ export default function Forfaits() {
           <p className="text-sm text-gray-500">Profils hotspot disponibles sur vos routeurs MikroTik</p>
         </div>
         {!isManager && (
-          <Button onClick={openCreate} disabled={!routerId} className="flex-shrink-0">
+          <Button onClick={openCreate} disabled={!selectedRouterId} className="flex-shrink-0">
             <Plus className="h-4 w-4 mr-1.5" /> Ajouter un forfait
           </Button>
         )}
       </div>
 
-      <div className="mb-6 max-w-xs">
-        <Select value={routerId} onValueChange={setRouterId} disabled={loadingRouters}>
-          <SelectTrigger>
-            <SelectValue placeholder="Sélectionnez un routeur" />
-          </SelectTrigger>
-          <SelectContent>
-            {routers.map((r) => (
-              <SelectItem key={r.id} value={String(r.id)}>
-                {r.name} — {r.host}:{r.port}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {!routerId && (
+      {!selectedRouterId && (
         <Card>
           <CardContent className="py-16 text-center">
             <PackageOpen className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 font-medium">Sélectionnez un routeur</p>
+            <p className="text-gray-500 font-medium">Sélectionnez un routeur dans la barre latérale</p>
             <p className="text-sm text-gray-400 mt-1">Les forfaits disponibles s&apos;afficheront ici</p>
           </CardContent>
         </Card>
       )}
 
-      {routerId && loadingProfiles && (
+      {selectedRouterId && loadingProfiles && (
         <div className="text-sm text-gray-400">Chargement des forfaits...</div>
       )}
 
-      {routerId && !loadingProfiles && profiles.length === 0 && (
+      {selectedRouterId && !loadingProfiles && profiles.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-gray-500">Aucun profil trouvé sur ce routeur.</p>

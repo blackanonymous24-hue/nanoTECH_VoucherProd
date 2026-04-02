@@ -144,10 +144,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
           <button
             onClick={logout}
-            title="Déconnexion"
-            className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded"
+            className="flex items-center gap-1.5 text-xs font-medium text-red-400 hover:text-red-300 transition-colors px-2 py-1 rounded hover:bg-red-900/30"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-3.5 w-3.5" /> Se déconnecter
           </button>
         </div>
       </aside>

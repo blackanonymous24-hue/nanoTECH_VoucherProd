@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   useListRouterSessions,
   useDisconnectRouterSession,
@@ -8,13 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -47,28 +40,17 @@ function formatBytes(bytes: string | null | undefined): string {
 }
 
 export default function Sessions() {
-  const { selectedRouterId, setSelectedRouterId, routers } = useRouterContext();
+  const { selectedRouterId } = useRouterContext();
   const { toast } = useToast();
 
-  const [localRouterId, setLocalRouterId] = useState<string>(
-    selectedRouterId ? String(selectedRouterId) : "",
-  );
   const [search, setSearch] = useState("");
   const [disconnectUser, setDisconnectUser] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (selectedRouterId && !localRouterId) {
-      setLocalRouterId(String(selectedRouterId));
-    }
-  }, [selectedRouterId]);
-
-  const activeId = localRouterId ? parseInt(localRouterId, 10) : null;
-
   const { data: sessions = [], isLoading, refetch, isFetching, error } = useListRouterSessions(
-    activeId ?? 0,
+    selectedRouterId ?? 0,
     {
       query: {
-        enabled: !!activeId,
+        enabled: !!selectedRouterId,
         refetchInterval: 30_000,
       },
     },
@@ -76,17 +58,11 @@ export default function Sessions() {
 
   const disconnectMutation = useDisconnectRouterSession();
 
-  const handleRouterChange = (val: string) => {
-    setLocalRouterId(val);
-    setSelectedRouterId(val ? parseInt(val, 10) : null);
-    setSearch("");
-  };
-
   const handleDisconnect = async () => {
-    if (!disconnectUser || !activeId) return;
+    if (!disconnectUser || !selectedRouterId) return;
     try {
       const result = await disconnectMutation.mutateAsync({
-        id: activeId,
+        id: selectedRouterId,
         data: { user: disconnectUser },
       });
       toast({
@@ -123,7 +99,7 @@ export default function Sessions() {
           <h1 className="text-2xl font-bold text-gray-900">Clients actifs</h1>
           <p className="text-sm text-gray-500">Utilisateurs connectés en temps réel sur votre hotspot</p>
         </div>
-        {activeId && (
+        {selectedRouterId && (
           <Button
             variant="outline"
             size="sm"
@@ -138,22 +114,7 @@ export default function Sessions() {
       </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div className="w-72">
-          <Select value={localRouterId} onValueChange={handleRouterChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Sélectionnez un routeur" />
-            </SelectTrigger>
-            <SelectContent>
-              {routers.map((r) => (
-                <SelectItem key={r.id} value={String(r.id)}>
-                  {r.name} — {r.host}:{r.port}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {activeId && sessions.length > 0 && (
+        {selectedRouterId && sessions.length > 0 && (
           <div className="relative flex-1 min-w-48 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
             <Input
@@ -165,32 +126,32 @@ export default function Sessions() {
           </div>
         )}
 
-        {activeId && !isLoading && (
+        {selectedRouterId && !isLoading && (
           <Badge variant="outline" className="gap-1.5 text-green-600 border-green-200">
             <Users className="h-3 w-3" />
             {search ? `${filtered.length} / ${sessions.length}` : sessions.length} client(s)
           </Badge>
         )}
-        {activeId && (
+        {selectedRouterId && (
           <span className="text-xs text-gray-400">Rafraîchissement auto toutes les 30s</span>
         )}
       </div>
 
-      {!activeId && (
+      {!selectedRouterId && (
         <Card>
           <CardContent className="py-16 text-center">
             <Activity className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 font-medium">Sélectionnez un routeur</p>
+            <p className="text-gray-500 font-medium">Sélectionnez un routeur dans la barre latérale</p>
             <p className="text-sm text-gray-400 mt-1">Les clients actifs s&apos;afficheront ici</p>
           </CardContent>
         </Card>
       )}
 
-      {activeId && isLoading && (
+      {selectedRouterId && isLoading && (
         <div className="text-sm text-gray-400">Chargement des clients actifs...</div>
       )}
 
-      {activeId && error && (
+      {selectedRouterId && error && (
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-red-500 text-sm">Impossible de récupérer les clients actifs. Vérifiez la connexion au routeur.</p>
@@ -198,7 +159,7 @@ export default function Sessions() {
         </Card>
       )}
 
-      {activeId && !isLoading && !error && sessions.length === 0 && (
+      {selectedRouterId && !isLoading && !error && sessions.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center">
             <Wifi className="h-10 w-10 text-gray-300 mx-auto mb-3" />
@@ -208,7 +169,7 @@ export default function Sessions() {
         </Card>
       )}
 
-      {activeId && !isLoading && sessions.length > 0 && filtered.length === 0 && (
+      {selectedRouterId && !isLoading && sessions.length > 0 && filtered.length === 0 && (
         <Card>
           <CardContent className="py-10 text-center">
             <Search className="h-8 w-8 text-gray-300 mx-auto mb-3" />
@@ -217,7 +178,7 @@ export default function Sessions() {
         </Card>
       )}
 
-      {activeId && !isLoading && filtered.length > 0 && (
+      {selectedRouterId && !isLoading && filtered.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">

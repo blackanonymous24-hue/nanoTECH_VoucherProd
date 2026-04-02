@@ -661,8 +661,8 @@ function Dashboard({ token, vendor, onLogout }: {
           <Button size="sm" variant="ghost" onClick={fetchData} title="Actualiser">
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={onLogout}>
-            <LogOut className="h-4 w-4" /> Déconnexion
+          <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300" onClick={onLogout}>
+            <LogOut className="h-4 w-4" /> Se déconnecter
           </Button>
         </div>
       </header>

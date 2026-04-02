@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import {
-  useListRouters,
   useListRouterProfiles,
   useGenerateVouchers,
   getListVouchersQueryKey,
@@ -45,14 +44,10 @@ function makeBatchId(): string {
 }
 
 export default function GenerateVouchers() {
-  const { data: routers = [] } = useListRouters();
-  const { selectedRouterId, setSelectedRouterId, selectedRouter } = useRouterContext();
+  const { selectedRouterId, selectedRouter } = useRouterContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [localRouterId, setLocalRouterId] = useState<string>(
-    selectedRouterId ? String(selectedRouterId) : "",
-  );
   const [profile, setProfile] = useState<string>("");
   const [qty, setQty] = useState("10");
   const [prefix, setPrefix] = useState("");
@@ -62,14 +57,12 @@ export default function GenerateVouchers() {
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
-  const activeRouterId = selectedRouterId ?? (localRouterId ? parseInt(localRouterId, 10) : null);
-
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null }[]>({
-    queryKey: ["vendors", activeRouterId],
+    queryKey: ["vendors", selectedRouterId],
     queryFn: async () => {
-      const url = activeRouterId
-        ? `${GEN_BASE}/api/vendors?routerId=${activeRouterId}`
+      const url = selectedRouterId
+        ? `${GEN_BASE}/api/vendors?routerId=${selectedRouterId}`
         : `${GEN_BASE}/api/vendors`;
       const res = await fetch(url);
       if (!res.ok) return [];
@@ -79,18 +72,14 @@ export default function GenerateVouchers() {
   });
 
   const { data: profiles = [], isLoading: loadingProfiles } = useListRouterProfiles(
-    activeRouterId ?? 0,
-    { query: { enabled: !!activeRouterId } },
+    selectedRouterId ?? 0,
+    { query: { enabled: !!selectedRouterId } },
   );
 
   const generateMutation = useGenerateVouchers();
 
   useEffect(() => {
     setProfile("");
-  }, [activeRouterId]);
-
-  useEffect(() => {
-    if (selectedRouterId) setLocalRouterId(String(selectedRouterId));
   }, [selectedRouterId]);
 
   const selectedProfile = profiles.find((p) => p.name === profile);
@@ -104,16 +93,11 @@ export default function GenerateVouchers() {
       : "";
   const effectiveComment = comment + vendorSuffix;
 
-  const handleLocalRouterChange = (val: string) => {
-    setLocalRouterId(val);
-    setSelectedRouterId(val ? parseInt(val, 10) : null);
-  };
-
   const BATCH_SIZE = 50;
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeRouterId || !profile) return;
+    if (!selectedRouterId || !profile) return;
 
     const total = parseInt(qty, 10);
     const allVouchers: Voucher[] = [];
@@ -125,7 +109,7 @@ export default function GenerateVouchers() {
         const batchQty = Math.min(BATCH_SIZE, total - done);
         const batch = await generateMutation.mutateAsync({
           data: {
-            routerId: activeRouterId,
+            routerId: selectedRouterId,
             profile,
             qty: batchQty,
             prefix: prefix || null,
@@ -243,29 +227,11 @@ export default function GenerateVouchers() {
                     <p className="text-sm font-medium text-blue-900 truncate">{selectedRouter.name}</p>
                     <p className="text-xs text-blue-600">{selectedRouter.host}:{selectedRouter.port}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedRouterId(null); setLocalRouterId(""); }}
-                    className="text-xs text-blue-400 hover:text-blue-600 whitespace-nowrap"
-                  >
-                    Changer
-                  </button>
                 </div>
               ) : (
-                <div>
-                  <Label>Routeur</Label>
-                  <Select value={localRouterId} onValueChange={handleLocalRouterChange}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Sélectionnez un routeur" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {routers.map((r) => (
-                        <SelectItem key={r.id} value={String(r.id)}>
-                          {r.name} — {r.host}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg text-sm">
+                  <RouterIcon className="h-4 w-4 flex-shrink-0" />
+                  Sélectionnez un routeur dans la barre latérale pour commencer
                 </div>
               )}
 
@@ -274,7 +240,7 @@ export default function GenerateVouchers() {
                 <Select
                   value={profile || "__none__"}
                   onValueChange={(v) => setProfile(v === "__none__" ? "" : v)}
-                  disabled={!activeRouterId || loadingProfiles}
+                  disabled={!selectedRouterId || loadingProfiles}
                 >
                   <SelectTrigger className="mt-1">
                     <SelectValue placeholder={loadingProfiles ? "Chargement..." : "Sélectionnez un profil"} />
@@ -418,7 +384,7 @@ export default function GenerateVouchers() {
                 <Button
                   type="submit"
                   className="w-full gap-2"
-                  disabled={!activeRouterId || !profile || !!progress}
+                  disabled={!selectedRouterId || !profile || !!progress}
                 >
                   <Zap className="h-4 w-4" />
                   {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
