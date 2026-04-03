@@ -37,24 +37,24 @@ function validityCode(validity: string | null | undefined): string {
 
 type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
 
-const CHAR_TYPE_LABELS: Record<CharType, string> = {
-  lower:  "abcdef  — minuscules",
-  upper:  "ABCDEF  — majuscules",
-  upplow: "aBcDeF  — mixte lettres",
-  mix:    "5ab2c34 — minusc. + chiffres",
-  mix1:   "5AB2C34 — majusc. + chiffres",
-  mix2:   "5aB2c34 — mixte + chiffres",
-  num:    "123456  — chiffres uniquement",
+const CHAR_TYPE_DESCS: Record<CharType, string> = {
+  lower:  "minuscules",
+  upper:  "majuscules",
+  upplow: "mixte lettres",
+  mix:    "minusc. + chiffres",
+  mix1:   "majusc. + chiffres",
+  mix2:   "mixte + chiffres",
+  num:    "chiffres uniquement",
 };
 
 const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
-  lower:  "abcdef",
-  upper:  "ABCDEF",
-  upplow: "aBcDeF",
+  lower:  "abcdefgh",
+  upper:  "ABCDEFGH",
+  upplow: "aBcDeFgH",
   mix:    "5ab2c34d",
   mix1:   "5AB2C34D",
   mix2:   "5aB2c34D",
-  num:    "123456",
+  num:    "12345678",
 };
 
 function makeBatchId(mode: "vc" | "up" = "vc"): string {
@@ -423,21 +423,26 @@ export default function GenerateVouchers() {
               <div>
                 <Label>Type de caractères</Label>
                 <div className="grid grid-cols-2 gap-1.5 mt-1">
-                  {(Object.entries(CHAR_TYPE_LABELS) as [CharType, string][]).map(([type, label]) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setCharType(type)}
-                      className={`py-1.5 px-2 rounded-lg border text-xs font-medium text-left transition-colors ${
-                        charType === type
-                          ? "bg-blue-50 border-blue-400 text-blue-700"
-                          : "border-gray-200 text-gray-500 hover:border-gray-300"
-                      }`}
-                    >
-                      <span className="font-mono font-semibold">{label.split("—")[0].trim()}</span>
-                      <span className="text-gray-400 font-normal ml-1">— {label.split("—")[1]?.trim()}</span>
-                    </button>
-                  ))}
+                  {(Object.keys(CHAR_TYPE_DESCS) as CharType[]).map((type) => {
+                    const len = parseInt(userLength, 10);
+                    const preview = CHAR_TYPE_PREVIEW[type];
+                    const example = preview.repeat(Math.ceil(len / preview.length)).slice(0, len);
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setCharType(type)}
+                        className={`py-1.5 px-2 rounded-lg border text-xs font-medium text-left transition-colors ${
+                          charType === type
+                            ? "bg-blue-50 border-blue-400 text-blue-700"
+                            : "border-gray-200 text-gray-500 hover:border-gray-300"
+                        }`}
+                      >
+                        <span className="font-mono font-semibold">{example}</span>
+                        <span className="text-gray-400 font-normal ml-1">— {CHAR_TYPE_DESCS[type]}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
