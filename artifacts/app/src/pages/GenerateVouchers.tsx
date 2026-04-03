@@ -57,6 +57,8 @@ const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
   num:    "12345678",
 };
 
+const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2", "lower", "upper", "upplow", "num"];
+
 function makeBatchId(mode: "vc" | "up" = "vc"): string {
   const now = new Date();
   const M = String(now.getMonth() + 1).padStart(2, "0");
@@ -391,58 +393,38 @@ export default function GenerateVouchers() {
                 </div>
               </div>
 
-              {/* ─ Longueur + Type de caractères ─ */}
+              {/* ─ Format + Longueur ─ */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Longueur <span className="text-gray-400 text-xs">(3–8)</span></Label>
-                  <div className="flex gap-1 mt-1">
-                    {[3,4,5,6,7,8].map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => setUserLength(String(n))}
-                        className={`flex-1 py-1.5 text-sm rounded border font-mono font-medium transition-colors ${
-                          userLength === String(n)
-                            ? "bg-blue-600 text-white border-blue-600"
-                            : "border-gray-200 text-gray-500 hover:border-gray-400"
-                        }`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
+                  <Label>Format</Label>
+                  <select
+                    className="mt-1 w-full h-9 border border-input bg-background rounded-md px-3 text-sm font-mono"
+                    value={charType}
+                    onChange={(e) => setCharType(e.target.value as CharType)}
+                  >
+                    {CHAR_TYPE_ORDER.map((type) => {
+                      const len = parseInt(userLength, 10);
+                      const p = CHAR_TYPE_PREVIEW[type];
+                      const ex = p.repeat(Math.ceil(len / p.length)).slice(0, len);
+                      return (
+                        <option key={type} value={type}>
+                          {ex} — {CHAR_TYPE_DESCS[type]}
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
                 <div>
-                  <Label>Aperçu du code</Label>
-                  <div className="mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono text-gray-700 truncate">
-                    {CHAR_TYPE_PREVIEW[charType].slice(0, parseInt(userLength, 10)).padEnd(parseInt(userLength, 10), CHAR_TYPE_PREVIEW[charType]).slice(0, parseInt(userLength, 10))}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <Label>Type de caractères</Label>
-                <div className="grid grid-cols-2 gap-1.5 mt-1">
-                  {(Object.keys(CHAR_TYPE_DESCS) as CharType[]).map((type) => {
-                    const len = parseInt(userLength, 10);
-                    const preview = CHAR_TYPE_PREVIEW[type];
-                    const example = preview.repeat(Math.ceil(len / preview.length)).slice(0, len);
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => setCharType(type)}
-                        className={`py-1.5 px-2 rounded-lg border text-xs font-medium text-left transition-colors ${
-                          charType === type
-                            ? "bg-blue-50 border-blue-400 text-blue-700"
-                            : "border-gray-200 text-gray-500 hover:border-gray-300"
-                        }`}
-                      >
-                        <span className="font-mono font-semibold">{example}</span>
-                        <span className="text-gray-400 font-normal ml-1">— {CHAR_TYPE_DESCS[type]}</span>
-                      </button>
-                    );
-                  })}
+                  <Label>Longueur</Label>
+                  <select
+                    className="mt-1 w-full h-9 border border-input bg-background rounded-md px-3 text-sm font-mono"
+                    value={userLength}
+                    onChange={(e) => setUserLength(e.target.value)}
+                  >
+                    {[3,4,5,6,7,8].map((n) => (
+                      <option key={n} value={String(n)}>{n} caractères</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
