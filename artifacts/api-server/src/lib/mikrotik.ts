@@ -634,6 +634,87 @@ export async function fetchUsedUsernames(conn: RouterConnection): Promise<Set<st
   return used;
 }
 
+export interface SaleDetail {
+  saleDate: Date;
+  salePrice: string;
+  mac: string;
+}
+
+/**
+ * Fetches sale details from MikHMon scripts for multiple months.
+ * Returns a Map<username_lowercase, SaleDetail> with the most recent entry per user.
+ * Script format:
+ *   New: "2025-11-01-|-07:46:47-|-username-|-300-|-ip-|-mac-|-validity-|-label-|-batch"
+ *   Legacy: "mar/31/2026-|-10:30:00-|-username-|-500"
+ */
+export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 2): Promise<Map<string, SaleDetail>> {
+  const details = new Map<string, SaleDetail>();
+
+  await withRouter(conn, async (api) => {
+    const now = new Date();
+    const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+
+    // Build owner labels for current month + previous N months
+    const owners: string[] = [];
+    for (let i = 0; i <= monthsBack; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const m  = MONTHS[d.getMonth()];
+      const y  = d.getFullYear();
+      owners.push(`${mm}${y}`, `${m}${y}`);
+    }
+    // Deduplicate
+    const uniqueOwners = [...new Set(owners)];
+
+    for (const owner of uniqueOwners) {
+      const scripts = await api.write("/system/script/print", ["=.proplist=name", `?owner=${owner}`]).catch(() => []);
+      for (const s of scripts) {
+        const name = (s["name"] as string) ?? "";
+        const parts = name.split("-|-");
+        // Need at least: date, time, username, price
+        if (parts.length < 4) continue;
+
+        const datePart  = parts[0].trim();
+        const timePart  = parts[1].trim();
+        const username  = parts[2].trim().toLowerCase();
+        const priceStr  = parts[3].trim();
+        const mac       = parts.length >= 6 ? parts[5].trim() : "";
+
+        if (!username) continue;
+
+        // Parse sale date — try ISO "2025-11-01" then legacy "mar/31/2026"
+        let saleDate: Date | null = null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+          saleDate = new Date(`${datePart}T${timePart.includes(":") ? timePart : "00:00:00"}`);
+        } else {
+          // Legacy: "mar/31/2026"
+          const legMatch = datePart.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
+          if (legMatch) {
+            const mIdx = MONTHS.indexOf(legMatch[1].toLowerCase());
+            if (mIdx >= 0) {
+              saleDate = new Date(
+                Number(legMatch[3]),
+                mIdx,
+                Number(legMatch[2]),
+                ...timePart.split(":").map(Number) as [number, number, number],
+              );
+            }
+          }
+        }
+        if (!saleDate || isNaN(saleDate.getTime())) continue;
+
+        // Keep the most recent sale per username
+        const existing = details.get(username);
+        if (!existing || saleDate > existing.saleDate) {
+          details.set(username, { saleDate, salePrice: priceStr, mac });
+        }
+      }
+    }
+  }, 45_000);
+
+  return details;
+}
+
 /**
  * Enable or disable a list of hotspot users on a MikroTik router.
  * Fetches all users in one shot, then sends one set-command per target user.

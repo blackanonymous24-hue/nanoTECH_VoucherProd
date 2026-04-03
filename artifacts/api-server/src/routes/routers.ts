@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchSaleDetails, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -510,7 +510,16 @@ const USAGE_SYNC_INTERVAL = 30_000; // 30 seconds
 
 /** Core sync logic — shared by background and manual trigger */
 async function runUsageSync(routerId: number, conn: RouterConnection): Promise<{ updated: number; total: number }> {
-  const usedUsernames = await fetchUsedUsernames(conn);
+  // Fetch two data sources in parallel:
+  // 1. Sale details from MikHMon scripts (actual date + price + MAC)
+  // 2. Usernames from hotspot logs (fallback for immediate session detection)
+  const [saleDetails, loggedInUsernames] = await Promise.all([
+    fetchSaleDetails(conn).catch(() => new Map()),
+    fetchUsedUsernames(conn).catch(() => new Set<string>()),
+  ]);
+
+  // Combine into one set of all used usernames
+  const allUsed = new Set<string>([...saleDetails.keys(), ...loggedInUsernames]);
 
   const vouchers = await db
     .select({ id: vouchersTable.id, username: vouchersTable.username })
@@ -521,18 +530,42 @@ async function runUsageSync(routerId: number, conn: RouterConnection): Promise<{
       isNull(vouchersTable.usedAt),
     ));
 
-  if (usedUsernames.size === 0) return { updated: 0, total: vouchers.length };
+  if (allUsed.size === 0) return { updated: 0, total: vouchers.length };
 
-  const toUpdate = vouchers
-    .filter((v) => usedUsernames.has(v.username.toLowerCase()))
-    .map((v) => v.id);
+  const toUpdate = vouchers.filter((v) => allUsed.has(v.username.toLowerCase()));
 
   if (toUpdate.length > 0) {
-    const now = new Date();
-    await db
-      .update(vouchersTable)
-      .set({ usedAt: now, printedAt: sql`coalesce(${vouchersTable.printedAt}, ${now.toISOString()})` })
-      .where(inArray(vouchersTable.id, toUpdate));
+    const fallbackNow = new Date();
+
+    // Group vouchers by whether we have real sale details or not
+    const withDetails    = toUpdate.filter((v) => saleDetails.has(v.username.toLowerCase()));
+    const withoutDetails = toUpdate.filter((v) => !saleDetails.has(v.username.toLowerCase()));
+
+    // Update vouchers with real sale data from MikHMon scripts
+    for (const v of withDetails) {
+      const detail = saleDetails.get(v.username.toLowerCase())!;
+      const usedAt = detail.saleDate;
+      await db
+        .update(vouchersTable)
+        .set({
+          usedAt,
+          printedAt: sql`coalesce(${vouchersTable.printedAt}, ${usedAt.toISOString()})`,
+          salePrice: detail.salePrice || null,
+          macAddress: detail.mac || null,
+        })
+        .where(inArray(vouchersTable.id, [v.id]));
+    }
+
+    // Update vouchers detected only via hotspot logs (no script record yet)
+    if (withoutDetails.length > 0) {
+      await db
+        .update(vouchersTable)
+        .set({
+          usedAt: fallbackNow,
+          printedAt: sql`coalesce(${vouchersTable.printedAt}, ${fallbackNow.toISOString()})`,
+        })
+        .where(inArray(vouchersTable.id, withoutDetails.map((v) => v.id)));
+    }
   }
 
   return { updated: toUpdate.length, total: vouchers.length };

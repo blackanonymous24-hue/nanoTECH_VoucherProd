@@ -4,6 +4,7 @@ import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
 import { getCachedProfilePrices } from "../lib/profile-cache.js";
+import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
 import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 
@@ -19,74 +20,6 @@ function buildTotals(vendorId: number) {
   .where(eq(vouchersTable.vendorId, vendorId));
 }
 
-const priceNum = sql<number>`nullif(regexp_replace(${vouchersTable.price}, '[^0-9.]', '', 'g'), '')::numeric`;
-
-function buildSalesStats(vendorId: number) {
-  return db.select({
-    todaySold: sql<number>`
-      count(*) filter (where
-        ${vouchersTable.printedAt} >= current_date
-        and ${vouchersTable.printedAt} < current_date + interval '1 day'
-      )`,
-    todayAmount: sql<number>`
-      coalesce(sum(${priceNum}) filter (where
-        ${vouchersTable.printedAt} >= current_date
-        and ${vouchersTable.printedAt} < current_date + interval '1 day'
-      ), 0)`,
-    yesterdaySold: sql<number>`
-      count(*) filter (where
-        ${vouchersTable.printedAt} >= current_date - interval '1 day'
-        and ${vouchersTable.printedAt} < current_date
-      )`,
-    yesterdayAmount: sql<number>`
-      coalesce(sum(${priceNum}) filter (where
-        ${vouchersTable.printedAt} >= current_date - interval '1 day'
-        and ${vouchersTable.printedAt} < current_date
-      ), 0)`,
-    weekSold: sql<number>`
-      count(*) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('week', current_date)
-        and ${vouchersTable.printedAt} < current_date + interval '1 day'
-      )`,
-    weekAmount: sql<number>`
-      coalesce(sum(${priceNum}) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('week', current_date)
-        and ${vouchersTable.printedAt} < current_date + interval '1 day'
-      ), 0)`,
-    lastMonthSold: sql<number>`
-      count(*) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('month', current_date - interval '1 month')
-        and ${vouchersTable.printedAt} < date_trunc('month', current_date)
-      )`,
-    lastMonthAmount: sql<number>`
-      coalesce(sum(${priceNum}) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('month', current_date - interval '1 month')
-        and ${vouchersTable.printedAt} < date_trunc('month', current_date)
-      ), 0)`,
-    thisMonthSold: sql<number>`
-      count(*) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('month', current_date)
-        and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'
-      )`,
-    thisMonthAmount: sql<number>`
-      coalesce(sum(${priceNum}) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('month', current_date)
-        and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'
-      ), 0)`,
-    lastWeekSold: sql<number>`
-      count(*) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week')
-        and ${vouchersTable.printedAt} < date_trunc('week', current_date)
-      )`,
-    lastWeekAmount: sql<number>`
-      coalesce(sum(${priceNum}) filter (where
-        ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week')
-        and ${vouchersTable.printedAt} < date_trunc('week', current_date)
-      ), 0)`,
-  })
-  .from(vouchersTable)
-  .where(eq(vouchersTable.vendorId, vendorId));
-}
 
 function safeVendor(v: typeof vendorsTable.$inferSelect) {
   const { passwordHash: _ph, ...rest } = v;
@@ -357,32 +290,35 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
     .where(routerId ? eq(vendorsTable.routerId, routerId) : undefined)
     .orderBy(vendorsTable.name);
 
+  // Fetch profile prices for all unique routers in this vendor list
+  const routerIdSet = new Set(vendors.map((v) => v.routerId).filter(Boolean) as number[]);
+  const routerPriceMaps = new Map<number, Map<string, string>>();
+  await Promise.all([...routerIdSet].map(async (rId) => {
+    try {
+      const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, rId));
+      if (routerRow) {
+        const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+        routerPriceMaps.set(rId, await getCachedProfilePrices(rId, conn));
+      }
+    } catch { /* no prices available for this router */ }
+  }));
+
   const summaries = await Promise.all(
     vendors.map(async (vendor) => {
-      const [[row], [salesRow]] = await Promise.all([
+      const [[row], profileCounts] = await Promise.all([
         buildTotals(vendor.id),
-        buildSalesStats(vendor.id),
+        buildProfilePeriodCounts(vendor.id),
       ]);
+
+      const priceMap = (vendor.routerId ? routerPriceMaps.get(vendor.routerId) : undefined) ?? new Map<string, string>();
+      const salesStats = computeSalesStats(profileCounts, priceMap);
 
       return {
         vendor: safeVendor(vendor),
         totalVouchers: row?.total        ?? 0,
         totalPrinted:  Number(row?.printed ?? 0),
         totalUsed:     Number(row?.used    ?? 0),
-        salesStats: {
-          todaySold:       Number(salesRow?.todaySold       ?? 0),
-          todayAmount:     Number(salesRow?.todayAmount     ?? 0),
-          yesterdaySold:   Number(salesRow?.yesterdaySold   ?? 0),
-          yesterdayAmount: Number(salesRow?.yesterdayAmount ?? 0),
-          weekSold:        Number(salesRow?.weekSold        ?? 0),
-          weekAmount:      Number(salesRow?.weekAmount      ?? 0),
-          lastMonthSold:   Number(salesRow?.lastMonthSold   ?? 0),
-          lastMonthAmount: Number(salesRow?.lastMonthAmount ?? 0),
-          thisMonthSold:   Number(salesRow?.thisMonthSold   ?? 0),
-          thisMonthAmount: Number(salesRow?.thisMonthAmount ?? 0),
-          lastWeekSold:    Number(salesRow?.lastWeekSold    ?? 0),
-          lastWeekAmount:  Number(salesRow?.lastWeekAmount  ?? 0),
-        },
+        salesStats,
       };
     }),
   );
@@ -406,7 +342,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     ? await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId))
     : [];
 
-  const [totalsRows, byProfileRaw, salesRow, recentVouchers] = await Promise.all([
+  const [totalsRows, byProfileRaw, profilePeriodCounts, recentVouchers] = await Promise.all([
     buildTotals(id),
 
     db
@@ -421,7 +357,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
       .groupBy(vouchersTable.profileName)
       .orderBy(desc(count())),
 
-    buildSalesStats(id).then((rows) => rows[0]),
+    buildProfilePeriodCounts(id),
 
     db
       .select()
@@ -431,7 +367,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
       .limit(50),
   ]);
 
-  // Enrich byProfile with real prices from MikroTik profile cache
+  // Fetch profile prices from MikroTik cache — authoritative source for amounts
   let priceMap = new Map<string, string>();
   if (router) {
     const conn: RouterConnection = { host: router.host, port: router.port, username: router.username, password: router.password };
@@ -443,28 +379,22 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
   }));
 
   const totals = totalsRows[0];
+  const salesStats = computeSalesStats(profilePeriodCounts, priceMap);
+
+  // Enrich recentVouchers: use salePrice (from sync), else price (from generation), else profile cache
+  const enrichedRecentVouchers = recentVouchers.map((v) => ({
+    ...v,
+    price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
+  }));
 
   res.json({
     vendor: safeVendor(vendor),
     totalVouchers: totals?.total        ?? 0,
     totalPrinted:  Number(totals?.printed ?? 0),
     totalUsed:     Number(totals?.used    ?? 0),
-    salesStats: {
-      todaySold:       Number(salesRow?.todaySold       ?? 0),
-      todayAmount:     Number(salesRow?.todayAmount     ?? 0),
-      yesterdaySold:   Number(salesRow?.yesterdaySold   ?? 0),
-      yesterdayAmount: Number(salesRow?.yesterdayAmount ?? 0),
-      weekSold:        Number(salesRow?.weekSold        ?? 0),
-      weekAmount:      Number(salesRow?.weekAmount      ?? 0),
-      lastMonthSold:   Number(salesRow?.lastMonthSold   ?? 0),
-      lastMonthAmount: Number(salesRow?.lastMonthAmount ?? 0),
-      thisMonthSold:   Number(salesRow?.thisMonthSold   ?? 0),
-      thisMonthAmount: Number(salesRow?.thisMonthAmount ?? 0),
-      lastWeekSold:    Number(salesRow?.lastWeekSold    ?? 0),
-      lastWeekAmount:  Number(salesRow?.lastWeekAmount  ?? 0),
-    },
+    salesStats,
     byProfile,
-    recentVouchers,
+    recentVouchers: enrichedRecentVouchers,
   });
 });
 

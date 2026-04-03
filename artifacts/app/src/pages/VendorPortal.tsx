@@ -41,6 +41,8 @@ type Voucher = {
   password: string;
   profileName: string;
   price: string;
+  salePrice: string | null;
+  macAddress: string | null;
   printedAt: string | null;
   usedAt: string | null;
   createdAt: string;
@@ -830,18 +832,27 @@ function Dashboard({ token, vendor, onLogout }: {
                   <p className="text-sm text-gray-400 text-center py-4">Aucune vente enregistrée</p>
                 ) : (
                   <div className="space-y-2">
-                    {data.recentSales.map((v) => (
-                      <div key={v.id} className="flex items-center justify-between py-2 border-b last:border-0 gap-3">
+                    {data.recentSales.map((v) => {
+                      const displayPrice = v.salePrice || v.price || "";
+                      return (
+                      <div key={v.id} className="flex items-start justify-between py-2 border-b last:border-0 gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-mono font-medium truncate">{v.username}</p>
                           <p className="text-xs text-gray-400">
-                            {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
-                            {v.usedAt ? ` · ${fmt(v.usedAt)}` : ""}
+                            {v.profileName}
+                            {displayPrice ? ` — ${displayPrice} FCFA` : ""}
                           </p>
+                          {v.macAddress && (
+                            <p className="text-[10px] text-gray-400 font-mono">{v.macAddress}</p>
+                          )}
                         </div>
-                        <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0">Vendu</Badge>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          {v.usedAt && <span className="text-[10px] text-gray-400 whitespace-nowrap">{fmt(v.usedAt)}</span>}
+                          <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent">Vendu</Badge>
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

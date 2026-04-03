@@ -232,14 +232,17 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                   const soldAt = (v as any).usedAt
                     ? new Date((v as any).usedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
                     : null;
+                  const displayPrice = (v as any).salePrice || (v as any).price || "";
+                  const mac = (v as any).macAddress || "";
                   return (
-                    <div key={v.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                    <div key={v.id} className="flex items-start justify-between py-1.5 border-b border-gray-50 last:border-0">
                       <div>
                         <span className="text-sm font-mono font-medium">{v.username}</span>
                         <span className="text-xs text-gray-400 ml-2">{v.profileName}</span>
+                        {mac && <div className="text-[10px] text-gray-400 font-mono mt-0.5">{mac}</div>}
                       </div>
-                      <div className="flex items-center gap-2 text-right">
-                        {(v as any).price && <span className="text-xs font-semibold text-gray-700">{(v as any).price} FCFA</span>}
+                      <div className="flex flex-col items-end gap-0.5 text-right">
+                        {displayPrice && <span className="text-xs font-semibold text-green-700">{displayPrice} FCFA</span>}
                         {soldAt && <span className="text-[10px] text-gray-400 whitespace-nowrap">{soldAt}</span>}
                       </div>
                     </div>
