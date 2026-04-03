@@ -18,28 +18,34 @@ function buildTotals(vendorId: number) {
   .where(eq(vouchersTable.vendorId, vendorId));
 }
 
+const priceNum = sql<number>`nullif(regexp_replace(${vouchersTable.price}, '[^0-9.]', '', 'g'), '')::numeric`;
+
 function buildSalesStats(vendorId: number) {
   return db.select({
-    todaySold: sql<number>`
-      count(*) filter (where
+    todaySold: sql<number>`count(*) filter (where
         ${vouchersTable.printedAt} >= current_date
-        and ${vouchersTable.printedAt} < current_date + interval '1 day'
-      )`,
-    yesterdaySold: sql<number>`
-      count(*) filter (where
+        and ${vouchersTable.printedAt} < current_date + interval '1 day')`,
+    todayAmount: sql<number>`coalesce(sum(${priceNum}) filter (where
+        ${vouchersTable.printedAt} >= current_date
+        and ${vouchersTable.printedAt} < current_date + interval '1 day'), 0)`,
+    yesterdaySold: sql<number>`count(*) filter (where
         ${vouchersTable.printedAt} >= current_date - interval '1 day'
-        and ${vouchersTable.printedAt} < current_date
-      )`,
-    weekSold: sql<number>`
-      count(*) filter (where
+        and ${vouchersTable.printedAt} < current_date)`,
+    yesterdayAmount: sql<number>`coalesce(sum(${priceNum}) filter (where
+        ${vouchersTable.printedAt} >= current_date - interval '1 day'
+        and ${vouchersTable.printedAt} < current_date), 0)`,
+    weekSold: sql<number>`count(*) filter (where
         ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week')
-        and ${vouchersTable.printedAt} < date_trunc('week', current_date)
-      )`,
-    lastMonthSold: sql<number>`
-      count(*) filter (where
+        and ${vouchersTable.printedAt} < date_trunc('week', current_date))`,
+    weekAmount: sql<number>`coalesce(sum(${priceNum}) filter (where
+        ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week')
+        and ${vouchersTable.printedAt} < date_trunc('week', current_date)), 0)`,
+    lastMonthSold: sql<number>`count(*) filter (where
         ${vouchersTable.printedAt} >= date_trunc('month', current_date)
-        and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'
-      )`,
+        and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month')`,
+    lastMonthAmount: sql<number>`coalesce(sum(${priceNum}) filter (where
+        ${vouchersTable.printedAt} >= date_trunc('month', current_date)
+        and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'), 0)`,
   })
   .from(vouchersTable)
   .where(eq(vouchersTable.vendorId, vendorId));
@@ -167,10 +173,14 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     totalPrinted:   Number(totals?.printed ?? 0),
     totalUsed:      Number(totals?.used    ?? 0),
     salesStats: {
-      todaySold:     Number(salesRow?.todaySold     ?? 0),
-      yesterdaySold: Number(salesRow?.yesterdaySold ?? 0),
-      weekSold:      Number(salesRow?.weekSold      ?? 0),
-      lastMonthSold: Number(salesRow?.lastMonthSold ?? 0),
+      todaySold:       Number(salesRow?.todaySold       ?? 0),
+      todayAmount:     Number(salesRow?.todayAmount     ?? 0),
+      yesterdaySold:   Number(salesRow?.yesterdaySold   ?? 0),
+      yesterdayAmount: Number(salesRow?.yesterdayAmount ?? 0),
+      weekSold:        Number(salesRow?.weekSold        ?? 0),
+      weekAmount:      Number(salesRow?.weekAmount      ?? 0),
+      lastMonthSold:   Number(salesRow?.lastMonthSold   ?? 0),
+      lastMonthAmount: Number(salesRow?.lastMonthAmount ?? 0),
     },
     byProfile,
     recentSales: recentSales.filter((v) => v.usedAt !== null),

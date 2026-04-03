@@ -28,7 +28,12 @@ const TOKEN_KEY = "vouchernet_vendor_token";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type VendorInfo = { id: number; name: string; email: string | null; username: string | null };
-type SalesStats = { todaySold: number; yesterdaySold: number; weekSold: number; lastMonthSold: number };
+type SalesStats = {
+  todaySold: number; todayAmount: number;
+  yesterdaySold: number; yesterdayAmount: number;
+  weekSold: number; weekAmount: number;
+  lastMonthSold: number; lastMonthAmount: number;
+};
 type ByProfile = { profileName: string; total: number; printed: number; used: number };
 type Voucher = {
   id: number;
@@ -81,14 +86,23 @@ const MONTHS = [
   "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
 ];
 
+function fmtFcfa(n: number): string {
+  if (n === 0) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}k`;
+  return n.toLocaleString("fr");
+}
+
 function StatCard({
-  label, value, icon: Icon, color, onClick,
+  label, value, icon: Icon, color, onClick, fcfa, sub,
 }: {
   label: string;
   value: number;
   icon: React.ElementType;
   color: string;
   onClick?: () => void;
+  fcfa?: boolean;
+  sub?: number;
 }) {
   const inner = (
     <CardContent className="p-4 flex items-center gap-4">
@@ -96,7 +110,13 @@ function StatCard({
         <Icon className="h-6 w-6 text-white" />
       </div>
       <div>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <div className="flex items-baseline gap-1">
+          <p className="text-2xl font-bold text-gray-900">{fcfa ? fmtFcfa(value) : value}</p>
+          {fcfa && <span className="text-xs font-medium text-gray-400">FCFA</span>}
+        </div>
+        {sub !== undefined && (
+          <p className="text-xs text-gray-400">{sub} ticket{sub !== 1 ? "s" : ""}</p>
+        )}
         <p className="text-xs text-gray-500 mt-0.5">{label}</p>
       </div>
     </CardContent>
@@ -663,10 +683,10 @@ function Dashboard({ token, vendor, onLogout }: {
 
   const chartData = data
     ? [
-        { label: "Hier",          vendus: data.salesStats.yesterdaySold },
-        { label: "Aujourd'hui",   vendus: data.salesStats.todaySold },
-        { label: "Sem. dern.",    vendus: data.salesStats.weekSold },
-        { label: "Mois en cours", vendus: data.salesStats.lastMonthSold },
+        { label: "Hier",          montant: data.salesStats.yesterdayAmount },
+        { label: "Aujourd'hui",   montant: data.salesStats.todayAmount },
+        { label: "Sem. dern.",    montant: data.salesStats.weekAmount },
+        { label: "Mois en cours", montant: data.salesStats.lastMonthAmount },
       ]
     : [];
 
@@ -712,10 +732,10 @@ function Dashboard({ token, vendor, onLogout }: {
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <StatCard label="Tickets disponibles" value={data.totalAvailable} icon={Ticket}       color="bg-blue-500"   onClick={() => setShowAvailable(true)} />
-              <StatCard label="Vendus aujourd'hui"  value={data.salesStats.todaySold}      icon={ShoppingCart} color="bg-green-500"  onClick={() => setPeriodView("today")} />
-              <StatCard label="Vendus hier"          value={data.salesStats.yesterdaySold}  icon={Clock}        color="bg-yellow-500" onClick={() => setPeriodView("yesterday")} />
-              <StatCard label="Semaine dernière"     value={data.salesStats.weekSold}        icon={Calendar}     color="bg-orange-500" onClick={() => setPeriodView("week")} />
-              <StatCard label="Mois en cours"        value={data.salesStats.lastMonthSold}   icon={TrendingUp}   color="bg-purple-500" onClick={() => setPeriodView("month")} />
+              <StatCard label="Vendus aujourd'hui"  value={data.salesStats.todayAmount}     icon={ShoppingCart} color="bg-green-500"  onClick={() => setPeriodView("today")}     fcfa sub={data.salesStats.todaySold} />
+              <StatCard label="Vendus hier"         value={data.salesStats.yesterdayAmount} icon={Clock}        color="bg-yellow-500" onClick={() => setPeriodView("yesterday")} fcfa sub={data.salesStats.yesterdaySold} />
+              <StatCard label="Semaine dernière"    value={data.salesStats.weekAmount}      icon={Calendar}     color="bg-orange-500" onClick={() => setPeriodView("week")}      fcfa sub={data.salesStats.weekSold} />
+              <StatCard label="Mois en cours"       value={data.salesStats.lastMonthAmount} icon={TrendingUp}   color="bg-purple-500" onClick={() => setPeriodView("month")}     fcfa sub={data.salesStats.lastMonthSold} />
 
               <Card className="col-span-2 md:col-span-1">
                 <CardContent className="p-3 flex flex-col gap-1.5">
@@ -773,7 +793,7 @@ function Dashboard({ token, vendor, onLogout }: {
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={30} />
                     <Tooltip />
-                    <Bar dataKey="vendus" name="Vendus" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="montant" name="Montant (FCFA)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>

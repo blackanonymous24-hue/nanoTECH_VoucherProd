@@ -68,6 +68,21 @@ function buildSalesStats(vendorId: number) {
         ${vouchersTable.printedAt} >= date_trunc('month', current_date)
         and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'
       )`,
+    thisMonthAmount: sql<number>`
+      coalesce(sum(${priceNum}) filter (where
+        ${vouchersTable.printedAt} >= date_trunc('month', current_date)
+        and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'
+      ), 0)`,
+    lastWeekSold: sql<number>`
+      count(*) filter (where
+        ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week')
+        and ${vouchersTable.printedAt} < date_trunc('week', current_date)
+      )`,
+    lastWeekAmount: sql<number>`
+      coalesce(sum(${priceNum}) filter (where
+        ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week')
+        and ${vouchersTable.printedAt} < date_trunc('week', current_date)
+      ), 0)`,
   })
   .from(vouchersTable)
   .where(eq(vouchersTable.vendorId, vendorId));
@@ -364,6 +379,9 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
           lastMonthSold:   Number(salesRow?.lastMonthSold   ?? 0),
           lastMonthAmount: Number(salesRow?.lastMonthAmount ?? 0),
           thisMonthSold:   Number(salesRow?.thisMonthSold   ?? 0),
+          thisMonthAmount: Number(salesRow?.thisMonthAmount ?? 0),
+          lastWeekSold:    Number(salesRow?.lastWeekSold    ?? 0),
+          lastWeekAmount:  Number(salesRow?.lastWeekAmount  ?? 0),
         },
       };
     }),
@@ -440,6 +458,10 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
       weekAmount:      Number(salesRow?.weekAmount      ?? 0),
       lastMonthSold:   Number(salesRow?.lastMonthSold   ?? 0),
       lastMonthAmount: Number(salesRow?.lastMonthAmount ?? 0),
+      thisMonthSold:   Number(salesRow?.thisMonthSold   ?? 0),
+      thisMonthAmount: Number(salesRow?.thisMonthAmount ?? 0),
+      lastWeekSold:    Number(salesRow?.lastWeekSold    ?? 0),
+      lastWeekAmount:  Number(salesRow?.lastWeekAmount  ?? 0),
     },
     byProfile,
     recentVouchers,
