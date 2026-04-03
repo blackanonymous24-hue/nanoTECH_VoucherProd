@@ -757,8 +757,8 @@ function Dashboard({ token, vendor, onLogout }: {
 
   const notifiedProfilesRef = useRef<Set<string>>(new Set());
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError("");
     try {
       const res = await api("/vendor-portal/me", { headers: { Authorization: `Bearer ${token}` } });
@@ -767,13 +767,14 @@ function Dashboard({ token, vendor, onLogout }: {
     } catch {
       setError("Erreur lors du chargement des données");
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [token, onLogout]);
 
   useEffect(() => {
-    fetchData();
-    const id = setInterval(fetchData, 30_000);
+    fetchData(true);
+    // Silent background refresh every 15s — no loading spinner shown
+    const id = setInterval(() => fetchData(false), 15_000);
     return () => clearInterval(id);
   }, [fetchData]);
 
@@ -847,7 +848,7 @@ function Dashboard({ token, vendor, onLogout }: {
             <User className="h-4 w-4" />
             {vendor.name}
           </div>
-          <Button size="sm" variant="ghost" onClick={fetchData} title="Actualiser">
+          <Button size="sm" variant="ghost" onClick={() => fetchData(true)} title="Actualiser">
             <RefreshCw className="h-4 w-4" />
           </Button>
           <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300" onClick={onLogout}>

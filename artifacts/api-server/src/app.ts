@@ -27,4 +27,10 @@ app.use(
   }),
 );
 
+// Prevent HTTP caching on all API routes so clients always get fresh data
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 app.use("/api", router);
