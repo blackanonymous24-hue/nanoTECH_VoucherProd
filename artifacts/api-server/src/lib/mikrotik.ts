@@ -87,17 +87,48 @@ function fixEncoding(str: string): string {
   }
 }
 
+// MikhMon expmode values stored at index [1] in the original format
+const MIKHMON_EXPMODES = new Set(["rem", "ntf", "remc", "ntfc", "0", ""]);
+
 function parseProfileOnLogin(onLogin: string): {
   price: string; validity: string; lockMac: boolean;
   sellingPrice: string; expiredMode: string; parentQueue: string;
 } {
-  // MikHmon embeds config in a :put ("...") line, e.g.:
-  //   :put (",label,price,validity,shared,pool,lockMac,sellingPrice,expiredMode,parentQueue,");
+  // Two known :put ("...") config formats:
+  //
+  // ① MikhMon original (7 commas / 8 parts):
+  //     ",expmode,price,validity,sprice,,lockunlock,"
+  //     [0]=""  [1]=expmode  [2]=price  [3]=validity  [4]=sprice  [5]=""  [6]=lockunlock
+  //
+  // ② VoucherNet extended (10 commas / 11 parts):
+  //     ",label,price,validity,sharedUsers,addrPool,lockMac,sellingPrice,expiredMode,parentQueue,"
+  //     [0]=""  [1]=label  [2]=price  [3]=validity  [6]=lockMac  [7]=sellingPrice  [8]=expiredMode  [9]=parentQueue
+
   const putMatch = onLogin.match(/:put\s*\("([^"]+)"\)/);
   const configStr = putMatch ? putMatch[1] : onLogin;
-  const parts = configStr.split(",");
-  const price        = (parts[2] ?? "").trim();
-  const validity     = (parts[3] ?? "").trim();
+  const parts     = configStr.split(",");
+
+  const price    = (parts[2] ?? "").trim();
+  const validity = (parts[3] ?? "").trim();
+
+  // Detect format: MikhMon has ≤8 parts, VoucherNet has ≥10.
+  // Also check if parts[1] is a known MikhMon expmode keyword as extra guard.
+  const field1        = (parts[1] ?? "").trim().toLowerCase();
+  const isMikhmon     = parts.length < 10 || MIKHMON_EXPMODES.has(field1);
+
+  if (isMikhmon) {
+    // ① MikhMon original format
+    const sellingPrice = (parts[4] ?? "").trim();
+    const lockField    = (parts[6] ?? "").trim();
+    const lockMac      = lockField.toLowerCase() === "enable";
+    // Normalise expmode to VoucherNet terminology
+    const expiredMode  = field1 === "rem" || field1 === "remc" ? "remove"
+                       : field1 === "ntf" || field1 === "ntfc" ? "disable"
+                       : "nothing";
+    return { price, validity, lockMac, sellingPrice, expiredMode, parentQueue: "" };
+  }
+
+  // ② VoucherNet extended format
   const lockField    = (parts[6] ?? "").trim();
   const lockMac      = lockField.toLowerCase() === "enable";
   const sellingPrice = (parts[7] ?? "").trim();
