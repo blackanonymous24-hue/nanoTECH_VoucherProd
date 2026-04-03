@@ -256,7 +256,7 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
       .select({
         profileName: vouchersTable.profileName,
         count: count(),
-        revenue: sql<number>`coalesce(sum(${vouchersTable.price}::numeric), 0)`,
+        revenue: sql<number>`coalesce(sum(nullif(${vouchersTable.price}, '')::numeric), 0)`,
       })
       .from(vouchersTable)
       .where(and(eq(vouchersTable.vendorId, id), periodFilter))

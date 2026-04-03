@@ -345,14 +345,20 @@ export default function Reports() {
     try { const v = localStorage.getItem("vouchernet_router_id"); return v ? parseInt(v) : null; } catch { return null; }
   })();
 
-  const sorted = useMemo(() => sortSummaries(summaries, sortMode), [summaries, sortMode]);
+  // Filter to only vendors of the active router
+  const filtered = useMemo(
+    () => routerId ? summaries.filter((s) => s.vendor.routerId === routerId) : summaries,
+    [summaries, routerId],
+  );
+
+  const sorted = useMemo(() => sortSummaries(filtered, sortMode), [filtered, sortMode]);
 
   if (selectedVendorId) {
     return <VendorDetailReport vendorId={selectedVendorId} onBack={() => setSelectedVendorId(null)} />;
   }
 
-  const totalVouchers = summaries.reduce((s, r) => s + r.totalVouchers, 0);
-  const totalUsed     = summaries.reduce((s, r) => s + r.totalUsed, 0);
+  const totalVouchers = filtered.reduce((s, r) => s + r.totalVouchers, 0);
+  const totalUsed     = filtered.reduce((s, r) => s + r.totalUsed, 0);
   const totalNonSold  = totalVouchers - totalUsed;
 
   return (
@@ -411,7 +417,7 @@ export default function Reports() {
 
       {isLoading ? (
         <div className="text-center py-12 text-gray-400">Chargement des rapports...</div>
-      ) : summaries.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <BarChart3 className="h-12 w-12 text-gray-300 mb-4" />
@@ -422,7 +428,7 @@ export default function Reports() {
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <p className="text-sm text-gray-500">{summaries.length} vendeur(s)</p>
+            <p className="text-sm text-gray-500">{filtered.length} vendeur(s)</p>
             <div className="flex items-center gap-2">
               <ArrowDownUp className="h-3.5 w-3.5 text-gray-400" />
               <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
