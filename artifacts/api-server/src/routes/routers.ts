@@ -411,10 +411,18 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const users = await getCachedUsers(id, conn);
+    const [users, soldRows] = await Promise.all([
+      getCachedUsers(id, conn),
+      db
+        .select({ username: vouchersTable.username })
+        .from(vouchersTable)
+        .where(and(eq(vouchersTable.routerId, id), isNotNull(vouchersTable.usedAt))),
+    ]);
+    const soldSet = new Set(soldRows.map((r) => r.username.toLowerCase()));
 
     const map = new Map<string, { count: number; profiles: Set<string>; preview: typeof users }>();
     for (const u of users) {
+      if (soldSet.has(u.username.toLowerCase())) continue;
       const key = u.comment ?? "";
       if (!key) continue;
       const entry = map.get(key) ?? { count: 0, profiles: new Set(), preview: [] };

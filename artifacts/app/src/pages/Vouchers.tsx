@@ -457,7 +457,7 @@ export default function Vouchers() {
                           aria-expanded={profilePopoverOpen}
                           className="w-48 justify-between font-normal"
                         >
-                          <span className="truncate">
+                          <span className="truncate whitespace-nowrap">
                             {filterProfile === "all" ? "Tous les forfaits" : filterProfile}
                           </span>
                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
