@@ -351,25 +351,74 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                 </div>
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
+                      {data.vouchers.length > 0 && (
+                        <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">{data.vouchers.length}</span>
+                      )}
+                    </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="p-0">
                     {data.vouchers.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-6">Aucune vente ce jour</p>
+                      <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente ce jour</p>
                     ) : (
-                      <div className="space-y-1">
-                        {data.vouchers.map((v) => (
-                          <div key={v.id} className="flex items-center justify-between py-2.5 border-b last:border-0 gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
-                              <p className="text-xs text-gray-400">
-                                {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
-                                {v.printedAt ? ` · ${fmt(v.printedAt)}` : ""}
-                              </p>
-                            </div>
-                            <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">Vendu</Badge>
-                          </div>
-                        ))}
+                      <div className="max-h-80 overflow-y-auto scroll-card">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200">
+                              <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">User</th>
+                              <th className="text-right px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">Prix</th>
+                              <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px] hidden sm:table-cell">MAC</th>
+                              <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px] hidden md:table-cell">IP</th>
+                              <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">Date</th>
+                              <th className="text-center px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">État</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {data.vouchers.map((v, i) => {
+                              const displayPrice = v.salePrice || v.price || "";
+                              const dateObj = (() => {
+                                const raw = v.usedAt || v.printedAt;
+                                if (!raw) return null;
+                                const d = new Date(raw);
+                                const day = String(d.getDate()).padStart(2, "0");
+                                const hh = String(d.getHours()).padStart(2, "0");
+                                const mn = String(d.getMinutes()).padStart(2, "0");
+                                return { date: `${day} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
+                              })();
+                              return (
+                                <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
+                                  <td className="px-3 py-2 max-w-[110px]">
+                                    <p className="font-mono font-semibold text-gray-800 truncate">{v.username}</p>
+                                    <p className="text-[10px] text-gray-400 truncate">{v.profileName}</p>
+                                  </td>
+                                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                                    {displayPrice ? (
+                                      <span className="font-semibold text-emerald-600 tabular-nums">{Number(displayPrice).toLocaleString("fr-FR")}<span className="text-[9px] text-gray-400 ml-0.5">FCFA</span></span>
+                                    ) : <span className="text-gray-300">—</span>}
+                                  </td>
+                                  <td className="px-3 py-2 hidden sm:table-cell">
+                                    <span className="font-mono text-[10px] text-gray-500">{v.macAddress || <span className="text-gray-300">—</span>}</span>
+                                  </td>
+                                  <td className="px-3 py-2 hidden md:table-cell">
+                                    <span className="font-mono text-[10px] text-gray-500">{v.saleIp || <span className="text-gray-300">—</span>}</span>
+                                  </td>
+                                  <td className="px-3 py-2 whitespace-nowrap">
+                                    {dateObj ? (
+                                      <>
+                                        <p className="text-gray-700">{dateObj.date}</p>
+                                        <p className="text-[10px] text-gray-400 font-mono">{dateObj.time}</p>
+                                      </>
+                                    ) : <span className="text-gray-300">—</span>}
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-500 ring-1 ring-red-200 whitespace-nowrap">Vendu</span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </CardContent>
@@ -545,24 +594,75 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
                 </CardContent>
               </Card>
               <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle></CardHeader>
-                <CardContent>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
+                    {data.vouchers.length > 0 && (
+                      <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">{data.vouchers.length}</span>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
                   {data.vouchers.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-6">Aucune vente enregistrée</p>
+                    <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente enregistrée</p>
                   ) : (
-                    <div className="space-y-1">
-                      {data.vouchers.map((v) => (
-                        <div key={v.id} className="flex items-center justify-between py-2.5 border-b last:border-0 gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-mono font-medium text-gray-800">{v.username}</p>
-                            <p className="text-xs text-gray-400">
-                              {v.profileName}{v.price ? ` — ${v.price} FCFA` : ""}
-                              {v.printedAt ? ` · ${fmt(v.printedAt)}` : ""}
-                            </p>
-                          </div>
-                          <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent flex-shrink-0 text-xs">Vendu</Badge>
-                        </div>
-                      ))}
+                    <div className="max-h-80 overflow-y-auto scroll-card">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200">
+                            <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">User</th>
+                            <th className="text-right px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">Prix</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px] hidden sm:table-cell">MAC</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px] hidden md:table-cell">IP</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">Date</th>
+                            <th className="text-center px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">État</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.vouchers.map((v, i) => {
+                            const displayPrice = v.salePrice || v.price || "";
+                            const dateObj = (() => {
+                              const raw = v.usedAt || v.printedAt;
+                              if (!raw) return null;
+                              const d = new Date(raw);
+                              const day = String(d.getDate()).padStart(2, "0");
+                              const hh = String(d.getHours()).padStart(2, "0");
+                              const mn = String(d.getMinutes()).padStart(2, "0");
+                              return { date: `${day} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
+                            })();
+                            return (
+                              <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
+                                <td className="px-3 py-2 max-w-[110px]">
+                                  <p className="font-mono font-semibold text-gray-800 truncate">{v.username}</p>
+                                  <p className="text-[10px] text-gray-400 truncate">{v.profileName}</p>
+                                </td>
+                                <td className="px-3 py-2 text-right whitespace-nowrap">
+                                  {displayPrice ? (
+                                    <span className="font-semibold text-emerald-600 tabular-nums">{Number(displayPrice).toLocaleString("fr-FR")}<span className="text-[9px] text-gray-400 ml-0.5">FCFA</span></span>
+                                  ) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className="px-3 py-2 hidden sm:table-cell">
+                                  <span className="font-mono text-[10px] text-gray-500">{v.macAddress || <span className="text-gray-300">—</span>}</span>
+                                </td>
+                                <td className="px-3 py-2 hidden md:table-cell">
+                                  <span className="font-mono text-[10px] text-gray-500">{v.saleIp || <span className="text-gray-300">—</span>}</span>
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap">
+                                  {dateObj ? (
+                                    <>
+                                      <p className="text-gray-700">{dateObj.date}</p>
+                                      <p className="text-[10px] text-gray-400 font-mono">{dateObj.time}</p>
+                                    </>
+                                  ) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-500 ring-1 ring-red-200 whitespace-nowrap">Vendu</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </CardContent>
