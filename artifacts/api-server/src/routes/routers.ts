@@ -422,7 +422,8 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
 
     const map = new Map<string, { count: number; profiles: Set<string>; preview: typeof users }>();
     for (const u of users) {
-      if (soldSet.has(u.username.toLowerCase())) continue;
+      // Sold vouchers have a MAC address set by MikroTik on-login, or are tracked in DB
+      if (u.macAddress || soldSet.has(u.username.toLowerCase())) continue;
       const key = u.comment ?? "";
       if (!key) continue;
       const entry = map.get(key) ?? { count: 0, profiles: new Set(), preview: [] };

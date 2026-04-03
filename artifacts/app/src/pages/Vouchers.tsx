@@ -463,18 +463,18 @@ export default function Vouchers() {
                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-48 p-0" align="start">
+                      <PopoverContent className="w-auto min-w-[10rem] max-w-xs p-0" align="start">
                         <div className="overflow-y-auto max-h-60 py-1">
                           {sortedProfiles.length === 0 && (
-                            <p className="px-3 py-2 text-sm text-gray-400">Aucun forfait.</p>
+                            <p className="px-3 py-2 text-xs text-gray-400">Aucun forfait.</p>
                           )}
                           {[{ name: "all" as const }, ...sortedProfiles].map((p) => (
                             <button
                               key={p.name}
                               onClick={() => { handleProfileChange(p.name); setProfilePopoverOpen(false); }}
-                              className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 transition-colors"
+                              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
                             >
-                              <Check className={`h-4 w-4 flex-shrink-0 ${(p.name === "all" ? filterProfile === "all" : filterProfile === p.name) ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                              <Check className={`h-3.5 w-3.5 flex-shrink-0 ${(p.name === "all" ? filterProfile === "all" : filterProfile === p.name) ? "opacity-100 text-blue-600" : "opacity-0"}`} />
                               {p.name === "all" ? "Tous les forfaits" : p.name}
                             </button>
                           ))}
