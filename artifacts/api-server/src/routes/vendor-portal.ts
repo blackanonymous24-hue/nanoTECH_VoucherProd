@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, count, sql, and, gte, lt } from "drizzle-orm";
+import { eq, desc, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
@@ -141,7 +141,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     db
       .select()
       .from(vouchersTable)
-      .where(eq(vouchersTable.vendorId, id))
+      .where(and(eq(vouchersTable.vendorId, id), isNotNull(vouchersTable.usedAt)))
       .orderBy(desc(vouchersTable.usedAt))
       .limit(30),
     db
@@ -172,13 +172,11 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     totalUsed:      Number(totals?.used    ?? 0),
     salesStats,
     byProfile,
-    recentSales: recentSales
-      .filter((v) => v.usedAt !== null)
-      .map((v) => ({
-        ...v,
-        // Enrich: use salePrice (from sync), else price (from generation), else profile cache
-        price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
-      })),
+    recentSales: recentSales.map((v) => ({
+      ...v,
+      // Enrich: use salePrice (from sync), else price (from generation), else profile cache
+      price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
+    })),
     availableVouchers: availableVouchers.filter((v) => v.usedAt === null),
   });
 });
