@@ -415,7 +415,7 @@ export default function GenerateVouchers() {
                       const ex = p.repeat(Math.ceil(len / p.length)).slice(0, len);
                       return (
                         <option key={type} value={type}>
-                          {ex} — {CHAR_TYPE_DESCS[type]}
+                          {ex}
                         </option>
                       );
                     })}
