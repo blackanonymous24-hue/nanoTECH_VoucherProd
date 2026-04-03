@@ -346,7 +346,7 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
 
 interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expiresAt: number; }
 const userCache = new Map<number, UserCache>();
-const USER_CACHE_TTL = 150_000; // 150s — frontend refreshes every 2min, always hits cache
+const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expires first
 
 async function getCachedUsers(id: number, conn: Parameters<typeof listHotspotUsers>[0]) {
   const cached = userCache.get(id);
@@ -395,6 +395,55 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
     const paged = users.slice(offset, offset + limit);
 
     res.json({ users: paged, total });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// GET /routers/:id/lots — lightweight lot aggregation from server cache
+router.get("/routers/:id/lots", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const users = await getCachedUsers(id, conn);
+
+    const map = new Map<string, { count: number; profiles: Set<string>; preview: typeof users }>();
+    for (const u of users) {
+      const key = u.comment ?? "";
+      if (!key) continue;
+      const entry = map.get(key) ?? { count: 0, profiles: new Set(), preview: [] };
+      entry.count++;
+      entry.profiles.add(u.profile);
+      if (entry.preview.length < 4) entry.preview.push(u);
+      map.set(key, entry);
+    }
+
+    const datePart = (n: string) => {
+      const parts = n.split("-");
+      if (parts.length < 3) return n;
+      const [mm, dd, yy] = parts.slice(2).join("-").split(".");
+      return `${yy ?? "00"}.${mm ?? "00"}.${dd ?? "00"}`;
+    };
+
+    const lots = Array.from(map.entries())
+      .map(([name, data]) => ({
+        name,
+        count: data.count,
+        profile: data.profiles.size === 1 ? [...data.profiles][0] : null,
+        preview: data.preview,
+      }))
+      .sort((a, b) => {
+        const cmp = datePart(b.name).localeCompare(datePart(a.name));
+        return cmp !== 0 ? cmp : b.name.localeCompare(a.name);
+      });
+
+    res.json({ lots, total: users.length });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

@@ -1,10 +1,10 @@
 import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   useListRouterUsers,
   useListRouterProfiles,
 } from "@workspace/api-client-react";
 import type { HotspotUser } from "@workspace/api-client-react";
-
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { applyVars, getStoredTemplate, getStoredPHP, isPHPMode } from "@/pages/TicketTemplate";
+
+type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -114,56 +116,63 @@ export default function Vouchers() {
   const activeRouterId = selectedRouterId ?? null;
   const activeRouter = routers.find((r) => r.id === activeRouterId);
 
-  // ── Single query — loads ALL MikroTik users; filtering + pagination done locally
-  // This ensures lots, filters, and list view are always in sync.
+  // ── Lots query — lightweight, always active (tiny payload from server cache) ──
+  const {
+    data: lotsData,
+    isLoading: lotsLoading,
+    refetch: refetchLots,
+  } = useQuery({
+    queryKey: ["router-lots", activeRouterId],
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/routers/${activeRouterId}/lots`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json() as Promise<{ lots: LotSummary[]; total: number }>;
+    },
+    enabled: !!activeRouterId,
+    staleTime: 120_000,
+  });
+
+  const lots: LotSummary[] = lotsData?.lots ?? [];
+  const totalUsers = lotsData?.total ?? 0;
+  // For the filter dropdown: derive from lots (server already sorted)
+  const uniqueComments = lots.map((l) => ({ name: l.name, count: l.count }));
+
+  // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   const {
     data: allUsersData,
-    isLoading,
+    isLoading: usersLoading,
     isFetching,
-    refetch,
+    refetch: refetchUsers,
     error,
   } = useListRouterUsers(
     activeRouterId ?? 0,
-    { limit: 9999 },
+    {
+      search: debouncedSearch || undefined,
+      profile: filterProfile !== "all" ? filterProfile : undefined,
+      comment: filterComment !== "all" ? filterComment : undefined,
+      limit: 2000,
+    },
     {
       query: {
-        enabled: !!activeRouterId,
-        staleTime: 60_000,
+        enabled: !!activeRouterId && view === "list",
+        staleTime: 120_000,
       },
     },
   );
 
-  const allMikrotikUsers = allUsersData?.users ?? [];
-  const totalUsers = allUsersData?.total ?? allMikrotikUsers.length;
+  const isLoading = view === "lots" ? lotsLoading : usersLoading;
+  const refetch = () => { void refetchLots(); void refetchUsers(); };
 
-  // ── Local filtering ───────────────────────────────────────────────────────────
-  const filtered = useMemo(() => {
-    let users = allMikrotikUsers;
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      users = users.filter(
-        (u) =>
-          u.username.toLowerCase().includes(q) ||
-          u.password.toLowerCase().includes(q) ||
-          (u.comment ?? "").toLowerCase().includes(q) ||
-          u.profile.toLowerCase().includes(q),
-      );
-    }
-    if (filterProfile !== "all") {
-      users = users.filter((u) => u.profile === filterProfile);
-    }
-    if (filterComment !== "all") {
-      users = users.filter((u) => (u.comment ?? "") === filterComment);
-    }
-    return users;
-  }, [allMikrotikUsers, debouncedSearch, filterProfile, filterComment]);
+  // Filtered list = what the server returned (already filtered server-side)
+  const filtered = allUsersData?.users ?? [];
+  const filteredTotal = allUsersData?.total ?? filtered.length;
 
-  // ── Local pagination ──────────────────────────────────────────────────────────
+  // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageUsers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
-    query: { enabled: !!activeRouterId, staleTime: 60_000 },
+    query: { enabled: !!activeRouterId, staleTime: 120_000 },
   });
 
   const sortedProfiles = useMemo(
@@ -175,55 +184,6 @@ export default function Vouchers() {
       }),
     [profilesList],
   );
-
-  // ── Unique comments (lots filter) from ALL MikroTik users ────────────────────
-  const uniqueComments = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const u of allMikrotikUsers) {
-      const c = u.comment;
-      if (c && c.startsWith("vc")) counts.set(c, (counts.get(c) ?? 0) + 1);
-    }
-    const datePart = (n: string) => {
-      const parts = n.split("-");
-      if (parts.length < 3) return n;
-      const [mm, dd, yy] = parts.slice(2).join("-").split(".");
-      return `${yy ?? "00"}.${mm ?? "00"}.${dd ?? "00"}`;
-    };
-    return Array.from(counts.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => {
-        const cmp = datePart(b.name).localeCompare(datePart(a.name));
-        return cmp !== 0 ? cmp : b.name.localeCompare(a.name);
-      });
-  }, [allMikrotikUsers]);
-
-  // ── Lots grouped from ALL MikroTik users ─────────────────────────────────────
-  const lots = useMemo(() => {
-    const map = new Map<string, HotspotUser[]>();
-    for (const u of allMikrotikUsers) {
-      const key = u.comment ?? "— Sans lot —";
-      const arr = map.get(key) ?? [];
-      arr.push(u);
-      map.set(key, arr);
-    }
-    const datePart = (n: string) => {
-      const parts = n.split("-");
-      if (parts.length < 3) return n;
-      const [mm, dd, yy] = parts.slice(2).join("-").split(".");
-      return `${yy ?? "00"}.${mm ?? "00"}.${dd ?? "00"}`;
-    };
-    return Array.from(map.entries())
-      .map(([name, users]) => ({
-        name,
-        users,
-        count: users.length,
-        profile: users.every((u) => u.profile === users[0].profile) ? users[0].profile : null,
-      }))
-      .sort((a, b) => {
-        const cmp = datePart(b.name).localeCompare(datePart(a.name));
-        return cmp !== 0 ? cmp : b.name.localeCompare(a.name);
-      });
-  }, [allMikrotikUsers]);
 
   // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
   const handleDisableLot = async (comment: string, enable: boolean) => {
@@ -319,27 +279,38 @@ export default function Vouchers() {
     }
   };
 
-  // ── Export .txt / .csv ───────────────────────────────────────────────────────
-  const handleExportTxt = (lot: { name: string; users: HotspotUser[] }) => {
-    const lines = lot.users.map((u) => `${u.username} / ${u.password}`).join("\n");
-    downloadFile(lines, `${lot.name}.txt`, "text/plain;charset=utf-8");
+  // ── Export .txt / .csv — lazy-fetch users for the lot on demand ─────────────
+  const fetchLotUsers = async (lot: LotSummary): Promise<HotspotUser[]> => {
+    const url = `${BASE}/api/routers/${activeRouterId}/users?comment=${encodeURIComponent(lot.name)}&limit=${lot.count + 100}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json() as { users: HotspotUser[] };
+    return data.users;
   };
 
-  const handleExportCsv = (lot: { name: string; users: HotspotUser[] }) => {
-    const header = "username,password,profil,lot,uptime,data";
-    const rows = lot.users.map((u) =>
-      [
-        u.username,
-        u.password,
-        u.profile,
-        u.comment ?? "",
-        u.limitUptime ?? "",
-        u.limitBytesTotal ?? "",
-      ]
-        .map((s) => `"${String(s).replace(/"/g, '""')}"`)
-        .join(","),
-    );
-    downloadFile([header, ...rows].join("\n"), `${lot.name}.csv`, "text/csv;charset=utf-8");
+  const handleExportTxt = async (lot: LotSummary) => {
+    try {
+      const users = await fetchLotUsers(lot);
+      const lines = users.map((u) => `${u.username} / ${u.password}`).join("\n");
+      downloadFile(lines, `${lot.name}.txt`, "text/plain;charset=utf-8");
+    } catch {
+      toast({ title: "Erreur export", variant: "destructive" });
+    }
+  };
+
+  const handleExportCsv = async (lot: LotSummary) => {
+    try {
+      const users = await fetchLotUsers(lot);
+      const header = "username,password,profil,lot,uptime,data";
+      const rows = users.map((u) =>
+        [u.username, u.password, u.profile, u.comment ?? "", u.limitUptime ?? "", u.limitBytesTotal ?? ""]
+          .map((s) => `"${String(s).replace(/"/g, '""')}"`)
+          .join(","),
+      );
+      downloadFile([header, ...rows].join("\n"), `${lot.name}.csv`, "text/csv;charset=utf-8");
+    } catch {
+      toast({ title: "Erreur export", variant: "destructive" });
+    }
   };
 
   // ── Selection helpers ────────────────────────────────────────────────────────
@@ -562,7 +533,7 @@ export default function Vouchers() {
                   <span className="text-sm text-amber-800 font-medium flex items-center gap-2">
                     <Package className="h-4 w-4" />
                     Lot&nbsp;: <span className="font-mono">{filterComment}</span>
-                    &nbsp;—&nbsp;{filtered.length} affiché(s)
+                    &nbsp;—&nbsp;{filteredTotal.toLocaleString("fr")} affiché(s)
                   </span>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button
@@ -637,8 +608,8 @@ export default function Vouchers() {
                     </span>
                   </div>
                   <span className="text-xs text-gray-400">
-                    {filtered.length !== totalUsers
-                      ? `${filtered.length} filtrés / ${totalUsers.toLocaleString("fr")} total`
+                    {filteredTotal !== totalUsers
+                      ? `${filteredTotal.toLocaleString("fr")} filtrés / ${totalUsers.toLocaleString("fr")} total`
                       : `${totalUsers.toLocaleString("fr")} total`}
                   </span>
                 </div>
@@ -648,7 +619,7 @@ export default function Vouchers() {
                       <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-3 text-gray-300" />
                       Chargement depuis le routeur...
                     </div>
-                  ) : filtered.length === 0 ? (
+                  ) : filteredTotal === 0 ? (
                     <div className="py-8 text-center text-gray-400 text-sm">
                       Aucun voucher trouvé.
                     </div>
@@ -678,7 +649,7 @@ export default function Vouchers() {
                       <ChevronLeft className="h-4 w-4" /> Précédent
                     </Button>
                     <span className="text-xs text-gray-500">
-                      Page {page + 1} / {totalPages} ({filtered.length.toLocaleString("fr")} résultats)
+                      Page {page + 1} / {totalPages} ({filteredTotal.toLocaleString("fr")} résultats)
                     </span>
                     <Button
                       variant="outline"
@@ -768,7 +739,7 @@ export default function Vouchers() {
 
                       {/* Preview: first 4 vouchers */}
                       <div className="border-t border-gray-100 bg-gray-50 px-5 py-2 flex flex-wrap gap-3">
-                        {lot.users.slice(0, 4).map((u) => (
+                        {lot.preview.map((u) => (
                           <span key={u.username} className="font-mono text-xs text-gray-500">
                             {u.username} / {u.password}
                           </span>
