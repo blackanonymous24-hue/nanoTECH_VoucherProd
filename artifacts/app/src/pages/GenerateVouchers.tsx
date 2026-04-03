@@ -57,7 +57,7 @@ const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
   num:    "12345678",
 };
 
-const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2", "lower", "upper", "upplow", "num"];
+const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2"];
 
 function makeBatchId(mode: "vc" | "up" = "vc"): string {
   const now = new Date();
@@ -78,7 +78,7 @@ export default function GenerateVouchers() {
   const [prefix, setPrefix] = useState("");
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
   const [charType, setCharType] = useState<CharType>("mix");
-  const [userLength, setUserLength] = useState("8");
+  const [userLength, setUserLength] = useState("5");
   const [timelimit, setTimelimit] = useState("");
   const [datalimit, setDatalimit] = useState("");
   const [mbgb, setMbgb] = useState<number>(1048576);
@@ -88,6 +88,13 @@ export default function GenerateVouchers() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
+
+  // Auto-select length 5 when a mix format is chosen in Mode Voucher
+  useEffect(() => {
+    if (passwordMode === "same" && (charType === "mix" || charType === "mix1" || charType === "mix2")) {
+      setUserLength("5");
+    }
+  }, [charType, passwordMode]);
 
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null }[]>({
