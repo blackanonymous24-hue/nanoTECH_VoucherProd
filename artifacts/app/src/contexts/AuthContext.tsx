@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
+import { queryClient } from "@/lib/queryClient";
 
 const TOKEN_KEY    = "vouchernet_admin_token";
 const ROLE_KEY     = "vouchernet_role";
@@ -46,6 +47,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // Stop all in-flight & scheduled React Query requests immediately
+    // (avoids unnecessary CPU load on MikroTik while no user is logged in)
+    void queryClient.cancelQueries();
+    queryClient.clear();
+
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ROLE_KEY);
     localStorage.removeItem(VENDOR_KEY);
