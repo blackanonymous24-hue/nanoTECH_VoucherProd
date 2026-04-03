@@ -42,6 +42,7 @@ type Voucher = {
   profileName: string;
   price: string;
   salePrice: string | null;
+  saleIp: string | null;
   macAddress: string | null;
   printedAt: string | null;
   usedAt: string | null;
@@ -830,7 +831,7 @@ function Dashboard({ token, vendor, onLogout }: {
               </Card>
             )}
 
-            <Card className="flex flex-col">
+            <Card className="flex flex-col overflow-hidden">
               <CardHeader className="pb-2 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">Ventes récentes</CardTitle>
@@ -845,39 +846,75 @@ function Dashboard({ token, vendor, onLogout }: {
                 {data.recentSales.length === 0 ? (
                   <p className="text-sm text-gray-400 text-center py-8 px-4">Aucune vente enregistrée</p>
                 ) : (
-                  <div className="max-h-[320px] overflow-y-auto scroll-card px-4 pb-3">
-                    {data.recentSales.map((v, i) => {
-                      const displayPrice = v.salePrice || v.price || "";
-                      return (
-                        <div
-                          key={v.id}
-                          className={`flex items-start justify-between py-2.5 gap-3 ${i < data.recentSales.length - 1 ? "border-b border-gray-100 dark:border-gray-800" : ""}`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-mono font-semibold truncate leading-snug">{v.username}</p>
-                            <p className="text-xs text-gray-500 truncate mt-0.5">
-                              {v.profileName}
-                              {displayPrice ? (
-                                <span className="text-emerald-600 dark:text-emerald-400 font-medium ml-1">
-                                  {Number(displayPrice).toLocaleString("fr-FR")} FCFA
+                  <div className="max-h-[360px] overflow-y-auto scroll-card">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
+                          <th className="text-left px-3 py-2 font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide text-[10px]">User</th>
+                          <th className="text-right px-3 py-2 font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide text-[10px]">Prix</th>
+                          <th className="text-left px-3 py-2 font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide text-[10px] hidden sm:table-cell">MAC</th>
+                          <th className="text-left px-3 py-2 font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide text-[10px] hidden md:table-cell">IP</th>
+                          <th className="text-left px-3 py-2 font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide text-[10px]">Date</th>
+                          <th className="text-center px-3 py-2 font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide text-[10px]">État</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.recentSales.map((v, i) => {
+                          const displayPrice = v.salePrice || v.price || "";
+                          const dateStr = v.usedAt ? (() => {
+                            const d = new Date(v.usedAt);
+                            const day = String(d.getDate()).padStart(2, "0");
+                            const month = MONTHS[d.getMonth()];
+                            return `${day} ${month} ${d.getFullYear()}`;
+                          })() : "—";
+                          return (
+                            <tr
+                              key={v.id}
+                              className={`transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 ${i % 2 === 0 ? "" : "bg-gray-50/50 dark:bg-gray-800/20"}`}
+                            >
+                              {/* User */}
+                              <td className="px-3 py-2 max-w-[110px]">
+                                <p className="font-mono font-semibold text-gray-800 dark:text-gray-100 truncate">{v.username}</p>
+                                <p className="text-[10px] text-gray-400 truncate">{v.profileName}</p>
+                              </td>
+                              {/* Prix */}
+                              <td className="px-3 py-2 text-right whitespace-nowrap">
+                                {displayPrice ? (
+                                  <span className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                                    {Number(displayPrice).toLocaleString("fr-FR")}
+                                    <span className="text-[9px] text-gray-400 ml-0.5">FCFA</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300 dark:text-gray-600">—</span>
+                                )}
+                              </td>
+                              {/* MAC */}
+                              <td className="px-3 py-2 hidden sm:table-cell">
+                                <span className="font-mono text-[10px] text-gray-500 dark:text-gray-400">
+                                  {v.macAddress || <span className="text-gray-300 dark:text-gray-600">—</span>}
                                 </span>
-                              ) : null}
-                            </p>
-                            {v.macAddress && (
-                              <p className="text-[10px] text-gray-400 font-mono mt-0.5">{v.macAddress}</p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                            {v.usedAt && (
-                              <span className="text-[10px] text-gray-400 whitespace-nowrap">{fmt(v.usedAt)}</span>
-                            )}
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-950/50 text-red-500 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800/50 whitespace-nowrap">
-                              Vendu
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
+                              </td>
+                              {/* IP */}
+                              <td className="px-3 py-2 hidden md:table-cell">
+                                <span className="font-mono text-[10px] text-gray-500 dark:text-gray-400">
+                                  {v.saleIp || <span className="text-gray-300 dark:text-gray-600">—</span>}
+                                </span>
+                              </td>
+                              {/* Date */}
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                <span className="text-gray-600 dark:text-gray-300">{dateStr}</span>
+                              </td>
+                              {/* État */}
+                              <td className="px-3 py-2 text-center">
+                                <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-950/50 text-red-500 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800/50 whitespace-nowrap">
+                                  Vendu
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </CardContent>

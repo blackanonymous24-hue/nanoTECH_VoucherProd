@@ -668,6 +668,7 @@ export async function fetchUsedUsernames(conn: RouterConnection): Promise<Set<st
 export interface SaleDetail {
   saleDate: Date;
   salePrice: string;
+  ip: string;
   mac: string;
 }
 
@@ -709,6 +710,7 @@ export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 2): 
         const timePart  = parts[1].trim();
         const username  = parts[2].trim().toLowerCase();
         const priceStr  = parts[3].trim();
+        const ip        = parts.length >= 5 ? parts[4].trim() : "";
         const mac       = parts.length >= 6 ? parts[5].trim() : "";
 
         if (!username) continue;
@@ -737,7 +739,7 @@ export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 2): 
         // Keep the most recent sale per username
         const existing = details.get(username);
         if (!existing || saleDate > existing.saleDate) {
-          details.set(username, { saleDate, salePrice: priceStr, mac });
+          details.set(username, { saleDate, salePrice: priceStr, ip, mac });
         }
       }
     }

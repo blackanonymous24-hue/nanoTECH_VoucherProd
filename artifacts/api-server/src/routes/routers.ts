@@ -552,6 +552,7 @@ async function runUsageSync(routerId: number, conn: RouterConnection): Promise<{
           printedAt: sql`coalesce(${vouchersTable.printedAt}, ${usedAt.toISOString()})`,
           salePrice: detail.salePrice || null,
           macAddress: detail.mac || null,
+          saleIp: detail.ip || null,
         })
         .where(inArray(vouchersTable.id, [v.id]));
     }
