@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const ALL = "_all"; // sentinel for "no filter" in Select (empty string not allowed)
 
 const MONTH_NAMES_FR = [
   "Janvier","Février","Mars","Avril","Mai","Juin",
@@ -52,28 +53,33 @@ export default function SellingReport() {
   const { selectedRouterId } = useRouterContext();
   const now = new Date();
 
-  const [filterDay,   setFilterDay]   = useState<string>("");
+  const [filterDay,   setFilterDay]   = useState<string>(ALL);
   const [filterMonth, setFilterMonth] = useState<string>(String(now.getMonth() + 1));
   const [filterYear,  setFilterYear]  = useState<string>(String(now.getFullYear()));
   const [search,      setSearch]      = useState("");
   const [applied,     setApplied]     = useState<{ day: string; month: string; year: string }>({
-    day: "", month: String(now.getMonth() + 1), year: String(now.getFullYear()),
+    day: ALL, month: String(now.getMonth() + 1), year: String(now.getFullYear()),
   });
 
-  const isAll = !applied.month && !applied.year;
+  const isAll = applied.month === ALL && applied.year === ALL;
+
+  // Convert ALL sentinel → empty string for API params
+  const appliedDay   = applied.day   === ALL ? "" : applied.day;
+  const appliedMonth = applied.month === ALL ? "" : applied.month;
+  const appliedYear  = applied.year  === ALL ? "" : applied.year;
 
   const queryKey = useMemo(() => [
-    "selling-report", selectedRouterId, applied.day, applied.month, applied.year,
-  ], [selectedRouterId, applied]);
+    "selling-report", selectedRouterId, appliedDay, appliedMonth, appliedYear,
+  ], [selectedRouterId, appliedDay, appliedMonth, appliedYear]);
 
-  const { data, isLoading, isError, error, refetch } = useQuery<SaleEntry[]>({
+  const { data, isLoading, isError, error } = useQuery<SaleEntry[]>({
     queryKey,
     queryFn: async () => {
       if (!selectedRouterId) return [];
       const params = new URLSearchParams();
-      if (applied.year)  params.set("year",  applied.year);
-      if (applied.month) params.set("month", applied.month);
-      if (applied.day)   params.set("day",   applied.day);
+      if (appliedYear)  params.set("year",  appliedYear);
+      if (appliedMonth) params.set("month", appliedMonth);
+      if (appliedDay)   params.set("day",   appliedDay);
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
@@ -110,18 +116,18 @@ export default function SellingReport() {
   }
 
   function showAll() {
-    setFilterDay(""); setFilterMonth(""); setFilterYear("");
-    setApplied({ day: "", month: "", year: "" });
+    setFilterDay(ALL); setFilterMonth(ALL); setFilterYear(ALL);
+    setApplied({ day: ALL, month: ALL, year: ALL });
     setSearch("");
   }
 
   const reportLabel = useMemo(() => {
     if (isAll) return "Tout l'historique";
-    const mo = applied.month ? MONTH_NAMES_FR[Number(applied.month) - 1] : "";
-    const yr = applied.year ?? "";
-    const dy = applied.day ? `${applied.day} ` : "";
+    const mo = appliedMonth ? MONTH_NAMES_FR[Number(appliedMonth) - 1] : "";
+    const yr = appliedYear  ?? "";
+    const dy = appliedDay   ? `${appliedDay} ` : "";
     return `${dy}${mo} ${yr}`.trim();
-  }, [applied, isAll]);
+  }, [isAll, appliedDay, appliedMonth, appliedYear]);
 
   const csvFilename = `rapport-ventes-${reportLabel.replace(/\s+/g, "-")}.csv`;
 
@@ -172,7 +178,7 @@ export default function SellingReport() {
                   <SelectValue placeholder="Tous" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Tous</SelectItem>
+                  <SelectItem value={ALL}>Tous</SelectItem>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
                     <SelectItem key={d} value={String(d)}>{String(d).padStart(2, "0")}</SelectItem>
                   ))}
@@ -188,7 +194,7 @@ export default function SellingReport() {
                   <SelectValue placeholder="Tous" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Tous</SelectItem>
+                  <SelectItem value={ALL}>Tous</SelectItem>
                   {MONTH_NAMES_FR.map((name, i) => (
                     <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
                   ))}
@@ -204,7 +210,7 @@ export default function SellingReport() {
                   <SelectValue placeholder="Toutes" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Toutes</SelectItem>
+                  <SelectItem value={ALL}>Toutes</SelectItem>
                   {yearOptions.map((y) => (
                     <SelectItem key={y} value={y}>{y}</SelectItem>
                   ))}
