@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import {
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
   User, RefreshCw, Clock, ChevronLeft, Search, Banknote, Printer, LogIn,
+  PackageOpen, Bell,
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
@@ -34,7 +35,7 @@ type SalesStats = {
   weekSold: number; weekAmount: number;
   lastMonthSold: number; lastMonthAmount: number;
 };
-type ByProfile = { profileName: string; total: number; printed: number; used: number };
+type ByProfile = { profileName: string; total: number; printed: number; used: number; soldToday: number };
 type Voucher = {
   id: number;
   username: string;
@@ -754,6 +755,8 @@ function Dashboard({ token, vendor, onLogout }: {
   const [reportView,  setReportView]  = useState<{ day: string; month: string; year: string } | null>(null);
   const [periodView,  setPeriodView]  = useState<"today" | "yesterday" | "week" | "month" | null>(null);
 
+  const notifiedProfilesRef = useRef<Set<string>>(new Set());
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -773,6 +776,30 @@ function Dashboard({ token, vendor, onLogout }: {
     const id = setInterval(fetchData, 30_000);
     return () => clearInterval(id);
   }, [fetchData]);
+
+  // Demander la permission de notification au montage
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Notifier quand un forfait tombe sous 100 disponibles
+  useEffect(() => {
+    if (!data?.byProfile) return;
+    data.byProfile.forEach((p) => {
+      const available = p.total - p.used;
+      if (available < 100 && !notifiedProfilesRef.current.has(p.profileName)) {
+        notifiedProfilesRef.current.add(p.profileName);
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("⚠️ Stock faible — VoucherNet", {
+            body: `Forfait « ${p.profileName} » : seulement ${available} ticket(s) disponible(s).`,
+            icon: "/favicon.ico",
+          });
+        }
+      }
+    });
+  }, [data]);
 
   if (periodView) {
     return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} hotspotName={data?.hotspotName} />;
@@ -891,6 +918,76 @@ function Dashboard({ token, vendor, onLogout }: {
                 </CardContent>
               </Card>
             </div>
+
+            {/* ── Stock par forfait ─────────────────────────────────── */}
+            {data.byProfile.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2 border-b border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <PackageOpen className="h-4 w-4 text-gray-400" />
+                      Stock tickets — aujourd&apos;hui
+                    </CardTitle>
+                    <span className="text-xs text-gray-400">↻ 30s</span>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="space-y-3">
+                    {data.byProfile.map((p) => {
+                      const available = p.total - p.used;
+                      const soldToday = p.soldToday ?? 0;
+                      const total     = available + soldToday;
+                      const usedPct   = total > 0 ? Math.round((soldToday / total) * 100) : 0;
+                      const isLow     = available < 100;
+
+                      const barColor   = isLow ? "bg-orange-400" : "bg-emerald-500";
+                      const trackColor = isLow ? "bg-orange-100" : "bg-emerald-100";
+                      const textColor  = isLow ? "text-orange-600" : "text-emerald-600";
+
+                      return (
+                        <div key={p.profileName}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-sm font-medium text-gray-700 truncate">{p.profileName}</span>
+                              {isLow && (
+                                <span className="flex items-center gap-0.5 text-xs font-semibold text-orange-500">
+                                  <Bell className="h-3 w-3" /> Stock faible
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs flex-shrink-0">
+                              <span className="text-gray-400">
+                                {soldToday} vendu{soldToday !== 1 ? "s" : ""} auj.
+                              </span>
+                              <span className={`font-semibold ${textColor}`}>
+                                {available} disponible{available !== 1 ? "s" : ""}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Jauge */}
+                          <div className={`relative h-2.5 rounded-full overflow-hidden ${trackColor}`}>
+                            <div
+                              className="absolute inset-y-0 left-0 bg-gray-300 rounded-l-full transition-all duration-500"
+                              style={{ width: `${usedPct}%` }}
+                            />
+                            <div
+                              className={`absolute inset-y-0 rounded-full transition-all duration-500 ${barColor}`}
+                              style={{ left: `${usedPct}%`, right: 0 }}
+                            />
+                          </div>
+
+                          <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                            <span>Vendus ({usedPct}%)</span>
+                            <span>Disponibles ({100 - usedPct}%)</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader className="pb-2">
