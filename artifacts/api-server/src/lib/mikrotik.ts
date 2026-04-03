@@ -734,6 +734,125 @@ export interface SaleDetail {
   mac: string;
 }
 
+// ─── Raw sales entries (for the Selling Report page) ──────────────────────────
+
+export interface SaleEntry {
+  date: string;
+  time: string;
+  username: string;
+  price: number;
+  ip: string;
+  mac: string;
+  validity: string;
+  label: string;
+  batch: string;
+}
+
+/**
+ * Fetches MikHMon sales scripts and returns raw sale entries.
+ * Mirrors the three filter modes used by MikHMon's selling.php:
+ *   filter = 'all'   → ?comment=mikhmon  (all history)
+ *   filter = 'month' → ?owner=<mmYYYY>  (monthly)
+ *   filter = 'day'   → fetches by month + filters to the requested day in JS
+ *                       (supports both ISO "2026-03-31" and legacy "mar/31/2026")
+ */
+export async function fetchScriptSales(
+  conn: RouterConnection,
+  filter: { type: "all" } | { type: "month"; year: number; month: number } | { type: "day"; year: number; month: number; day: number },
+  timeoutMs = 45000,
+): Promise<SaleEntry[]> {
+  const MONTH_NAMES = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+
+  return withRouter(conn, async (api) => {
+    let scripts: Record<string, unknown>[] = [];
+
+    if (filter.type === "all") {
+      scripts = await api.write("/system/script/print", [
+        "=.proplist=name",
+        "?comment=mikhmon",
+      ]).catch(() => []);
+
+      // Fallback for older RouterOS: scan last 13 months by owner
+      if (scripts.length === 0) {
+        const now = new Date();
+        const ownerSet = new Set<string>();
+        for (let i = 0; i <= 12; i++) {
+          const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const mm2 = String(dt.getMonth() + 1).padStart(2, "0");
+          ownerSet.add(`${mm2}${dt.getFullYear()}`);
+          ownerSet.add(`${MONTH_NAMES[dt.getMonth()]}${dt.getFullYear()}`);
+        }
+        for (const owner of ownerSet) {
+          const chunk = await api.write("/system/script/print", [
+            "=.proplist=name",
+            `?owner=${owner}`,
+          ]).catch(() => []);
+          scripts.push(...chunk);
+        }
+      }
+    } else {
+      // month or day: fetch by ISO owner first, fallback to legacy
+      const { year, month } = filter;
+      const mm = String(month).padStart(2, "0");
+      const isoOwner    = `${mm}${year}`;
+      const legacyOwner = `${MONTH_NAMES[month - 1]}${year}`;
+
+      scripts = await api.write("/system/script/print", [
+        "=.proplist=name",
+        `?owner=${isoOwner}`,
+      ]).catch(() => []);
+
+      if (scripts.length === 0) {
+        scripts = await api.write("/system/script/print", [
+          "=.proplist=name",
+          `?owner=${legacyOwner}`,
+        ]).catch(() => []);
+      }
+    }
+
+    // Day filtering in JS
+    const dayFilter = filter.type === "day" ? filter.day : null;
+
+    const entries: SaleEntry[] = [];
+    for (const s of scripts) {
+      const name = (s["name"] as string) ?? "";
+      const p = name.split("-|-");
+      if (p.length < 4) continue;
+
+      const username = (p[2] ?? "").trim();
+      if (!username) continue;
+
+      if (dayFilter !== null) {
+        const datePart = p[0].trim();
+        const dd = String(dayFilter).padStart(2, "0");
+        const isoMatch  = datePart.endsWith(`-${dd}`);
+        const legMatch  = datePart.includes(`/${dd}/`);
+        if (!isoMatch && !legMatch) continue;
+      }
+
+      entries.push({
+        date:     (p[0] ?? "").trim(),
+        time:     (p[1] ?? "").trim(),
+        username,
+        price:    parseFloat(p[3]) || 0,
+        ip:       (p[4] ?? "").trim(),
+        mac:      (p[5] ?? "").trim(),
+        validity: (p[6] ?? "").trim(),
+        label:    (p[7] ?? "").trim(),
+        batch:    (p[8] ?? "").trim(),
+      });
+    }
+
+    entries.sort((a, b) => {
+      const ka = a.date + "T" + a.time;
+      const kb = b.date + "T" + b.time;
+      return kb.localeCompare(ka);
+    });
+
+    return entries;
+  }, timeoutMs);
+}
+
 /**
  * Fetches sale details from MikHMon scripts for multiple months.
  * Returns a Map<username_lowercase, SaleDetail> with the most recent entry per user.

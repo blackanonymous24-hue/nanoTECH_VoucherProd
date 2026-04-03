@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchSaleDetails, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchSaleDetails, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -689,6 +689,44 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
     updated:   entry?.updated  ?? 0,
     total:     entry?.total    ?? 0,
   });
+});
+
+/**
+ * GET /routers/:id/sales-report
+ * Reads MikHMon sales scripts directly — mirrors selling.php filter logic.
+ * Query params:
+ *   ?year=2026&month=3       → monthly (owner filter)
+ *   ?year=2026&month=3&day=5 → daily (owner + JS day filter)
+ *   (none)                   → all history (?comment=mikhmon)
+ */
+router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+
+  const yearRaw  = req.query.year  ? parseInt(req.query.year  as string, 10) : null;
+  const monthRaw = req.query.month ? parseInt(req.query.month as string, 10) : null;
+  const dayRaw   = req.query.day   ? parseInt(req.query.day   as string, 10) : null;
+
+  let filter: Parameters<typeof fetchScriptSales>[1];
+  if (yearRaw && monthRaw && dayRaw) {
+    filter = { type: "day",   year: yearRaw, month: monthRaw, day: dayRaw };
+  } else if (yearRaw && monthRaw) {
+    filter = { type: "month", year: yearRaw, month: monthRaw };
+  } else {
+    filter = { type: "all" };
+  }
+
+  try {
+    const entries = await fetchScriptSales(conn, filter, 60_000);
+    res.json(entries);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Erreur MikroTik" });
+  }
 });
 
 router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
