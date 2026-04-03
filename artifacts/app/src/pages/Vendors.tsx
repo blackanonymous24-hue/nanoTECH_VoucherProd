@@ -480,49 +480,54 @@ export default function Vendors() {
 
               {/* Boutons d'action visibles */}
               <CardContent className="pt-0">
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 gap-1.5"
-                    onClick={() => { setEditError(""); setEditVendor(vendor); }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" /> Modifier
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className={`gap-1.5 ${vendor.isActive
-                      ? "text-orange-500 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
-                      : "text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"}`}
-                    onClick={() => handleToggleActive(vendor)}
-                    title={vendor.isActive ? "Désactiver" : "Activer"}
-                  >
-                    {vendor.isActive
-                      ? <><X className="h-3.5 w-3.5" /> Désactiver</>
-                      : <><Check className="h-3.5 w-3.5" /> Activer</>}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
-                    onClick={() => handleSync(vendor)}
-                    disabled={syncingId === vendor.id}
-                    title="Resynchroniser les tickets depuis MikroTik"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${syncingId === vendor.id ? "animate-spin" : ""}`} />
-                  </Button>
-                  {!isManager && (
+                <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-1 gap-2 min-w-0">
                     <Button
                       size="sm"
                       variant="outline"
-                      className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
-                      onClick={() => setDeleteVendorId(vendor.id)}
-                      title="Supprimer"
+                      className="flex-1 gap-1.5 min-w-0"
+                      onClick={() => { setEditError(""); setEditVendor(vendor); }}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Pencil className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate">Modifier</span>
                     </Button>
-                  )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={`flex-1 gap-1.5 min-w-0 ${vendor.isActive
+                        ? "text-orange-500 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                        : "text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"}`}
+                      onClick={() => handleToggleActive(vendor)}
+                      title={vendor.isActive ? "Désactiver" : "Activer"}
+                    >
+                      {vendor.isActive
+                        ? <><X className="h-3.5 w-3.5 flex-shrink-0" /><span className="truncate">Désactiver</span></>
+                        : <><Check className="h-3.5 w-3.5 flex-shrink-0" /><span className="truncate">Activer</span></>}
+                    </Button>
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                      onClick={() => handleSync(vendor)}
+                      disabled={syncingId === vendor.id}
+                      title="Resynchroniser les tickets depuis MikroTik"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${syncingId === vendor.id ? "animate-spin" : ""}`} />
+                    </Button>
+                    {!isManager && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                        onClick={() => setDeleteVendorId(vendor.id)}
+                        title="Supprimer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
