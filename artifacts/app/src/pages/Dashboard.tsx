@@ -543,7 +543,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? (activeSessions ?? 0) : 0}
@@ -583,6 +583,24 @@ export default function Dashboard() {
           href="/vouchers"
         />
       </div>
+
+      {/* Secondary period stats from MikroTik scripts */}
+      {selectedRouterId && sales && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
+          {[
+            { label: "Hier",         amount: (sales as any).yesterdayAmount ?? 0, count: (sales as any).yesterdayCount ?? 0, color: "bg-amber-50  text-amber-700"  },
+            { label: "Cette semaine",amount: (sales as any).weekAmount      ?? 0, count: (sales as any).weekCount      ?? 0, color: "bg-blue-50   text-blue-700"   },
+            { label: "Mois dernier", amount: (sales as any).lastMonthAmount ?? 0, count: (sales as any).lastMonthCount ?? 0, color: "bg-indigo-50 text-indigo-700" },
+            { label: "Total scripts",amount: (sales as any).totalAmount     ?? 0, count: (sales as any).totalCount     ?? 0, color: "bg-gray-50   text-gray-700"   },
+          ].map(({ label, amount, count, color }) => (
+            <div key={label} className={`rounded-lg px-3 py-2 flex flex-col gap-0.5 ${color}`}>
+              <span className="text-[10px] font-semibold opacity-60 uppercase tracking-wide">{label}</span>
+              <span className="text-sm font-bold tabular-nums leading-none">{amount.toLocaleString("fr-FR")} <span className="text-[10px] font-normal opacity-60">FCFA</span></span>
+              <span className="text-[10px] opacity-50">{count} ticket{count !== 1 ? "s" : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex gap-4 items-stretch">
       <TrafficMonitorCard routerId={selectedRouterId} />

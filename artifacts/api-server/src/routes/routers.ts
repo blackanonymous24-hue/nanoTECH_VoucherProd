@@ -520,7 +520,7 @@ const USAGE_SYNC_INTERVAL = 30_000; // 30 seconds
 /** Core sync logic — shared by background and manual trigger */
 async function runUsageSync(routerId: number, conn: RouterConnection): Promise<{ updated: number; total: number }> {
   // Fetch two data sources in parallel:
-  // 1. Sale details from MikHMon scripts (actual date + price + MAC)
+  // 1. Sale details from MikHMon scripts (actual date + price + MAC) — now goes 13 months back
   // 2. Usernames from hotspot logs (fallback for immediate session detection)
   const [saleDetails, loggedInUsernames] = await Promise.all([
     fetchSaleDetails(conn).catch(() => new Map()),
@@ -530,55 +530,83 @@ async function runUsageSync(routerId: number, conn: RouterConnection): Promise<{
   // Combine into one set of all used usernames
   const allUsed = new Set<string>([...saleDetails.keys(), ...loggedInUsernames]);
 
+  // Fetch ALL vendor vouchers for this router (both unsold and already-synced)
   const vouchers = await db
-    .select({ id: vouchersTable.id, username: vouchersTable.username })
+    .select({ id: vouchersTable.id, username: vouchersTable.username, usedAt: vouchersTable.usedAt })
     .from(vouchersTable)
     .where(and(
       eq(vouchersTable.routerId, routerId),
       isNotNull(vouchersTable.vendorId),
-      isNull(vouchersTable.usedAt),
     ));
 
-  if (allUsed.size === 0) return { updated: 0, total: vouchers.length };
+  const total = vouchers.length;
+  if (allUsed.size === 0) return { updated: 0, total };
 
-  const toUpdate = vouchers.filter((v) => allUsed.has(v.username.toLowerCase()));
+  const fallbackNow = new Date();
+  let updated = 0;
 
-  if (toUpdate.length > 0) {
-    const fallbackNow = new Date();
+  // ── Pass 1: mark newly-used vouchers (usedAt IS NULL) ──────────────────
+  const newlyUsed = vouchers.filter(
+    (v) => v.usedAt === null && allUsed.has(v.username.toLowerCase()),
+  );
 
-    // Group vouchers by whether we have real sale details or not
-    const withDetails    = toUpdate.filter((v) => saleDetails.has(v.username.toLowerCase()));
-    const withoutDetails = toUpdate.filter((v) => !saleDetails.has(v.username.toLowerCase()));
+  const newWithDetails    = newlyUsed.filter((v) => saleDetails.has(v.username.toLowerCase()));
+  const newWithoutDetails = newlyUsed.filter((v) => !saleDetails.has(v.username.toLowerCase()));
 
-    // Update vouchers with real sale data from MikHMon scripts
-    for (const v of withDetails) {
-      const detail = saleDetails.get(v.username.toLowerCase())!;
-      const usedAt = detail.saleDate;
+  for (const v of newWithDetails) {
+    const detail = saleDetails.get(v.username.toLowerCase())!;
+    const usedAt = detail.saleDate;
+    await db
+      .update(vouchersTable)
+      .set({
+        usedAt,
+        printedAt: sql`coalesce(${vouchersTable.printedAt}, ${usedAt.toISOString()})`,
+        salePrice: detail.salePrice || null,
+        macAddress: detail.mac || null,
+        saleIp: detail.ip || null,
+      })
+      .where(inArray(vouchersTable.id, [v.id]));
+    updated++;
+  }
+
+  if (newWithoutDetails.length > 0) {
+    await db
+      .update(vouchersTable)
+      .set({
+        usedAt: fallbackNow,
+        printedAt: sql`coalesce(${vouchersTable.printedAt}, ${fallbackNow.toISOString()})`,
+      })
+      .where(inArray(vouchersTable.id, newWithoutDetails.map((v) => v.id)));
+    updated += newWithoutDetails.length;
+  }
+
+  // ── Pass 2: fix already-synced vouchers with wrong usedAt date ─────────
+  // If a script record exists with a different date, correct it.
+  const alreadySynced = vouchers.filter(
+    (v) => v.usedAt !== null && saleDetails.has(v.username.toLowerCase()),
+  );
+
+  for (const v of alreadySynced) {
+    const detail = saleDetails.get(v.username.toLowerCase())!;
+    const scriptDate = detail.saleDate;
+    const storedDate = v.usedAt as Date;
+    // Only update if dates differ by more than 1 day (to fix "set to today" errors)
+    const diffMs = Math.abs(scriptDate.getTime() - storedDate.getTime());
+    if (diffMs > 86400_000) {
       await db
         .update(vouchersTable)
         .set({
-          usedAt,
-          printedAt: sql`coalesce(${vouchersTable.printedAt}, ${usedAt.toISOString()})`,
+          usedAt: scriptDate,
           salePrice: detail.salePrice || null,
           macAddress: detail.mac || null,
           saleIp: detail.ip || null,
         })
         .where(inArray(vouchersTable.id, [v.id]));
-    }
-
-    // Update vouchers detected only via hotspot logs (no script record yet)
-    if (withoutDetails.length > 0) {
-      await db
-        .update(vouchersTable)
-        .set({
-          usedAt: fallbackNow,
-          printedAt: sql`coalesce(${vouchersTable.printedAt}, ${fallbackNow.toISOString()})`,
-        })
-        .where(inArray(vouchersTable.id, withoutDetails.map((v) => v.id)));
+      updated++;
     }
   }
 
-  return { updated: toUpdate.length, total: vouchers.length };
+  return { updated, total };
 }
 
 /** Background auto-sync — self-reschedules every USAGE_SYNC_INTERVAL */
@@ -632,7 +660,13 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
     const y  = new Date().getFullYear();
     const d  = String(new Date().getDate()).padStart(2, "0");
     res.json({
-      dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0,
+      dailyCount: 0, dailyAmount: 0,
+      yesterdayCount: 0, yesterdayAmount: 0,
+      weekCount: 0, weekAmount: 0,
+      lastWeekCount: 0, lastWeekAmount: 0,
+      monthlyCount: 0, monthlyAmount: 0,
+      lastMonthCount: 0, lastMonthAmount: 0,
+      totalCount: 0, totalAmount: 0,
       dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`, _cachedAt: null,
     });
   }

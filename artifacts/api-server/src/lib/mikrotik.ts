@@ -498,10 +498,13 @@ export async function fetchInterfaceTraffic(conn: RouterConnection, ifaceName?: 
 }
 
 export interface SalesReport {
-  dailyCount: number;
-  dailyAmount: number;
-  monthlyCount: number;
-  monthlyAmount: number;
+  dailyCount: number;    dailyAmount: number;
+  yesterdayCount: number; yesterdayAmount: number;
+  weekCount: number;     weekAmount: number;
+  lastWeekCount: number; lastWeekAmount: number;
+  monthlyCount: number;  monthlyAmount: number;
+  lastMonthCount: number; lastMonthAmount: number;
+  totalCount: number;    totalAmount: number;
   dateLabel: string;
   monthLabel: string;
 }
@@ -518,58 +521,117 @@ export interface SalesReport {
  *
  *  Price is always at index 3.
  */
-export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 12000): Promise<SalesReport> {
+export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 60000): Promise<SalesReport> {
   return withRouter(conn, async (api) => {
+    const MONTH_NAMES = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
     const now = new Date();
-    const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-    const m   = MONTHS[now.getMonth()];
-    const d   = String(now.getDate()).padStart(2, "0");
-    const y   = now.getFullYear();
     const mm  = String(now.getMonth() + 1).padStart(2, "0");
+    const y   = now.getFullYear();
+    const m   = MONTH_NAMES[now.getMonth()];
+    const d   = String(now.getDate()).padStart(2, "0");
 
-    // Legacy labels
-    const legacyDateLabel  = `${m}/${d}/${y}`;   // "mar/31/2026"
-    const legacyOwner      = `${m}${y}`;          // "mar2026"
+    const isoDateLabel  = `${y}-${mm}-${d}`;
+    const legacyDateLabel = `${m}/${d}/${y}`;
+    const isoOwner      = `${mm}${y}`;
 
-    // New (7.10+) labels
-    const isoDateLabel     = `${y}-${mm}-${d}`;   // "2026-03-31"
-    const isoOwner         = `${mm}${y}`;          // "032026"
+    // ── Period boundaries (local dates, time-zeroed) ──────────────────────
+    const todayMidnight    = new Date(y, now.getMonth(), now.getDate());
+    const yestMidnight     = new Date(todayMidnight.getTime() - 86400_000);
+    const tomorrowMidnight = new Date(todayMidnight.getTime() + 86400_000);
 
-    // Only fetch the name field — avoids transferring large script source bodies
-    let allScripts = await api.write("/system/script/print", ["=.proplist=name", `?owner=${isoOwner}`]).catch(() => []);
+    // Week: Mon–Sun
+    const dayOfWeek        = (todayMidnight.getDay() + 6) % 7; // 0=Mon..6=Sun
+    const startOfWeek      = new Date(todayMidnight.getTime() - dayOfWeek * 86400_000);
+    const startOfLastWeek  = new Date(startOfWeek.getTime()  - 7 * 86400_000);
+    const endOfLastWeek    = startOfWeek;
+
+    const startOfMonth     = new Date(y, now.getMonth(), 1);
+    const startOfLastMonth = new Date(y, now.getMonth() - 1, 1);
+    const endOfLastMonth   = startOfMonth;
+
+    // ── Fetch ALL mikhmon sales scripts in one call ───────────────────────
+    // Using comment=mikhmon filter to get all months at once
+    let allScripts = await api.write("/system/script/print", [
+      "=.proplist=name",
+      "?comment=mikhmon",
+    ]).catch(() => [] as Record<string, unknown>[]);
+
+    // Fallback: if comment filter returns nothing (older RouterOS), scan last 13 months
     if (allScripts.length === 0) {
-      allScripts = await api.write("/system/script/print", ["=.proplist=name", `?owner=${legacyOwner}`]).catch(() => []);
+      const ownerSet = new Set<string>();
+      for (let i = 0; i <= 12; i++) {
+        const dt = new Date(y, now.getMonth() - i, 1);
+        const mm2 = String(dt.getMonth() + 1).padStart(2, "0");
+        const m2  = MONTH_NAMES[dt.getMonth()];
+        const y2  = dt.getFullYear();
+        ownerSet.add(`${mm2}${y2}`);
+        ownerSet.add(`${m2}${y2}`);
+      }
+      for (const owner of ownerSet) {
+        const chunk = await api.write("/system/script/print", [
+          "=.proplist=name",
+          `?owner=${owner}`,
+        ]).catch(() => [] as Record<string, unknown>[]);
+        allScripts.push(...chunk);
+      }
     }
 
-    let dailyCount = 0;
-    let dailyAmount = 0;
-    let monthlyCount = 0;
-    let monthlyAmount = 0;
+    // ── Parse & bucket each script ────────────────────────────────────────
+    let dailyCount = 0,     dailyAmount = 0;
+    let yesterdayCount = 0, yesterdayAmount = 0;
+    let weekCount = 0,      weekAmount = 0;
+    let lastWeekCount = 0,  lastWeekAmount = 0;
+    let monthlyCount = 0,   monthlyAmount = 0;
+    let lastMonthCount = 0, lastMonthAmount = 0;
+    let totalCount = 0,     totalAmount = 0;
 
     for (const s of allScripts) {
       const name = (s["name"] as string) ?? "";
       const parts = name.split("-|-");
       if (parts.length < 4) continue;
 
-      const datePart = parts[0];
+      const datePart = parts[0].trim();
       const price    = parseFloat(parts[3]) || 0;
 
-      const isToday  = datePart === legacyDateLabel || datePart === isoDateLabel;
-
-      monthlyCount++;
-      monthlyAmount += price;
-
-      if (isToday) {
-        dailyCount++;
-        dailyAmount += price;
+      // Parse date
+      let saleTs: number | null = null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+        saleTs = new Date(datePart + "T00:00:00").getTime();
+      } else {
+        const leg = datePart.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
+        if (leg) {
+          const mi = MONTH_NAMES.indexOf(leg[1].toLowerCase());
+          if (mi >= 0) saleTs = new Date(Number(leg[3]), mi, Number(leg[2])).getTime();
+        }
       }
+      if (saleTs === null) continue;
+
+      totalCount++;
+      totalAmount += price;
+
+      const isToday     = datePart === isoDateLabel || datePart === legacyDateLabel;
+      const isYesterday = saleTs >= yestMidnight.getTime()     && saleTs < todayMidnight.getTime();
+      const isThisWeek  = saleTs >= startOfWeek.getTime()      && saleTs < tomorrowMidnight.getTime();
+      const isLastWeek  = saleTs >= startOfLastWeek.getTime()  && saleTs < endOfLastWeek.getTime();
+      const isThisMonth = saleTs >= startOfMonth.getTime()     && saleTs < tomorrowMidnight.getTime();
+      const isLastMonth = saleTs >= startOfLastMonth.getTime() && saleTs < endOfLastMonth.getTime();
+
+      if (isToday)     { dailyCount++;     dailyAmount     += price; }
+      if (isYesterday) { yesterdayCount++; yesterdayAmount += price; }
+      if (isThisWeek)  { weekCount++;      weekAmount      += price; }
+      if (isLastWeek)  { lastWeekCount++;  lastWeekAmount  += price; }
+      if (isThisMonth) { monthlyCount++;   monthlyAmount   += price; }
+      if (isLastMonth) { lastMonthCount++; lastMonthAmount += price; }
     }
 
     return {
-      dailyCount,
-      dailyAmount,
-      monthlyCount,
-      monthlyAmount,
+      dailyCount, dailyAmount,
+      yesterdayCount, yesterdayAmount,
+      weekCount, weekAmount,
+      lastWeekCount, lastWeekAmount,
+      monthlyCount, monthlyAmount,
+      lastMonthCount, lastMonthAmount,
+      totalCount, totalAmount,
       dateLabel: isoDateLabel,
       monthLabel: isoOwner,
     };
@@ -679,7 +741,7 @@ export interface SaleDetail {
  *   New: "2025-11-01-|-07:46:47-|-username-|-300-|-ip-|-mac-|-validity-|-label-|-batch"
  *   Legacy: "mar/31/2026-|-10:30:00-|-username-|-500"
  */
-export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 2): Promise<Map<string, SaleDetail>> {
+export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 13): Promise<Map<string, SaleDetail>> {
   const details = new Map<string, SaleDetail>();
 
   await withRouter(conn, async (api) => {
