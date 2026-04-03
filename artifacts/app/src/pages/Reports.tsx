@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   useGetVendorReportsSummary,
   useGetVendorReport,
   useSyncVoucherUsage,
 } from "@workspace/api-client-react";
 import type { VendorSummary } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,8 +15,16 @@ import {
 import {
   BarChart3, Users, Ticket,
   ArrowLeft, CalendarDays, CalendarClock, TrendingUp,
-  RefreshCw, CheckCircle2, ArrowDownUp, XCircle,
+  RefreshCw, CheckCircle2, ArrowDownUp, XCircle, PackageOpen, Bell,
 } from "lucide-react";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+interface ProfileStock {
+  profileName: string;
+  available: number;
+  soldToday: number;
+}
 
 /* ─── 2-segment bar: vendu (green) | non vendu (gray) ─────────── */
 function SaleBar({ used, total }: { used: number; total: number }) {
@@ -416,6 +425,47 @@ export default function Reports() {
     try { const v = localStorage.getItem("vouchernet_router_id"); return v ? parseInt(v) : null; } catch { return null; }
   })();
 
+  const notifiedProfilesRef = useRef<Set<string>>(new Set());
+
+  const { data: stockData, isFetching: stockFetching } = useQuery<ProfileStock[]>({
+    queryKey: ["profile-stock", routerId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/routers/${routerId}/profile-stock`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!routerId,
+    refetchInterval: 30_000,
+    staleTime: 28_000,
+    retry: false,
+    throwOnError: false,
+  });
+
+  const stockProfiles = stockData ?? [];
+
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => { notifiedProfilesRef.current = new Set(); }, [routerId]);
+
+  useEffect(() => {
+    if (!stockData) return;
+    stockData.forEach((p) => {
+      if (p.available < 100 && !notifiedProfilesRef.current.has(p.profileName)) {
+        notifiedProfilesRef.current.add(p.profileName);
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("⚠️ Stock faible — VoucherNet", {
+            body: `Forfait « ${p.profileName} » : seulement ${p.available} ticket(s) disponible(s).`,
+            icon: "/favicon.ico",
+          });
+        }
+      }
+    });
+  }, [stockData]);
+
   // Filter to only vendors of the active router
   const filtered = useMemo(
     () => routerId ? summaries.filter((s) => s.vendor.routerId === routerId) : summaries,
@@ -484,6 +534,68 @@ export default function Reports() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* ─── Stock tickets par forfait ─────────────────────────────────────── */}
+      {routerId && (
+        <Card className="mb-6">
+          <CardHeader className="pb-2 border-b border-gray-100">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <PackageOpen className="h-4 w-4 text-gray-400" />
+                Stock tickets — aujourd&apos;hui
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {stockFetching && <RefreshCw className="h-3 w-3 animate-spin text-gray-300" />}
+                <span className="text-xs text-gray-400">↻ 30s</span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {stockProfiles.length === 0 ? (
+              <div className="py-4 text-center text-sm text-gray-400">
+                {stockFetching ? "Chargement…" : "Aucun forfait trouvé pour ce routeur."}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-3">
+                {stockProfiles.map((p) => {
+                  const total = p.available + p.soldToday;
+                  const usedPct = total > 0 ? Math.round((p.soldToday / total) * 100) : 0;
+                  const isLow = p.available < 100;
+                  const barColor   = isLow ? "bg-orange-400" : "bg-emerald-500";
+                  const trackColor = isLow ? "bg-orange-100" : "bg-emerald-100";
+                  const textColor  = isLow ? "text-orange-600" : "text-emerald-600";
+                  return (
+                    <div key={p.profileName}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-sm font-medium text-gray-700 truncate">{p.profileName}</span>
+                          {isLow && (
+                            <span className="flex items-center gap-0.5 text-xs font-semibold text-orange-500">
+                              <Bell className="h-3 w-3" /> Stock faible
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs flex-shrink-0">
+                          <span className="text-gray-400">{p.soldToday} vendu{p.soldToday !== 1 ? "s" : ""}</span>
+                          <span className={`font-semibold ${textColor}`}>{p.available} dispo</span>
+                        </div>
+                      </div>
+                      <div className={`relative h-2.5 rounded-full overflow-hidden ${trackColor}`}>
+                        <div className="absolute inset-y-0 left-0 bg-gray-300 rounded-l-full transition-all duration-500" style={{ width: `${usedPct}%` }} />
+                        <div className={`absolute inset-y-0 rounded-full transition-all duration-500 ${barColor}`} style={{ left: `${usedPct}%`, right: 0 }} />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                        <span>Vendus ({usedPct}%)</span>
+                        <span>Disponibles ({100 - usedPct}%)</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {isLoading ? (

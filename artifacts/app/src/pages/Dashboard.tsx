@@ -6,7 +6,7 @@ import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspac
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity, PackageOpen, Bell } from "lucide-react";
+import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -277,149 +277,6 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-
-// ─── Seuil d'alerte stock faible ─────────────────────────────────────────────
-const LOW_STOCK_THRESHOLD = 100;
-
-interface ProfileStock {
-  profileName: string;
-  available: number;
-  soldToday: number;
-}
-
-/** Jauges de disponibilité tickets par forfait pour le routeur sélectionné */
-function ProfileStockCard({ routerId }: { routerId: number | null }) {
-  const notifiedRef = useRef<Set<string>>(new Set());
-
-  const { data, isFetching } = useQuery<ProfileStock[]>({
-    queryKey: ["profile-stock", routerId],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/routers/${routerId}/profile-stock`);
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!routerId,
-    refetchInterval: 30_000,
-    staleTime: 28_000,
-    retry: false,
-    throwOnError: false,
-  });
-
-  // Demander la permission de notification au montage
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  // Réinitialiser les notifs quand le routeur change
-  useEffect(() => {
-    notifiedRef.current = new Set();
-  }, [routerId]);
-
-  // Déclencher les notifications pour les forfaits en stock faible
-  useEffect(() => {
-    if (!data) return;
-    data.forEach((p) => {
-      if (p.available < LOW_STOCK_THRESHOLD && !notifiedRef.current.has(p.profileName)) {
-        notifiedRef.current.add(p.profileName);
-        if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("⚠️ Stock faible — VoucherNet", {
-            body: `Forfait « ${p.profileName} » : seulement ${p.available} ticket(s) disponible(s).`,
-            icon: "/favicon.ico",
-          });
-        }
-      }
-    });
-  }, [data]);
-
-  const profiles = data ?? [];
-
-  return (
-    <Card className="mb-4">
-      <CardHeader className="pb-2 border-b border-gray-100">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <PackageOpen className="h-4 w-4 text-gray-400" />
-            Stock tickets — aujourd&apos;hui
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            {isFetching && <RefreshCw className="h-3 w-3 animate-spin text-gray-300" />}
-            <span className="text-xs text-gray-400">↻ 30s</span>
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="pt-4">
-        {!routerId ? (
-          <div className="py-6 text-center">
-            <Wifi className="h-7 w-7 text-gray-200 mx-auto mb-2" />
-            <p className="text-sm text-gray-400">Sélectionnez un routeur</p>
-          </div>
-        ) : profiles.length === 0 ? (
-          <div className="py-6 text-center text-sm text-gray-400">
-            {isFetching ? "Chargement…" : "Aucun forfait trouvé pour ce routeur."}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {profiles.map((p) => {
-              const total = p.available + p.soldToday;
-              const usedPct = total > 0 ? Math.round((p.soldToday / total) * 100) : 0;
-              const isLow = p.available < LOW_STOCK_THRESHOLD;
-
-              const barColor   = isLow ? "bg-orange-400" : "bg-emerald-500";
-              const trackColor = isLow ? "bg-orange-100" : "bg-emerald-100";
-              const textColor  = isLow ? "text-orange-600" : "text-emerald-600";
-
-              return (
-                <div key={p.profileName}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-sm font-medium text-gray-700 truncate">{p.profileName}</span>
-                      {isLow && (
-                        <span className="flex items-center gap-0.5 text-xs font-semibold text-orange-500">
-                          <Bell className="h-3 w-3" /> Stock faible
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 text-xs flex-shrink-0">
-                      <span className="text-gray-400">
-                        {p.soldToday} vendu{p.soldToday !== 1 ? "s" : ""}
-                      </span>
-                      <span className={`font-semibold ${textColor}`}>
-                        {p.available} disponible{p.available !== 1 ? "s" : ""}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Jauge */}
-                  <div className={`relative h-2.5 rounded-full overflow-hidden ${trackColor}`}>
-                    {/* Partie vendue (depuis la gauche) */}
-                    <div
-                      className="absolute inset-y-0 left-0 bg-gray-300 rounded-l-full transition-all duration-500"
-                      style={{ width: `${usedPct}%` }}
-                    />
-                    {/* Partie disponible (depuis le côté vendu) */}
-                    <div
-                      className={`absolute inset-y-0 rounded-full transition-all duration-500 ${barColor}`}
-                      style={{ left: `${usedPct}%`, right: 0 }}
-                    />
-                  </div>
-
-                  <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                    <span>Vendus ({usedPct}%)</span>
-                    <span>Disponibles ({100 - usedPct}%)</span>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         )}
       </CardContent>
@@ -725,8 +582,6 @@ export default function Dashboard() {
           href="/vouchers"
         />
       </div>
-
-      <ProfileStockCard routerId={selectedRouterId} />
 
       <div className="flex gap-4 items-stretch">
       <TrafficMonitorCard routerId={selectedRouterId} />
