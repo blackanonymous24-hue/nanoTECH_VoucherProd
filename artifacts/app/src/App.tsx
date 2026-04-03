@@ -34,7 +34,8 @@ function AppRoutes() {
   const { isAuthenticated, role } = useAuth();
 
   if (!isAuthenticated) {
-    return <LoginPage />;
+    const isVendorPage = location === "/vendeur" || location.startsWith("/vendeur/");
+    return <LoginPage mode={isVendorPage ? "vendor" : "admin"} />;
   }
 
   if (role === "vendor" || location.startsWith("/vendor-portal")) {
@@ -46,6 +47,7 @@ function AppRoutes() {
       <Layout>
         <Switch>
           <Route path="/" component={Dashboard} />
+          <Route path="/vendeur" component={Dashboard} />
           <Route path="/routers" component={Routers} />
           <Route path="/forfaits" component={Forfaits} />
           <Route path="/sessions" component={Sessions} />
