@@ -865,16 +865,42 @@ const CHAR_SETS: Record<CharType, string> = {
   lower:  "abcdefghijklmnopqrstuvwxyz",
   upper:  "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
   upplow: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
-  mix:    "abcdefghijklmnopqrstuvwxyz23456789",
-  mix1:   "ABCDEFGHIJKLMNOPQRSTUVWXYZ23456789",
-  mix2:   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz23456789",
+  mix:    "abcdefghijklmnopqrstuvwxyz",
+  mix1:   "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  mix2:   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
   num:    "0123456789",
 };
 
+// Digits used in mix codes (exclude 0 and 1 to avoid visual confusion)
+const MIX_DIGITS = "23456789";
 const DIGIT_CHARS = "0123456789";
 
 function randomFrom(chars: string, length: number): string {
   return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
+
+/**
+ * For mix types: place exactly floor(length/2) digits at random positions,
+ * rest are letters — matching the PHP randN() pattern:
+ *   length 3 → 1 digit
+ *   length 4–5 → 2 digits
+ *   length 6–7 → 3 digits
+ *   length 8 → 4 digits
+ */
+function generateMixCode(length: number, letterSet: string): string {
+  const numDigits = Math.floor(length / 2);
+  // Fisher-Yates shuffle to pick digit positions
+  const positions = Array.from({ length }, (_, i) => i);
+  for (let i = positions.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [positions[i], positions[j]] = [positions[j], positions[i]];
+  }
+  const digitPositions = new Set(positions.slice(0, numDigits));
+  return Array.from({ length }, (_, i) =>
+    digitPositions.has(i)
+      ? MIX_DIGITS[Math.floor(Math.random() * MIX_DIGITS.length)]
+      : letterSet[Math.floor(Math.random() * letterSet.length)],
+  ).join("");
 }
 
 function generateCode(
@@ -883,8 +909,12 @@ function generateCode(
   passwordMode: "same" | "random",
   charType: CharType = "mix",
 ): { username: string; password: string } {
-  const chars = CHAR_SETS[charType];
-  const code = randomFrom(chars, length);
+  let code: string;
+  if (charType === "mix" || charType === "mix1" || charType === "mix2") {
+    code = generateMixCode(length, CHAR_SETS[charType]);
+  } else {
+    code = randomFrom(CHAR_SETS[charType], length);
+  }
   const username = prefix ? `${prefix}${code}` : code;
   // "same" (Mode Voucher / vc): password = username
   // "random" (Mode Compte / up): password = random digits of same length
