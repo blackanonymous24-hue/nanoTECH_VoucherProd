@@ -2,7 +2,8 @@ import { Router } from "express";
 import { eq, desc, and, count, sql, isNotNull, ilike } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
-import { enableDisableHotspotUsers } from "../lib/mikrotik.js";
+import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
+import { getCachedProfilePrices } from "../lib/profile-cache.js";
 import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 
@@ -382,13 +383,17 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
 
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
 
-  const [totalsRows, byProfile, salesRow, recentVouchers] = await Promise.all([
+  // Fetch the vendor's router to get profile prices from MikroTik
+  const [router] = vendor.routerId
+    ? await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId))
+    : [];
+
+  const [totalsRows, byProfileRaw, salesRow, recentVouchers] = await Promise.all([
     buildTotals(id),
 
     db
       .select({
         profileName: vouchersTable.profileName,
-        price:   sql<string>`max(${vouchersTable.price})`,
         total: count(),
         printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
         used:    sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
@@ -407,6 +412,17 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
       .orderBy(desc(vouchersTable.usedAt))
       .limit(50),
   ]);
+
+  // Enrich byProfile with real prices from MikroTik profile cache
+  let priceMap = new Map<string, string>();
+  if (router) {
+    const conn: RouterConnection = { host: router.host, port: router.port, username: router.username, password: router.password };
+    priceMap = await getCachedProfilePrices(vendor.routerId!, conn);
+  }
+  const byProfile = byProfileRaw.map((row) => ({
+    ...row,
+    price: priceMap.get(row.profileName) ?? "",
+  }));
 
   const totals = totalsRows[0];
 

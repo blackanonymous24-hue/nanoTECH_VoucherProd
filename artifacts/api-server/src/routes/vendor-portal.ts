@@ -3,6 +3,8 @@ import { eq, desc, count, sql, and, gte, lt } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
+import { getCachedProfilePrices } from "../lib/profile-cache.js";
+import { type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
@@ -110,7 +112,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
   }
 
   const routerRow = vendor.routerId
-    ? await db.select({ hotspotName: routersTable.hotspotName }).from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
+    ? await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
     : null;
 
   // Background sync: import MikroTik hotspot users matching vendor suffixes (non-blocking)
@@ -119,12 +121,11 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
   }
 
-  const [totalsRows, byProfile, salesRow, recentSales, availableVouchers] = await Promise.all([
+  const [totalsRows, byProfileRaw, salesRow, recentSales, availableVouchers] = await Promise.all([
     buildTotals(id),
     db
       .select({
         profileName: vouchersTable.profileName,
-        price:   sql<string>`max(${vouchersTable.price})`,
         total: count(),
         printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
         used:    sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
@@ -146,6 +147,14 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
       .where(eq(vouchersTable.vendorId, id))
       .orderBy(desc(vouchersTable.createdAt)),
   ]);
+
+  // Enrich byProfile with real prices from MikroTik profiles
+  let priceMap = new Map<string, string>();
+  if (routerRow && vendor.routerId) {
+    const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+    priceMap = await getCachedProfilePrices(vendor.routerId, conn);
+  }
+  const byProfile = byProfileRaw.map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
 
   const totals = totalsRows[0];
   const totalAvailable = availableVouchers.filter((v) => v.usedAt === null).length;
@@ -237,7 +246,7 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     month: "Mois en cours",
   };
 
-  const [vouchers, byProfile] = await Promise.all([
+  const [vouchers, byProfileRaw] = await Promise.all([
     db
       .select()
       .from(vouchersTable)
@@ -246,7 +255,6 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     db
       .select({
         profileName: vouchersTable.profileName,
-        price:   sql<string>`max(${vouchersTable.price})`,
         count: count(),
         revenue: sql<number>`coalesce(sum(${vouchersTable.price}::numeric), 0)`,
       })
@@ -255,6 +263,17 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
       .groupBy(vouchersTable.profileName)
       .orderBy(desc(count())),
   ]);
+
+  // Enrich byProfile with real prices from MikroTik profiles
+  let periodPriceMap = new Map<string, string>();
+  if (vendor.routerId) {
+    const [routerForPeriod] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
+    if (routerForPeriod) {
+      const conn: RouterConnection = { host: routerForPeriod.host, port: routerForPeriod.port, username: routerForPeriod.username, password: routerForPeriod.password };
+      periodPriceMap = await getCachedProfilePrices(vendor.routerId, conn);
+    }
+  }
+  const byProfile = byProfileRaw.map((row) => ({ ...row, price: periodPriceMap.get(row.profileName) ?? "" }));
 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
