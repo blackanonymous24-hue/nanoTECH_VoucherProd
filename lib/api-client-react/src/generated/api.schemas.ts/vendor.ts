@@ -10,7 +10,6 @@ export interface Vendor {
   id: number;
   name: string;
   phone?: VendorPhone;
-  routerId?: number | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

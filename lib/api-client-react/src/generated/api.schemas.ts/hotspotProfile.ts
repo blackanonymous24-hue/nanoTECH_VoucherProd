@@ -7,18 +7,21 @@
 import type { HotspotProfileRateLimit } from './hotspotProfileRateLimit';
 import type { HotspotProfileValidity } from './hotspotProfileValidity';
 import type { HotspotProfilePrice } from './hotspotProfilePrice';
+import type { HotspotProfileSellingPrice } from './hotspotProfileSellingPrice';
 import type { HotspotProfileSharedUsers } from './hotspotProfileSharedUsers';
 import type { HotspotProfileAddrPool } from './hotspotProfileAddrPool';
+import type { HotspotProfileExpiredMode } from './hotspotProfileExpiredMode';
+import type { HotspotProfileParentQueue } from './hotspotProfileParentQueue';
 
 export interface HotspotProfile {
   name: string;
   rateLimit?: HotspotProfileRateLimit;
   validity?: HotspotProfileValidity;
   price?: HotspotProfilePrice;
-  sellingPrice?: string | null;
+  sellingPrice?: HotspotProfileSellingPrice;
   sharedUsers?: HotspotProfileSharedUsers;
   addrPool?: HotspotProfileAddrPool;
   lockMac?: boolean;
-  expiredMode?: string | null;
-  parentQueue?: string | null;
+  expiredMode?: HotspotProfileExpiredMode;
+  parentQueue?: HotspotProfileParentQueue;
 }

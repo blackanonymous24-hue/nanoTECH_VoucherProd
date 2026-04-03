@@ -924,16 +924,32 @@ components:
 
     VendorSalesStats:
       type: object
-      required: [todaySold, yesterdaySold, weekSold, lastMonthSold]
+      required: [todaySold, todayAmount, yesterdaySold, yesterdayAmount, weekSold, weekAmount, lastWeekSold, lastWeekAmount, thisMonthSold, thisMonthAmount, lastMonthSold, lastMonthAmount]
       properties:
         todaySold:
           type: integer
+        todayAmount:
+          type: number
         yesterdaySold:
           type: integer
+        yesterdayAmount:
+          type: number
         weekSold:
           type: integer
+        weekAmount:
+          type: number
+        lastWeekSold:
+          type: integer
+        lastWeekAmount:
+          type: number
+        thisMonthSold:
+          type: integer
+        thisMonthAmount:
+          type: number
         lastMonthSold:
           type: integer
+        lastMonthAmount:
+          type: number
 
     VendorSummary:
       type: object

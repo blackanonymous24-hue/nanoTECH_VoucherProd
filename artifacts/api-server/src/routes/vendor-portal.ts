@@ -3,7 +3,7 @@ import { eq, desc, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
-import { getCachedProfilePrices } from "../lib/profile-cache.js";
+import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
@@ -155,11 +155,12 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
       .orderBy(desc(vouchersTable.createdAt)),
   ]);
 
-  // Fetch profile prices from MikroTik cache — authoritative source for amounts
+  // Fetch profile prices from in-memory cache (non-blocking); triggers background
+  // MikroTik refresh if the cache is stale, so next request will have fresh data.
   let priceMap = new Map<string, string>();
   if (routerRow && vendor.routerId) {
     const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
-    priceMap = await getCachedProfilePrices(vendor.routerId, conn);
+    priceMap = getCachedProfilePricesSync(vendor.routerId, conn);
   }
   const byProfile = byProfileRaw.map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
 

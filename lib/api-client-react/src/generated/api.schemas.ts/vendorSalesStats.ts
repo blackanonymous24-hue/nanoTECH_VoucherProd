@@ -7,7 +7,15 @@
 
 export interface VendorSalesStats {
   todaySold: number;
+  todayAmount: number;
   yesterdaySold: number;
+  yesterdayAmount: number;
   weekSold: number;
+  weekAmount: number;
+  lastWeekSold: number;
+  lastWeekAmount: number;
+  thisMonthSold: number;
+  thisMonthAmount: number;
   lastMonthSold: number;
+  lastMonthAmount: number;
 }

@@ -189,12 +189,12 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-3">
-            <SalesMiniCard label="Aujourd'hui"     amount={(ss as any).todayAmount     ?? 0} count={ss.todaySold}                     icon={CalendarDays}  color="bg-green-50 text-green-700" />
-            <SalesMiniCard label="Hier"             amount={(ss as any).yesterdayAmount ?? 0} count={ss.yesterdaySold}                 icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
-            <SalesMiniCard label="Cette semaine"   amount={(ss as any).weekAmount      ?? 0} count={ss.weekSold}                      icon={CalendarClock} color="bg-blue-50 text-blue-700" />
-            <SalesMiniCard label="Semaine dernière" amount={(ss as any).lastWeekAmount  ?? 0} count={(ss as any).lastWeekSold   ?? 0}   icon={CalendarClock} color="bg-indigo-50 text-indigo-700" />
-            <SalesMiniCard label="Mois en cours"   amount={(ss as any).thisMonthAmount ?? 0} count={(ss as any).thisMonthSold   ?? 0}  icon={TrendingUp}    color="bg-teal-50 text-teal-700" />
-            <SalesMiniCard label="Mois dernier"    amount={(ss as any).lastMonthAmount ?? 0} count={ss.lastMonthSold}                 icon={BarChart3}     color="bg-purple-50 text-purple-700" />
+            <SalesMiniCard label="Aujourd'hui"     amount={ss.todayAmount}     count={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" />
+            <SalesMiniCard label="Hier"             amount={ss.yesterdayAmount} count={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
+            <SalesMiniCard label="Cette semaine"   amount={ss.weekAmount}      count={ss.weekSold}       icon={CalendarClock} color="bg-blue-50 text-blue-700" />
+            <SalesMiniCard label="Semaine dernière" amount={ss.lastWeekAmount}  count={ss.lastWeekSold}   icon={CalendarClock} color="bg-indigo-50 text-indigo-700" />
+            <SalesMiniCard label="Mois en cours"   amount={ss.thisMonthAmount} count={ss.thisMonthSold}  icon={TrendingUp}    color="bg-teal-50 text-teal-700" />
+            <SalesMiniCard label="Mois dernier"    amount={ss.lastMonthAmount} count={ss.lastMonthSold}  icon={BarChart3}     color="bg-purple-50 text-purple-700" />
           </div>
         </CardContent>
       </Card>
@@ -368,12 +368,12 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
         {/* Stats temporelles */}
         <div className="mt-3 pt-3 border-t border-gray-100">
           <div className="grid grid-cols-2 gap-1.5">
-            <SalesMiniCard label="Aujourd'hui"     amount={(ss as any).todayAmount     ?? 0} count={ss.todaySold}                    icon={CalendarDays}  color="bg-green-50 text-green-700" />
-            <SalesMiniCard label="Hier"             amount={(ss as any).yesterdayAmount ?? 0} count={ss.yesterdaySold}                icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
-            <SalesMiniCard label="Cette semaine"   amount={(ss as any).weekAmount      ?? 0} count={ss.weekSold}                     icon={CalendarClock} color="bg-blue-50 text-blue-700" />
-            <SalesMiniCard label="Semaine dernière" amount={(ss as any).lastWeekAmount  ?? 0} count={(ss as any).lastWeekSold  ?? 0}  icon={CalendarClock} color="bg-indigo-50 text-indigo-700" />
-            <SalesMiniCard label="Mois en cours"   amount={(ss as any).thisMonthAmount ?? 0} count={(ss as any).thisMonthSold  ?? 0} icon={TrendingUp}    color="bg-teal-50 text-teal-700" />
-            <SalesMiniCard label="Mois dernier"    amount={(ss as any).lastMonthAmount ?? 0} count={ss.lastMonthSold}                icon={BarChart3}     color="bg-purple-50 text-purple-700" />
+            <SalesMiniCard label="Aujourd'hui"     amount={ss.todayAmount}     count={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" />
+            <SalesMiniCard label="Hier"             amount={ss.yesterdayAmount} count={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
+            <SalesMiniCard label="Cette semaine"   amount={ss.weekAmount}      count={ss.weekSold}       icon={CalendarClock} color="bg-blue-50 text-blue-700" />
+            <SalesMiniCard label="Semaine dernière" amount={ss.lastWeekAmount}  count={ss.lastWeekSold}   icon={CalendarClock} color="bg-indigo-50 text-indigo-700" />
+            <SalesMiniCard label="Mois en cours"   amount={ss.thisMonthAmount} count={ss.thisMonthSold}  icon={TrendingUp}    color="bg-teal-50 text-teal-700" />
+            <SalesMiniCard label="Mois dernier"    amount={ss.lastMonthAmount} count={ss.lastMonthSold}  icon={BarChart3}     color="bg-purple-50 text-purple-700" />
           </div>
         </div>
       </CardContent>

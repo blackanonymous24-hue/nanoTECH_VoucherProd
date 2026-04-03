@@ -9,6 +9,7 @@ interface ProfileCacheEntry {
 
 const profileCache = new Map<number, ProfileCacheEntry>();
 
+/** Full fetch (may take up to 30s if MikroTik is unreachable). */
 export async function getCachedProfilePrices(
   routerId: number,
   conn: RouterConnection,
@@ -27,6 +28,22 @@ export async function getCachedProfilePrices(
   } catch {
     return cached?.priceMap ?? new Map();
   }
+}
+
+/**
+ * Returns the in-memory cached price map immediately (no MikroTik call).
+ * Also triggers a background refresh if the cache is missing or expired.
+ */
+export function getCachedProfilePricesSync(
+  routerId: number,
+  conn: RouterConnection,
+): Map<string, string> {
+  const cached = profileCache.get(routerId);
+  // Background refresh if stale or missing
+  if (!cached || Date.now() >= cached.expiresAt) {
+    void getCachedProfilePrices(routerId, conn).catch(() => {});
+  }
+  return cached?.priceMap ?? new Map();
 }
 
 export function invalidateProfileCache(routerId: number) {

@@ -127,9 +127,12 @@ export const listRouterProfilesResponseItem = zod.object({
   "rateLimit": zod.string().nullish(),
   "validity": zod.string().nullish(),
   "price": zod.string().nullish(),
+  "sellingPrice": zod.string().nullish(),
   "sharedUsers": zod.string().nullish(),
   "addrPool": zod.string().nullish(),
-  "lockMac": zod.boolean().optional()
+  "lockMac": zod.boolean().optional(),
+  "expiredMode": zod.string().nullish(),
+  "parentQueue": zod.string().nullish()
 })
 export const listRouterProfilesResponse = zod.array(listRouterProfilesResponseItem)
 
@@ -342,9 +345,17 @@ export const getVendorReportResponse = zod.object({
   "totalUsed": zod.number(),
   "salesStats": zod.object({
   "todaySold": zod.number(),
+  "todayAmount": zod.number(),
   "yesterdaySold": zod.number(),
+  "yesterdayAmount": zod.number(),
   "weekSold": zod.number(),
-  "lastMonthSold": zod.number()
+  "weekAmount": zod.number(),
+  "lastWeekSold": zod.number(),
+  "lastWeekAmount": zod.number(),
+  "thisMonthSold": zod.number(),
+  "thisMonthAmount": zod.number(),
+  "lastMonthSold": zod.number(),
+  "lastMonthAmount": zod.number()
 }),
   "byProfile": zod.array(zod.object({
   "profileName": zod.string(),
@@ -384,9 +395,17 @@ export const getVendorReportsSummaryResponseItem = zod.object({
   "totalUsed": zod.number(),
   "salesStats": zod.object({
   "todaySold": zod.number(),
+  "todayAmount": zod.number(),
   "yesterdaySold": zod.number(),
+  "yesterdayAmount": zod.number(),
   "weekSold": zod.number(),
-  "lastMonthSold": zod.number()
+  "weekAmount": zod.number(),
+  "lastWeekSold": zod.number(),
+  "lastWeekAmount": zod.number(),
+  "thisMonthSold": zod.number(),
+  "thisMonthAmount": zod.number(),
+  "lastMonthSold": zod.number(),
+  "lastMonthAmount": zod.number()
 })
 })
 export const getVendorReportsSummaryResponse = zod.array(getVendorReportsSummaryResponseItem)

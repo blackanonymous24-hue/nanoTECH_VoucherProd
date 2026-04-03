@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { eq, desc, and, count, sql, isNotNull, ilike } from "drizzle-orm";
+import { eq, desc, and, count, sql, isNotNull, ilike, inArray } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
-import { getCachedProfilePrices } from "../lib/profile-cache.js";
+import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
 import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
@@ -290,18 +290,17 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
     .where(routerId ? eq(vendorsTable.routerId, routerId) : undefined)
     .orderBy(vendorsTable.name);
 
-  // Fetch profile prices for all unique routers in this vendor list
+  // Fetch profile prices for all unique routers — sync (non-blocking): returns
+  // in-memory cached value immediately and triggers a background MikroTik refresh.
   const routerIdSet = new Set(vendors.map((v) => v.routerId).filter(Boolean) as number[]);
   const routerPriceMaps = new Map<number, Map<string, string>>();
-  await Promise.all([...routerIdSet].map(async (rId) => {
-    try {
-      const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, rId));
-      if (routerRow) {
-        const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
-        routerPriceMaps.set(rId, await getCachedProfilePrices(rId, conn));
-      }
-    } catch { /* no prices available for this router */ }
-  }));
+  const routerRows = routerIdSet.size > 0
+    ? await db.select().from(routersTable).where(inArray(routersTable.id, [...routerIdSet]))
+    : [];
+  for (const routerRow of routerRows) {
+    const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+    routerPriceMaps.set(routerRow.id, getCachedProfilePricesSync(routerRow.id, conn));
+  }
 
   const summaries = await Promise.all(
     vendors.map(async (vendor) => {

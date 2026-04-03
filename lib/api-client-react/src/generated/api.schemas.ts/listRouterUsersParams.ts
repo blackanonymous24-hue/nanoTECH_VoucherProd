@@ -8,7 +8,6 @@
 export type ListRouterUsersParams = {
 search?: string | null;
 profile?: string | null;
-comment?: string | null;
 limit?: number | null;
 offset?: number | null;
 };
