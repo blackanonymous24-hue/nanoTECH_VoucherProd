@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X,
+  UserCog, Menu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -22,19 +22,19 @@ function RouterSelector({ className }: { className?: string }) {
   return (
     <div className={cn("flex items-center gap-2", className)}>
       {routersLoading && routers.length === 0 ? (
-        <div className="h-8 w-32 bg-gray-800 rounded-md animate-pulse" />
+        <div className="h-8 w-32 bg-white/5 rounded-md animate-pulse" />
       ) : (
         <Select
           value={selectedRouterId ? String(selectedRouterId) : ""}
           onValueChange={(v) => setSelectedRouterId(v ? parseInt(v, 10) : null)}
           disabled={routers.length === 0}
         >
-          <SelectTrigger className="h-8 text-xs bg-gray-800 border-gray-700 text-white hover:bg-gray-700 focus:ring-0 focus:ring-offset-0 disabled:opacity-50">
+          <SelectTrigger className="h-8 text-xs bg-white/5 border-white/10 text-gray-200 hover:bg-white/10 focus:ring-0 focus:ring-offset-0 disabled:opacity-40 transition-colors">
             <SelectValue placeholder="Routeur..." />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="bg-[#161b27] border-white/10 text-gray-200">
             {routers.map((r) => (
-              <SelectItem key={r.id} value={String(r.id)} className="text-xs">{r.name}</SelectItem>
+              <SelectItem key={r.id} value={String(r.id)} className="text-xs focus:bg-white/10 focus:text-white">{r.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -43,8 +43,8 @@ function RouterSelector({ className }: { className?: string }) {
         <span className="relative flex h-2 w-2 flex-shrink-0">
           {routerOnline === true ? (
             <>
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
             </>
           ) : routerOnline === false ? (
             <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
@@ -61,7 +61,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const { logout, role } = useAuth();
   const isAdmin = role === "admin";
 
-  /* Reuse the exact same query key as Dashboard → zero extra network call */
   const { data: voucherCount } = useQuery<number>({
     queryKey: ["router-users-count", selectedRouterId],
     queryFn: async (): Promise<number> => {
@@ -112,30 +111,38 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Brand */}
-      <div className="px-5 py-4 border-b border-gray-700 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Wifi className="h-6 w-6 text-blue-400" />
-          <span className="text-lg font-bold text-white">VoucherNet</span>
+
+      {/* ── Brand ── */}
+      <div className="px-5 pt-5 pb-4 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-xl bg-blue-500/15 ring-1 ring-blue-500/30">
+            <Wifi className="h-4 w-4 text-blue-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-white leading-none">VoucherNet</p>
+            <p className="text-[10px] text-gray-500 mt-0.5 leading-none truncate">
+              {routerIdentity ?? "Gestion Hotspot MikroTik"}
+            </p>
+          </div>
         </div>
-        <p className="text-xs text-gray-400 mt-0.5">
-          {routerIdentity ?? "Gestion Hotspot MikroTik"}
-        </p>
       </div>
 
-      {/* Router selector */}
+      {/* ── Divider ── */}
+      <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent flex-shrink-0" />
+
+      {/* ── Router selector ── */}
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
-        <p className="px-1 mb-1.5 text-xs font-medium text-gray-500 uppercase tracking-wide">
+        <p className="px-1 mb-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
           Routeur actif
         </p>
         <RouterSelector />
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-3 py-2 min-h-0">
-        {navGroups.map((group) => (
-          <div key={group.label} className="mb-3">
-            <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+      {/* ── Nav ── */}
+      <nav className="flex-1 overflow-y-auto sidebar-nav px-3 py-2 min-h-0">
+        {navGroups.map((group, gi) => (
+          <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
+            <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
               {group.label}
             </p>
             <div className="space-y-0.5">
@@ -148,20 +155,20 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                     href={href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                      "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
                       isActive
-                        ? "bg-blue-600 text-white"
-                        : "text-gray-300 hover:bg-gray-800 hover:text-white",
+                        ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
+                        : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
                     )}
                   >
-                    <Icon className="h-4 w-4 flex-shrink-0" />
-                    <span className="flex-1">{label}</span>
+                    <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500 group-hover:text-gray-300")} />
+                    <span className="flex-1 truncate">{label}</span>
                     {showCount && (
                       <span className={cn(
                         "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
                         isActive
-                          ? "bg-white/20 text-white"
-                          : "bg-gray-700 text-gray-300",
+                          ? "bg-blue-500/20 text-blue-300"
+                          : "bg-white/8 text-gray-400",
                       )}>
                         {voucherCount.toLocaleString("fr-FR")}
                       </span>
@@ -174,18 +181,28 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-gray-700 flex-shrink-0 flex items-center justify-between gap-2">
+      {/* ── Divider ── */}
+      <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent flex-shrink-0" />
+
+      {/* ── Footer ── */}
+      <div className="px-3 py-3 flex-shrink-0 flex items-center justify-between gap-2">
         {role === "manager" ? (
-          <span className="text-[10px] text-amber-400">Gérant de zone</span>
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-400/80 bg-amber-400/10 px-2 py-0.5 rounded-full ring-1 ring-amber-400/20">
+            Gérant de zone
+          </span>
+        ) : role === "admin" ? (
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20">
+            Admin
+          </span>
         ) : (
           <span />
         )}
         <button
           onClick={logout}
-          className="flex items-center gap-1.5 text-xs font-medium text-red-400 hover:text-red-300 transition-colors px-2 py-1 rounded hover:bg-red-900/30 whitespace-nowrap"
+          className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
         >
-          <LogOut className="h-3.5 w-3.5" /> Se déconnecter
+          <LogOut className="h-3.5 w-3.5" />
+          <span>Déconnexion</span>
         </button>
       </div>
     </div>
@@ -196,10 +213,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-gray-100 dark:bg-gray-950">
 
       {/* ── Desktop sidebar ── */}
-      <aside className="hidden md:flex w-60 bg-gray-900 text-white flex-col flex-shrink-0 min-h-0">
+      <aside className="hidden md:flex w-60 bg-[#0d1117] text-white flex-col flex-shrink-0 min-h-0 border-r border-white/[0.06]">
         <NavContent />
       </aside>
 
@@ -207,24 +224,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <div className="flex flex-col flex-1 min-w-0">
 
         {/* Mobile top bar */}
-        <header className="md:hidden flex items-center gap-2 bg-gray-900 text-white px-3 py-2.5 flex-shrink-0">
+        <header className="md:hidden flex items-center gap-2 bg-[#0d1117] text-white px-3 py-2.5 flex-shrink-0 border-b border-white/[0.06]">
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
-              <Button size="icon" variant="ghost" className="text-white hover:bg-gray-800 h-8 w-8">
+              <Button size="icon" variant="ghost" className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8">
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
             <SheetContent
               side="left"
-              className="w-64 p-0 bg-gray-900 text-white border-gray-700"
+              className="w-64 p-0 bg-[#0d1117] text-white border-white/[0.06]"
             >
               <NavContent onNavigate={() => setMobileOpen(false)} />
             </SheetContent>
           </Sheet>
 
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Wifi className="h-5 w-5 text-blue-400 flex-shrink-0" />
-            <span className="font-bold text-white truncate">VoucherNet</span>
+            <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
+              <Wifi className="h-3.5 w-3.5 text-blue-400" />
+            </div>
+            <span className="font-bold text-white truncate text-sm">VoucherNet</span>
           </div>
 
           <RouterSelector className="flex-shrink-0" />

@@ -830,34 +830,52 @@ function Dashboard({ token, vendor, onLogout }: {
               </Card>
             )}
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Ventes récentes</CardTitle>
+            <Card className="flex flex-col">
+              <CardHeader className="pb-2 flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Ventes récentes</CardTitle>
+                  {data.recentSales.length > 0 && (
+                    <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full tabular-nums">
+                      {data.recentSales.length}
+                    </span>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-0">
                 {data.recentSales.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-4">Aucune vente enregistrée</p>
+                  <p className="text-sm text-gray-400 text-center py-8 px-4">Aucune vente enregistrée</p>
                 ) : (
-                  <div className="space-y-2">
-                    {data.recentSales.map((v) => {
+                  <div className="max-h-[320px] overflow-y-auto scroll-card px-4 pb-3">
+                    {data.recentSales.map((v, i) => {
                       const displayPrice = v.salePrice || v.price || "";
                       return (
-                      <div key={v.id} className="flex items-start justify-between py-2 border-b last:border-0 gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-mono font-medium truncate">{v.username}</p>
-                          <p className="text-xs text-gray-400">
-                            {v.profileName}
-                            {displayPrice ? ` — ${displayPrice} FCFA` : ""}
-                          </p>
-                          {v.macAddress && (
-                            <p className="text-[10px] text-gray-400 font-mono">{v.macAddress}</p>
-                          )}
+                        <div
+                          key={v.id}
+                          className={`flex items-start justify-between py-2.5 gap-3 ${i < data.recentSales.length - 1 ? "border-b border-gray-100 dark:border-gray-800" : ""}`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-mono font-semibold truncate leading-snug">{v.username}</p>
+                            <p className="text-xs text-gray-500 truncate mt-0.5">
+                              {v.profileName}
+                              {displayPrice ? (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-medium ml-1">
+                                  {Number(displayPrice).toLocaleString("fr-FR")} FCFA
+                                </span>
+                              ) : null}
+                            </p>
+                            {v.macAddress && (
+                              <p className="text-[10px] text-gray-400 font-mono mt-0.5">{v.macAddress}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                            {v.usedAt && (
+                              <span className="text-[10px] text-gray-400 whitespace-nowrap">{fmt(v.usedAt)}</span>
+                            )}
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-950/50 text-red-500 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800/50 whitespace-nowrap">
+                              Vendu
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                          {v.usedAt && <span className="text-[10px] text-gray-400 whitespace-nowrap">{fmt(v.usedAt)}</span>}
-                          <Badge variant="outline" className="border-red-300 text-red-600 bg-transparent">Vendu</Badge>
-                        </div>
-                      </div>
                       );
                     })}
                   </div>
