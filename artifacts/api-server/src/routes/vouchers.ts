@@ -74,7 +74,7 @@ router.get("/vouchers", async (req, res): Promise<void> => {
 });
 
 router.post("/vouchers/generate", async (req, res): Promise<void> => {
-  const { routerId, profile, qty, prefix, comment, server, vendorId, passwordMode } = req.body as {
+  const { routerId, profile, qty, prefix, comment, server, vendorId, passwordMode, charType, userLength, timelimit, datalimit } = req.body as {
     routerId?: number;
     profile?: string;
     qty?: number;
@@ -83,6 +83,10 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     server?: string;
     vendorId?: number | null;
     passwordMode?: "same" | "random";
+    charType?: "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
+    userLength?: number;
+    timelimit?: string;
+    datalimit?: number;
   };
 
   if (!routerId || !profile || !qty) {
@@ -114,7 +118,7 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
   try {
     const generated = await generateVouchers(
       { host: r.host, port: r.port, username: r.username, password: r.password },
-      { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "random" },
+      { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "same", charType, userLength, timelimit: timelimit || undefined, datalimit: datalimit || undefined },
     );
 
     const inserted = await db

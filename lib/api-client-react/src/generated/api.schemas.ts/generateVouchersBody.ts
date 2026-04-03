@@ -10,12 +10,14 @@ import type { GenerateVouchersBodyServer } from './generateVouchersBodyServer';
 import type { GenerateVouchersBodyVendorId } from './generateVouchersBodyVendorId';
 import type { GenerateVouchersBodyPasswordMode } from './generateVouchersBodyPasswordMode';
 
+export type GenerateVouchersBodyCharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
+
 export interface GenerateVouchersBody {
   routerId: number;
   profile: string;
   /**
    * @minimum 1
-   * @maximum 200
+   * @maximum 5000
    */
   qty: number;
   prefix?: GenerateVouchersBodyPrefix;
@@ -23,4 +25,9 @@ export interface GenerateVouchersBody {
   server?: GenerateVouchersBodyServer;
   vendorId?: GenerateVouchersBodyVendorId;
   passwordMode?: GenerateVouchersBodyPasswordMode;
+  charType?: GenerateVouchersBodyCharType;
+  /** @minimum 3 @maximum 8 */
+  userLength?: number;
+  timelimit?: string;
+  datalimit?: number;
 }

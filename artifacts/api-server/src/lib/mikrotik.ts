@@ -744,7 +744,20 @@ export async function disconnectSession(conn: RouterConnection, username: string
   });
 }
 
-const VOUCHER_CHARS = "5ab2c34d";
+// ─── Character sets (MikHMon-compatible) ─────────────────────────────────────
+export type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
+
+const CHAR_SETS: Record<CharType, string> = {
+  lower:  "abcdefghijklmnopqrstuvwxyz",
+  upper:  "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  upplow: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+  mix:    "abcdefghijklmnopqrstuvwxyz23456789",
+  mix1:   "ABCDEFGHIJKLMNOPQRSTUVWXYZ23456789",
+  mix2:   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz23456789",
+  num:    "0123456789",
+};
+
+const DIGIT_CHARS = "0123456789";
 
 function randomFrom(chars: string, length: number): string {
   return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
@@ -754,12 +767,14 @@ function generateCode(
   length: number,
   prefix: string | undefined,
   passwordMode: "same" | "random",
+  charType: CharType = "mix",
 ): { username: string; password: string } {
-  const code = randomFrom(VOUCHER_CHARS, length);
+  const chars = CHAR_SETS[charType];
+  const code = randomFrom(chars, length);
   const username = prefix ? `${prefix}${code}` : code;
-  // "same" (Mode Voucher): password = username — compatible captive portal "Session Voucher"
-  // "random" (Mode Compte): password is a separate random code
-  const password = passwordMode === "same" ? username : randomFrom(VOUCHER_CHARS, length);
+  // "same" (Mode Voucher / vc): password = username
+  // "random" (Mode Compte / up): password = random digits of same length
+  const password = passwordMode === "same" ? username : randomFrom(DIGIT_CHARS, length);
   return { username, password };
 }
 
@@ -783,24 +798,28 @@ export async function generateVouchers(
     price: string;
     validity: string;
     passwordMode?: "same" | "random";
+    charType?: CharType;
+    userLength?: number;
+    timelimit?: string;
+    datalimit?: number;
   },
 ): Promise<GeneratedVoucher[]> {
   return withRouter(conn, async (api) => {
     const generated: GeneratedVoucher[] = [];
+    const length = Math.min(Math.max(opts.userLength ?? (opts.prefix ? 5 : 8), 3), 8);
+    const charType: CharType = opts.charType ?? "mix";
 
     for (let i = 0; i < opts.qty; i++) {
-      const { username, password } = generateCode(opts.prefix ? 5 : 8, opts.prefix, opts.passwordMode ?? "random");
+      const { username, password } = generateCode(length, opts.prefix, opts.passwordMode ?? "same", charType);
       const addParams: string[] = [
         `=name=${username}`,
         `=password=${password}`,
         `=profile=${opts.profile}`,
       ];
-      if (opts.comment) {
-        addParams.push(`=comment=${opts.comment}`);
-      }
-      if (opts.server) {
-        addParams.push(`=server=${opts.server}`);
-      }
+      if (opts.comment)   addParams.push(`=comment=${opts.comment}`);
+      if (opts.server)    addParams.push(`=server=${opts.server}`);
+      if (opts.timelimit) addParams.push(`=limit-uptime=${opts.timelimit}`);
+      if (opts.datalimit) addParams.push(`=limit-bytes-total=${opts.datalimit}`);
 
       await api.write("/ip/hotspot/user/add", addParams);
 

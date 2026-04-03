@@ -35,13 +35,35 @@ function validityCode(validity: string | null | undefined): string {
   return m[1] + (map[m[2].toLowerCase()] ?? m[2].toUpperCase());
 }
 
-function makeBatchId(): string {
+type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
+
+const CHAR_TYPE_LABELS: Record<CharType, string> = {
+  lower:  "abcdef  — minuscules",
+  upper:  "ABCDEF  — majuscules",
+  upplow: "aBcDeF  — mixte lettres",
+  mix:    "5ab2c34 — minusc. + chiffres",
+  mix1:   "5AB2C34 — majusc. + chiffres",
+  mix2:   "5aB2c34 — mixte + chiffres",
+  num:    "123456  — chiffres uniquement",
+};
+
+const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
+  lower:  "abcdef",
+  upper:  "ABCDEF",
+  upplow: "aBcDeF",
+  mix:    "5ab2c34d",
+  mix1:   "5AB2C34D",
+  mix2:   "5aB2c34D",
+  num:    "123456",
+};
+
+function makeBatchId(mode: "vc" | "up" = "vc"): string {
   const now = new Date();
   const M = String(now.getMonth() + 1).padStart(2, "0");
   const D = String(now.getDate()).padStart(2, "0");
   const Y = String(now.getFullYear()).slice(-2);
   const rand = String(Math.floor(Math.random() * 900) + 100);
-  return `vc-${rand}-${M}.${D}.${Y}`;
+  return `${mode}-${rand}-${M}.${D}.${Y}`;
 }
 
 export default function GenerateVouchers() {
@@ -52,9 +74,14 @@ export default function GenerateVouchers() {
   const [profile, setProfile] = useState<string>("");
   const [qty, setQty] = useState("10");
   const [prefix, setPrefix] = useState("");
-  const [comment, setComment] = useState(() => makeBatchId());
-  const [vendorId, setVendorId] = useState<string>("");
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
+  const [charType, setCharType] = useState<CharType>("mix");
+  const [userLength, setUserLength] = useState("8");
+  const [timelimit, setTimelimit] = useState("");
+  const [datalimit, setDatalimit] = useState("");
+  const [mbgb, setMbgb] = useState<number>(1048576);
+  const [comment, setComment] = useState(() => makeBatchId("vc"));
+  const [vendorId, setVendorId] = useState<string>("");
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
@@ -107,6 +134,8 @@ export default function GenerateVouchers() {
     let done = 0;
     setProgress({ done: 0, total });
 
+    const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
+
     try {
       while (done < total) {
         const batchQty = Math.min(BATCH_SIZE, total - done);
@@ -119,6 +148,10 @@ export default function GenerateVouchers() {
             comment: effectiveComment || null,
             vendorId: vendorId ? parseInt(vendorId, 10) : null,
             passwordMode,
+            charType,
+            userLength: parseInt(userLength, 10),
+            timelimit: timelimit || undefined,
+            datalimit: dlBytes,
           },
         });
         allVouchers.push(...batch);
@@ -331,21 +364,21 @@ export default function GenerateVouchers() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setPasswordMode("same")}
-                    className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
+                    onClick={() => { setPasswordMode("same"); setComment(makeBatchId("vc")); }}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
                       passwordMode === "same"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
                     }`}
                   >
                     <span className="font-semibold block mb-0.5">Mode Voucher</span>
-                    <span className="text-xs font-normal block">Code unique (user = password)</span>
-                    <span className="text-xs font-normal opacity-60">✓ Portail captif &quot;Session Voucher&quot;</span>
+                    <span className="text-xs font-normal block">Code unique (user = pass)</span>
+                    <span className="text-xs font-normal opacity-60 font-mono">vc-xxx-dd.mm.yy</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPasswordMode("random")}
-                    className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
+                    onClick={() => { setPasswordMode("random"); setComment(makeBatchId("up")); }}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
                       passwordMode === "random"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
@@ -353,8 +386,91 @@ export default function GenerateVouchers() {
                   >
                     <span className="font-semibold block mb-0.5">Mode Compte</span>
                     <span className="text-xs font-normal block">Identifiants séparés</span>
-                    <span className="text-xs font-normal opacity-60">→ Portail captif &quot;Session Compte&quot;</span>
+                    <span className="text-xs font-normal opacity-60 font-mono">up-xxx-dd.mm.yy</span>
                   </button>
+                </div>
+              </div>
+
+              {/* ─ Longueur + Type de caractères ─ */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Longueur <span className="text-gray-400 text-xs">(3–8)</span></Label>
+                  <div className="flex gap-1 mt-1">
+                    {[3,4,5,6,7,8].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setUserLength(String(n))}
+                        className={`flex-1 py-1.5 text-sm rounded border font-mono font-medium transition-colors ${
+                          userLength === String(n)
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "border-gray-200 text-gray-500 hover:border-gray-400"
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <Label>Aperçu du code</Label>
+                  <div className="mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono text-gray-700 truncate">
+                    {CHAR_TYPE_PREVIEW[charType].slice(0, parseInt(userLength, 10)).padEnd(parseInt(userLength, 10), CHAR_TYPE_PREVIEW[charType]).slice(0, parseInt(userLength, 10))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <Label>Type de caractères</Label>
+                <div className="grid grid-cols-2 gap-1.5 mt-1">
+                  {(Object.entries(CHAR_TYPE_LABELS) as [CharType, string][]).map(([type, label]) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setCharType(type)}
+                      className={`py-1.5 px-2 rounded-lg border text-xs font-medium text-left transition-colors ${
+                        charType === type
+                          ? "bg-blue-50 border-blue-400 text-blue-700"
+                          : "border-gray-200 text-gray-500 hover:border-gray-300"
+                      }`}
+                    >
+                      <span className="font-mono font-semibold">{label.split("—")[0].trim()}</span>
+                      <span className="text-gray-400 font-normal ml-1">— {label.split("—")[1]?.trim()}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ─ Limites facultatives ─ */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Limite de temps <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+                  <Input
+                    className="mt-1 font-mono"
+                    placeholder="ex: 1h, 30m"
+                    value={timelimit}
+                    onChange={(e) => setTimelimit(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label>Limite de données <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+                  <div className="flex gap-1 mt-1">
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={datalimit}
+                      onChange={(e) => setDatalimit(e.target.value)}
+                    />
+                    <select
+                      className="border border-input bg-background rounded-md px-2 text-sm"
+                      value={mbgb}
+                      onChange={(e) => setMbgb(Number(e.target.value))}
+                    >
+                      <option value={1048576}>MB</option>
+                      <option value={1073741824}>GB</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
