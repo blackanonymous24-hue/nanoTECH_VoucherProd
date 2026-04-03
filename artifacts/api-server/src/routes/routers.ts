@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { eq, and, isNotNull, isNull, inArray, sql } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchUsedUsernames, fetchSaleDetails, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { runUsageSync } from "../lib/usage-sync.js";
 
 const router = Router();
 
@@ -518,96 +519,6 @@ const usageSyncTimer  = new Map<number, ReturnType<typeof setTimeout>>();
 const USAGE_SYNC_INTERVAL = 30_000; // 30 seconds
 
 /** Core sync logic — shared by background and manual trigger */
-async function runUsageSync(routerId: number, conn: RouterConnection): Promise<{ updated: number; total: number }> {
-  // Fetch two data sources in parallel:
-  // 1. Sale details from MikHMon scripts (actual date + price + MAC) — now goes 13 months back
-  // 2. Usernames from hotspot logs (fallback for immediate session detection)
-  const [saleDetails, loggedInUsernames] = await Promise.all([
-    fetchSaleDetails(conn).catch(() => new Map()),
-    fetchUsedUsernames(conn).catch(() => new Set<string>()),
-  ]);
-
-  // Combine into one set of all used usernames
-  const allUsed = new Set<string>([...saleDetails.keys(), ...loggedInUsernames]);
-
-  // Fetch ALL vendor vouchers for this router (both unsold and already-synced)
-  const vouchers = await db
-    .select({ id: vouchersTable.id, username: vouchersTable.username, usedAt: vouchersTable.usedAt })
-    .from(vouchersTable)
-    .where(and(
-      eq(vouchersTable.routerId, routerId),
-      isNotNull(vouchersTable.vendorId),
-    ));
-
-  const total = vouchers.length;
-  if (allUsed.size === 0) return { updated: 0, total };
-
-  const fallbackNow = new Date();
-  let updated = 0;
-
-  // ── Pass 1: mark newly-used vouchers (usedAt IS NULL) ──────────────────
-  const newlyUsed = vouchers.filter(
-    (v) => v.usedAt === null && allUsed.has(v.username.toLowerCase()),
-  );
-
-  const newWithDetails    = newlyUsed.filter((v) => saleDetails.has(v.username.toLowerCase()));
-  const newWithoutDetails = newlyUsed.filter((v) => !saleDetails.has(v.username.toLowerCase()));
-
-  for (const v of newWithDetails) {
-    const detail = saleDetails.get(v.username.toLowerCase())!;
-    const usedAt = detail.saleDate;
-    await db
-      .update(vouchersTable)
-      .set({
-        usedAt,
-        printedAt: sql`coalesce(${vouchersTable.printedAt}, ${usedAt.toISOString()})`,
-        salePrice: detail.salePrice || null,
-        macAddress: detail.mac || null,
-        saleIp: detail.ip || null,
-      })
-      .where(inArray(vouchersTable.id, [v.id]));
-    updated++;
-  }
-
-  if (newWithoutDetails.length > 0) {
-    await db
-      .update(vouchersTable)
-      .set({
-        usedAt: fallbackNow,
-        printedAt: sql`coalesce(${vouchersTable.printedAt}, ${fallbackNow.toISOString()})`,
-      })
-      .where(inArray(vouchersTable.id, newWithoutDetails.map((v) => v.id)));
-    updated += newWithoutDetails.length;
-  }
-
-  // ── Pass 2: fix already-synced vouchers with wrong usedAt date ─────────
-  // If a script record exists with a different date, correct it.
-  const alreadySynced = vouchers.filter(
-    (v) => v.usedAt !== null && saleDetails.has(v.username.toLowerCase()),
-  );
-
-  for (const v of alreadySynced) {
-    const detail = saleDetails.get(v.username.toLowerCase())!;
-    const scriptDate = detail.saleDate;
-    const storedDate = v.usedAt as Date;
-    // Only update if dates differ by more than 1 day (to fix "set to today" errors)
-    const diffMs = Math.abs(scriptDate.getTime() - storedDate.getTime());
-    if (diffMs > 86400_000) {
-      await db
-        .update(vouchersTable)
-        .set({
-          usedAt: scriptDate,
-          salePrice: detail.salePrice || null,
-          macAddress: detail.mac || null,
-          saleIp: detail.ip || null,
-        })
-        .where(inArray(vouchersTable.id, [v.id]));
-      updated++;
-    }
-  }
-
-  return { updated, total };
-}
 
 /** Background auto-sync — self-reschedules every USAGE_SYNC_INTERVAL */
 async function scheduleUsageSync(routerId: number, conn: RouterConnection) {

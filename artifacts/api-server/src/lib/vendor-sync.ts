@@ -1,6 +1,7 @@
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles } from "./mikrotik.js";
+import { runUsageSync } from "./usage-sync.js";
 import { logger } from "./logger.js";
 
 /** Throttle: don't sync the same vendor more than once every 2 minutes */
@@ -106,6 +107,15 @@ export async function syncMikrotikUsersToVendor(
         inserted += chunk.length;
       }
       logger.info({ vendorId, routerId, count: inserted }, "vendor sync: inserted new vouchers from MikroTik");
+    }
+
+    // Backfill usedAt from MikHMon scripts for this vendor's vouchers
+    // (scoped to vendorId so we only process their vouchers, not the whole router)
+    try {
+      const syncResult = await runUsageSync(routerId, conn, vendorId);
+      logger.info({ vendorId, routerId, ...syncResult }, "vendor sync: usage backfill complete");
+    } catch (syncErr) {
+      logger.warn({ vendorId, routerId, err: syncErr }, "vendor sync: usage backfill failed (non-blocking)");
     }
   } catch (err) {
     lastSyncAt.delete(vendorId); // reset on error so next call retries
