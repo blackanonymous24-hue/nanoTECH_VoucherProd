@@ -3,6 +3,7 @@ import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
+import { syncScriptCache } from "../lib/script-cache.js";
 
 const router = Router();
 
@@ -525,6 +526,9 @@ async function scheduleUsageSync(routerId: number, conn: RouterConnection) {
   if (usageSyncActive.has(routerId)) return;
   usageSyncActive.add(routerId);
   try {
+    // Refresh the script cache first (incremental — only current + last month),
+    // then run usage sync which reads from the cache (no extra MikroTik call).
+    await syncScriptCache(routerId, conn);
     const result = await runUsageSync(routerId, conn);
     usageSyncCache.set(routerId, { updatedAt: Date.now(), ...result });
   } catch { /* keep stale cache on error */ } finally {

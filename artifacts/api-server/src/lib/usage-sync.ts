@@ -1,24 +1,30 @@
 import { eq, and, isNotNull, inArray, sql } from "drizzle-orm";
 import { db, vouchersTable } from "@workspace/db";
-import { fetchSaleDetails, fetchUsedUsernames, type RouterConnection } from "./mikrotik.js";
+import { fetchUsedUsernames, type RouterConnection } from "./mikrotik.js";
+import { getCachedSaleDetails, type CachedSaleDetail } from "./script-cache.js";
 import { logger } from "./logger.js";
 
 /**
- * Reads MikHMon scripts from MikroTik and populates/corrects `usedAt`,
- * `salePrice`, `macAddress`, `saleIp` for all vendor vouchers on a router.
+ * Reads MikHMon sale details from the LOCAL SCRIPT CACHE (not MikroTik directly)
+ * and populates/corrects `usedAt`, `salePrice`, `macAddress`, `saleIp` for all
+ * vendor vouchers on a router.
  *
  * Pass 1 – mark newly-used vouchers (usedAt IS NULL).
  * Pass 2 – correct already-synced vouchers whose date differs by > 1 day.
  *
  * Can be scoped to a single vendor (vendorId) or all vendors on the router.
+ *
+ * NOTE: syncScriptCache() must be called before this function in the sync
+ * pipeline so the cache is up-to-date.
  */
 export async function runUsageSync(
   routerId: number,
   conn: RouterConnection,
   vendorId?: number,
 ): Promise<{ updated: number; total: number }> {
+  // Use local cache — fast DB query instead of MikroTik API call
   const [saleDetails, loggedInUsernames] = await Promise.all([
-    fetchSaleDetails(conn).catch(() => new Map()),
+    getCachedSaleDetails(routerId),
     fetchUsedUsernames(conn).catch(() => new Set<string>()),
   ]);
 
@@ -56,10 +62,10 @@ export async function runUsageSync(
       .update(vouchersTable)
       .set({
         usedAt,
-        printedAt: sql`coalesce(${vouchersTable.printedAt}, ${usedAt.toISOString()})`,
-        salePrice: detail.salePrice || null,
+        printedAt:  sql`coalesce(${vouchersTable.printedAt}, ${usedAt.toISOString()})`,
+        salePrice:  detail.salePrice || null,
         macAddress: detail.mac || null,
-        saleIp: detail.ip || null,
+        saleIp:     detail.ip  || null,
       })
       .where(inArray(vouchersTable.id, [v.id]));
     updated++;
@@ -68,10 +74,7 @@ export async function runUsageSync(
   if (newWithoutDetails.length > 0) {
     await db
       .update(vouchersTable)
-      .set({
-        usedAt: fallbackNow,
-        printedAt: sql`coalesce(${vouchersTable.printedAt}, ${fallbackNow.toISOString()})`,
-      })
+      .set({ usedAt: fallbackNow })
       .where(inArray(vouchersTable.id, newWithoutDetails.map((v) => v.id)));
     updated += newWithoutDetails.length;
   }
@@ -90,10 +93,10 @@ export async function runUsageSync(
       await db
         .update(vouchersTable)
         .set({
-          usedAt: scriptDate,
-          salePrice: detail.salePrice || null,
+          usedAt:     scriptDate,
+          salePrice:  detail.salePrice || null,
           macAddress: detail.mac || null,
-          saleIp: detail.ip || null,
+          saleIp:     detail.ip  || null,
         })
         .where(inArray(vouchersTable.id, [v.id]));
       updated++;

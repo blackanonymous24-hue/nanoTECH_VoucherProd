@@ -1,7 +1,8 @@
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { listHotspotUsers, listProfiles, fetchScriptSales, type RouterConnection } from "./mikrotik.js";
+import { listHotspotUsers, listProfiles, type RouterConnection } from "./mikrotik.js";
 import { runUsageSync } from "./usage-sync.js";
+import { syncScriptCache, getCachedSalesByBatch } from "./script-cache.js";
 import { logger } from "./logger.js";
 
 /** Throttle: don't sync the same vendor more than once every 2 minutes */
@@ -9,71 +10,65 @@ const SYNC_TTL = 2 * 60_000;
 const lastSyncAt = new Map<number, number>();
 
 /**
- * Step 3 of vendor sync — reads ALL MikHMon sales scripts and creates DB records
- * for historical vouchers that:
+ * Step 3 of vendor sync — reads historical sales from the LOCAL SCRIPT CACHE
+ * (no MikroTik call) and creates DB records for vouchers that:
  *   - Match the vendor's commentSuffix (batch field ends with suffix)
- *   - Are NOT already in the local vouchers table (i.e. were sold before VoucherNet)
+ *   - Are NOT already in the local vouchers table (sold before VoucherNet)
  *
  * This is the only way to recover old sales where the hotspot user was already
  * deleted from MikroTik (sold vouchers disappear from /ip/hotspot/user).
+ * Using the cache makes this a fast local DB query instead of a 90s remote call.
  */
 async function syncHistoricalScriptSalesToVendor(
   vendorId: number,
   routerId: number,
-  conn: RouterConnection,
   suffixes: string[],
 ): Promise<{ created: number; reattributed: number }> {
   let created = 0;
   let reattributed = 0;
 
   try {
-    // Fetch every MikHMon sales script (comment=mikhmon or per-owner fallback)
-    const allSales = await fetchScriptSales(conn, { type: "all" }, 90_000);
-
-    // Match by batch field ending with any of the vendor's suffixes
-    const matched = allSales.filter((e) =>
-      e.batch && suffixes.some((s) => s && e.batch.endsWith(s)),
-    );
+    // Read from local cache — instant DB query, no MikroTik call
+    const matched = await getCachedSalesByBatch(routerId, suffixes);
     if (matched.length === 0) return { created, reattributed };
 
-    // Fetch existing voucher records for this router (only need username + id + vendorId)
+    // Fetch existing voucher records for this router
     const existing = await db
       .select({ username: vouchersTable.username, id: vouchersTable.id, vendorId: vouchersTable.vendorId })
       .from(vouchersTable)
       .where(eq(vouchersTable.routerId, routerId));
 
-    const existingMap = new Map(existing.map((e) => [e.username.toLowerCase(), e]));
+    const existingMap = new Map<string, { username: string; id: number; vendorId: number | null }>(
+      existing.map((e) => [e.username.toLowerCase(), e]),
+    );
 
     const toInsert: (typeof vouchersTable.$inferInsert)[] = [];
     const toReattribute: number[] = [];
 
     for (const entry of matched) {
       const key = entry.username.toLowerCase();
-      const existing = existingMap.get(key);
+      const found = existingMap.get(key);
 
-      if (!existing) {
-        // Reconstruct the voucher from script data
-        const usedAt = new Date(`${entry.date}T${entry.time || "00:00:00"}`);
-        if (isNaN(usedAt.getTime())) continue;
+      if (!found) {
+        if (isNaN(entry.saleDate.getTime())) continue;
 
         toInsert.push({
           routerId,
           vendorId,
-          username: entry.username,
-          password: "",
-          profileName: entry.label || "",     // label ≈ profile description
-          price:       entry.price ? String(entry.price) : "",
+          username:    entry.username,
+          password:    "",
+          profileName: entry.label || "",
+          price:       entry.price || "",
           validity:    entry.validity || "",
           comment:     entry.batch || null,
-          usedAt,
-          printedAt:   usedAt,
-          salePrice:   entry.price ? String(entry.price) : null,
-          macAddress:  entry.mac  || null,
-          saleIp:      entry.ip   || null,
+          usedAt:      entry.saleDate,
+          printedAt:   entry.saleDate,
+          salePrice:   entry.price || null,
+          macAddress:  entry.mac   || null,
+          saleIp:      entry.ip    || null,
         });
-      } else if (existing.vendorId !== vendorId) {
-        // Already in DB but attributed to wrong (or no) vendor
-        toReattribute.push(existing.id);
+      } else if (found.vendorId !== vendorId) {
+        toReattribute.push(found.id);
       }
     }
 
@@ -104,10 +99,11 @@ async function syncHistoricalScriptSalesToVendor(
 
 /**
  * Full vendor sync pipeline:
- *  1. Import current hotspot users from MikroTik (active/unsold vouchers)
- *  2. Re-attribute existing DB vouchers by comment suffix
- *  3. Backfill historical sales from MikHMon scripts (sold/deleted vouchers)
- *  4. Populate usedAt dates from scripts for all vendor vouchers
+ *  1. Refresh local script cache (incremental — only current + last month)
+ *  2. Import current hotspot users from MikroTik (active/unsold vouchers)
+ *  3. Re-attribute existing DB vouchers by comment suffix
+ *  4. Backfill historical sales from cache (sold/deleted vouchers)
+ *  5. Populate usedAt dates from cache for all vendor vouchers
  */
 export async function syncMikrotikUsersToVendor(
   vendorId: number,
@@ -137,7 +133,10 @@ export async function syncMikrotikUsersToVendor(
       password: router.password,
     };
 
-    // ── Step 1: import currently active hotspot users ─────────────────────
+    // ── Step 1: refresh script cache (incremental) ────────────────────────
+    await syncScriptCache(routerId, conn);
+
+    // ── Step 2: import currently active hotspot users ─────────────────────
     const [allUsers, allProfiles] = await Promise.all([
       listHotspotUsers(conn, 20_000),
       listProfiles(conn).catch(() => []),
@@ -157,10 +156,13 @@ export async function syncMikrotikUsersToVendor(
         sql`(${sql.join(suffixConditions, sql` OR `)})`,
       ));
 
-    const existingMap = new Map(existingRows.map((e) => [e.username, e]));
+    type ExRow = { username: string; vendorId: number | null; id: number };
+    const existingMap = new Map<string, ExRow>(existingRows.map((e: ExRow) => [e.username, e]));
 
-    // ── Step 2: re-attribute existing DB vouchers ─────────────────────────
-    const toUpdate = existingRows.filter((e) => e.vendorId !== vendorId).map((e) => e.id);
+    // ── Step 3: re-attribute existing DB vouchers ─────────────────────────
+    const toUpdate = existingRows
+      .filter((e: ExRow) => e.vendorId !== vendorId)
+      .map((e: ExRow) => e.id);
     if (toUpdate.length > 0) {
       const CHUNK = 200;
       for (let i = 0; i < toUpdate.length; i += CHUNK) {
@@ -194,16 +196,17 @@ export async function syncMikrotikUsersToVendor(
       const CHUNK = 100;
       let inserted = 0;
       for (let i = 0; i < toInsert.length; i += CHUNK) {
-        await db.insert(vouchersTable).values(toInsert.slice(i, i + CHUNK)).onConflictDoNothing();
-        inserted += toInsert.slice(i, i + CHUNK).length;
+        const chunk = toInsert.slice(i, i + CHUNK);
+        await db.insert(vouchersTable).values(chunk).onConflictDoNothing();
+        inserted += chunk.length;
       }
       logger.info({ vendorId, routerId, count: inserted }, "vendor sync: inserted new vouchers from MikroTik");
     }
 
-    // ── Step 3: backfill historical sales from MikHMon scripts ───────────
-    await syncHistoricalScriptSalesToVendor(vendorId, routerId, conn, activeSuffixes);
+    // ── Step 4: backfill historical sales from cache ──────────────────────
+    await syncHistoricalScriptSalesToVendor(vendorId, routerId, activeSuffixes);
 
-    // ── Step 4: populate/correct usedAt dates from scripts ───────────────
+    // ── Step 5: populate/correct usedAt dates from cache ─────────────────
     try {
       const syncResult = await runUsageSync(routerId, conn, vendorId);
       logger.info({ vendorId, routerId, ...syncResult }, "vendor sync: usage backfill complete");
