@@ -388,6 +388,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     db
       .select({
         profileName: vouchersTable.profileName,
+        price:   sql<string>`max(${vouchersTable.price})`,
         total: count(),
         printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
         used:    sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,

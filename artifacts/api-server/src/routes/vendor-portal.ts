@@ -124,6 +124,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     db
       .select({
         profileName: vouchersTable.profileName,
+        price:   sql<string>`max(${vouchersTable.price})`,
         total: count(),
         printed: sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
         used:    sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
@@ -245,6 +246,7 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     db
       .select({
         profileName: vouchersTable.profileName,
+        price:   sql<string>`max(${vouchersTable.price})`,
         count: count(),
         revenue: sql<number>`coalesce(sum(${vouchersTable.price}::numeric), 0)`,
       })

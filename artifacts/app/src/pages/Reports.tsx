@@ -198,7 +198,11 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
               <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
             ) : (
               <div className="space-y-4">
-                {data.byProfile.map((stat) => {
+                {[...data.byProfile].sort((a, b) => {
+                  const pa = parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0;
+                  const pb = parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0;
+                  return pa - pb;
+                }).map((stat) => {
                   const used = Number((stat as any).used ?? 0);
                   return (
                     <div key={stat.profileName}>

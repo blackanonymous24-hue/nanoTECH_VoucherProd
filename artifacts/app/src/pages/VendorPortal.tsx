@@ -501,7 +501,7 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
                     <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
                   ) : (
                     <div className="space-y-2">
-                      {data.byProfile.map((p) => (
+                      {[...data.byProfile].sort((a, b) => (parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0) - (parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0)).map((p) => (
                         <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
                           <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
                           <div className="flex items-center gap-4 text-sm">
@@ -563,7 +563,7 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
                   <table className="report-print-table">
                     <thead><tr><th>Forfait</th><th>Tickets</th><th>Montant FCFA</th></tr></thead>
                     <tbody>
-                      {data.byProfile.map((p) => (
+                      {[...data.byProfile].sort((a, b) => (parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0) - (parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0)).map((p) => (
                         <tr key={p.profileName}>
                           <td>{p.profileName}</td>
                           <td>{p.count}</td>
@@ -786,7 +786,7 @@ function Dashboard({ token, vendor, onLogout }: {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {data.byProfile.map((p) => (
+                    {[...data.byProfile].sort((a, b) => (parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0) - (parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0)).map((p) => (
                       <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
                         <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
                         <div className="flex gap-3 text-sm">
