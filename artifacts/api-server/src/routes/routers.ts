@@ -587,6 +587,32 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   }
 });
 
+/**
+ * GET /routers/:id/profile-stock
+ * Returns per-profile ticket availability and daily sales for the gauge panel.
+ * { profileName, available, soldToday }[]
+ */
+router.get("/routers/:id/profile-stock", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const rows = await db
+    .select({
+      profileName: vouchersTable.profileName,
+      available:   sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} is null) as int)`,
+      soldToday:   sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfDay}) as int)`,
+    })
+    .from(vouchersTable)
+    .where(eq(vouchersTable.routerId, id))
+    .groupBy(vouchersTable.profileName)
+    .orderBy(vouchersTable.profileName);
+
+  res.json(rows);
+});
+
 router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
