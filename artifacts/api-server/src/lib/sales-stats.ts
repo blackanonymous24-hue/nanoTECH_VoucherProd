@@ -10,12 +10,12 @@ export function buildProfilePeriodCounts(vendorId: number) {
   return db
     .select({
       profileName:   vouchersTable.profileName,
-      todaySold:     sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= current_date and ${vouchersTable.printedAt} < current_date + interval '1 day')`,
-      yesterdaySold: sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= current_date - interval '1 day' and ${vouchersTable.printedAt} < current_date)`,
-      weekSold:      sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= date_trunc('week', current_date) and ${vouchersTable.printedAt} < current_date + interval '1 day')`,
-      lastMonthSold: sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= date_trunc('month', current_date - interval '1 month') and ${vouchersTable.printedAt} < date_trunc('month', current_date))`,
-      thisMonthSold: sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= date_trunc('month', current_date) and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month')`,
-      lastWeekSold:  sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.printedAt} < date_trunc('week', current_date))`,
+      todaySold:     sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day')`,
+      yesterdaySold: sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date)`,
+      weekSold:      sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('week', current_date) and ${vouchersTable.usedAt} < current_date + interval '1 day')`,
+      lastMonthSold: sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('month', current_date - interval '1 month') and ${vouchersTable.usedAt} < date_trunc('month', current_date))`,
+      thisMonthSold: sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month')`,
+      lastWeekSold:  sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date))`,
     })
     .from(vouchersTable)
     .where(eq(vouchersTable.vendorId, vendorId))

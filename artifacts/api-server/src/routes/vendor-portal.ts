@@ -25,10 +25,10 @@ function buildTotals(vendorId: number) {
 function buildPortalProfileCounts(vendorId: number) {
   return db.select({
     profileName:   vouchersTable.profileName,
-    todaySold:     sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= current_date and ${vouchersTable.printedAt} < current_date + interval '1 day')`,
-    yesterdaySold: sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= current_date - interval '1 day' and ${vouchersTable.printedAt} < current_date)`,
-    weekSold:      sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.printedAt} < date_trunc('week', current_date))`,
-    lastMonthSold: sql<number>`count(*) filter (where ${vouchersTable.printedAt} >= date_trunc('month', current_date) and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month')`,
+    todaySold:     sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day')`,
+    yesterdaySold: sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date)`,
+    weekSold:      sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date))`,
+    lastMonthSold: sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month')`,
   })
   .from(vouchersTable)
   .where(eq(vouchersTable.vendorId, vendorId))
@@ -207,10 +207,10 @@ router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
     .from(vouchersTable)
     .where(and(
       eq(vouchersTable.vendorId, payload.vendorId),
-      gte(vouchersTable.printedAt, start),
-      lt(vouchersTable.printedAt, end),
+      gte(vouchersTable.usedAt, start),
+      lt(vouchersTable.usedAt, end),
     ))
-    .orderBy(desc(vouchersTable.printedAt));
+    .orderBy(desc(vouchersTable.usedAt));
 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
@@ -235,12 +235,12 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
 
   const periodFilter =
     period === "today"
-      ? sql`${vouchersTable.printedAt} >= current_date and ${vouchersTable.printedAt} < current_date + interval '1 day'`
+      ? sql`${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day'`
     : period === "yesterday"
-      ? sql`${vouchersTable.printedAt} >= current_date - interval '1 day' and ${vouchersTable.printedAt} < current_date`
+      ? sql`${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date`
     : period === "week"
-      ? sql`${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.printedAt} < date_trunc('week', current_date)`
-      : sql`${vouchersTable.printedAt} >= date_trunc('month', current_date) and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'`;
+      ? sql`${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date)`
+      : sql`${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month'`;
 
   const labels: Record<string, string> = {
     today: "Aujourd'hui",
@@ -254,7 +254,7 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
       .select()
       .from(vouchersTable)
       .where(and(eq(vouchersTable.vendorId, id), periodFilter))
-      .orderBy(desc(vouchersTable.printedAt)),
+      .orderBy(desc(vouchersTable.usedAt)),
     db
       .select({
         profileName: vouchersTable.profileName,
