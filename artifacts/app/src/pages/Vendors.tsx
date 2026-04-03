@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   useCreateVendor,
   useUpdateVendor,
   useDeleteVendor,
+  useGetVendorReportsSummary,
 } from "@workspace/api-client-react";
-import type { Vendor } from "@workspace/api-client-react";
+import type { Vendor, VendorSummary } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw, PackageOpen, Bell } from "lucide-react";
+import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -236,12 +237,6 @@ export function PersonForm({
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-interface ProfileStock {
-  profileName: string;
-  available: number;
-  soldToday: number;
-}
-
 export default function Vendors() {
   const { selectedRouterId } = useRouterContext();
   const { role } = useAuth();
@@ -287,46 +282,11 @@ export default function Vendors() {
     staleTime: 30_000,
   });
 
-  const notifiedProfilesRef = useRef<Set<string>>(new Set());
-
-  const { data: stockData, isFetching: stockFetching } = useQuery<ProfileStock[]>({
-    queryKey: ["profile-stock", selectedRouterId],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/profile-stock`);
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!selectedRouterId,
-    refetchInterval: 30_000,
-    staleTime: 28_000,
-    retry: false,
-    throwOnError: false,
-  });
-
-  const stockProfiles = stockData ?? [];
-
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  useEffect(() => { notifiedProfilesRef.current = new Set(); }, [selectedRouterId]);
-
-  useEffect(() => {
-    if (!stockData) return;
-    stockData.forEach((p) => {
-      if (p.available < 100 && !notifiedProfilesRef.current.has(p.profileName)) {
-        notifiedProfilesRef.current.add(p.profileName);
-        if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("⚠️ Stock faible — VoucherNet", {
-            body: `Forfait « ${p.profileName} » : seulement ${p.available} ticket(s) disponible(s).`,
-            icon: "/favicon.ico",
-          });
-        }
-      }
-    });
-  }, [stockData]);
+  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { staleTime: 60_000 } });
+  const summaryMap = useMemo(
+    () => new Map<number, VendorSummary>(summaries.map((s) => [s.vendor.id, s])),
+    [summaries],
+  );
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["vendors", selectedRouterId] });
@@ -451,68 +411,6 @@ export default function Vendors() {
         </div>
       </div>
 
-      {/* ─── Stock tickets par forfait ─────────────────────────────────────── */}
-      {selectedRouterId && (
-        <Card className="mb-6">
-          <CardHeader className="pb-2 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <PackageOpen className="h-4 w-4 text-gray-400" />
-                Stock tickets — aujourd&apos;hui
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                {stockFetching && <RefreshCw className="h-3 w-3 animate-spin text-gray-300" />}
-                <span className="text-xs text-gray-400">↻ 30s</span>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-4">
-            {stockProfiles.length === 0 ? (
-              <div className="py-4 text-center text-sm text-gray-400">
-                {stockFetching ? "Chargement…" : "Aucun forfait trouvé pour ce routeur."}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-3">
-                {stockProfiles.map((p) => {
-                  const total = p.available + p.soldToday;
-                  const usedPct = total > 0 ? Math.round((p.soldToday / total) * 100) : 0;
-                  const isLow = p.available < 100;
-                  const barColor   = isLow ? "bg-orange-400" : "bg-emerald-500";
-                  const trackColor = isLow ? "bg-orange-100" : "bg-emerald-100";
-                  const textColor  = isLow ? "text-orange-600" : "text-emerald-600";
-                  return (
-                    <div key={p.profileName}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="text-sm font-medium text-gray-700 truncate">{p.profileName}</span>
-                          {isLow && (
-                            <span className="flex items-center gap-0.5 text-xs font-semibold text-orange-500">
-                              <Bell className="h-3 w-3" /> Stock faible
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-xs flex-shrink-0">
-                          <span className="text-gray-400">{p.soldToday} vendu{p.soldToday !== 1 ? "s" : ""}</span>
-                          <span className={`font-semibold ${textColor}`}>{p.available} dispo</span>
-                        </div>
-                      </div>
-                      <div className={`relative h-2.5 rounded-full overflow-hidden ${trackColor}`}>
-                        <div className="absolute inset-y-0 left-0 bg-gray-300 rounded-l-full transition-all duration-500" style={{ width: `${usedPct}%` }} />
-                        <div className={`absolute inset-y-0 rounded-full transition-all duration-500 ${barColor}`} style={{ left: `${usedPct}%`, right: 0 }} />
-                      </div>
-                      <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                        <span>Vendus ({usedPct}%)</span>
-                        <span>Disponibles ({100 - usedPct}%)</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {!selectedRouterId && (
         <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg mb-6 text-sm">
           <Users className="h-4 w-4 flex-shrink-0" />
@@ -586,6 +484,35 @@ export default function Vendors() {
                   </Badge>
                 </div>
               </CardHeader>
+
+              {/* Jauge utilisation par vendeur */}
+              {(() => {
+                const s = summaryMap.get(vendor.id);
+                if (!s || s.totalVouchers === 0) return null;
+                const used    = s.totalUsed;
+                const total   = s.totalVouchers;
+                const nonSold = total - used;
+                const usedPct = Math.round((used / total) * 100);
+                return (
+                  <div className="px-6 pb-3">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-red-600 font-semibold">{used} vendu{used !== 1 ? "s" : ""}</span>
+                      <span className="text-gray-400">{total} total</span>
+                      <span className="text-green-600 font-semibold">{nonSold} dispo</span>
+                    </div>
+                    <div className="relative h-2 rounded-full overflow-hidden bg-gray-100">
+                      <div
+                        className="absolute inset-y-0 left-0 bg-red-400 rounded-l-full transition-all duration-500"
+                        style={{ width: `${usedPct}%` }}
+                      />
+                      <div
+                        className="absolute inset-y-0 rounded-full bg-emerald-500 transition-all duration-500"
+                        style={{ left: `${usedPct}%`, right: 0 }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Boutons d'action visibles */}
               <CardContent className="pt-0">
