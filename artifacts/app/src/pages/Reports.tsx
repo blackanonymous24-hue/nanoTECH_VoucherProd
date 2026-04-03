@@ -111,8 +111,10 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
 
   if (isLoading || !data) return <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>;
 
-  const nonSold = data.totalVouchers - data.totalUsed;
-  const ss = data.salesStats;
+  const nonSold   = data.totalVouchers - data.totalUsed;
+  const ss        = data.salesStats;
+  const todaySold = ss.todaySold;
+  const totalJour = nonSold + todaySold;
 
   return (
     <div>
@@ -138,8 +140,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                 <Ticket className="h-4 w-4 text-blue-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Total</p>
-                <p className="text-xl font-bold text-gray-900">{data.totalVouchers}</p>
+                <p className="text-xs text-gray-500">Total jour</p>
+                <p className="text-xl font-bold text-gray-900">{totalJour}</p>
               </div>
             </div>
           </CardContent>
@@ -151,8 +153,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                 <CheckCircle2 className="h-4 w-4 text-red-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Vendus</p>
-                <p className="text-xl font-bold text-red-600">{data.totalUsed}</p>
+                <p className="text-xs text-gray-500">Vendus auj.</p>
+                <p className="text-xl font-bold text-red-600">{todaySold}</p>
               </div>
             </div>
           </CardContent>
@@ -175,7 +177,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
       {/* Barre 2 segments */}
       <Card className="mb-5">
         <CardContent className="pt-5">
-          <SaleBar used={data.totalUsed} total={data.totalVouchers} />
+          <SaleBar used={todaySold} total={totalJour} />
         </CardContent>
       </Card>
 
@@ -323,9 +325,10 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
 
 /* ─── vendor card ─────────────────────────────────────────────── */
 function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () => void }) {
-  const used    = summary.totalUsed;
-  const nonSold = summary.totalVouchers - used;
-  const ss      = summary.salesStats;
+  const nonSold   = summary.totalVouchers - summary.totalUsed;
+  const ss        = summary.salesStats;
+  const todaySold = ss.todaySold;
+  const total     = nonSold + todaySold;
 
   return (
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
@@ -349,12 +352,12 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
         {/* Compteurs */}
         <div className="grid grid-cols-3 gap-2 text-center mb-3">
           <div>
-            <p className="text-lg font-bold text-gray-900">{summary.totalVouchers}</p>
-            <p className="text-xs text-gray-500">Total</p>
+            <p className="text-lg font-bold text-gray-900">{total}</p>
+            <p className="text-xs text-gray-500">Total jour</p>
           </div>
           <div>
-            <p className="text-lg font-bold text-red-600">{used}</p>
-            <p className="text-xs text-red-600">Vendus</p>
+            <p className="text-lg font-bold text-red-600">{todaySold}</p>
+            <p className="text-xs text-red-600">Vendus auj.</p>
           </div>
           <div>
             <p className="text-lg font-bold text-green-600">{nonSold}</p>
@@ -363,7 +366,7 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
         </div>
 
         {/* Barre 2 segments */}
-        <SaleBar used={used} total={summary.totalVouchers} />
+        <SaleBar used={todaySold} total={total} />
 
         {/* Stats temporelles */}
         <div className="mt-3 pt-3 border-t border-gray-100">
@@ -428,9 +431,9 @@ export default function Reports() {
     return <VendorDetailReport vendorId={selectedVendorId} onBack={() => setSelectedVendorId(null)} />;
   }
 
-  const totalVouchers = filtered.reduce((s, r) => s + r.totalVouchers, 0);
-  const totalUsed     = filtered.reduce((s, r) => s + r.totalUsed, 0);
-  const totalNonSold  = totalVouchers - totalUsed;
+  const totalNonSold   = filtered.reduce((s, r) => s + (r.totalVouchers - r.totalUsed), 0);
+  const totalTodaySold = filtered.reduce((s, r) => s + r.salesStats.todaySold, 0);
+  const totalJour      = totalNonSold + totalTodaySold;
 
   return (
     <div>
@@ -442,7 +445,7 @@ export default function Reports() {
         <SyncButton routerId={routerId} />
       </div>
 
-      {totalVouchers > 0 && (
+      {totalJour > 0 && (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <Card>
             <CardContent className="pt-5">
@@ -451,8 +454,8 @@ export default function Reports() {
                   <Ticket className="h-4 w-4 text-blue-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Total</p>
-                  <p className="text-xl font-bold">{totalVouchers}</p>
+                  <p className="text-xs text-gray-500">Total jour</p>
+                  <p className="text-xl font-bold">{totalJour}</p>
                 </div>
               </div>
             </CardContent>
@@ -464,8 +467,8 @@ export default function Reports() {
                   <CheckCircle2 className="h-4 w-4 text-red-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Vendus</p>
-                  <p className="text-xl font-bold text-red-600">{totalUsed}</p>
+                  <p className="text-xs text-gray-500">Vendus auj.</p>
+                  <p className="text-xl font-bold text-red-600">{totalTodaySold}</p>
                 </div>
               </div>
             </CardContent>
