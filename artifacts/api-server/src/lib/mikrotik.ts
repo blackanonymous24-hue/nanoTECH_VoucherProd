@@ -523,16 +523,14 @@ export interface SalesReport {
  */
 export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 60000): Promise<SalesReport> {
   return withRouter(conn, async (api) => {
-    const MONTH_NAMES = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
     const now = new Date();
     const mm  = String(now.getMonth() + 1).padStart(2, "0");
     const y   = now.getFullYear();
-    const m   = MONTH_NAMES[now.getMonth()];
     const d   = String(now.getDate()).padStart(2, "0");
 
-    const isoDateLabel  = `${y}-${mm}-${d}`;
-    const legacyDateLabel = `${m}/${d}/${y}`;
-    const isoOwner      = `${mm}${y}`;
+    const isoDateLabel    = `${y}-${mm}-${d}`;
+    const legacyDateLabel = `${MIKHMON_MONTH_ABBR[now.getMonth()]}/${d}/${y}`;
+    const isoOwner        = `${mm}${y}`;
 
     // ── Period boundaries (local dates, time-zeroed) ──────────────────────
     const todayMidnight    = new Date(y, now.getMonth(), now.getDate());
@@ -560,12 +558,11 @@ export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 
     if (allScripts.length === 0) {
       const ownerSet = new Set<string>();
       for (let i = 0; i <= 12; i++) {
-        const dt = new Date(y, now.getMonth() - i, 1);
+        const dt  = new Date(y, now.getMonth() - i, 1);
         const mm2 = String(dt.getMonth() + 1).padStart(2, "0");
-        const m2  = MONTH_NAMES[dt.getMonth()];
         const y2  = dt.getFullYear();
-        ownerSet.add(`${mm2}${y2}`);
-        ownerSet.add(`${m2}${y2}`);
+        ownerSet.add(`${mm2}${y2}`);                                    // ISO: "022026"
+        ownerSet.add(`${MIKHMON_MONTH_ABBR[dt.getMonth()]}${y2}`);     // legacy: "feb2026"
       }
       for (const owner of ownerSet) {
         const chunk = await api.write("/system/script/print", [
@@ -593,18 +590,10 @@ export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 
       const datePart = parts[0].trim();
       const price    = parseFloat(parts[3]) || 0;
 
-      // Parse date
-      let saleTs: number | null = null;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
-        saleTs = new Date(datePart + "T00:00:00").getTime();
-      } else {
-        const leg = datePart.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
-        if (leg) {
-          const mi = MONTH_NAMES.indexOf(leg[1].toLowerCase());
-          if (mi >= 0) saleTs = new Date(Number(leg[3]), mi, Number(leg[2])).getTime();
-        }
-      }
-      if (saleTs === null) continue;
+      // Parse date — handles both ISO and legacy formats
+      const parsedDate = parseMikhmonDate(datePart);
+      if (!parsedDate) continue;
+      const saleTs = parsedDate.getTime();
 
       totalCount++;
       totalAmount += price;
@@ -737,7 +726,7 @@ export interface SaleDetail {
 // ─── Raw sales entries (for the Selling Report page) ──────────────────────────
 
 export interface SaleEntry {
-  date: string;
+  date: string;   // normalized ISO "YYYY-MM-DD"
   time: string;
   username: string;
   price: number;
@@ -746,6 +735,40 @@ export interface SaleEntry {
   validity: string;
   label: string;
   batch: string;
+}
+
+// ─── MikHMon date helpers (shared by fetchScriptSales & fetchSaleDetails) ────
+
+const MIKHMON_MONTH_ABBR = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+
+/** Parse both ISO ("2026-02-02") and legacy ("nov/04/2025") date parts into a Date. */
+function parseMikhmonDate(datePart: string, timePart?: string): Date | null {
+  const time = timePart && /^\d{1,2}:\d{2}:\d{2}$/.test(timePart) ? timePart : "00:00:00";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    const d = new Date(`${datePart}T${time}`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const leg = datePart.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
+  if (leg) {
+    const mIdx = MIKHMON_MONTH_ABBR.indexOf(leg[1].toLowerCase());
+    if (mIdx < 0) return null;
+    const [hh = 0, mm = 0, ss = 0] = time.split(":").map(Number);
+    return new Date(Number(leg[3]), mIdx, Number(leg[2]), hh, mm, ss);
+  }
+  return null;
+}
+
+/** Convert either date format to a canonical "YYYY-MM-DD" string. */
+function toIsoDateStr(datePart: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+  const leg = datePart.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
+  if (leg) {
+    const mIdx = MIKHMON_MONTH_ABBR.indexOf(leg[1].toLowerCase());
+    if (mIdx >= 0) {
+      return `${leg[3]}-${String(mIdx + 1).padStart(2, "0")}-${String(Number(leg[2])).padStart(2, "0")}`;
+    }
+  }
+  return datePart;
 }
 
 /**
@@ -761,8 +784,6 @@ export async function fetchScriptSales(
   filter: { type: "all" } | { type: "month"; year: number; month: number } | { type: "day"; year: number; month: number; day: number },
   timeoutMs = 45000,
 ): Promise<SaleEntry[]> {
-  const MONTH_NAMES = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-
   return withRouter(conn, async (api) => {
     let scripts: Record<string, unknown>[] = [];
 
@@ -772,15 +793,15 @@ export async function fetchScriptSales(
         "?comment=mikhmon",
       ]).catch(() => []);
 
-      // Fallback for older RouterOS: scan last 13 months by owner
+      // Fallback for older RouterOS: scan last 13 months by owner (both formats)
       if (scripts.length === 0) {
         const now = new Date();
         const ownerSet = new Set<string>();
         for (let i = 0; i <= 12; i++) {
           const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const mm2 = String(dt.getMonth() + 1).padStart(2, "0");
-          ownerSet.add(`${mm2}${dt.getFullYear()}`);
-          ownerSet.add(`${MONTH_NAMES[dt.getMonth()]}${dt.getFullYear()}`);
+          ownerSet.add(`${mm2}${dt.getFullYear()}`);                                  // ISO: "022026"
+          ownerSet.add(`${MIKHMON_MONTH_ABBR[dt.getMonth()]}${dt.getFullYear()}`);   // legacy: "feb2026"
         }
         for (const owner of ownerSet) {
           const chunk = await api.write("/system/script/print", [
@@ -795,7 +816,7 @@ export async function fetchScriptSales(
       const { year, month } = filter;
       const mm = String(month).padStart(2, "0");
       const isoOwner    = `${mm}${year}`;
-      const legacyOwner = `${MONTH_NAMES[month - 1]}${year}`;
+      const legacyOwner = `${MIKHMON_MONTH_ABBR[month - 1]}${year}`;
 
       scripts = await api.write("/system/script/print", [
         "=.proplist=name",
@@ -813,26 +834,29 @@ export async function fetchScriptSales(
     // Day filtering in JS
     const dayFilter = filter.type === "day" ? filter.day : null;
 
-    const entries: SaleEntry[] = [];
+    const entries: (SaleEntry & { _ts: number })[] = [];
     for (const s of scripts) {
       const name = (s["name"] as string) ?? "";
       const p = name.split("-|-");
       if (p.length < 4) continue;
 
+      const rawDate  = (p[0] ?? "").trim();
+      const rawTime  = (p[1] ?? "").trim();
       const username = (p[2] ?? "").trim();
       if (!username) continue;
 
+      // Day filter: works for both ISO (ends with -DD) and legacy (contains /DD/)
       if (dayFilter !== null) {
-        const datePart = p[0].trim();
         const dd = String(dayFilter).padStart(2, "0");
-        const isoMatch  = datePart.endsWith(`-${dd}`);
-        const legMatch  = datePart.includes(`/${dd}/`);
-        if (!isoMatch && !legMatch) continue;
+        if (!rawDate.endsWith(`-${dd}`) && !rawDate.match(new RegExp(`^[a-z]{3}\\/${dd}\\/`, "i"))) continue;
       }
 
+      const parsed = parseMikhmonDate(rawDate, rawTime);
+      if (!parsed) continue;
+
       entries.push({
-        date:     (p[0] ?? "").trim(),
-        time:     (p[1] ?? "").trim(),
+        date:     toIsoDateStr(rawDate),   // always "YYYY-MM-DD"
+        time:     rawTime,
         username,
         price:    parseFloat(p[3]) || 0,
         ip:       (p[4] ?? "").trim(),
@@ -840,89 +864,84 @@ export async function fetchScriptSales(
         validity: (p[6] ?? "").trim(),
         label:    (p[7] ?? "").trim(),
         batch:    (p[8] ?? "").trim(),
+        _ts:      parsed.getTime(),
       });
     }
 
-    entries.sort((a, b) => {
-      const ka = a.date + "T" + a.time;
-      const kb = b.date + "T" + b.time;
-      return kb.localeCompare(ka);
-    });
+    // Sort descending by actual timestamp (handles mixed ISO + legacy correctly)
+    entries.sort((a, b) => b._ts - a._ts);
 
-    return entries;
+    return entries.map(({ _ts: _ignored, ...e }) => e);
   }, timeoutMs);
 }
 
 /**
- * Fetches sale details from MikHMon scripts for multiple months.
+ * Fetches sale details from MikHMon scripts.
  * Returns a Map<username_lowercase, SaleDetail> with the most recent entry per user.
- * Script format:
- *   New: "2025-11-01-|-07:46:47-|-username-|-300-|-ip-|-mac-|-validity-|-label-|-batch"
- *   Legacy: "mar/31/2026-|-10:30:00-|-username-|-500"
+ *
+ * Handles both RouterOS formats:
+ *   >= 7.10 (ISO):    "2026-02-02-|-15:12:24-|-user-|-100-|-ip-|-mac-|-..."  owner="022026"
+ *   <  7.10 (legacy): "nov/04/2025-|-15:34:23-|-user-|-500-|-ip-|-mac-|-..."  owner="nov2025"
+ *
+ * Strategy:
+ *   1. Try ?comment=mikhmon (one call, all scripts — works on RouterOS >= 7.x)
+ *   2. Fall back to per-owner scan covering last monthsBack months with both owner formats
  */
 export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 13): Promise<Map<string, SaleDetail>> {
   const details = new Map<string, SaleDetail>();
 
+  function processScript(name: string) {
+    const parts = name.split("-|-");
+    if (parts.length < 4) return;
+
+    const datePart = parts[0].trim();
+    const timePart = parts[1].trim();
+    const username = parts[2].trim().toLowerCase();
+    const priceStr = parts[3].trim();
+    const ip       = parts.length >= 5 ? parts[4].trim() : "";
+    const mac      = parts.length >= 6 ? parts[5].trim() : "";
+
+    if (!username) return;
+
+    const saleDate = parseMikhmonDate(datePart, timePart);
+    if (!saleDate || isNaN(saleDate.getTime())) return;
+
+    const existing = details.get(username);
+    if (!existing || saleDate > existing.saleDate) {
+      details.set(username, { saleDate, salePrice: priceStr, ip, mac });
+    }
+  }
+
   await withRouter(conn, async (api) => {
     const now = new Date();
-    const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
-    // Build owner labels for current month + previous N months
-    const owners: string[] = [];
-    for (let i = 0; i <= monthsBack; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const m  = MONTHS[d.getMonth()];
-      const y  = d.getFullYear();
-      owners.push(`${mm}${y}`, `${m}${y}`);
+    // ── Strategy 1: single call with comment=mikhmon ─────────────────────────
+    const byComment = await api.write("/system/script/print", [
+      "=.proplist=name",
+      "?comment=mikhmon",
+    ]).catch(() => [] as Record<string, unknown>[]);
+
+    if (byComment.length > 0) {
+      for (const s of byComment) processScript((s["name"] as string) ?? "");
+      return;
     }
-    // Deduplicate
-    const uniqueOwners = [...new Set(owners)];
 
-    for (const owner of uniqueOwners) {
-      const scripts = await api.write("/system/script/print", ["=.proplist=name", `?owner=${owner}`]).catch(() => []);
-      for (const s of scripts) {
-        const name = (s["name"] as string) ?? "";
-        const parts = name.split("-|-");
-        // Need at least: date, time, username, price
-        if (parts.length < 4) continue;
+    // ── Strategy 2: fallback — per-owner scan (monthsBack months × 2 formats) ─
+    const ownerSet = new Set<string>();
+    for (let i = 0; i <= monthsBack; i++) {
+      const d  = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yr = d.getFullYear();
+      ownerSet.add(`${mm}${yr}`);                                 // ISO owner: "022026"
+      ownerSet.add(`${MIKHMON_MONTH_ABBR[d.getMonth()]}${yr}`);  // legacy owner: "feb2026"
+    }
 
-        const datePart  = parts[0].trim();
-        const timePart  = parts[1].trim();
-        const username  = parts[2].trim().toLowerCase();
-        const priceStr  = parts[3].trim();
-        const ip        = parts.length >= 5 ? parts[4].trim() : "";
-        const mac       = parts.length >= 6 ? parts[5].trim() : "";
-
-        if (!username) continue;
-
-        // Parse sale date — try ISO "2025-11-01" then legacy "mar/31/2026"
-        let saleDate: Date | null = null;
-        if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
-          saleDate = new Date(`${datePart}T${timePart.includes(":") ? timePart : "00:00:00"}`);
-        } else {
-          // Legacy: "mar/31/2026"
-          const legMatch = datePart.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
-          if (legMatch) {
-            const mIdx = MONTHS.indexOf(legMatch[1].toLowerCase());
-            if (mIdx >= 0) {
-              saleDate = new Date(
-                Number(legMatch[3]),
-                mIdx,
-                Number(legMatch[2]),
-                ...timePart.split(":").map(Number) as [number, number, number],
-              );
-            }
-          }
-        }
-        if (!saleDate || isNaN(saleDate.getTime())) continue;
-
-        // Keep the most recent sale per username
-        const existing = details.get(username);
-        if (!existing || saleDate > existing.saleDate) {
-          details.set(username, { saleDate, salePrice: priceStr, ip, mac });
-        }
-      }
+    for (const owner of ownerSet) {
+      const scripts = await api.write("/system/script/print", [
+        "=.proplist=name",
+        `?owner=${owner}`,
+      ]).catch(() => [] as Record<string, unknown>[]);
+      for (const s of scripts) processScript((s["name"] as string) ?? "");
     }
   }, 45_000);
 
