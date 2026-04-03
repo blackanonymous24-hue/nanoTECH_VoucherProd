@@ -236,9 +236,15 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
             ) : (
               <div className="space-y-1 max-h-64 overflow-y-auto">
                 {data.recentVouchers.map((v) => {
-                  const soldAt = (v as any).usedAt
-                    ? new Date((v as any).usedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-                    : null;
+                  const soldAt = (() => {
+                    if (!(v as any).usedAt) return null;
+                    const d = new Date((v as any).usedAt);
+                    const day = String(d.getDate()).padStart(2, "0");
+                    const month = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"][d.getMonth()];
+                    const hh = String(d.getHours()).padStart(2, "0");
+                    const mn = String(d.getMinutes()).padStart(2, "0");
+                    return `${day} ${month} ${d.getFullYear()} ${hh}:${mn}`;
+                  })();
                   const displayPrice = (v as any).salePrice || (v as any).price || "";
                   const mac = (v as any).macAddress || "";
                   return (

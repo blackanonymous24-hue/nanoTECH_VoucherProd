@@ -865,7 +865,9 @@ function Dashboard({ token, vendor, onLogout }: {
                             const d = new Date(v.usedAt);
                             const day = String(d.getDate()).padStart(2, "0");
                             const month = MONTHS[d.getMonth()];
-                            return `${day} ${month} ${d.getFullYear()}`;
+                            const hh = String(d.getHours()).padStart(2, "0");
+                            const mm = String(d.getMinutes()).padStart(2, "0");
+                            return `${day} ${month} ${d.getFullYear()} ${hh}:${mm}`;
                           })() : "—";
                           return (
                             <tr
