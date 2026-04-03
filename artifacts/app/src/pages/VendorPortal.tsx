@@ -90,9 +90,15 @@ const MONTHS = [
 
 function fmtFcfa(n: number): string {
   if (n === 0) return "0";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}k`;
-  return n.toLocaleString("fr");
+  return n.toLocaleString("fr-FR");
+}
+
+function amountFontClass(formatted: string): string {
+  const len = formatted.replace(/\s/g, "").length;
+  if (len <= 5)  return "text-2xl";
+  if (len <= 7)  return "text-xl";
+  if (len <= 9)  return "text-lg";
+  return "text-base";
 }
 
 function StatCard({
@@ -106,6 +112,7 @@ function StatCard({
   fcfa?: boolean;
   sub?: number;
 }) {
+  const formatted = fcfa ? fmtFcfa(value) : String(value);
   const inner = (
     <CardContent className="p-4 flex items-center gap-4">
       <div className={`h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
@@ -113,7 +120,7 @@ function StatCard({
       </div>
       <div>
         <div className="flex items-baseline gap-1">
-          <p className="text-2xl font-bold text-gray-900">{fcfa ? fmtFcfa(value) : value}</p>
+          <p className={`${fcfa ? amountFontClass(formatted) : "text-2xl"} font-bold text-gray-900 tabular-nums`}>{formatted}</p>
           {fcfa && <span className="text-xs font-medium text-gray-400">FCFA</span>}
         </div>
         {sub !== undefined && (
