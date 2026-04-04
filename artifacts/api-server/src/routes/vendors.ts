@@ -255,6 +255,21 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   }
 });
 
+/* ── PUT /vendors/bulk-commission — apply same rate to all vendors of a router ── */
+router.put("/vendors/bulk-commission", async (req, res): Promise<void> => {
+  const { routerId, commissionRate } = req.body as { routerId?: number; commissionRate?: number };
+  if (!routerId || isNaN(Number(routerId))) {
+    res.status(400).json({ error: "routerId requis" }); return;
+  }
+  const rate = Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0)));
+  const updated = await db
+    .update(vendorsTable)
+    .set({ commissionRate: rate })
+    .where(eq(vendorsTable.routerId, Number(routerId)))
+    .returning({ id: vendorsTable.id });
+  res.json({ updated: updated.length, commissionRate: rate });
+});
+
 router.post("/vendors/:id/sync", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }

@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw } from "lucide-react";
+import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw, Percent } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -288,6 +288,9 @@ export default function Vendors() {
   const [editError, setEditError] = useState<string>("");
   const [deleteVendorId, setDeleteVendorId] = useState<number | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [showBulkCommission, setShowBulkCommission] = useState(false);
+  const [bulkCommissionRate, setBulkCommissionRate] = useState("0");
+  const [bulkCommissionLoading, setBulkCommissionLoading] = useState(false);
 
   const handleSync = async (vendor: Vendor) => {
     setSyncingId(vendor.id);
@@ -409,6 +412,28 @@ export default function Vendors() {
     }
   };
 
+  const handleBulkCommission = async () => {
+    if (!selectedRouterId) return;
+    setBulkCommissionLoading(true);
+    try {
+      const rate = Math.min(100, Math.max(0, parseInt(bulkCommissionRate || "0", 10) || 0));
+      const res = await fetch(`${BASE}/api/vendors/bulk-commission`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("vouchernet_token")}` },
+        body: JSON.stringify({ routerId: selectedRouterId, commissionRate: rate }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+      const { updated } = await res.json() as { updated: number };
+      invalidate();
+      setShowBulkCommission(false);
+      toast({ title: `Taux ${rate}% appliqué à ${updated} vendeur${updated !== 1 ? "s" : ""}` });
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err?.message ?? "Impossible d'appliquer le taux", variant: "destructive" });
+    } finally {
+      setBulkCommissionLoading(false);
+    }
+  };
+
   const handleViewReport = (vendorId: number) => {
     sessionStorage.setItem("vouchernet_report_vendor_id", String(vendorId));
     navigate("/reports");
@@ -435,6 +460,15 @@ export default function Vendors() {
           >
             <ExternalLink className="h-4 w-4" /> Portail vendeur
           </Button>
+          {!isManager && selectedRouterId && vendors.length > 0 && (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => { setBulkCommissionRate("0"); setShowBulkCommission(true); }}
+            >
+              <Percent className="h-4 w-4" /> Taux groupé
+            </Button>
+          )}
           {!isManager && (
             <Button
               onClick={() => { setCreateError(""); setShowCreate(true); }}
@@ -670,6 +704,52 @@ export default function Vendors() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk commission dialog */}
+      <Dialog open={showBulkCommission} onOpenChange={(o) => { if (!o) setShowBulkCommission(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Percent className="h-4 w-4 text-violet-600" />
+              Taux de commission groupé
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-gray-600">
+              Applique le même taux de commission à <span className="font-semibold">tous les vendeurs</span> du routeur sélectionné ({vendors.length} vendeur{vendors.length !== 1 ? "s" : ""}).
+            </p>
+            <div>
+              <Label htmlFor="bulk-rate">Taux de commission</Label>
+              <div className="flex items-center gap-2 mt-1">
+                <Input
+                  id="bulk-rate"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  className="w-24"
+                  placeholder="0"
+                  value={bulkCommissionRate}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "" || (Number(v) >= 0 && Number(v) <= 100)) setBulkCommissionRate(v);
+                  }}
+                />
+                <span className="text-sm text-gray-500">%</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">0 = aucune rémunération</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkCommission(false)} disabled={bulkCommissionLoading}>
+              Annuler
+            </Button>
+            <Button onClick={handleBulkCommission} disabled={bulkCommissionLoading} className="gap-2">
+              {bulkCommissionLoading ? "Enregistrement..." : `Appliquer à tous`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
