@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, desc, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
-import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
+import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable } from "@workspace/db";
 import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -286,6 +286,96 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
   res.json({ period, label: labels[period!], total: vouchers.length, revenue, byProfile, vouchers });
+});
+
+/* ── GET /vendor-portal/me/payments ─────────────────────────────────── */
+router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const payload = verifyToken(auth.slice(7));
+  if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
+  if (!vendor || !vendor.isActive || !vendor.routerId) {
+    res.json({ weeks: [] }); return;
+  }
+
+  const routerId = vendor.routerId;
+
+  // Compute Monday for current and last week
+  function monday(offsetWeeks: number): string {
+    const now = new Date();
+    const day = now.getUTCDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const mon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff + offsetWeeks * 7));
+    return mon.toISOString().slice(0, 10);
+  }
+
+  const weeks = [monday(0), monday(-1)]; // current week, last week
+
+  // price map for the router
+  const priceMap = getCachedProfilePricesSync(routerId);
+  const lower = new Map<string, number>();
+  for (const [k, v] of priceMap) lower.set(k.toLowerCase(), parseFloat(String(v).replace(/[^0-9.]/g, "")) || 0);
+  const resolveUnit = (name: string) => lower.get(name.toLowerCase()) ?? 0;
+
+  const result = await Promise.all(weeks.map(async (weekStart) => {
+    const wStart = new Date(weekStart + "T00:00:00Z");
+    const wEnd   = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const [salesRaw, payments] = await Promise.all([
+      db.select({
+        profileName:  vouchersTable.profileName,
+        cnt:          sql<number>`count(*)`,
+        salePriceSum: sql<number>`coalesce(sum(nullif(${vouchersTable.salePrice},'')::numeric), 0)`,
+        priceSum:     sql<number>`coalesce(sum(nullif(${vouchersTable.price},'')::numeric), 0)`,
+      })
+      .from(vouchersTable)
+      .where(and(
+        eq(vouchersTable.vendorId, vendor.id),
+        isNotNull(vouchersTable.usedAt),
+        sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+        sql`${vouchersTable.usedAt} <  ${wEnd.toISOString()}`,
+      ))
+      .groupBy(vouchersTable.profileName),
+
+      db.select().from(vendorPaymentsTable).where(and(
+        eq(vendorPaymentsTable.vendorId, vendor.id),
+        eq(vendorPaymentsTable.routerId, routerId),
+        eq(vendorPaymentsTable.weekStart, weekStart),
+      )).orderBy(vendorPaymentsTable.paidAt),
+    ]);
+
+    let count = 0;
+    let amount = 0;
+    for (const r of salesRaw) {
+      const cnt = Number(r.cnt);
+      const raw = Math.max(Number(r.salePriceSum), Number(r.priceSum));
+      const amt = Math.max(raw, cnt * resolveUnit(r.profileName));
+      count  += cnt;
+      amount += amt;
+    }
+
+    const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+
+    // Week label: "dd Mmm – dd Mmm yyyy"
+    const MONTHS_FR = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+    const sun = new Date(wStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+    const fmt = (d: Date) => `${String(d.getUTCDate()).padStart(2,"0")} ${MONTHS_FR[d.getUTCMonth()]}`;
+    const label = `${fmt(wStart)} – ${fmt(sun)} ${sun.getUTCFullYear()}`;
+
+    return {
+      weekStart,
+      label,
+      count,
+      amount,
+      totalPaid,
+      remaining: Math.max(0, amount - totalPaid),
+      payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
+    };
+  }));
+
+  res.json({ weeks: result });
 });
 
 export default router;

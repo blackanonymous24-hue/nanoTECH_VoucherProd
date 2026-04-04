@@ -22,7 +22,7 @@ import {
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
   User, RefreshCw, Clock, ChevronLeft, Search, Banknote, Printer, LogIn,
-  PackageOpen, Bell,
+  PackageOpen, Bell, Wallet, CheckCircle2,
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
@@ -62,6 +62,16 @@ type PortalData = {
   availableVouchers: Voucher[];
 };
 type ReportData = { date: string; total: number; revenue: number; vouchers: Voucher[] };
+type VersementWeek = {
+  weekStart: string;
+  label: string;
+  count: number;
+  amount: number;
+  totalPaid: number;
+  remaining: number;
+  payments: { id: number; amount: number; paidAt: string; note: string | null }[];
+};
+type VersementData = { weeks: VersementWeek[] };
 type PeriodSalesData = {
   period: string;
   label: string;
@@ -744,6 +754,7 @@ function Dashboard({ token, vendor, onLogout }: {
   onLogout: () => void;
 }) {
   const [data, setData] = useState<PortalData | null>(null);
+  const [versData, setVersData] = useState<VersementData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
@@ -761,9 +772,14 @@ function Dashboard({ token, vendor, onLogout }: {
     if (showLoading) setLoading(true);
     setError("");
     try {
-      const res = await api("/vendor-portal/me", { headers: { Authorization: `Bearer ${token}` } });
+      const headers = { Authorization: `Bearer ${token}` };
+      const [res, versRes] = await Promise.all([
+        api("/vendor-portal/me", { headers }),
+        api("/vendor-portal/me/payments", { headers }),
+      ]);
       if (res.status === 401 || res.status === 403) { onLogout(); return; }
       setData(await res.json());
+      if (versRes.ok) setVersData(await versRes.json());
     } catch {
       setError("Erreur lors du chargement des données");
     } finally {
@@ -919,6 +935,93 @@ function Dashboard({ token, vendor, onLogout }: {
                 </CardContent>
               </Card>
             </div>
+
+            {/* ── Versements ───────────────────────────────────────── */}
+            {versData && versData.weeks.some((w) => w.count > 0 || w.payments.length > 0) && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-blue-500" />
+                  <h3 className="text-sm font-semibold text-gray-700">Mes versements</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {versData.weeks.map((w, i) => {
+                    if (w.count === 0 && w.payments.length === 0) return null;
+                    const isSolde   = w.remaining === 0 && w.totalPaid > 0;
+                    const paidPct   = w.amount > 0 ? Math.min(100, Math.round((w.totalPaid / w.amount) * 100)) : 0;
+                    return (
+                      <Card key={w.weekStart} className={`border ${isSolde ? "border-emerald-200 bg-emerald-50/30" : i === 0 ? "border-orange-200 bg-orange-50/20" : "border-gray-100"}`}>
+                        <CardContent className="p-4 space-y-3">
+                          {/* Header */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                {i === 0 ? "Semaine en cours" : "Semaine dernière"}
+                              </p>
+                              <p className="text-[11px] text-gray-400">{w.label}</p>
+                            </div>
+                            {isSolde ? (
+                              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-2 py-0.5 flex-shrink-0">
+                                <CheckCircle2 className="h-3 w-3" /> Soldé
+                              </span>
+                            ) : w.count > 0 ? (
+                              <span className="text-[10px] font-semibold text-orange-600 bg-orange-100 border border-orange-200 rounded-full px-2 py-0.5 flex-shrink-0">
+                                En attente
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {/* Stats */}
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div>
+                              <p className="text-base font-bold text-gray-800 tabular-nums">{fmtFcfa(w.amount)}</p>
+                              <p className="text-[10px] text-gray-400">Ventes (FCFA)</p>
+                              <p className="text-[10px] text-gray-400">{w.count} ticket{w.count !== 1 ? "s" : ""}</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold tabular-nums ${w.totalPaid > 0 ? "text-emerald-600" : "text-gray-300"}`}>{fmtFcfa(w.totalPaid)}</p>
+                              <p className="text-[10px] text-gray-400">Versé (FCFA)</p>
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold tabular-nums ${w.remaining > 0 ? "text-orange-600" : "text-gray-300"}`}>{fmtFcfa(w.remaining)}</p>
+                              <p className="text-[10px] text-gray-400">Reste (FCFA)</p>
+                            </div>
+                          </div>
+
+                          {/* Progress bar */}
+                          {w.amount > 0 && (
+                            <div>
+                              <div className="relative h-2 rounded-full overflow-hidden bg-gray-100">
+                                <div
+                                  className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${isSolde ? "bg-emerald-500" : "bg-blue-500"}`}
+                                  style={{ width: `${paidPct}%` }}
+                                />
+                              </div>
+                              <p className="text-[10px] text-gray-400 mt-0.5 text-right">{paidPct}% versé</p>
+                            </div>
+                          )}
+
+                          {/* Payments list */}
+                          {w.payments.length > 0 && (
+                            <div className="space-y-1 pt-1 border-t border-gray-100">
+                              {w.payments.map((p) => (
+                                <div key={p.id} className="flex items-center gap-2 text-[11px]">
+                                  <CheckCircle2 className="h-3 w-3 text-emerald-500 flex-shrink-0" />
+                                  <span className="font-semibold text-gray-700 tabular-nums">{fmtFcfa(p.amount)} FCFA</span>
+                                  <span className="text-gray-400">
+                                    {new Date(p.paidAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}
+                                  </span>
+                                  {p.note && <span className="text-gray-400 italic truncate">— {p.note}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* ── Stock par forfait ─────────────────────────────────── */}
             {data.byProfile.length > 0 && (
