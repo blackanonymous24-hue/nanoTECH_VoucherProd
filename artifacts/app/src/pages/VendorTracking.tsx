@@ -55,6 +55,18 @@ interface DailyTrackingResponse {
   date: string;
   summary: VendorSummaryEntry[];
   vouchers: VoucherEntry[];
+  weekSummary: VendorSummaryEntry[];
+}
+
+/** Returns "Lundi dd Mmmm yyyy – Aujourd'hui" label for current week */
+function currentWeekLabel(): string {
+  const now  = new Date();
+  const day  = now.getDay(); // 0=Sun
+  const diff = (day === 0 ? -6 : 1) - day; // offset to Monday
+  const mon  = new Date(now);
+  mon.setDate(now.getDate() + diff);
+  const fmt  = (d: Date) => `${String(d.getDate()).padStart(2,"0")} ${MONTH_NAMES_FR[d.getMonth()]} ${d.getFullYear()}`;
+  return `${fmt(mon)} – ${fmt(now)}`;
 }
 
 /* ── Print helper ────────────────────────────────────────────── */
@@ -72,10 +84,24 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
   const grandTotal  = data.summary.reduce((s, r) => s + r.amount, 0);
   const grandCount  = data.summary.reduce((s, r) => s + r.count,  0);
 
+  const weekTotal  = (data.weekSummary ?? []).reduce((s, r) => s + r.amount, 0);
+  const weekCount  = (data.weekSummary ?? []).reduce((s, r) => s + r.count,  0);
+
   // Only vendors that actually sold something on that day
   const activeSummary = data.summary.filter((s) => s.count > 0);
 
   const summaryRows = activeSummary
+    .map(
+      (s, i) => `<tr>
+        <td>${i + 1}</td>
+        <td>${s.vendorName}</td>
+        <td style="text-align:center">${s.count}</td>
+        <td style="text-align:right">${fmtAmount(s.amount)}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const weekRows = (data.weekSummary ?? [])
     .map(
       (s, i) => `<tr>
         <td>${i + 1}</td>
@@ -98,6 +124,23 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
       </tr>`,
     )
     .join("");
+
+  const weekSection = weekRows ? `
+<h3>Résumé semaine en cours &nbsp;<small style="font-weight:normal;color:#555">(${currentWeekLabel()})</small></h3>
+<table>
+  <thead><tr>
+    <th style="width:30px">N°</th>
+    <th>Vendeur</th>
+    <th class="center" style="width:80px">Tickets</th>
+    <th class="right"  style="width:110px">Total (FCFA)</th>
+  </tr></thead>
+  <tbody>${weekRows}</tbody>
+  <tfoot><tr>
+    <td colspan="2" style="text-align:right">TOTAL SEMAINE</td>
+    <td class="center">${weekCount}</td>
+    <td class="right">${fmtAmount(weekTotal)}</td>
+  </tr></tfoot>
+</table>` : "";
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Suivi vendeurs — ${dateFr}</title>
@@ -123,7 +166,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
 <h2>Suivi des ventes par vendeur</h2>
 <p>Date : ${dateFr} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
 
-<h3>Résumé par vendeur</h3>
+<h3>Résumé du jour — ${dateFr}</h3>
 <table>
   <thead><tr>
     <th style="width:30px">N°</th>
@@ -133,11 +176,13 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
   </tr></thead>
   <tbody>${summaryRows}</tbody>
   <tfoot><tr>
-    <td colspan="2" style="text-align:right">TOTAL</td>
+    <td colspan="2" style="text-align:right">TOTAL JOUR</td>
     <td class="center">${grandCount}</td>
     <td class="right">${fmtAmount(grandTotal)}</td>
   </tr></tfoot>
 </table>
+
+${weekSection}
 
 <h3>Détail des ventes (${vouchers.length} ticket${vouchers.length !== 1 ? "s" : ""})</h3>
 <table>
@@ -177,7 +222,7 @@ export default function VendorTracking() {
   const { data, isLoading, isError, error } = useQuery<DailyTrackingResponse>({
     queryKey: ["vendor-tracking", selectedRouterId, applied],
     queryFn: async () => {
-      if (!selectedRouterId) return { date: applied, summary: [], vouchers: [] };
+      if (!selectedRouterId) return { date: applied, summary: [], vouchers: [], weekSummary: [] };
       const params = new URLSearchParams({ date: applied, routerId: String(selectedRouterId) });
       const res = await fetch(`${BASE}/api/vendors/daily-tracking?${params}`);
       if (!res.ok) throw new Error(await res.text());
@@ -187,8 +232,9 @@ export default function VendorTracking() {
     staleTime: 60_000,
   });
 
-  const vouchers = data?.vouchers ?? [];
-  const summary  = data?.summary  ?? [];
+  const vouchers    = data?.vouchers    ?? [];
+  const summary     = data?.summary     ?? [];
+  const weekSummary = data?.weekSummary ?? [];
 
   const filtered = useMemo(() => {
     if (!search.trim()) return vouchers;
@@ -201,10 +247,12 @@ export default function VendorTracking() {
     );
   }, [vouchers, search]);
 
-  const totalAmount = useMemo(() => filtered.reduce((s, v) => s + v.amount, 0), [filtered]);
-  const grandTotal  = useMemo(() => summary.reduce((s, r) => s + r.amount, 0), [summary]);
-  const grandCount  = useMemo(() => summary.reduce((s, r) => s + r.count, 0), [summary]);
-  const activeSummary = useMemo(() => summary.filter((s) => s.count > 0), [summary]);
+  const totalAmount     = useMemo(() => filtered.reduce((s, v) => s + v.amount, 0), [filtered]);
+  const grandTotal      = useMemo(() => summary.reduce((s, r) => s + r.amount, 0), [summary]);
+  const grandCount      = useMemo(() => summary.reduce((s, r) => s + r.count, 0), [summary]);
+  const activeSummary   = useMemo(() => summary.filter((s) => s.count > 0), [summary]);
+  const weekTotal_amount = useMemo(() => weekSummary.reduce((s, r) => s + r.amount, 0), [weekSummary]);
+  const weekTotal_count  = useMemo(() => weekSummary.reduce((s, r) => s + r.count,  0), [weekSummary]);
 
   if (!selectedRouterId) {
     return (
@@ -351,6 +399,58 @@ export default function VendorTracking() {
                     </td>
                     <td className="px-3 py-2 text-right text-sm font-bold text-blue-700 tabular-nums">
                       {fmtAmount(grandTotal)} FCFA
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+
+          {/* Week summary table */}
+          {!isLoading && weekSummary.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-gray-100">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="px-3 py-2 text-left text-gray-500 font-medium w-10">#</th>
+                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Vendeur</th>
+                    <th className="px-3 py-2 text-center text-gray-500 font-medium w-28">Tickets</th>
+                    <th className="px-3 py-2 text-right text-gray-500 font-medium w-36">Total (FCFA)</th>
+                  </tr>
+                  <tr className="bg-indigo-50 border-b border-indigo-100">
+                    <th colSpan={2} className="px-3 py-1.5 text-left text-indigo-700 font-medium text-xs">
+                      Semaine en cours — {currentWeekLabel()}
+                    </th>
+                    <th className="px-3 py-1.5 text-center text-indigo-700 font-bold text-xs">
+                      {weekTotal_count}
+                    </th>
+                    <th className="px-3 py-1.5 text-right text-indigo-700 font-bold text-xs">
+                      {fmtAmount(weekTotal_amount)} FCFA
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weekSummary.map((s, i) => (
+                    <tr key={`week-${s.vendorId ?? "none"}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                      <td className="px-3 py-2 text-gray-400 tabular-nums">{i + 1}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800">{s.vendorName}</td>
+                      <td className="px-3 py-2 text-center tabular-nums text-gray-700">{s.count}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-gray-800 tabular-nums">
+                        {fmtAmount(s.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-50 border-t border-gray-200">
+                    <td colSpan={2} className="px-3 py-2 text-xs text-gray-500 font-medium text-right">
+                      Total semaine
+                    </td>
+                    <td className="px-3 py-2 text-center text-sm font-bold text-indigo-700 tabular-nums">
+                      {weekTotal_count}
+                    </td>
+                    <td className="px-3 py-2 text-right text-sm font-bold text-indigo-700 tabular-nums">
+                      {fmtAmount(weekTotal_amount)} FCFA
                     </td>
                   </tr>
                 </tfoot>

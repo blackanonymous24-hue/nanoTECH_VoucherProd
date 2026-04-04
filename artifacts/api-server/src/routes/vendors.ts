@@ -522,7 +522,50 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
 
   const summary = [...summaryMap.values()].sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));
 
-  res.json({ date: dateStr, summary, vouchers: enriched });
+  // ── Week summary (Mon 00:00 UTC → now) per vendor ────────────────────
+  const weekSoldRaw = await db
+    .select({
+      vendorId:    vouchersTable.vendorId,
+      profileName: vouchersTable.profileName,
+      count:       sql<number>`count(*)`,
+      salePriceSum: sql<number>`coalesce(sum(nullif(${vouchersTable.salePrice},'')::numeric), 0)`,
+      priceSum:     sql<number>`coalesce(sum(nullif(${vouchersTable.price},'')::numeric), 0)`,
+    })
+    .from(vouchersTable)
+    .where(
+      and(
+        eq(vouchersTable.routerId, routerId),
+        isNotNull(vouchersTable.usedAt),
+        sql`${vouchersTable.usedAt} >= date_trunc('week', current_date at time zone 'UTC')`,
+        sql`${vouchersTable.usedAt} <  current_date + interval '1 day'`,
+      ),
+    )
+    .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
+
+  // Aggregate week rows per vendor — same max(sqlSum, count×price) approach
+  const weekMap = new Map<number | null, { vendorId: number | null; vendorName: string; count: number; amount: number }>();
+  for (const v of vendors) {
+    weekMap.set(v.id, { vendorId: v.id, vendorName: v.name, count: 0, amount: 0 });
+  }
+  for (const row of weekSoldRaw) {
+    const cnt  = Number(row.count);
+    const raw  = Math.max(Number(row.salePriceSum), Number(row.priceSum));
+    const unit = resolveUnitPrice(row.profileName);
+    const amt  = Math.max(raw, cnt * unit);
+    const key  = row.vendorId;
+    if (!weekMap.has(key)) {
+      const vname = key ? (vendorMap.get(key)?.name ?? "Inconnu") : "Sans vendeur";
+      weekMap.set(key, { vendorId: key, vendorName: vname, count: 0, amount: 0 });
+    }
+    const w = weekMap.get(key)!;
+    w.count  += cnt;
+    w.amount += amt;
+  }
+  const weekSummary = [...weekMap.values()]
+    .filter((w) => w.count > 0)
+    .sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));
+
+  res.json({ date: dateStr, summary, vouchers: enriched, weekSummary });
 });
 
 export default router;
