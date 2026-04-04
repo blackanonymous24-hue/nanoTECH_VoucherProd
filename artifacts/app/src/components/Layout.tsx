@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
-import { useGetVendorReportsSummary } from "@workspace/api-client-react";
+
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -22,7 +22,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const LOW_STOCK_THRESHOLD = 100;
 
 function RouterSelector({ className }: { className?: string }) {
   const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline } = useRouterContext();
@@ -69,11 +68,25 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isAdmin = role === "admin";
   const isManager = role === "manager";
 
-  /* ── Low-stock alert count (reuses cached data) ── */
-  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { staleTime: 60_000 } });
-  const lowStockCount = summaries.filter(
-    (s) => s.totalVouchers > 0 && (s.totalVouchers - s.totalUsed) < LOW_STOCK_THRESHOLD
-  ).length;
+  /* ── Low-stock alert: per-vendor per-profile granularity ── */
+  const { data: stockAlerts } = useQuery<{
+    count: number;
+    alerts: { vendorId: number | null; vendorName: string; profileName: string; available: number }[];
+  }>({
+    queryKey: ["stock-alerts", selectedRouterId],
+    queryFn: async () => {
+      const params = selectedRouterId ? `?routerId=${selectedRouterId}` : "";
+      const res = await fetch(`${BASE}/api/vendors/stock-alerts${params}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error("stock-alerts failed");
+      return res.json();
+    },
+    staleTime: 60_000,
+    enabled: !!token,
+  });
+  const lowStockCount = stockAlerts?.count ?? 0;
+  const lowStockAlerts = stockAlerts?.alerts ?? [];
 
   /* ── Password change dialog state (managers only) ── */
   const [showPwd, setShowPwd]         = useState(false);
@@ -209,7 +222,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
         {/* ── Notification stock faible — always visible ── */}
         {(() => {
-          const isActive = false; // never "active" — it's a status indicator
           const hasAlerts = lowStockCount > 0;
           return (
             <div className="mb-3">
@@ -226,7 +238,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                     : "text-gray-500 hover:bg-white/[0.06] hover:text-gray-300",
                 )}
               >
-                {/* Icon with pulse when alerts */}
                 <span className="relative flex-shrink-0">
                   <Bell className={cn(
                     "h-4 w-4 transition-colors",
@@ -242,7 +253,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 <span className="flex-1 truncate">
                   {hasAlerts ? "Stocks faibles" : "Stocks OK"}
                 </span>
-                {/* Badge count — always shown */}
                 <span className={cn(
                   "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums leading-none",
                   hasAlerts
@@ -252,6 +262,35 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   {lowStockCount}
                 </span>
               </Link>
+
+              {/* Detail list — shown only when there are alerts */}
+              {hasAlerts && (
+                <ul className="mt-1 space-y-0.5 px-1">
+                  {lowStockAlerts.slice(0, 6).map((a, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-red-500/5 border border-red-500/10"
+                    >
+                      <span className="flex flex-col min-w-0">
+                        <span className="text-[10px] font-medium text-gray-300 truncate leading-tight">
+                          {a.vendorName}
+                        </span>
+                        <span className="text-[9px] text-gray-500 truncate leading-tight">
+                          {a.profileName}
+                        </span>
+                      </span>
+                      <span className="flex-shrink-0 text-[10px] font-bold text-red-400 tabular-nums">
+                        {a.available}
+                      </span>
+                    </li>
+                  ))}
+                  {lowStockAlerts.length > 6 && (
+                    <li className="text-[9px] text-gray-600 px-2 py-0.5">
+                      +{lowStockAlerts.length - 6} autres…
+                    </li>
+                  )}
+                </ul>
+              )}
             </div>
           );
         })()}

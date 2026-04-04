@@ -301,6 +301,65 @@ router.delete("/vendors/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+/* ─────────────────────────────────────────────────────────────────────
+ * GET /vendors/stock-alerts
+ * Returns per-vendor, per-profile available-ticket counts,
+ * filtered to those below the LOW_STOCK threshold (100).
+ * Used by the sidebar notification badge.
+ * ──────────────────────────────────────────────────────────────────── */
+const LOW_STOCK_THRESHOLD = 100;
+
+router.get("/vendors/stock-alerts", async (req, res): Promise<void> => {
+  const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
+
+  // Aggregate available tickets per vendor per profile
+  const rows = await db
+    .select({
+      vendorId:    vouchersTable.vendorId,
+      profileName: vouchersTable.profileName,
+      total:       count(),
+      used:        sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
+    })
+    .from(vouchersTable)
+    .innerJoin(vendorsTable, eq(vouchersTable.vendorId, vendorsTable.id))
+    .where(
+      and(
+        isNotNull(vouchersTable.vendorId),
+        routerId ? eq(vendorsTable.routerId, routerId) : undefined,
+      )
+    )
+    .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
+
+  // Keep only profiles below threshold (but with at least 1 voucher assigned)
+  const alerts = rows
+    .filter((r) => {
+      const available = Number(r.total) - Number(r.used);
+      return Number(r.total) > 0 && available < LOW_STOCK_THRESHOLD;
+    })
+    .map((r) => ({
+      vendorId:    r.vendorId,
+      profileName: r.profileName,
+      available:   Number(r.total) - Number(r.used),
+    }));
+
+  // Enrich with vendor names
+  const vendorIds = [...new Set(alerts.map((a) => a.vendorId).filter(Boolean))] as number[];
+  const vendorRows = vendorIds.length
+    ? await db.select({ id: vendorsTable.id, name: vendorsTable.name })
+        .from(vendorsTable)
+        .where(inArray(vendorsTable.id, vendorIds))
+    : [];
+  const vendorNameMap = new Map(vendorRows.map((v) => [v.id, v.name]));
+
+  res.json({
+    count: alerts.length,
+    alerts: alerts.map((a) => ({
+      ...a,
+      vendorName: a.vendorId ? (vendorNameMap.get(a.vendorId) ?? "") : "",
+    })),
+  });
+});
+
 router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
   const vendors = await db
