@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, desc, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable } from "@workspace/db";
-import { verifyPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
+import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { type RouterConnection } from "../lib/mikrotik.js";
@@ -286,6 +286,33 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
   res.json({ period, label: labels[period!], total: vouchers.length, revenue, byProfile, vouchers });
+});
+
+/* ── PUT /vendor-portal/me/password ─────────────────────────────────── */
+router.put("/vendor-portal/me/password", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const payload = verifyToken(auth.slice(7));
+  if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: "Champs requis manquants" }); return;
+  }
+  if (newPassword.length < 4) {
+    res.status(400).json({ error: "Le nouveau mot de passe doit comporter au moins 4 caractères" }); return;
+  }
+
+  const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
+  if (!vendor || !vendor.passwordHash) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
+
+  const valid = await verifyPassword(currentPassword, vendor.passwordHash);
+  if (!valid) { res.status(401).json({ error: "Ancien mot de passe incorrect" }); return; }
+
+  const passwordHash = await hashPassword(newPassword);
+  await db.update(vendorsTable).set({ passwordHash }).where(eq(vendorsTable.id, vendor.id));
+
+  res.json({ success: true });
 });
 
 /* ── GET /vendor-portal/me/payments ─────────────────────────────────── */

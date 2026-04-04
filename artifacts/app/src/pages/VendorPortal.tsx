@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -22,7 +23,7 @@ import {
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
   User, RefreshCw, Clock, ChevronLeft, Search, Banknote, Printer, LogIn,
-  PackageOpen, Bell, Wallet, CheckCircle2,
+  PackageOpen, Bell, Wallet, CheckCircle2, KeyRound,
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
@@ -761,6 +762,41 @@ function Dashboard({ token, vendor, onLogout }: {
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
 
+  // Password change dialog
+  const [showChangePwd, setShowChangePwd] = useState(false);
+  const [pwdCurrent, setPwdCurrent] = useState("");
+  const [pwdNew, setPwdNew] = useState("");
+  const [pwdConfirm, setPwdConfirm] = useState("");
+  const [pwdLoading, setPwdLoading] = useState(false);
+  const [pwdError, setPwdError] = useState("");
+  const [pwdSuccess, setPwdSuccess] = useState(false);
+
+  const handleChangePassword = async () => {
+    setPwdError("");
+    if (!pwdCurrent || !pwdNew || !pwdConfirm) { setPwdError("Tous les champs sont obligatoires"); return; }
+    if (pwdNew.length < 4) { setPwdError("Le nouveau mot de passe doit comporter au moins 4 caractères"); return; }
+    if (pwdNew !== pwdConfirm) { setPwdError("Les mots de passe ne correspondent pas"); return; }
+    setPwdLoading(true);
+    try {
+      const res = await api("/vendor-portal/me/password", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ currentPassword: pwdCurrent, newPassword: pwdNew }),
+      });
+      if (!res.ok) {
+        const d = await res.json() as { error?: string };
+        setPwdError(d.error ?? "Erreur lors du changement de mot de passe");
+        return;
+      }
+      setPwdSuccess(true);
+      setTimeout(() => { setShowChangePwd(false); setPwdSuccess(false); setPwdCurrent(""); setPwdNew(""); setPwdConfirm(""); }, 1800);
+    } catch {
+      setPwdError("Erreur réseau, veuillez réessayer");
+    } finally {
+      setPwdLoading(false);
+    }
+  };
+
   const now = new Date();
   const [reportDay,   setReportDay]   = useState(String(now.getDate()));
   const [reportMonth, setReportMonth] = useState(String(now.getMonth() + 1));
@@ -868,6 +904,14 @@ function Dashboard({ token, vendor, onLogout }: {
           </div>
           <Button size="sm" variant="ghost" onClick={() => fetchData(true)} title="Actualiser">
             <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Modifier mon mot de passe"
+            onClick={() => { setPwdCurrent(""); setPwdNew(""); setPwdConfirm(""); setPwdError(""); setPwdSuccess(false); setShowChangePwd(true); }}
+          >
+            <KeyRound className="h-4 w-4" />
           </Button>
           <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300" onClick={onLogout}>
             <LogOut className="h-4 w-4" /> Se déconnecter
@@ -1240,6 +1284,76 @@ function Dashboard({ token, vendor, onLogout }: {
           </>
         )}
       </main>
+
+      {/* Change password dialog */}
+      <Dialog open={showChangePwd} onOpenChange={(o) => { if (!o) setShowChangePwd(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-blue-600" />
+              Modifier mon mot de passe
+            </DialogTitle>
+          </DialogHeader>
+          {pwdSuccess ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-emerald-600">
+              <CheckCircle2 className="h-10 w-10" />
+              <p className="font-semibold">Mot de passe modifié avec succès</p>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              {pwdError && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pwdError}</p>
+              )}
+              <div>
+                <Label htmlFor="pwd-current">Ancien mot de passe</Label>
+                <Input
+                  id="pwd-current"
+                  type="password"
+                  className="mt-1"
+                  placeholder="••••••••"
+                  value={pwdCurrent}
+                  onChange={(e) => setPwdCurrent(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </div>
+              <div>
+                <Label htmlFor="pwd-new">Nouveau mot de passe</Label>
+                <Input
+                  id="pwd-new"
+                  type="password"
+                  className="mt-1"
+                  placeholder="••••••••"
+                  value={pwdNew}
+                  onChange={(e) => setPwdNew(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <Label htmlFor="pwd-confirm">Confirmer le nouveau mot de passe</Label>
+                <Input
+                  id="pwd-confirm"
+                  type="password"
+                  className="mt-1"
+                  placeholder="••••••••"
+                  value={pwdConfirm}
+                  onChange={(e) => setPwdConfirm(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+          )}
+          {!pwdSuccess && (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowChangePwd(false)} disabled={pwdLoading}>
+                Annuler
+              </Button>
+              <Button onClick={handleChangePassword} disabled={pwdLoading} className="gap-2">
+                {pwdLoading ? "Enregistrement..." : "Modifier le mot de passe"}
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
