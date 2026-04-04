@@ -364,11 +364,15 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     const fmt = (d: Date) => `${String(d.getUTCDate()).padStart(2,"0")} ${MONTHS_FR[d.getUTCMonth()]}`;
     const label = `${fmt(wStart)} – ${fmt(sun)} ${sun.getUTCFullYear()}`;
 
+    const commission = vendor.commissionRate > 0 ? Math.round(amount * vendor.commissionRate) / 100 : 0;
+
     return {
       weekStart,
       label,
       count,
       amount,
+      commission,
+      commissionRate: vendor.commissionRate,
       totalPaid,
       remaining: Math.max(0, amount - totalPaid),
       payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),

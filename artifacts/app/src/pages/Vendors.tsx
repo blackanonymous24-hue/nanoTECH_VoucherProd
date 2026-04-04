@@ -43,6 +43,7 @@ export type PersonFormData = {
   password: string;
   commentSuffix: string;
   commentSuffix2: string;
+  commissionRate: number;
 };
 
 export function PersonForm({
@@ -64,6 +65,7 @@ export function PersonForm({
     username: string | null;
     commentSuffix: string | null;
     commentSuffix2: string | null;
+    commissionRate: number | null;
   }>;
   onSubmit: (data: PersonFormData) => void;
   onCancel: () => void;
@@ -83,6 +85,7 @@ export function PersonForm({
   const [commentSuffix, setCommentSuffix] = useState(initial?.commentSuffix ?? "");
   const [commentSuffix2, setCommentSuffix2] = useState(initial?.commentSuffix2 ?? "");
   const [suffixTouched, setSuffixTouched] = useState(!!initial?.commentSuffix);
+  const [commissionRate, setCommissionRate] = useState(String(initial?.commissionRate ?? 0));
 
   const handleNameChange = (v: string) => {
     const upper = forManager ? v : v.toUpperCase();
@@ -94,7 +97,7 @@ export function PersonForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, phone, email, username, password, commentSuffix, commentSuffix2 });
+        onSubmit({ name, phone, email, username, password, commentSuffix, commentSuffix2, commissionRate: Math.min(100, Math.max(0, parseInt(commissionRate || "0", 10) || 0)) });
       }}
       className="flex flex-col gap-0"
     >
@@ -187,6 +190,37 @@ export function PersonForm({
             </div>
           </div>
         </div>
+
+        {!forManager && (
+          <div className="pt-2 border-t">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Rémunération
+            </p>
+            <div>
+              <Label htmlFor="pf-commission">
+                Taux de commission <span className="text-gray-400 text-xs">(% sur les ventes)</span>
+              </Label>
+              <div className="flex items-center gap-2 mt-1">
+                <Input
+                  id="pf-commission"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  className="w-24"
+                  placeholder="0"
+                  value={commissionRate}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "" || (Number(v) >= 0 && Number(v) <= 100)) setCommissionRate(v);
+                  }}
+                />
+                <span className="text-sm text-gray-500">%</span>
+                <span className="text-xs text-gray-400 ml-1">(0 = pas de rémunération)</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {!forManager && (
           <div className="pt-2 border-t">
@@ -306,6 +340,7 @@ export default function Vendors() {
           ...(selectedRouterId ? { routerId: selectedRouterId } : {}),
           ...(data.commentSuffix ? { commentSuffix: data.commentSuffix } : {}),
           ...(data.commentSuffix2 ? { commentSuffix2: data.commentSuffix2 } : {}),
+          commissionRate: data.commissionRate,
         } as any,
       });
       invalidate();
@@ -334,6 +369,7 @@ export default function Vendors() {
           ...(data.password ? { password: data.password } : {}),
           commentSuffix: data.commentSuffix || null,
           commentSuffix2: data.commentSuffix2 || null,
+          commissionRate: data.commissionRate,
         } as any,
       });
       invalidate();
@@ -602,6 +638,7 @@ export default function Vendors() {
                 username: (editVendor as any).username ?? null,
                 commentSuffix: (editVendor as any).commentSuffix ?? null,
                 commentSuffix2: (editVendor as any).commentSuffix2 ?? null,
+                commissionRate: (editVendor as any).commissionRate ?? 0,
               }}
               onSubmit={handleEdit}
               onCancel={() => { setEditVendor(null); setEditError(""); }}

@@ -67,6 +67,8 @@ type VersementWeek = {
   label: string;
   count: number;
   amount: number;
+  commission: number;
+  commissionRate: number;
   totalPaid: number;
   remaining: number;
   payments: { id: number; amount: number; paidAt: string; note: string | null }[];
@@ -986,6 +988,17 @@ function Dashboard({ token, vendor, onLogout }: {
                               <p className="text-[10px] text-gray-400">Reste (FCFA)</p>
                             </div>
                           </div>
+
+                          {/* Commission row — only if rate is configured */}
+                          {w.commissionRate > 0 && (
+                            <div className="flex items-center justify-between rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
+                              <div className="flex items-center gap-1.5 text-[11px] text-violet-700">
+                                <span className="font-semibold">Votre rémunération</span>
+                                <span className="text-violet-400">({w.commissionRate}% des ventes)</span>
+                              </div>
+                              <p className="text-sm font-bold text-violet-700 tabular-nums">{fmtFcfa(w.commission)} FCFA</p>
+                            </div>
+                          )}
 
                           {/* Progress bar */}
                           {w.amount > 0 && (

@@ -63,7 +63,7 @@ router.get("/vendors", async (req, res): Promise<void> => {
 });
 
 router.post("/vendors", async (req, res): Promise<void> => {
-  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2 } = req.body as {
+  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2, commissionRate } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -72,6 +72,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
     routerId?: number;
     commentSuffix?: string;
     commentSuffix2?: string;
+    commissionRate?: number;
   };
 
   if (!name || name.trim() === "") {
@@ -113,6 +114,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
       passwordHash,
       commentSuffix: commentSuffix?.trim() || null,
       commentSuffix2: commentSuffix2?.trim() || null,
+      commissionRate: Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0))),
     })
     .returning();
   res.status(201).json(safeVendor(vendor));
@@ -130,7 +132,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, phone, email, username, password, isActive, commentSuffix, commentSuffix2 } = req.body as {
+  const { name, phone, email, username, password, isActive, commentSuffix, commentSuffix2, commissionRate } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -139,6 +141,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     isActive?: boolean;
     commentSuffix?: string;
     commentSuffix2?: string;
+    commissionRate?: number;
   };
 
   // Fetch current vendor early (needed for username fallback)
@@ -170,6 +173,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (isActive !== undefined) updates.isActive = isActive;
   if (commentSuffix !== undefined) updates.commentSuffix = commentSuffix?.trim() || null;
   if (commentSuffix2 !== undefined) updates.commentSuffix2 = commentSuffix2?.trim() || null;
+  if (commissionRate !== undefined) updates.commissionRate = Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0)));
 
   if (password !== undefined && password.trim()) {
     if (password.length < 4) {

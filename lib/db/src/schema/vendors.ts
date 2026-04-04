@@ -13,6 +13,7 @@ export const vendorsTable = pgTable("vendors", {
   passwordHash: text("password_hash"),
   commentSuffix: text("comment_suffix"),
   commentSuffix2: text("comment_suffix2"),
+  commissionRate: integer("commission_rate").notNull().default(0), // % of sales as remuneration (0-100)
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
