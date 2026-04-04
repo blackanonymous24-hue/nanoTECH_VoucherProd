@@ -1018,30 +1018,30 @@ function Dashboard({ token, vendor, onLogout }: {
                           </div>
 
                           {/* Stats */}
-                          <div className="grid grid-cols-3 gap-2 text-center">
-                            <div>
-                              <p className="text-base font-bold text-gray-800 tabular-nums">{fmtFcfa(w.amount)}</p>
-                              <p className="text-[10px] text-gray-400">Ventes (FCFA)</p>
-                              <p className="text-[10px] text-gray-400">{w.count} ticket{w.count !== 1 ? "s" : ""}</p>
+                          <div className="grid grid-cols-3 gap-1 text-center">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-gray-800 tabular-nums truncate">{fmtFcfa(w.amount)}</p>
+                              <p className="text-[9px] text-gray-400">Ventes</p>
+                              <p className="text-[9px] text-gray-400">{w.count} ticket{w.count !== 1 ? "s" : ""}</p>
                             </div>
-                            <div>
-                              <p className={`text-base font-bold tabular-nums ${w.totalPaid > 0 ? "text-emerald-600" : "text-gray-300"}`}>{fmtFcfa(w.totalPaid)}</p>
-                              <p className="text-[10px] text-gray-400">Versé (FCFA)</p>
+                            <div className="min-w-0">
+                              <p className={`text-xs font-bold tabular-nums truncate ${w.totalPaid > 0 ? "text-emerald-600" : "text-gray-300"}`}>{fmtFcfa(w.totalPaid)}</p>
+                              <p className="text-[9px] text-gray-400">Versé</p>
                             </div>
-                            <div>
-                              <p className={`text-base font-bold tabular-nums ${w.remaining > 0 ? "text-orange-600" : "text-gray-300"}`}>{fmtFcfa(w.remaining)}</p>
-                              <p className="text-[10px] text-gray-400">Reste (FCFA)</p>
+                            <div className="min-w-0">
+                              <p className={`text-xs font-bold tabular-nums truncate ${w.remaining > 0 ? "text-orange-600" : "text-gray-300"}`}>{fmtFcfa(w.remaining)}</p>
+                              <p className="text-[9px] text-gray-400">Reste</p>
                             </div>
                           </div>
 
                           {/* Commission row — only if rate is configured */}
                           {w.commissionRate > 0 && (
-                            <div className="flex items-center justify-between rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
-                              <div className="flex items-center gap-1.5 text-[11px] text-violet-700">
-                                <span className="font-semibold">Votre rémunération</span>
-                                <span className="text-violet-400">({w.commissionRate}% des ventes)</span>
+                            <div className="flex items-center justify-between gap-2 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
+                              <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-violet-700 min-w-0">
+                                <span className="font-semibold whitespace-nowrap">Votre rémunération</span>
+                                <span className="text-violet-400 whitespace-nowrap">({w.commissionRate}%)</span>
                               </div>
-                              <p className="text-sm font-bold text-violet-700 tabular-nums">{fmtFcfa(w.commission)} FCFA</p>
+                              <p className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap flex-shrink-0">{fmtFcfa(w.commission)} FCFA</p>
                             </div>
                           )}
 

@@ -119,34 +119,34 @@ function VendorRow({
   return (
     <div className="border border-gray-100 rounded-lg overflow-hidden">
       {/* Main row */}
-      <div className="flex items-center gap-2 px-3 py-2.5 bg-white hover:bg-gray-50 transition-colors">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm text-gray-800">{vendor.vendorName}</span>
+      <div className="flex items-start gap-2 px-3 py-2.5 bg-white hover:bg-gray-50 transition-colors">
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="font-semibold text-sm text-gray-800 truncate">{vendor.vendorName}</span>
             {isFullyPaid && (
-              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0">
                 <CheckCircle2 className="h-3 w-3" /> Soldé
               </span>
             )}
           </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-gray-500">
-            <span>{vendor.count} ticket{vendor.count !== 1 ? "s" : ""}</span>
-            <span>Ventes : <span className="font-medium text-gray-700">{fmtAmount(vendor.amount)} FCFA</span></span>
+          <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-gray-500">
+            <span className="whitespace-nowrap">{vendor.count} ticket{vendor.count !== 1 ? "s" : ""}</span>
+            <span className="whitespace-nowrap">Ventes : <span className="font-medium text-gray-700">{fmtAmount(vendor.amount)} FCFA</span></span>
             {vendor.commission > 0 && (
-              <span>Commission : <span className="font-medium text-violet-600">−{fmtAmount(vendor.commission)} FCFA ({vendor.commissionRate}%)</span></span>
+              <span className="whitespace-nowrap">Commission : <span className="font-medium text-violet-600">−{fmtAmount(vendor.commission)} FCFA ({vendor.commissionRate}%)</span></span>
             )}
             {vendor.totalPaid > 0 && (
-              <span>Versé : <span className="font-medium text-emerald-700">{fmtAmount(vendor.totalPaid)} FCFA</span></span>
+              <span className="whitespace-nowrap">Versé : <span className="font-medium text-emerald-700">{fmtAmount(vendor.totalPaid)} FCFA</span></span>
             )}
             {vendor.remaining > 0 && (
-              <span>Reste : <span className="font-semibold text-orange-600">{fmtAmount(vendor.remaining)} FCFA</span></span>
+              <span className="whitespace-nowrap">Reste : <span className="font-semibold text-orange-600">{fmtAmount(vendor.remaining)} FCFA</span></span>
             )}
           </div>
         </div>
 
         <Button
           size="sm" variant="outline"
-          className="h-7 gap-1 text-xs flex-shrink-0"
+          className="h-7 gap-1 text-xs flex-shrink-0 mt-0.5"
           onClick={() => setOpen((v) => !v)}
         >
           <Plus className="h-3.5 w-3.5" />
@@ -159,45 +159,49 @@ function VendorRow({
       {open && (
         <div className="border-t border-gray-100 bg-gray-50 px-3 py-3 space-y-3">
           {/* Add payment form */}
-          <div className="flex gap-2 items-end flex-wrap">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Montant (FCFA)</span>
-              <Input
-                type="number"
-                min={1}
-                placeholder="Ex: 33900"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="h-8 text-xs w-36"
-                onKeyDown={(e) => e.key === "Enter" && addPayment()}
-              />
+          <div className="space-y-2">
+            <div className="flex gap-2 flex-wrap">
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Montant (FCFA)</span>
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Ex: 33900"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="h-8 text-xs w-32"
+                  onKeyDown={(e) => e.key === "Enter" && addPayment()}
+                />
+              </div>
+              <div className="flex flex-col gap-1 flex-1 min-w-0">
+                <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Note (optionnel)</span>
+                <Input
+                  placeholder="Référence, commentaire…"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  className="h-8 text-xs"
+                  onKeyDown={(e) => e.key === "Enter" && addPayment()}
+                />
+              </div>
             </div>
-            <div className="flex flex-col gap-1 flex-1 min-w-28">
-              <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Note (optionnel)</span>
-              <Input
-                placeholder="Référence, commentaire…"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                className="h-8 text-xs"
-                onKeyDown={(e) => e.key === "Enter" && addPayment()}
-              />
-            </div>
-            <Button
-              size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-              onClick={addPayment}
-              disabled={!amount}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" /> Enregistrer
-            </Button>
-            {vendor.remaining > 0 && (
+            <div className="flex gap-2 flex-wrap">
               <Button
-                size="sm" variant="outline"
-                className="h-8 text-xs gap-1"
-                onClick={() => setAmount(String(vendor.remaining))}
+                size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                onClick={addPayment}
+                disabled={!amount}
               >
-                Tout verser ({fmtAmount(vendor.remaining)})
+                <CheckCircle2 className="h-3.5 w-3.5" /> Enregistrer
               </Button>
-            )}
+              {vendor.remaining > 0 && (
+                <Button
+                  size="sm" variant="outline"
+                  className="h-8 text-xs gap-1 whitespace-nowrap"
+                  onClick={() => setAmount(String(vendor.remaining))}
+                >
+                  Tout verser ({fmtAmount(vendor.remaining)})
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Existing payments */}
