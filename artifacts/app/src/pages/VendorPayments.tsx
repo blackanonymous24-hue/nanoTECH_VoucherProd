@@ -63,6 +63,8 @@ interface VendorWeekEntry {
   vendorName: string;
   count: number;
   amount: number;
+  commission: number;
+  commissionRate: number;
   totalPaid: number;
   remaining: number;
   payments: PaymentEntry[];
@@ -127,9 +129,12 @@ function VendorRow({
               </span>
             )}
           </div>
-          <div className="flex gap-3 mt-0.5 text-[11px] text-gray-500">
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-gray-500">
             <span>{vendor.count} ticket{vendor.count !== 1 ? "s" : ""}</span>
             <span>Ventes : <span className="font-medium text-gray-700">{fmtAmount(vendor.amount)} FCFA</span></span>
+            {vendor.commission > 0 && (
+              <span>Commission : <span className="font-medium text-violet-600">−{fmtAmount(vendor.commission)} FCFA ({vendor.commissionRate}%)</span></span>
+            )}
             {vendor.totalPaid > 0 && (
               <span>Versé : <span className="font-medium text-emerald-700">{fmtAmount(vendor.totalPaid)} FCFA</span></span>
             )}
@@ -256,9 +261,10 @@ function WeekCard({
 
   const onMutated = () => queryClient.invalidateQueries({ queryKey: qk });
 
-  const grandSales = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.amount, 0), [data]);
-  const grandPaid  = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.totalPaid, 0), [data]);
-  const grandLeft  = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.remaining, 0), [data]);
+  const grandSales      = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.amount, 0), [data]);
+  const grandCommission = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.commission, 0), [data]);
+  const grandPaid       = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.totalPaid, 0), [data]);
+  const grandLeft       = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.remaining, 0), [data]);
 
   return (
     <Card className="shadow-sm border-gray-100">
@@ -270,8 +276,11 @@ function WeekCard({
             <span className="text-gray-400 font-normal text-xs">{fmtDateFr(weekStart)}</span>
           </CardTitle>
           {data && data.vendors.length > 0 && (
-            <div className="flex gap-3 text-xs text-gray-500">
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
               <span>Ventes : <span className="font-semibold text-gray-700">{fmtAmount(grandSales)} FCFA</span></span>
+              {grandCommission > 0 && (
+                <span>Commissions : <span className="font-semibold text-violet-600">−{fmtAmount(grandCommission)} FCFA</span></span>
+              )}
               <span>Versé : <span className="font-semibold text-emerald-700">{fmtAmount(grandPaid)} FCFA</span></span>
               {grandLeft > 0 && (
                 <span>Reste : <span className="font-semibold text-orange-600">{fmtAmount(grandLeft)} FCFA</span></span>

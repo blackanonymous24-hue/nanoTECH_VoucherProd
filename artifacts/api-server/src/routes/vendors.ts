@@ -675,19 +675,27 @@ router.get("/vendors/weekly-summary", async (req, res) => {
       paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note });
     }
 
+    // Commission only applies to completed weeks
+    const weekEnded = wEnd.getTime() <= Date.now();
+
     const result = vendors
       .map((v) => {
         const sales    = salesMap.get(v.id) ?? { count: 0, amount: 0 };
         const paid     = paymentsMap.get(v.id) ?? [];
         const totalPaid = paid.reduce((s, p) => s + p.amount, 0);
+        const commission = (weekEnded && v.commissionRate > 0)
+          ? Math.round(sales.amount * v.commissionRate) / 100
+          : 0;
         return {
-          vendorId:  v.id,
-          vendorName: v.name,
-          count:     sales.count,
-          amount:    sales.amount,
+          vendorId:    v.id,
+          vendorName:  v.name,
+          count:       sales.count,
+          amount:      sales.amount,
+          commission,
+          commissionRate: weekEnded ? v.commissionRate : 0,
           totalPaid,
-          remaining: Math.max(0, sales.amount - totalPaid),
-          payments:  paid,
+          remaining:   Math.max(0, sales.amount - commission - totalPaid),
+          payments:    paid,
         };
       })
       .filter((v) => v.count > 0 || v.payments.length > 0)
