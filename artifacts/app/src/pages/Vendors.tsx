@@ -555,29 +555,29 @@ export default function Vendors() {
                 </div>
               </CardHeader>
 
-              {/* Jauge utilisation par vendeur */}
+              {/* Jauge utilisation par vendeur — mois en cours */}
               {(() => {
                 const s = summaryMap.get(vendor.id);
                 if (!s || s.totalVouchers === 0) return null;
-                const used    = s.totalUsed;
-                const total   = s.totalVouchers;
-                const nonSold = total - used;
-                const usedPct = Math.round((used / total) * 100);
+                const monthSold = s.salesStats?.thisMonthSold ?? s.totalUsed;
+                const available = s.totalVouchers - s.totalUsed;
+                const base      = monthSold + available;
+                const soldPct   = base > 0 ? Math.round((monthSold / base) * 100) : 0;
                 return (
                   <div className="px-6 pb-3">
                     <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="text-red-600 font-semibold">{used} vendu{used !== 1 ? "s" : ""}</span>
-                      <span className="text-gray-400">{total} total</span>
-                      <span className="text-green-600 font-semibold">{nonSold} dispo</span>
+                      <span className="text-red-600 font-semibold">{monthSold} vendu{monthSold !== 1 ? "s" : ""}</span>
+                      <span className="text-gray-400 text-[10px] font-medium uppercase tracking-wide">ce mois</span>
+                      <span className="text-green-600 font-semibold">{available} dispo</span>
                     </div>
                     <div className="relative h-2 rounded-full overflow-hidden bg-gray-100">
                       <div
                         className="absolute inset-y-0 left-0 bg-red-400 rounded-l-full transition-all duration-500"
-                        style={{ width: `${usedPct}%` }}
+                        style={{ width: `${soldPct}%` }}
                       />
                       <div
                         className="absolute inset-y-0 rounded-full bg-emerald-500 transition-all duration-500"
-                        style={{ left: `${usedPct}%`, right: 0 }}
+                        style={{ left: `${soldPct}%`, right: 0 }}
                       />
                     </div>
                   </div>
