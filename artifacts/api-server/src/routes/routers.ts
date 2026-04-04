@@ -460,6 +460,17 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
     ]);
     const soldSet = new Set(soldRows.map((r) => r.username.toLowerCase()));
 
+    // Patterns that identify system / non-batch comments — exclude from lots
+    const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}[\s_T]\d{2}:\d{2}/;  // "2026-04-11 21:27:42"
+    const SYSTEM_KEYWORDS = ["counters and limits", "trial", "default-trial", "hotspot"];
+    function isValidBatchComment(comment: string): boolean {
+      if (!comment) return false;
+      if (TIMESTAMP_RE.test(comment)) return false;
+      const lc = comment.toLowerCase();
+      if (SYSTEM_KEYWORDS.some((kw) => lc.includes(kw))) return false;
+      return true;
+    }
+
     const map = new Map<string, { count: number; profiles: Set<string>; preview: typeof users }>();
     for (const u of users) {
       // Skip used vouchers: MAC address = currently in use on MikroTik, or tracked as used in DB
@@ -467,7 +478,7 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
       // Skip trial profile — internal/demo accounts, not real batches
       if (u.profile?.toLowerCase() === "trial" || u.profile?.toLowerCase() === "default-trial") continue;
       const key = u.comment ?? "";
-      if (!key) continue;
+      if (!isValidBatchComment(key)) continue;
       const entry = map.get(key) ?? { count: 0, profiles: new Set(), preview: [] };
       entry.count++;
       entry.profiles.add(u.profile);
