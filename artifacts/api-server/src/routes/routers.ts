@@ -486,11 +486,14 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
       map.set(key, entry);
     }
 
-    const datePart = (n: string) => {
-      const parts = n.split("-");
-      if (parts.length < 3) return n;
-      const [mm, dd, yy] = parts.slice(2).join("-").split(".");
-      return `${yy ?? "00"}.${mm ?? "00"}.${dd ?? "00"}`;
+    // Extract date key for sorting: MM.DD.YY → YY.MM.DD
+    // Works even when a vendor suffix follows (e.g. "vc-123-04.11.26_m")
+    const DATE_RE = /(\d{2})\.(\d{2})\.(\d{2})/;
+    const dateSortKey = (n: string): string => {
+      const m = n.match(DATE_RE);
+      if (!m) return "\x00"; // unknown → oldest
+      const [, mm, dd, yy] = m;
+      return `${yy}.${mm}.${dd}`; // YY.MM.DD → lexicographic = chronological
     };
 
     const lots = Array.from(map.entries())
@@ -501,8 +504,8 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
         preview: data.preview,
       }))
       .sort((a, b) => {
-        const cmp = datePart(b.name).localeCompare(datePart(a.name));
-        return cmp !== 0 ? cmp : b.name.localeCompare(a.name);
+        const cmp = dateSortKey(b.name).localeCompare(dateSortKey(a.name));
+        return cmp !== 0 ? cmp : b.name.localeCompare(a.name); // tie-break: alpha desc
       });
 
     res.json({ lots, total: users.length });
