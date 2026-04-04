@@ -52,8 +52,10 @@ export function computeSalesStats(rows: ProfilePeriodRow[], priceMap: Map<string
   let lastMonthSold = 0, lastMonthAmount = 0;
 
   for (const r of rows) {
-    // Fall-back price only when the DB has no price at all on these vouchers
-    const fallback = parseFloat((priceMap.get(r.profileName) ?? "0").replace(/[^0-9.]/g, "")) || 0;
+    // priceMap price for this profile (from MikroTik cache) — used as a floor
+    // so that tickets lacking sale_price/price in DB still contribute their
+    // fair share to the total (matches the vendor-portal calculation method).
+    const unitPrice = parseFloat((priceMap.get(r.profileName) ?? "0").replace(/[^0-9.]/g, "")) || 0;
 
     const ts  = Number(r.todaySold);     todaySold     += ts;
     const ys  = Number(r.yesterdaySold); yesterdaySold += ys;
@@ -62,13 +64,17 @@ export function computeSalesStats(rows: ProfilePeriodRow[], priceMap: Map<string
     const tms = Number(r.thisMonthSold); thisMonthSold += tms;
     const lms = Number(r.lastMonthSold); lastMonthSold += lms;
 
-    // Use SQL-aggregated actual amounts; fall back to count×price only when amount = 0
-    todayAmount     += Number(r.todayAmount)     || ts  * fallback;
-    yesterdayAmount += Number(r.yesterdayAmount) || ys  * fallback;
-    weekAmount      += Number(r.weekAmount)      || ws  * fallback;
-    lastWeekAmount  += Number(r.lastWeekAmount)  || lws * fallback;
-    thisMonthAmount += Number(r.thisMonthAmount) || tms * fallback;
-    lastMonthAmount += Number(r.lastMonthAmount) || lms * fallback;
+    // Take the MAXIMUM of:
+    //   • SQL-aggregated actual amounts (sum of salePrice/price for vouchers that have it)
+    //   • count × unitPrice (priceMap, covers vouchers without salePrice/price in DB)
+    // This ensures partial coverage (some tickets have salePrice, others don't) is
+    // handled correctly — the priceMap floor fills the gap for missing entries.
+    todayAmount     += Math.max(Number(r.todayAmount),     ts  * unitPrice);
+    yesterdayAmount += Math.max(Number(r.yesterdayAmount), ys  * unitPrice);
+    weekAmount      += Math.max(Number(r.weekAmount),      ws  * unitPrice);
+    lastWeekAmount  += Math.max(Number(r.lastWeekAmount),  lws * unitPrice);
+    thisMonthAmount += Math.max(Number(r.thisMonthAmount), tms * unitPrice);
+    lastMonthAmount += Math.max(Number(r.lastMonthAmount), lms * unitPrice);
   }
 
   return {
