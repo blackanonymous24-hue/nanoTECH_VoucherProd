@@ -86,7 +86,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     enabled: !!token,
   });
   const lowStockCount = stockAlerts?.count ?? 0;
-  const lowStockAlerts = stockAlerts?.alerts ?? [];
 
   /* ── Password change dialog state (managers only) ── */
   const [showPwd, setShowPwd]         = useState(false);
@@ -263,34 +262,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 </span>
               </Link>
 
-              {/* Detail list — shown only when there are alerts */}
-              {hasAlerts && (
-                <ul className="mt-1 space-y-0.5 px-1">
-                  {lowStockAlerts.slice(0, 6).map((a, i) => (
-                    <li
-                      key={i}
-                      className="flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-red-500/5 border border-red-500/10"
-                    >
-                      <span className="flex flex-col min-w-0">
-                        <span className="text-[10px] font-medium text-gray-300 truncate leading-tight">
-                          {a.vendorName}
-                        </span>
-                        <span className="text-[9px] text-gray-500 truncate leading-tight">
-                          {a.profileName}
-                        </span>
-                      </span>
-                      <span className="flex-shrink-0 text-[10px] font-bold text-red-400 tabular-nums">
-                        {a.available}
-                      </span>
-                    </li>
-                  ))}
-                  {lowStockAlerts.length > 6 && (
-                    <li className="text-[9px] text-gray-600 px-2 py-0.5">
-                      +{lowStockAlerts.length - 6} autres…
-                    </li>
-                  )}
-                </ul>
-              )}
             </div>
           );
         })()}
