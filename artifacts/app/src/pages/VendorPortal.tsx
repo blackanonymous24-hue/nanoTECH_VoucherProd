@@ -36,7 +36,7 @@ type SalesStats = {
   weekSold: number; weekAmount: number;
   lastMonthSold: number; lastMonthAmount: number;
 };
-type ByProfile = { profileName: string; total: number; printed: number; used: number; soldToday: number };
+type ByProfile = { profileName: string; total: number; printed: number; used: number; soldToday: number; soldThisMonth: number };
 type Voucher = {
   id: number;
   username: string;
@@ -1089,7 +1089,7 @@ function Dashboard({ token, vendor, onLogout }: {
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base flex items-center gap-2">
                       <PackageOpen className="h-4 w-4 text-gray-400" />
-                      Stock tickets — aujourd&apos;hui
+                      Stock tickets — ce mois
                     </CardTitle>
                     <span className="text-xs text-gray-400">↻ 30s</span>
                   </div>
@@ -1097,11 +1097,11 @@ function Dashboard({ token, vendor, onLogout }: {
                 <CardContent className="pt-4">
                   <div className="space-y-3">
                     {data.byProfile.map((p) => {
-                      const available = p.total - p.used;
-                      const soldToday = p.soldToday ?? 0;
-                      const total     = available + soldToday;
-                      const usedPct   = total > 0 ? Math.round((soldToday / total) * 100) : 0;
-                      const isLow     = available < 100;
+                      const available      = p.total - p.used;
+                      const soldThisMonth  = p.soldThisMonth ?? 0;
+                      const total          = available + soldThisMonth;
+                      const usedPct        = total > 0 ? Math.round((soldThisMonth / total) * 100) : 0;
+                      const isLow          = available < 100;
 
                       const barColor   = isLow ? "bg-orange-400" : "bg-emerald-500";
                       const trackColor = isLow ? "bg-orange-100" : "bg-emerald-100";
@@ -1120,7 +1120,7 @@ function Dashboard({ token, vendor, onLogout }: {
                             </div>
                             <div className="flex items-center gap-3 text-xs flex-shrink-0">
                               <span className="text-gray-400">
-                                {soldToday} vendu{soldToday !== 1 ? "s" : ""} auj.
+                                {soldThisMonth} vendu{soldThisMonth !== 1 ? "s" : ""} ce mois
                               </span>
                               <span className={`font-semibold ${textColor}`}>
                                 {available} disponible{available !== 1 ? "s" : ""}
@@ -1141,7 +1141,7 @@ function Dashboard({ token, vendor, onLogout }: {
                           </div>
 
                           <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                            <span>Vendus ({usedPct}%)</span>
+                            <span>Vendus ce mois ({usedPct}%)</span>
                             <span>Disponibles ({100 - usedPct}%)</span>
                           </div>
                         </div>
@@ -1171,21 +1171,26 @@ function Dashboard({ token, vendor, onLogout }: {
 
             {data.byProfile.length > 0 && (
               <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Par forfait</CardTitle>
+                <CardHeader className="pb-2 border-b border-gray-100">
+                  <CardTitle className="text-base">Par forfait — ce mois</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-3">
                   <div className="space-y-2">
-                    {[...data.byProfile].sort((a, b) => (parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0) - (parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0)).map((p) => (
-                      <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
-                        <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
-                        <div className="flex gap-3 text-sm">
-                          <span className="text-gray-500">Total: <strong>{p.total}</strong></span>
-                          <span className="text-red-600">Vendus: <strong>{p.used}</strong></span>
-                          <span className="text-green-600">Restants: <strong>{p.total - p.used}</strong></span>
-                        </div>
-                      </div>
-                    ))}
+                    {[...data.byProfile]
+                      .sort((a, b) => (parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0) - (parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0))
+                      .map((p) => {
+                        const available = p.total - p.used;
+                        const soldThisMonth = p.soldThisMonth ?? 0;
+                        return (
+                          <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
+                            <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
+                            <div className="flex gap-3 text-sm">
+                              <span className="text-blue-600">Ce mois: <strong>{soldThisMonth}</strong></span>
+                              <span className="text-green-600">Restants: <strong>{available}</strong></span>
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </CardContent>
               </Card>

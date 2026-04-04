@@ -127,15 +127,20 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
   const [totalsRows, byProfileRaw, portalProfileCounts, recentSales, availableVouchers] = await Promise.all([
     buildTotals(id),
     db
       .select({
-        profileName: vouchersTable.profileName,
-        total:      count(),
-        printed:    sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
-        used:       sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
-        soldToday:  sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfDay}) as int)`,
+        profileName:    vouchersTable.profileName,
+        total:          count(),
+        printed:        sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
+        used:           sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
+        soldToday:      sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfDay}) as int)`,
+        soldThisMonth:  sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfMonth}) as int)`,
       })
       .from(vouchersTable)
       .where(eq(vouchersTable.vendorId, id))
