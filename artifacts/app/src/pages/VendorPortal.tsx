@@ -992,8 +992,9 @@ function Dashboard({ token, vendor, onLogout }: {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {versData.weeks.map((w, i) => {
                     if (w.count === 0 && w.payments.length === 0) return null;
-                    const isSolde   = w.remaining === 0 && w.totalPaid > 0;
-                    const paidPct   = w.amount > 0 ? Math.min(100, Math.round((w.totalPaid / w.amount) * 100)) : 0;
+                    const isSolde   = w.remaining === 0 && (w.totalPaid > 0 || w.commission >= w.amount);
+                    const dueAmount = Math.max(0, w.amount - w.commission); // what vendor must pay back
+                    const paidPct   = dueAmount > 0 ? Math.min(100, Math.round((w.totalPaid / dueAmount) * 100)) : 100;
                     return (
                       <Card key={w.weekStart} className={`border ${isSolde ? "border-emerald-200 bg-emerald-50/30" : i === 0 ? "border-orange-200 bg-orange-50/20" : "border-gray-100"}`}>
                         <CardContent className="p-4 space-y-3">
