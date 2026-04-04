@@ -3,12 +3,13 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2,
+  UserCog, Menu, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
+import { useGetVendorReportsSummary } from "@workspace/api-client-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -21,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const LOW_STOCK_THRESHOLD = 100;
 
 function RouterSelector({ className }: { className?: string }) {
   const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline } = useRouterContext();
@@ -66,6 +68,12 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const { logout, role, token } = useAuth();
   const isAdmin = role === "admin";
   const isManager = role === "manager";
+
+  /* ── Low-stock alert count (reuses cached data) ── */
+  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { staleTime: 60_000 } });
+  const lowStockCount = summaries.filter(
+    (s) => s.totalVouchers > 0 && (s.totalVouchers - s.totalUsed) < LOW_STOCK_THRESHOLD
+  ).length;
 
   /* ── Password change dialog state (managers only) ── */
   const [showPwd, setShowPwd]         = useState(false);
@@ -198,6 +206,56 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* ── Nav ── */}
       <nav className="flex-1 overflow-y-auto sidebar-nav px-3 py-2 min-h-0">
+
+        {/* ── Notification stock faible — always visible ── */}
+        {(() => {
+          const isActive = false; // never "active" — it's a status indicator
+          const hasAlerts = lowStockCount > 0;
+          return (
+            <div className="mb-3">
+              <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
+                Alertes
+              </p>
+              <Link
+                href="/vendors"
+                onClick={onNavigate}
+                className={cn(
+                  "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                  hasAlerts
+                    ? "text-red-400 bg-red-500/10 hover:bg-red-500/20"
+                    : "text-gray-500 hover:bg-white/[0.06] hover:text-gray-300",
+                )}
+              >
+                {/* Icon with pulse when alerts */}
+                <span className="relative flex-shrink-0">
+                  <Bell className={cn(
+                    "h-4 w-4 transition-colors",
+                    hasAlerts ? "text-red-400" : "text-gray-600",
+                  )} />
+                  {hasAlerts && (
+                    <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                    </span>
+                  )}
+                </span>
+                <span className="flex-1 truncate">
+                  {hasAlerts ? "Stocks faibles" : "Stocks OK"}
+                </span>
+                {/* Badge count — always shown */}
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums leading-none",
+                  hasAlerts
+                    ? "bg-red-500 text-white"
+                    : "bg-white/8 text-gray-600",
+                )}>
+                  {lowStockCount}
+                </span>
+              </Link>
+            </div>
+          );
+        })()}
+
         {navGroups.map((group, gi) => (
           <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
             <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
@@ -206,7 +264,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             <div className="space-y-0.5">
               {group.items.map(({ href, label, icon: Icon }) => {
                 const isActive = href === "/" ? location === "/" : location.startsWith(href);
-                const showCount = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
+                const showVoucherBadge = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
                 return (
                   <Link
                     key={href}
@@ -219,16 +277,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                         : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
                     )}
                   >
-                    <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500 group-hover:text-gray-300")} />
+                    <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
                     <span className="flex-1 truncate">{label}</span>
-                    {showCount && (
+                    {showVoucherBadge && (
                       <span className={cn(
                         "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
-                        isActive
-                          ? "bg-blue-500/20 text-blue-300"
-                          : "bg-white/8 text-gray-400",
+                        isActive ? "bg-blue-500/20 text-blue-300" : "bg-white/8 text-gray-400",
                       )}>
-                        {voucherCount.toLocaleString("fr-FR")}
+                        {voucherCount!.toLocaleString("fr-FR")}
                       </span>
                     )}
                   </Link>
