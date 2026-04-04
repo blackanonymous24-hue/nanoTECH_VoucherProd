@@ -346,14 +346,14 @@ export default function VendorTracking() {
             <div className="ml-auto flex gap-2">
               <Button
                 size="sm" variant="outline"
-                className="h-8 gap-1.5 text-xs"
+                className="h-8 w-8 p-0"
                 disabled={!data || grandCount === 0 || saving}
                 onClick={saveAsJpeg}
+                title="Enregistrer résumé en image"
               >
                 {saving
                   ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   : <ImageDown className="h-3.5 w-3.5" />}
-                Enregistrer résumé
               </Button>
               <Button
                 size="sm" variant="outline"
