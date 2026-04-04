@@ -364,7 +364,10 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     const fmt = (d: Date) => `${String(d.getUTCDate()).padStart(2,"0")} ${MONTHS_FR[d.getUTCMonth()]}`;
     const label = `${fmt(wStart)} – ${fmt(sun)} ${sun.getUTCFullYear()}`;
 
-    const commission = vendor.commissionRate > 0 ? Math.round(amount * vendor.commissionRate) / 100 : 0;
+    // Commission applies only once the week is fully over
+    const weekEnded = wEnd.getTime() <= Date.now();
+    const commission = (weekEnded && vendor.commissionRate > 0) ? Math.round(amount * vendor.commissionRate) / 100 : 0;
+    const effectiveCommissionRate = weekEnded ? vendor.commissionRate : 0;
 
     return {
       weekStart,
@@ -372,7 +375,7 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       count,
       amount,
       commission,
-      commissionRate: vendor.commissionRate,
+      commissionRate: effectiveCommissionRate,
       totalPaid,
       remaining: Math.max(0, amount - totalPaid),
       payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
