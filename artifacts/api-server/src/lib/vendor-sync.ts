@@ -149,14 +149,14 @@ export async function syncMikrotikUsersToVendor(
     // Query existing vouchers by comment suffix
     const suffixConditions = activeSuffixes.map((s) => sql`${vouchersTable.comment} LIKE ${"%" + s}`);
     const existingRows = await db
-      .select({ username: vouchersTable.username, vendorId: vouchersTable.vendorId, id: vouchersTable.id })
+      .select({ username: vouchersTable.username, vendorId: vouchersTable.vendorId, id: vouchersTable.id, profileName: vouchersTable.profileName })
       .from(vouchersTable)
       .where(and(
         eq(vouchersTable.routerId, routerId),
         sql`(${sql.join(suffixConditions, sql` OR `)})`,
       ));
 
-    type ExRow = { username: string; vendorId: number | null; id: number };
+    type ExRow = { username: string; vendorId: number | null; id: number; profileName: string };
     const existingMap = new Map<string, ExRow>(existingRows.map((e: ExRow) => [e.username, e]));
 
     // ── Step 3: re-attribute existing DB vouchers ─────────────────────────
@@ -174,11 +174,45 @@ export async function syncMikrotikUsersToVendor(
       logger.info({ vendorId, routerId, count: toUpdate.length }, "vendor sync: updated vendorId on existing vouchers");
     }
 
-    // Insert active hotspot users not yet in DB
+    // Build profile lookup maps — used in Steps 3a, 3b, 3c and the insert step
     const profileMap = new Map(allProfiles.map((p) => [p.name, p]));
-    // Build a case-insensitive lookup map for profile name normalization
-    // so "3-Heures" (user field) maps to "3-Heure" (canonical MikroTik profile name).
     const profileNamesLower = new Map(allProfiles.map((p) => [p.name.toLowerCase(), p.name]));
+
+    // ── Step 3a: auto-correct profile names using MikroTik live data ──────
+    // MikroTik internally links hotspot users to profiles by an immutable .id.
+    // When a profile is renamed, the /ip/hotspot/user list reflects the NEW
+    // name immediately for all existing users (MikroTik updates them via .id).
+    // We compare each active username's MikroTik profile against what's in
+    // the DB — any mismatch means a rename occurred → correct automatically.
+    const profileFixes = new Map<string, number[]>(); // canonicalName → [ids]
+    for (const u of matched) {
+      const existing = existingMap.get(u.username);
+      if (!existing) continue; // new user — will be inserted below
+
+      const rawProfile = u.profile || "default";
+      const canonical = profileMap.has(rawProfile)
+        ? rawProfile
+        : (profileNamesLower.get(rawProfile.toLowerCase()) ?? rawProfile);
+
+      if (existing.profileName !== canonical) {
+        if (!profileFixes.has(canonical)) profileFixes.set(canonical, []);
+        profileFixes.get(canonical)!.push(existing.id);
+      }
+    }
+
+    if (profileFixes.size > 0) {
+      for (const [canonical, ids] of profileFixes) {
+        const CHUNK = 200;
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          await db
+            .update(vouchersTable)
+            .set({ profileName: canonical })
+            .where(inArray(vouchersTable.id, ids.slice(i, i + CHUNK)));
+        }
+        logger.info({ vendorId, routerId, count: ids.length, canonical },
+          "vendor sync: auto-corrected profile name (MikroTik rename detected)");
+      }
+    }
 
     // ── Step 3b: normalize profile names on existing vendor vouchers ──────
     // When a profile is renamed in MikroTik (e.g. "3-Heures" → "3-Heure"),
