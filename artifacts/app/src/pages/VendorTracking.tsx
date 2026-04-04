@@ -329,11 +329,9 @@ export default function VendorTracking() {
         line(PAD, y + HEAD_H, W - PAD, y + HEAD_H, "#e5e7eb");
         y += HEAD_H;
 
-        /* coloured band */
+        /* coloured band — label only, no totals */
         rect(PAD, y, W - PAD * 2, BAND_H, bandBg);
-        text(title,               C0 + 4,        y + BAND_H / 2, { size: 10, bold: true, color: bandText });
-        text(String(grandCount),  ticketsCenter,  y + BAND_H / 2, { size: 10, bold: true, color: bandText, align: "center" });
-        text(fmtAmount(grandAmount), C3,          y + BAND_H / 2, { size: 10, bold: true, color: bandText, align: "right" });
+        text(title, C0 + 4, y + BAND_H / 2, { size: 10, bold: true, color: bandText });
         line(PAD, y + BAND_H, W - PAD, y + BAND_H, "#e5e7eb");
         y += BAND_H;
 
@@ -552,14 +550,8 @@ export default function VendorTracking() {
                     <th className="px-3 py-2 text-right text-gray-500 font-medium w-36">Total (FCFA)</th>
                   </tr>
                   <tr className="bg-blue-50 border-b border-blue-100">
-                    <th colSpan={2} className="px-3 py-1.5 text-left text-blue-700 font-medium text-xs">
+                    <th colSpan={4} className="px-3 py-1.5 text-left text-blue-700 font-medium text-xs">
                       {activeSummary.length} vendeur{activeSummary.length !== 1 ? "s" : ""} — {dateLabelFr}
-                    </th>
-                    <th className="px-3 py-1.5 text-center text-blue-700 font-bold text-xs">
-                      {grandCount}
-                    </th>
-                    <th className="px-3 py-1.5 text-right text-blue-700 font-bold text-xs">
-                      {fmtAmount(grandTotal)} FCFA
                     </th>
                   </tr>
                 </thead>
@@ -604,14 +596,8 @@ export default function VendorTracking() {
                     <th className="px-3 py-2 text-right text-gray-500 font-medium w-36">Total (FCFA)</th>
                   </tr>
                   <tr className="bg-indigo-50 border-b border-indigo-100">
-                    <th colSpan={2} className="px-3 py-1.5 text-left text-indigo-700 font-medium text-xs">
+                    <th colSpan={4} className="px-3 py-1.5 text-left text-indigo-700 font-medium text-xs">
                       Semaine en cours — {currentWeekLabel()}
-                    </th>
-                    <th className="px-3 py-1.5 text-center text-indigo-700 font-bold text-xs">
-                      {weekTotal_count}
-                    </th>
-                    <th className="px-3 py-1.5 text-right text-indigo-700 font-bold text-xs">
-                      {fmtAmount(weekTotal_amount)} FCFA
                     </th>
                   </tr>
                 </thead>
