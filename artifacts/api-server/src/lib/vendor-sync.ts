@@ -1,4 +1,4 @@
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles, type RouterConnection } from "./mikrotik.js";
 import { runUsageSync } from "./usage-sync.js";
@@ -211,6 +211,42 @@ export async function syncMikrotikUsersToVendor(
         }
         logger.info({ vendorId, routerId, count: ids.length, canonical },
           "vendor sync: renamed obsolete profile → canonical");
+      }
+
+      // ── Step 3c: delete unsold vouchers whose profile no longer exists ────
+      // If a profile was deleted in MikroTik (not renamed — renaming was
+      // handled above), any unsold/available tickets for that profile are now
+      // invalid. We purge them from the DB. Sold records (usedAt IS NOT NULL)
+      // are kept as permanent accounting history.
+      // Safety guard: only run when MikroTik returned at least one profile,
+      // so a connection failure does not wipe the DB.
+      const orphanedUnsold = vendorProfileRows.filter((v) => {
+        // Already handled by rename step if a canonical match exists
+        if (profileMap.has(v.profileName)) return false;
+        if (profileNamesLower.has(v.profileName.toLowerCase())) return false;
+        return true; // profile truly absent from MikroTik
+      });
+
+      if (orphanedUnsold.length > 0) {
+        const orphanIds = orphanedUnsold.map((v) => v.id);
+        // Only delete the unsold ones (preserve sold history)
+        const CHUNK = 200;
+        let deleted = 0;
+        for (let i = 0; i < orphanIds.length; i += CHUNK) {
+          const rows = await db
+            .delete(vouchersTable)
+            .where(and(
+              inArray(vouchersTable.id, orphanIds.slice(i, i + CHUNK)),
+              isNull(vouchersTable.usedAt),
+            ))
+            .returning({ id: vouchersTable.id });
+          deleted += rows.length;
+        }
+        if (deleted > 0) {
+          const deletedProfiles = [...new Set(orphanedUnsold.map((v) => v.profileName))];
+          logger.info({ vendorId, routerId, deleted, profiles: deletedProfiles },
+            "vendor sync: purged unsold vouchers for deleted MikroTik profiles");
+        }
       }
     }
 
