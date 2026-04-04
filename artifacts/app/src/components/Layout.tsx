@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, Receipt,
+  UserCog, Menu, Receipt, ListOrdered,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -96,9 +96,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { href: "/generate",     label: "Générer",         icon: Zap },
         { href: "/vouchers",     label: "Vouchers",        icon: Ticket },
-        { href: "/vendors",      label: "Vendeurs",        icon: Users },
-        { href: "/reports",      label: "Rapports",        icon: BarChart3 },
-        { href: "/sales/report", label: "Rapport de vente", icon: Receipt },
+        { href: "/vendors",           label: "Vendeurs",          icon: Users },
+        { href: "/vendors/tracking",  label: "Suivi par vendeur", icon: ListOrdered },
+        { href: "/reports",           label: "Rapports",          icon: BarChart3 },
+        { href: "/sales/report",      label: "Rapport de vente",  icon: Receipt },
       ],
     },
     {

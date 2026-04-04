@@ -397,4 +397,129 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
   });
 });
 
+/* ─────────────────────────────────────────────────────────────────
+ * GET /vendors/daily-tracking?date=YYYY-MM-DD&routerId=X
+ * Returns per-vendor sold-voucher list + summary for a given day.
+ * date defaults to yesterday (UTC).
+ * ──────────────────────────────────────────────────────────────── */
+router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
+  const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
+  if (!routerId || isNaN(routerId)) {
+    res.status(400).json({ error: "routerId requis" });
+    return;
+  }
+
+  // Parse date — default to yesterday UTC
+  let dateStr = (req.query.date as string) ?? "";
+  let dayStart: Date;
+  let dayEnd: Date;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    dayStart = new Date(dateStr + "T00:00:00.000Z");
+    dayEnd   = new Date(dateStr + "T23:59:59.999Z");
+  } else {
+    const now = new Date();
+    const y = now.getUTCFullYear(), m = now.getUTCMonth(), d = now.getUTCDate();
+    dayStart = new Date(Date.UTC(y, m, d - 1, 0, 0, 0, 0));
+    dayEnd   = new Date(Date.UTC(y, m, d - 1, 23, 59, 59, 999));
+    dateStr  = dayStart.toISOString().slice(0, 10);
+  }
+
+  // Fetch router for priceMap
+  const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!routerRow) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn: RouterConnection = {
+    host: routerRow.host, port: routerRow.port,
+    username: routerRow.username, password: routerRow.password,
+  };
+  const priceMap = getCachedProfilePricesSync(routerId, conn);
+  // Case-insensitive fallback: priceMap keys are canonical MikroTik names,
+  // DB profileName may differ in case or trailing 's' (e.g. "3-Heures" vs "3-Heure")
+  const priceMapLower = new Map(
+    [...priceMap.entries()].map(([k, v]) => [k.toLowerCase(), v]),
+  );
+  function resolveUnitPrice(profileName: string): number {
+    const raw = priceMap.get(profileName) ?? priceMapLower.get(profileName.toLowerCase()) ?? "0";
+    return parseFloat(raw.replace(/[^0-9.]/g, "")) || 0;
+  }
+
+  // Fetch vendors for this router
+  const vendors = await db
+    .select()
+    .from(vendorsTable)
+    .where(eq(vendorsTable.routerId, routerId))
+    .orderBy(vendorsTable.name);
+
+  // Fetch all sold vouchers for the day (across all vendors on this router)
+  const sold = await db
+    .select({
+      id:          vouchersTable.id,
+      username:    vouchersTable.username,
+      profileName: vouchersTable.profileName,
+      salePrice:   vouchersTable.salePrice,
+      price:       vouchersTable.price,
+      usedAt:      vouchersTable.usedAt,
+      vendorId:    vouchersTable.vendorId,
+      saleIp:      vouchersTable.saleIp,
+      macAddress:  vouchersTable.macAddress,
+    })
+    .from(vouchersTable)
+    .where(
+      and(
+        eq(vouchersTable.routerId, routerId),
+        isNotNull(vouchersTable.usedAt),
+        sql`${vouchersTable.usedAt} >= ${dayStart.toISOString()}`,
+        sql`${vouchersTable.usedAt} <= ${dayEnd.toISOString()}`,
+      ),
+    )
+    .orderBy(vouchersTable.usedAt);
+
+  // Build vendor lookup
+  const vendorMap = new Map(vendors.map((v) => [v.id, v]));
+
+  // Enrich each voucher — resolve amount via priceMap when salePrice/price missing.
+  // Use case-insensitive lookup to handle DB names like "3-Heures" vs MikroTik "3-Heure".
+  const enriched = sold.map((v) => {
+    const rawAmount = parseFloat(v.salePrice || v.price || "0") || 0;
+    const unitPrice = resolveUnitPrice(v.profileName);
+    const amount    = Math.max(rawAmount, unitPrice);
+    const vendorName = v.vendorId ? (vendorMap.get(v.vendorId)?.name ?? "Inconnu") : "Sans vendeur";
+    const usedAtObj  = v.usedAt ? new Date(v.usedAt) : null;
+    return {
+      id:          v.id,
+      vendorId:    v.vendorId,
+      vendorName,
+      username:    v.username,
+      profileName: v.profileName,
+      amount,
+      usedAt:      v.usedAt,
+      date:        usedAtObj ? usedAtObj.toISOString().slice(0, 10) : null,
+      time:        usedAtObj ? usedAtObj.toISOString().slice(11, 16) : null,
+    };
+  });
+
+  // Per-vendor summary: count + amount (using max(sqlSum, count×price) approach)
+  const summaryMap = new Map<number | null, { vendorId: number | null; vendorName: string; count: number; amount: number }>();
+  for (const v of enriched) {
+    const key = v.vendorId;
+    if (!summaryMap.has(key)) {
+      summaryMap.set(key, { vendorId: key, vendorName: v.vendorName, count: 0, amount: 0 });
+    }
+    const s = summaryMap.get(key)!;
+    s.count  += 1;
+    s.amount += v.amount;
+  }
+
+  // Also add vendors with 0 sales so they appear in the summary
+  for (const v of vendors) {
+    if (!summaryMap.has(v.id)) {
+      summaryMap.set(v.id, { vendorId: v.id, vendorName: v.name, count: 0, amount: 0 });
+    }
+  }
+
+  const summary = [...summaryMap.values()].sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));
+
+  res.json({ date: dateStr, summary, vouchers: enriched });
+});
+
 export default router;
