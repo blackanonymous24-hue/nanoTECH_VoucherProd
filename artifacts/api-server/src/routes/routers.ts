@@ -294,6 +294,44 @@ router.put("/routers/:id/profiles/:profileName", async (req, res): Promise<void>
   }
 });
 
+/** GET /routers/:id/profiles/db — distinct profile names stored in the local DB for this router */
+router.get("/routers/:id/profiles/db", async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const rows = await db
+    .select({
+      profileName: vouchersTable.profileName,
+      total:       sql<number>`count(*)::int`,
+      available:   sql<number>`count(*) filter (where ${vouchersTable.usedAt} is null)::int`,
+      sold:        sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)::int`,
+    })
+    .from(vouchersTable)
+    .where(eq(vouchersTable.routerId, id))
+    .groupBy(vouchersTable.profileName)
+    .orderBy(vouchersTable.profileName);
+
+  res.json(rows);
+});
+
+/** POST /routers/:id/profiles/merge — rename all vouchers from one profile name to another */
+router.post("/routers/:id/profiles/merge", async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const { from, to } = req.body as { from?: string; to?: string };
+  if (!from || !to) { res.status(400).json({ error: "Champs 'from' et 'to' requis" }); return; }
+  if (from === to)   { res.status(400).json({ error: "'from' et 'to' sont identiques" }); return; }
+
+  const result = await db
+    .update(vouchersTable)
+    .set({ profileName: to })
+    .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.profileName, from)))
+    .returning({ id: vouchersTable.id });
+
+  res.json({ ok: true, updated: result.length });
+});
+
 router.delete("/routers/:id/profiles/:profileName", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube, KeyRound, CheckCircle2, MoreHorizontal } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 import {
@@ -32,6 +32,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -161,6 +168,165 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
   );
 }
 
+type DbProfile = { profileName: string; total: number; available: number; sold: number };
+
+function ProfileMergeDialog({ routerId, onClose }: { routerId: number; onClose: () => void }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [dbProfiles, setDbProfiles] = useState<DbProfile[]>([]);
+  const [liveNames, setLiveNames] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [merging, setMerging] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [dbRes, liveRes] = await Promise.all([
+        fetch(`${BASE}/api/routers/${routerId}/profiles/db`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${BASE}/api/routers/${routerId}/profiles`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
+      ]);
+      const db: DbProfile[] = await dbRes.json();
+      setDbProfiles(db);
+      if (liveRes?.ok) {
+        const live: { name: string }[] = await liveRes.json();
+        setLiveNames(new Set(live.map((p) => p.name)));
+      }
+    } catch {
+      toast({ title: "Erreur de chargement", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const handleMerge = async () => {
+    if (!from || !to) return;
+    if (!confirm(`Fusionner tous les tickets « ${from} » → « ${to} » ?\nCette action est irréversible.`)) return;
+    setMerging(true);
+    try {
+      const res = await fetch(`${BASE}/api/routers/${routerId}/profiles/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ from, to }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast({ title: `Fusion effectuée — ${data.updated} ticket(s) mis à jour` });
+      setFrom("");
+      setTo("");
+      await load();
+    } catch (err) {
+      toast({ title: "Erreur", description: err instanceof Error ? err.message : "Erreur inconnue", variant: "destructive" });
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  const orphaned = dbProfiles.filter((p) => liveNames.size > 0 && !liveNames.has(p.profileName));
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg w-full">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Layers className="h-4 w-4" /> Gestion des profils — BD
+          </DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-8 text-center text-sm text-gray-400">Chargement...</div>
+        ) : (
+          <div className="space-y-4">
+            {orphaned.length > 0 && (
+              <div className="flex items-start gap-2 rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-sm text-orange-700">
+                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>
+                  <strong>{orphaned.length} profil(s)</strong> en BD absent(s) de MikroTik :{" "}
+                  {orphaned.map((p) => `« ${p.profileName} »`).join(", ")}
+                </span>
+              </div>
+            )}
+
+            <div className="rounded-md border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500">
+                  <tr>
+                    <th className="text-left px-3 py-2">Profil</th>
+                    <th className="text-right px-3 py-2">Total</th>
+                    <th className="text-right px-3 py-2">Dispo</th>
+                    <th className="text-right px-3 py-2">Vendus</th>
+                    <th className="text-center px-3 py-2">Statut</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {dbProfiles.map((p) => {
+                    const isOrphaned = liveNames.size > 0 && !liveNames.has(p.profileName);
+                    return (
+                      <tr key={p.profileName} className={isOrphaned ? "bg-orange-50" : ""}>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-800">{p.profileName}</td>
+                        <td className="px-3 py-2 text-right text-gray-600">{p.total}</td>
+                        <td className="px-3 py-2 text-right text-emerald-600 font-semibold">{p.available}</td>
+                        <td className="px-3 py-2 text-right text-gray-400">{p.sold}</td>
+                        <td className="px-3 py-2 text-center">
+                          {isOrphaned ? (
+                            <span className="text-xs font-semibold text-orange-500">Ancien nom</span>
+                          ) : (
+                            <span className="text-xs text-green-600">✓ Actif</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Fusionner un profil</p>
+              <div className="flex items-center gap-2">
+                <Select value={from} onValueChange={setFrom}>
+                  <SelectTrigger className="flex-1 text-sm h-9">
+                    <SelectValue placeholder="Ancien nom..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dbProfiles.map((p) => (
+                      <SelectItem key={p.profileName} value={p.profileName}>{p.profileName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <ArrowRight className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                <Select value={to} onValueChange={setTo}>
+                  <SelectTrigger className="flex-1 text-sm h-9">
+                    <SelectValue placeholder="Nom cible..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dbProfiles.filter((p) => p.profileName !== from).map((p) => (
+                      <SelectItem key={p.profileName} value={p.profileName}>{p.profileName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <button
+                  onClick={handleMerge}
+                  disabled={!from || !to || merging}
+                  className="px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {merging ? "..." : "Fusionner"}
+                </button>
+              </div>
+              <p className="text-xs text-gray-400">
+                Tous les tickets de l&apos;ancien nom seront rattachés au nom cible. Les tickets vendus sont conservés.
+              </p>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Routers() {
   const { data: routers = [], isLoading } = useListRouters();
   const createMutation = useCreateRouter();
@@ -179,6 +345,7 @@ export default function Routers() {
   const [editRouter, setEditRouter] = useState<RouterType | null>(null);
   const [form, setForm] = useState<RouterFormData>(emptyForm);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
+  const [profileMergeRouterId, setProfileMergeRouterId] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
 
@@ -355,6 +522,9 @@ export default function Routers() {
                           <DropdownMenuItem className="py-1.5 text-sm" onClick={() => openEdit(r)}>
                             <Edit className="h-3.5 w-3.5 mr-2" /> Modifier
                           </DropdownMenuItem>
+                          <DropdownMenuItem className="py-1.5 text-sm" onClick={() => setProfileMergeRouterId(r.id)}>
+                            <Layers className="h-3.5 w-3.5 mr-2" /> Profils en base
+                          </DropdownMenuItem>
                           {!isManager && (
                             <>
                               <DropdownMenuSeparator />
@@ -462,6 +632,13 @@ export default function Routers() {
       </Dialog>
 
       <CredentialsDialog open={showCredentials} onClose={() => setShowCredentials(false)} />
+
+      {profileMergeRouterId !== null && (
+        <ProfileMergeDialog
+          routerId={profileMergeRouterId}
+          onClose={() => setProfileMergeRouterId(null)}
+        />
+      )}
     </div>
   );
 }
