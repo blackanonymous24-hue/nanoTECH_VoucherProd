@@ -22,6 +22,7 @@ import TicketTemplate from "@/pages/TicketTemplate";
 import Managers from "@/pages/Managers";
 import VendorTracking from "@/pages/VendorTracking";
 import VendorPayments from "@/pages/VendorPayments";
+import StockAlerts from "@/pages/StockAlerts";
 import NotFound from "@/pages/not-found";
 
 function AppRoutes() {
@@ -57,6 +58,7 @@ function AppRoutes() {
           <Route path="/vendors/versements" component={VendorPayments} />
           <Route path="/ticket-template" component={TicketTemplate} />
           <Route path="/managers" component={Managers} />
+          <Route path="/stock-alerts" component={StockAlerts} />
           <Route component={NotFound} />
         </Switch>
       </Layout>

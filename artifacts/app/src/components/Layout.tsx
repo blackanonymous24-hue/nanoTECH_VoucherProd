@@ -228,7 +228,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 Alertes
               </p>
               <Link
-                href="/vendors"
+                href="/stock-alerts"
                 onClick={onNavigate}
                 className={cn(
                   "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
