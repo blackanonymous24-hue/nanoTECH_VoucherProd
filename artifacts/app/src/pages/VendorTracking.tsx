@@ -239,12 +239,17 @@ export default function VendorTracking() {
     if (!data) return;
     setSaving(true);
     try {
-      const DPR   = 2;
-      const W     = 520;
-      const PAD   = 20;
-      const ROW_H = 28;
+      const DPR    = 2;
+      const W      = 580;   // wider canvas to avoid overlap
+      const PAD    = 20;
+      const ROW_H  = 28;
       const HEAD_H = 36;
       const BAND_H = 24;
+      // columns: #(28) | Vendeur(flex) | Tickets(80, centered) | FCFA(140, right)
+      const C0 = PAD;          // # left edge
+      const C1 = PAD + 28;     // Vendeur left edge
+      const C2 = W - PAD - 140 - 80; // Tickets left edge → center = C2+40
+      const C3 = W - PAD;      // FCFA right edge
 
       const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
       const wkSummary    = data.weekSummary ?? [];
@@ -310,25 +315,25 @@ export default function VendorTracking() {
         grandCount: number,
         grandAmount: number,
       ) => {
-        const colX  = [PAD, PAD + 28, W - PAD - 100, W - PAD];
-        const colW  = [28, W - PAD * 2 - 28 - 100 - 8, 92, 0];
+        // C2 is the LEFT edge of the Tickets column; its center = C2 + 40
+        const ticketsCenter = C2 + 40;
         let y = startY;
 
         /* column headers */
         rect(PAD, y, W - PAD * 2, HEAD_H, "#f9fafb");
         line(PAD, y, W - PAD, y, "#e5e7eb");
-        text("#",         colX[0] + 4,                     y + HEAD_H / 2, { size: 10, color: "#6b7280" });
-        text("Vendeur",   colX[1],                          y + HEAD_H / 2, { size: 10, color: "#6b7280" });
-        text("Tickets",   colX[2] + colW[2] / 2,           y + HEAD_H / 2, { size: 10, color: "#6b7280", align: "center" });
-        text("Total (FCFA)", colX[3],                       y + HEAD_H / 2, { size: 10, color: "#6b7280", align: "right" });
+        text("#",        C0 + 4,          y + HEAD_H / 2, { size: 10, color: "#6b7280" });
+        text("Vendeur",  C1,              y + HEAD_H / 2, { size: 10, color: "#6b7280" });
+        text("Tickets",  ticketsCenter,   y + HEAD_H / 2, { size: 10, color: "#6b7280", align: "center" });
+        text("FCFA",     C3,              y + HEAD_H / 2, { size: 10, color: "#6b7280", align: "right" });
         line(PAD, y + HEAD_H, W - PAD, y + HEAD_H, "#e5e7eb");
         y += HEAD_H;
 
         /* coloured band */
         rect(PAD, y, W - PAD * 2, BAND_H, bandBg);
-        text(title,         colX[0] + 4,       y + BAND_H / 2, { size: 10, bold: true, color: bandText });
-        text(String(grandCount), colX[2] + colW[2] / 2, y + BAND_H / 2, { size: 10, bold: true, color: bandText, align: "center" });
-        text(fmtAmount(grandAmount) + " FCFA", colX[3], y + BAND_H / 2, { size: 10, bold: true, color: bandText, align: "right" });
+        text(title,               C0 + 4,        y + BAND_H / 2, { size: 10, bold: true, color: bandText });
+        text(String(grandCount),  ticketsCenter,  y + BAND_H / 2, { size: 10, bold: true, color: bandText, align: "center" });
+        text(fmtAmount(grandAmount), C3,          y + BAND_H / 2, { size: 10, bold: true, color: bandText, align: "right" });
         line(PAD, y + BAND_H, W - PAD, y + BAND_H, "#e5e7eb");
         y += BAND_H;
 
@@ -336,19 +341,19 @@ export default function VendorTracking() {
         rows.forEach((r, i) => {
           const bg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
           rect(PAD, y, W - PAD * 2, ROW_H, bg);
-          text(String(i + 1),               colX[0] + 4,            y + ROW_H / 2, { size: 10, color: "#9ca3af" });
-          text(r.name,                      colX[1],                 y + ROW_H / 2, { size: 10, color: "#1f2937" });
-          text(String(r.count),             colX[2] + colW[2] / 2,  y + ROW_H / 2, { size: 10, color: "#374151", align: "center" });
-          text(fmtAmount(r.amount),         colX[3],                 y + ROW_H / 2, { size: 10, bold: true, color: "#1f2937", align: "right" });
+          text(String(i + 1),       C0 + 4,        y + ROW_H / 2, { size: 10, color: "#9ca3af" });
+          text(r.name,              C1,             y + ROW_H / 2, { size: 10, color: "#1f2937" });
+          text(String(r.count),     ticketsCenter,  y + ROW_H / 2, { size: 10, color: "#374151", align: "center" });
+          text(fmtAmount(r.amount), C3,             y + ROW_H / 2, { size: 10, bold: true, color: "#1f2937", align: "right" });
           line(PAD, y + ROW_H, W - PAD, y + ROW_H, "#f3f4f6");
           y += ROW_H;
         });
 
         /* footer */
         rect(PAD, y, W - PAD * 2, ROW_H, "#f3f4f6");
-        text(totalLabel,              colX[3] - 100,    y + ROW_H / 2, { size: 10, bold: true, color: "#6b7280", align: "right" });
-        text(String(grandCount),      colX[2] + colW[2] / 2, y + ROW_H / 2, { size: 11, bold: true, color: titleColor, align: "center" });
-        text(fmtAmount(grandAmount) + " FCFA", colX[3], y + ROW_H / 2, { size: 11, bold: true, color: titleColor, align: "right" });
+        text(totalLabel,                      C1,            y + ROW_H / 2, { size: 10, bold: true, color: "#6b7280" });
+        text(String(grandCount),              ticketsCenter, y + ROW_H / 2, { size: 11, bold: true, color: titleColor, align: "center" });
+        text(fmtAmount(grandAmount) + " FCFA", C3,           y + ROW_H / 2, { size: 11, bold: true, color: titleColor, align: "right" });
 
         /* outer border */
         ctx.strokeStyle = "#e5e7eb";
