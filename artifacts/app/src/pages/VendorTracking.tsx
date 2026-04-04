@@ -1,11 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Printer, Search, RotateCcw, Users, Loader2, AlertCircle, CalendarDays,
+  Printer, Search, RotateCcw, Users, Loader2, AlertCircle, CalendarDays, ImageDown,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -215,9 +215,32 @@ ${weekSection}
 export default function VendorTracking() {
   const { selectedRouterId } = useRouterContext();
 
-  const [date, setDate]     = useState<string>(yesterdayLocal());
+  const [date, setDate]       = useState<string>(yesterdayLocal());
   const [applied, setApplied] = useState<string>(yesterdayLocal());
-  const [search, setSearch] = useState("");
+  const [search, setSearch]   = useState("");
+  const [saving, setSaving]   = useState(false);
+
+  const summaryRef = useRef<HTMLDivElement>(null);
+
+  const saveAsJpeg = useCallback(async () => {
+    if (!summaryRef.current) return;
+    setSaving(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(summaryRef.current, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      const link = document.createElement("a");
+      link.download = `suivi-vendeurs-${applied}.jpeg`;
+      link.href = canvas.toDataURL("image/jpeg", 0.92);
+      link.click();
+    } finally {
+      setSaving(false);
+    }
+  }, [applied]);
 
   const { data, isLoading, isError, error } = useQuery<DailyTrackingResponse>({
     queryKey: ["vendor-tracking", selectedRouterId, applied],
@@ -320,14 +343,27 @@ export default function VendorTracking() {
               <RotateCcw className="h-3.5 w-3.5" /> Hier
             </Button>
 
-            <Button
-              size="sm" variant="outline"
-              className="h-8 gap-1.5 text-xs ml-auto"
-              disabled={!data || grandCount === 0}
-              onClick={() => data && openPrintWindow(data, search)}
-            >
-              <Printer className="h-3.5 w-3.5" /> Imprimer le rapport
-            </Button>
+            <div className="ml-auto flex gap-2">
+              <Button
+                size="sm" variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                disabled={!data || grandCount === 0 || saving}
+                onClick={saveAsJpeg}
+              >
+                {saving
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <ImageDown className="h-3.5 w-3.5" />}
+                Enregistrer résumé
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                disabled={!data || grandCount === 0}
+                onClick={() => data && openPrintWindow(data, search)}
+              >
+                <Printer className="h-3.5 w-3.5" /> Imprimer le rapport
+              </Button>
+            </div>
           </div>
 
           {/* Search */}
@@ -353,6 +389,9 @@ export default function VendorTracking() {
               <span className="text-sm">Chargement…</span>
             </div>
           )}
+
+          {/* ── Capture zone (summary + week) ─────────────────── */}
+          <div ref={summaryRef} className="space-y-3 bg-white rounded-xl p-3">
 
           {/* Summary table */}
           {!isLoading && activeSummary.length > 0 && (
@@ -457,6 +496,8 @@ export default function VendorTracking() {
               </table>
             </div>
           )}
+
+          </div>{/* end capture zone */}
 
           {/* Detail table */}
           {!isLoading && (
