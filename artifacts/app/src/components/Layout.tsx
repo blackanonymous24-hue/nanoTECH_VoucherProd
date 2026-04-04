@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, Receipt, ListOrdered, Wallet,
+  UserCog, Menu, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -14,6 +14,11 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -58,8 +63,58 @@ function RouterSelector({ className }: { className?: string }) {
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { routerIdentity, selectedRouterId } = useRouterContext();
-  const { logout, role } = useAuth();
+  const { logout, role, token } = useAuth();
   const isAdmin = role === "admin";
+  const isManager = role === "manager";
+
+  /* ── Password change dialog state (managers only) ── */
+  const [showPwd, setShowPwd]         = useState(false);
+  const [pwdCurrent, setPwdCurrent]   = useState("");
+  const [pwdNew, setPwdNew]           = useState("");
+  const [pwdConfirm, setPwdConfirm]   = useState("");
+  const [pwdError, setPwdError]       = useState("");
+  const [pwdSuccess, setPwdSuccess]   = useState(false);
+  const [pwdLoading, setPwdLoading]   = useState(false);
+
+  function openPwdDialog() {
+    setPwdCurrent(""); setPwdNew(""); setPwdConfirm("");
+    setPwdError(""); setPwdSuccess(false);
+    setShowPwd(true);
+  }
+
+  async function handleChangePwd() {
+    setPwdError("");
+    if (!pwdCurrent || !pwdNew || !pwdConfirm) {
+      setPwdError("Tous les champs sont requis."); return;
+    }
+    if (pwdNew.length < 4) {
+      setPwdError("Le nouveau mot de passe doit comporter au moins 4 caractères."); return;
+    }
+    if (pwdNew !== pwdConfirm) {
+      setPwdError("Les nouveaux mots de passe ne correspondent pas."); return;
+    }
+    setPwdLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/managers/me/password`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ currentPassword: pwdCurrent, newPassword: pwdNew }),
+      });
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        setPwdError(data.error ?? "Erreur inconnue");
+      } else {
+        setPwdSuccess(true);
+      }
+    } catch {
+      setPwdError("Erreur réseau. Réessayez.");
+    } finally {
+      setPwdLoading(false);
+    }
+  }
 
   const { data: voucherCount } = useQuery<number>({
     queryKey: ["router-users-count", selectedRouterId],
@@ -188,26 +243,115 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent flex-shrink-0" />
 
       {/* ── Footer ── */}
-      <div className="px-3 py-3 flex-shrink-0 flex items-center justify-between gap-2">
-        {role === "manager" ? (
-          <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-400/80 bg-amber-400/10 px-2 py-0.5 rounded-full ring-1 ring-amber-400/20">
-            Gérant de zone
-          </span>
-        ) : role === "admin" ? (
-          <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20">
-            Admin
-          </span>
-        ) : (
-          <span />
-        )}
+      <div className="px-3 py-3 flex-shrink-0 space-y-1.5">
+        {/* Role badge + password button row */}
+        <div className="flex items-center justify-between gap-2">
+          {isManager ? (
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-400/80 bg-amber-400/10 px-2 py-0.5 rounded-full ring-1 ring-amber-400/20">
+              Gérant de zone
+            </span>
+          ) : isAdmin ? (
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20">
+              Admin
+            </span>
+          ) : (
+            <span />
+          )}
+
+          {/* Modify password — managers only */}
+          {isManager && (
+            <button
+              onClick={openPwdDialog}
+              className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-amber-300 transition-colors px-2 py-1 rounded-lg hover:bg-amber-500/10 whitespace-nowrap"
+              title="Modifier mon mot de passe"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              <span>Mot de passe</span>
+            </button>
+          )}
+        </div>
+
+        {/* Logout */}
         <button
           onClick={logout}
-          className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
+          className="w-full flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
         >
           <LogOut className="h-3.5 w-3.5" />
           <span>Déconnexion</span>
         </button>
       </div>
+
+      {/* ── Password change dialog (manager only) ── */}
+      <Dialog open={showPwd} onOpenChange={(v) => { if (!v) setShowPwd(false); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-amber-500" />
+              Modifier mon mot de passe
+            </DialogTitle>
+          </DialogHeader>
+
+          {pwdSuccess ? (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              </div>
+              <p className="text-sm font-medium text-emerald-700">Mot de passe modifié avec succès !</p>
+              <Button className="mt-2" onClick={() => setShowPwd(false)}>Fermer</Button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3 py-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Mot de passe actuel</Label>
+                  <Input
+                    type="password"
+                    value={pwdCurrent}
+                    onChange={(e) => setPwdCurrent(e.target.value)}
+                    placeholder="••••••••"
+                    className="h-9 text-sm"
+                    autoComplete="current-password"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Nouveau mot de passe</Label>
+                  <Input
+                    type="password"
+                    value={pwdNew}
+                    onChange={(e) => setPwdNew(e.target.value)}
+                    placeholder="4 caractères minimum"
+                    className="h-9 text-sm"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Confirmer le nouveau mot de passe</Label>
+                  <Input
+                    type="password"
+                    value={pwdConfirm}
+                    onChange={(e) => setPwdConfirm(e.target.value)}
+                    placeholder="••••••••"
+                    className="h-9 text-sm"
+                    autoComplete="new-password"
+                    onKeyDown={(e) => e.key === "Enter" && void handleChangePwd()}
+                  />
+                </div>
+                {pwdError && (
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pwdError}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowPwd(false)} disabled={pwdLoading}>
+                  Annuler
+                </Button>
+                <Button onClick={() => void handleChangePwd()} disabled={pwdLoading}>
+                  {pwdLoading ? "Enregistrement…" : "Enregistrer"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

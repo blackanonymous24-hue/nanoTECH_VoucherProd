@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db, managersTable } from "@workspace/db";
-import { hashPassword } from "../lib/manager-auth.js";
+import { hashPassword, verifyPassword, verifyToken } from "../lib/manager-auth.js";
 import { verifyAdminToken } from "../lib/admin-auth.js";
 
 const router = Router();
@@ -45,6 +45,34 @@ router.post("/managers", async (req, res): Promise<void> => {
     .values({ name: name.trim(), username: username.trim(), passwordHash })
     .returning();
   res.status(201).json(safeManager(manager));
+});
+
+/* ── PUT /managers/me/password — gérant change son propre mot de passe ── */
+/* IMPORTANT: must be declared BEFORE /managers/:id to avoid route conflict  */
+router.put("/managers/me/password", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const payload = verifyToken(auth.slice(7));
+  if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: "Champs requis manquants" }); return;
+  }
+  if (newPassword.length < 4) {
+    res.status(400).json({ error: "Le nouveau mot de passe doit comporter au moins 4 caractères" }); return;
+  }
+
+  const [manager] = await db.select().from(managersTable).where(eq(managersTable.id, payload.managerId));
+  if (!manager || !manager.passwordHash) { res.status(404).json({ error: "Gérant introuvable" }); return; }
+
+  const valid = await verifyPassword(currentPassword, manager.passwordHash);
+  if (!valid) { res.status(401).json({ error: "Ancien mot de passe incorrect" }); return; }
+
+  const passwordHash = await hashPassword(newPassword);
+  await db.update(managersTable).set({ passwordHash }).where(eq(managersTable.id, manager.id));
+
+  res.json({ success: true });
 });
 
 router.put("/managers/:id", async (req, res): Promise<void> => {
