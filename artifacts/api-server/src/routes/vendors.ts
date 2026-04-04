@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, desc, and, count, sql, isNotNull, ilike, inArray } from "drizzle-orm";
-import { db, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
+import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
 import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -566,6 +566,153 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     .sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));
 
   res.json({ date: dateStr, summary, vouchers: enriched, weekSummary });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ *  VERSEMENTS (vendor payments)
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/** Return YYYY-MM-DD of the Monday for any given date string (YYYY-MM-DD) */
+function mondayOf(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00Z");
+  const day = d.getUTCDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * GET /api/vendors/weekly-summary
+ * Query: routerId, weekStart (YYYY-MM-DD, any day of the week — forced to Monday)
+ * Returns per-vendor: sales for the week + payments + remaining
+ */
+router.get("/vendors/weekly-summary", async (req, res) => {
+  try {
+    const routerId = parseInt(req.query.routerId as string);
+    if (isNaN(routerId)) return res.status(400).json({ error: "routerId required" });
+
+    const rawWeek = (req.query.weekStart as string) ?? new Date().toISOString().slice(0, 10);
+    const weekStart = mondayOf(rawWeek);
+    const wStart = new Date(weekStart + "T00:00:00Z");
+    const wEnd   = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const vendors = await db
+      .select()
+      .from(vendorsTable)
+      .where(and(eq(vendorsTable.routerId, routerId), eq(vendorsTable.isActive, true)));
+
+    const salesRaw = await db
+      .select({
+        vendorId:     vouchersTable.vendorId,
+        profileName:  vouchersTable.profileName,
+        cnt:          sql<number>`count(*)`,
+        salePriceSum: sql<number>`coalesce(sum(nullif(${vouchersTable.salePrice},'')::numeric), 0)`,
+        priceSum:     sql<number>`coalesce(sum(nullif(${vouchersTable.price},'')::numeric), 0)`,
+      })
+      .from(vouchersTable)
+      .where(
+        and(
+          eq(vouchersTable.routerId, routerId),
+          isNotNull(vouchersTable.usedAt),
+          sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+          sql`${vouchersTable.usedAt} <  ${wEnd.toISOString()}`,
+        ),
+      )
+      .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
+
+    const payments = await db
+      .select()
+      .from(vendorPaymentsTable)
+      .where(
+        and(
+          eq(vendorPaymentsTable.routerId, routerId),
+          eq(vendorPaymentsTable.weekStart, weekStart),
+        ),
+      )
+      .orderBy(vendorPaymentsTable.paidAt);
+
+    const priceMap = getCachedProfilePricesSync(routerId);
+    const lower    = new Map<string, number>();
+    for (const [k, v] of priceMap) lower.set(k.toLowerCase(), v);
+    const resolveUnit = (name: string) => lower.get(name.toLowerCase()) ?? 0;
+
+    const salesMap = new Map<number | null, { count: number; amount: number }>();
+    for (const v of vendors) salesMap.set(v.id, { count: 0, amount: 0 });
+    for (const r of salesRaw) {
+      const cnt  = Number(r.cnt);
+      const raw  = Math.max(Number(r.salePriceSum), Number(r.priceSum));
+      const unit = resolveUnit(r.profileName);
+      const amt  = Math.max(raw, cnt * unit);
+      const key  = r.vendorId;
+      if (!salesMap.has(key)) salesMap.set(key, { count: 0, amount: 0 });
+      const s = salesMap.get(key)!;
+      s.count  += cnt;
+      s.amount += amt;
+    }
+
+    const paymentsMap = new Map<number, { id: number; amount: number; paidAt: Date; note: string | null }[]>();
+    for (const p of payments) {
+      if (!paymentsMap.has(p.vendorId)) paymentsMap.set(p.vendorId, []);
+      paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note });
+    }
+
+    const result = vendors
+      .map((v) => {
+        const sales    = salesMap.get(v.id) ?? { count: 0, amount: 0 };
+        const paid     = paymentsMap.get(v.id) ?? [];
+        const totalPaid = paid.reduce((s, p) => s + p.amount, 0);
+        return {
+          vendorId:  v.id,
+          vendorName: v.name,
+          count:     sales.count,
+          amount:    sales.amount,
+          totalPaid,
+          remaining: Math.max(0, sales.amount - totalPaid),
+          payments:  paid,
+        };
+      })
+      .filter((v) => v.count > 0 || v.payments.length > 0)
+      .sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));
+
+    res.json({ weekStart, vendors: result });
+  } catch (err) {
+    logger.error({ err }, "weekly-summary error");
+    res.status(500).json({ error: "Internal error" });
+  }
+});
+
+/** POST /api/vendors/payments — record a versement */
+router.post("/vendors/payments", async (req, res) => {
+  try {
+    const { vendorId, routerId, weekStart, amount, note } = req.body as {
+      vendorId: number; routerId: number; weekStart: string; amount: number; note?: string;
+    };
+    if (!vendorId || !routerId || !weekStart || !amount) {
+      return res.status(400).json({ error: "vendorId, routerId, weekStart, amount required" });
+    }
+    const ws = mondayOf(weekStart);
+    const [payment] = await db
+      .insert(vendorPaymentsTable)
+      .values({ vendorId: +vendorId, routerId: +routerId, weekStart: ws, amount: +amount, note: note || null })
+      .returning();
+    res.json(payment);
+  } catch (err) {
+    logger.error({ err }, "create payment error");
+    res.status(500).json({ error: "Internal error" });
+  }
+});
+
+/** DELETE /api/vendors/payments/:id — cancel a versement */
+router.delete("/vendors/payments/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "invalid id" });
+    await db.delete(vendorPaymentsTable).where(eq(vendorPaymentsTable.id, id));
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "delete payment error");
+    res.status(500).json({ error: "Internal error" });
+  }
 });
 
 export default router;

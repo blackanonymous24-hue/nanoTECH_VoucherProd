@@ -21,6 +21,7 @@ import VendorPortal from "@/pages/VendorPortal";
 import TicketTemplate from "@/pages/TicketTemplate";
 import Managers from "@/pages/Managers";
 import VendorTracking from "@/pages/VendorTracking";
+import VendorPayments from "@/pages/VendorPayments";
 import NotFound from "@/pages/not-found";
 
 function AppRoutes() {
@@ -53,6 +54,7 @@ function AppRoutes() {
           <Route path="/sales/monthly" component={() => <SalesRanking period="monthly" />} />
           <Route path="/sales/report" component={SellingReport} />
           <Route path="/vendors/tracking" component={VendorTracking} />
+          <Route path="/vendors/versements" component={VendorPayments} />
           <Route path="/ticket-template" component={TicketTemplate} />
           <Route path="/managers" component={Managers} />
           <Route component={NotFound} />
