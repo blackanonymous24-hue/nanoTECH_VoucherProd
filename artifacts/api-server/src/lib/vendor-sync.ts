@@ -176,16 +176,26 @@ export async function syncMikrotikUsersToVendor(
 
     // Insert active hotspot users not yet in DB
     const profileMap = new Map(allProfiles.map((p) => [p.name, p]));
+    // Build a case-insensitive lookup map for profile name normalization
+    // so "3-Heures" (user field) maps to "3-Heure" (canonical MikroTik profile name).
+    const profileNamesLower = new Map(allProfiles.map((p) => [p.name.toLowerCase(), p.name]));
+
     const toInsert = matched
       .filter((u) => !existingMap.has(u.username) && u.username)
       .map((u) => {
-        const prof = profileMap.get(u.profile);
+        // Normalize profile name: prefer exact match, then case-insensitive, then original
+        const rawProfile = u.profile || "default";
+        const canonicalName =
+          profileMap.has(rawProfile)
+            ? rawProfile
+            : (profileNamesLower.get(rawProfile.toLowerCase()) ?? rawProfile);
+        const prof = profileMap.get(canonicalName);
         return {
           routerId,
           vendorId,
           username:    u.username,
           password:    u.password ?? "",
-          profileName: u.profile || "default",
+          profileName: canonicalName,
           price:       prof?.price ?? "",
           validity:    prof?.validity ?? "",
           comment:     u.comment ?? null,
