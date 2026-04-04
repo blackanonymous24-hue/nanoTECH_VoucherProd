@@ -23,7 +23,7 @@ import {
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
   User, RefreshCw, Clock, ChevronLeft, Search, Banknote, Printer, LogIn,
-  PackageOpen, Bell, Wallet, CheckCircle2, KeyRound,
+  PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X,
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
@@ -761,6 +761,7 @@ function Dashboard({ token, vendor, onLogout }: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
+  const [recentSearch, setRecentSearch] = useState("");
 
   // Password change dialog
   const [showChangePwd, setShowChangePwd] = useState(false);
@@ -1192,19 +1193,49 @@ function Dashboard({ token, vendor, onLogout }: {
 
             <Card className="flex flex-col overflow-hidden">
               <CardHeader className="pb-2 flex-shrink-0">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-2">
                   <CardTitle className="text-base">Ventes récentes</CardTitle>
                   {data.recentSales.length > 0 && (
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full tabular-nums">
-                      {data.recentSales.length}
+                      {recentSearch.trim()
+                        ? `${data.recentSales.filter(v => `${v.username} ${v.profileName}`.toLowerCase().includes(recentSearch.toLowerCase())).length}/${data.recentSales.length}`
+                        : data.recentSales.length}
                     </span>
                   )}
                 </div>
+                {data.recentSales.length > 0 && (
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Rechercher par utilisateur ou forfait…"
+                      value={recentSearch}
+                      onChange={(e) => setRecentSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-400"
+                    />
+                    {recentSearch && (
+                      <button
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        onClick={() => setRecentSearch("")}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="p-0">
                 {data.recentSales.length === 0 ? (
                   <p className="text-sm text-gray-400 text-center py-8 px-4">Aucune vente enregistrée</p>
-                ) : (
+                ) : (() => {
+                  const filtered = recentSearch.trim()
+                    ? data.recentSales.filter(v =>
+                        `${v.username} ${v.profileName}`.toLowerCase().includes(recentSearch.toLowerCase())
+                      )
+                    : data.recentSales;
+                  return filtered.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-8 px-4">Aucun résultat pour « {recentSearch} »</p>
+                  ) : (
                   <div className="max-h-[360px] overflow-y-auto scroll-card">
                     <table className="w-full text-xs border-collapse">
                       <thead>
@@ -1218,7 +1249,7 @@ function Dashboard({ token, vendor, onLogout }: {
                         </tr>
                       </thead>
                       <tbody>
-                        {data.recentSales.map((v, i) => {
+                        {filtered.map((v, i) => {
                           const displayPrice = v.salePrice || v.price || "";
                           const dateStr = v.usedAt ? (() => {
                             const d = new Date(v.usedAt);
@@ -1277,7 +1308,8 @@ function Dashboard({ token, vendor, onLogout }: {
                       </tbody>
                     </table>
                   </div>
-                )}
+                  );
+                })()}
               </CardContent>
             </Card>
 
