@@ -180,6 +180,40 @@ export async function syncMikrotikUsersToVendor(
     // so "3-Heures" (user field) maps to "3-Heure" (canonical MikroTik profile name).
     const profileNamesLower = new Map(allProfiles.map((p) => [p.name.toLowerCase(), p.name]));
 
+    // ── Step 3b: normalize profile names on existing vendor vouchers ──────
+    // When a profile is renamed in MikroTik (e.g. "3-Heures" → "3-Heure"),
+    // DB records from before the rename still carry the old name. Here we
+    // detect those via a case-insensitive lookup and update them in bulk.
+    if (allProfiles.length > 0) {
+      const vendorProfileRows = await db
+        .select({ id: vouchersTable.id, profileName: vouchersTable.profileName })
+        .from(vouchersTable)
+        .where(eq(vouchersTable.vendorId, vendorId));
+
+      const toNormalize = new Map<string, number[]>(); // canonicalName → [ids]
+      for (const v of vendorProfileRows) {
+        if (!profileMap.has(v.profileName)) {
+          const canonical = profileNamesLower.get(v.profileName.toLowerCase());
+          if (canonical) {
+            if (!toNormalize.has(canonical)) toNormalize.set(canonical, []);
+            toNormalize.get(canonical)!.push(v.id);
+          }
+        }
+      }
+
+      for (const [canonical, ids] of toNormalize) {
+        const CHUNK = 200;
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          await db
+            .update(vouchersTable)
+            .set({ profileName: canonical })
+            .where(inArray(vouchersTable.id, ids.slice(i, i + CHUNK)));
+        }
+        logger.info({ vendorId, routerId, count: ids.length, canonical },
+          "vendor sync: renamed obsolete profile → canonical");
+      }
+    }
+
     const toInsert = matched
       .filter((u) => !existingMap.has(u.username) && u.username)
       .map((u) => {
