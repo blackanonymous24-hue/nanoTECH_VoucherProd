@@ -1185,7 +1185,7 @@ function Dashboard({ token, vendor, onLogout }: {
                           <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
                             <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
                             <div className="flex gap-3 text-sm">
-                              <span className="text-blue-600">Ce mois: <strong>{soldThisMonth}</strong></span>
+                              <span className="text-red-600">Vendu: <strong>{soldThisMonth}</strong></span>
                               <span className="text-green-600">Restants: <strong>{available}</strong></span>
                             </div>
                           </div>
