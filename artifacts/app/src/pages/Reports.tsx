@@ -203,7 +203,12 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <CardHeader><CardTitle className="text-base">Par forfait</CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Par forfait</CardTitle>
+              <span className="text-[10px] font-semibold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">Semaine en cours</span>
+            </div>
+          </CardHeader>
           <CardContent>
             {data.byProfile.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
@@ -214,14 +219,20 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                   const pb = parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0;
                   return pa - pb;
                 }).map((stat) => {
-                  const used = Number((stat as any).used ?? 0);
+                  const weekSold = Number((stat as any).weekSold ?? 0);
+                  const totalUsed = Number((stat as any).used ?? 0);
+                  const nonSold  = stat.total - totalUsed;
+                  const gaugeTotal = weekSold + nonSold;
                   return (
                     <div key={stat.profileName}>
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-sm font-medium">{stat.profileName}</span>
-                        <span className="text-xs text-gray-400">{stat.total} total</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-blue-600 font-semibold tabular-nums">{weekSold} cette semaine</span>
+                          <span className="text-xs text-gray-400">{stat.total} total</span>
+                        </div>
                       </div>
-                      <SaleBar used={used} total={stat.total} />
+                      <SaleBar used={weekSold} total={gaugeTotal} />
                     </div>
                   );
                 })}

@@ -372,9 +372,12 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     const conn: RouterConnection = { host: router.host, port: router.port, username: router.username, password: router.password };
     priceMap = await getCachedProfilePrices(vendor.routerId!, conn);
   }
+  // Merge week sales per profile so the frontend gauge can show current-week activity
+  const weekCountMap = new Map(profilePeriodCounts.map((r) => [r.profileName, Number(r.weekSold)]));
   const byProfile = byProfileRaw.map((row) => ({
     ...row,
-    price: priceMap.get(row.profileName) ?? "",
+    price:    priceMap.get(row.profileName) ?? "",
+    weekSold: weekCountMap.get(row.profileName) ?? 0,
   }));
 
   const totals = totalsRows[0];
