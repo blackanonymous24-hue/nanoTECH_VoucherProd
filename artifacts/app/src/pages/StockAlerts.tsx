@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, AlertTriangle, PackageOpen } from "lucide-react";
+import { Bell, PackageOpen, AlertTriangle, RefreshCw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -12,25 +15,31 @@ type Alert = {
   available: number;
 };
 
-function stockColor(available: number) {
-  if (available === 0) return "text-red-500";
-  if (available < 20) return "text-red-400";
-  if (available < 50) return "text-orange-400";
-  return "text-yellow-400";
+function StockBadge({ available }: { available: number }) {
+  if (available === 0)
+    return <Badge className="bg-red-100 text-red-700 border border-red-200 font-bold">0 restant</Badge>;
+  if (available < 20)
+    return <Badge className="bg-red-100 text-red-700 border border-red-200 font-bold">{available} restants</Badge>;
+  if (available < 50)
+    return <Badge className="bg-orange-100 text-orange-700 border border-orange-200 font-bold">{available} restants</Badge>;
+  return <Badge className="bg-yellow-100 text-yellow-700 border border-yellow-200 font-bold">{available} restants</Badge>;
 }
 
-function stockBg(available: number) {
-  if (available === 0) return "bg-red-500/10 border-red-500/30";
-  if (available < 20) return "bg-red-500/8 border-red-500/20";
-  if (available < 50) return "bg-orange-500/8 border-orange-500/20";
-  return "bg-yellow-500/8 border-yellow-500/20";
+function urgencyColor(available: number) {
+  if (available === 0) return "border-l-red-600 bg-red-50";
+  if (available < 20) return "border-l-red-400 bg-red-50";
+  if (available < 50) return "border-l-orange-400 bg-orange-50";
+  return "border-l-yellow-400 bg-yellow-50";
 }
 
 export default function StockAlerts() {
   const { token } = useAuth();
   const { selectedRouterId } = useRouterContext();
 
-  const { data, isLoading } = useQuery<{ count: number; alerts: Alert[] }>({
+  const { data, isLoading, refetch, isFetching } = useQuery<{
+    count: number;
+    alerts: Alert[];
+  }>({
     queryKey: ["stock-alerts", selectedRouterId],
     queryFn: async () => {
       const params = selectedRouterId ? `?routerId=${selectedRouterId}` : "";
@@ -47,94 +56,105 @@ export default function StockAlerts() {
 
   const alerts = data?.alerts ?? [];
 
-  /* Group by vendor */
-  const byVendor = alerts.reduce<Record<string, Alert[]>>((acc, a) => {
-    const key = a.vendorName || `Vendeur #${a.vendorId}`;
-    (acc[key] ??= []).push(a);
-    return acc;
-  }, {});
+  /* Group by vendor, sorted by worst stock first */
+  const byVendor = Object.entries(
+    alerts.reduce<Record<string, Alert[]>>((acc, a) => {
+      const key = a.vendorName || `Vendeur #${a.vendorId}`;
+      (acc[key] ??= []).push(a);
+      return acc;
+    }, {})
+  ).map(([name, items]) => ({
+    name,
+    items: [...items].sort((a, b) => a.available - b.available),
+    worstStock: Math.min(...items.map((i) => i.available)),
+  })).sort((a, b) => a.worstStock - b.worstStock);
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-3xl mx-auto">
+    <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <span className="relative flex-shrink-0">
-          <Bell className="h-6 w-6 text-red-400" />
-          {alerts.length > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-            </span>
-          )}
-        </span>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-lg font-semibold text-white">Alertes stock</h1>
-          <p className="text-xs text-gray-500">
-            Forfaits avec moins de 100 tickets disponibles
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Bell className="h-6 w-6 text-red-500" />
+            Alertes de stock
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Forfaits avec moins de 100 tickets disponibles — triés du plus critique
           </p>
         </div>
-        {!isLoading && (
-          <span className="ml-auto text-xs font-bold px-2.5 py-1 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
-            {alerts.length} alerte{alerts.length !== 1 ? "s" : ""}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {!isLoading && alerts.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 border border-red-200 text-red-700 text-sm font-semibold">
+              <AlertTriangle className="h-4 w-4" />
+              {alerts.length} alerte{alerts.length !== 1 ? "s" : ""}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            Actualiser
+          </Button>
+        </div>
       </div>
 
       {/* Loading */}
       {isLoading && (
-        <div className="flex justify-center py-16 text-gray-600 text-sm">
-          Chargement…
-        </div>
+        <Card>
+          <CardContent className="py-16 text-center text-gray-400 text-sm">
+            <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-3 text-gray-300" />
+            Chargement des alertes…
+          </CardContent>
+        </Card>
       )}
 
       {/* Empty state */}
       {!isLoading && alerts.length === 0 && (
-        <div className="flex flex-col items-center gap-3 py-20 text-center">
-          <PackageOpen className="h-10 w-10 text-green-500/60" />
-          <p className="text-green-400 font-medium">Tous les stocks sont OK</p>
-          <p className="text-xs text-gray-500">
-            Aucun forfait n'a moins de 100 tickets disponibles.
-          </p>
-        </div>
+        <Card>
+          <CardContent className="py-20 text-center">
+            <PackageOpen className="h-12 w-12 text-green-400 mx-auto mb-4" />
+            <p className="text-green-700 font-semibold text-base">Tous les stocks sont OK</p>
+            <p className="text-sm text-gray-400 mt-1">
+              Aucun forfait n'a moins de 100 tickets disponibles.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Grouped by vendor */}
-      {!isLoading && Object.entries(byVendor).map(([vendorName, items]) => (
-        <div key={vendorName} className="rounded-xl border border-white/8 bg-white/[0.03] overflow-hidden">
-          {/* Vendor header */}
-          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/8 bg-white/[0.02]">
-            <AlertTriangle className="h-3.5 w-3.5 text-orange-400 flex-shrink-0" />
-            <span className="text-sm font-semibold text-white">{vendorName}</span>
-            <span className="ml-auto text-[10px] text-gray-500">
-              {items.length} forfait{items.length !== 1 ? "s" : ""} en alerte
-            </span>
-          </div>
-
-          {/* Profile rows */}
-          <div className="divide-y divide-white/5">
-            {items
-              .slice()
-              .sort((a, b) => a.available - b.available)
-              .map((alert, i) => (
+      {/* Vendor cards */}
+      {!isLoading && byVendor.map(({ name, items }) => (
+        <Card key={name} className="overflow-hidden shadow-sm">
+          <CardHeader className="py-3 px-4 border-b bg-gray-50">
+            <CardTitle className="text-sm font-semibold text-gray-800 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                {name}
+              </span>
+              <span className="text-xs font-normal text-gray-500">
+                {items.length} forfait{items.length !== 1 ? "s" : ""} en alerte
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-gray-100">
+              {items.map((alert, i) => (
                 <div
                   key={i}
-                  className={`flex items-center justify-between gap-4 px-4 py-3 ${stockBg(alert.available)}`}
+                  className={`flex items-center justify-between px-4 py-3 border-l-4 ${urgencyColor(alert.available)}`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm text-gray-200 truncate">
-                      {alert.profileName}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <span className={`text-sm font-bold tabular-nums ${stockColor(alert.available)}`}>
-                      {alert.available}
-                    </span>
-                    <span className="text-[10px] text-gray-500">restant{alert.available !== 1 ? "s" : ""}</span>
-                  </div>
+                  <span className="text-sm font-medium text-gray-800">
+                    {alert.profileName}
+                  </span>
+                  <StockBadge available={alert.available} />
                 </div>
               ))}
-          </div>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );
