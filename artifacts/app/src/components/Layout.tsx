@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -67,6 +68,15 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const { logout, role, token } = useAuth();
   const isAdmin = role === "admin";
   const isManager = role === "manager";
+  const isStockAlertsPage = location.startsWith("/stock-alerts");
+  const isVouchersPage = location.startsWith("/vouchers");
+
+  const handleTabClick = (href: string) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("app:route-remount", { detail: { path: href } }));
+    }
+    onNavigate?.();
+  };
 
   /* ── Low-stock alert: per-vendor per-profile granularity ── */
   const { data: stockAlerts } = useQuery<{
@@ -83,7 +93,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       return res.json();
     },
     staleTime: 60_000,
-    enabled: !!token,
+    enabled: !!token && isStockAlertsPage,
   });
   const lowStockCount = stockAlerts?.count ?? 0;
 
@@ -150,7 +160,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       }
       return 0;
     },
-    enabled: !!selectedRouterId,
+    enabled: !!selectedRouterId && isVouchersPage,
     refetchInterval: 120_000,
     staleTime: 115_000,
     throwOnError: false,
@@ -229,7 +239,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               </p>
               <Link
                 href="/stock-alerts"
-                onClick={onNavigate}
+                onClick={() => handleTabClick("/stock-alerts")}
                 className={cn(
                   "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
                   hasAlerts
@@ -279,7 +289,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   <Link
                     key={href}
                     href={href}
-                    onClick={onNavigate}
+                    onClick={() => handleTabClick(href)}
                     className={cn(
                       "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
                       isActive
@@ -424,43 +434,48 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   return (
     <div className="flex h-screen bg-gray-100 dark:bg-gray-950">
 
       {/* ── Desktop sidebar ── */}
-      <aside className="hidden md:flex w-60 bg-[#0d1117] text-white flex-col flex-shrink-0 min-h-0 border-r border-white/[0.06]">
-        <NavContent />
-      </aside>
+      {!isMobile && (
+        <aside className="w-60 bg-[#0d1117] text-white flex-col flex-shrink-0 min-h-0 border-r border-white/[0.06] md:flex">
+          <NavContent />
+        </aside>
+      )}
 
       {/* ── Mobile: top bar + Sheet drawer ── */}
       <div className="flex flex-col flex-1 min-w-0">
 
         {/* Mobile top bar */}
-        <header className="md:hidden flex items-center gap-2 bg-[#0d1117] text-white px-3 py-2.5 flex-shrink-0 border-b border-white/[0.06]">
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger asChild>
-              <Button size="icon" variant="ghost" className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8">
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent
-              side="left"
-              className="w-64 p-0 bg-[#0d1117] text-white border-white/[0.06]"
-            >
-              <NavContent onNavigate={() => setMobileOpen(false)} />
-            </SheetContent>
-          </Sheet>
+        {isMobile && (
+          <header className="flex items-center gap-2 bg-[#0d1117] text-white px-3 py-2.5 flex-shrink-0 border-b border-white/[0.06]">
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger asChild>
+                <Button size="icon" variant="ghost" className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent
+                side="left"
+                className="w-64 p-0 bg-[#0d1117] text-white border-white/[0.06]"
+              >
+                {mobileOpen && <NavContent onNavigate={() => setMobileOpen(false)} />}
+              </SheetContent>
+            </Sheet>
 
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
-              <Wifi className="h-3.5 w-3.5 text-blue-400" />
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
+                <Wifi className="h-3.5 w-3.5 text-blue-400" />
+              </div>
+              <span className="font-bold text-white truncate text-sm">VoucherNet</span>
             </div>
-            <span className="font-bold text-white truncate text-sm">VoucherNet</span>
-          </div>
 
-          <RouterSelector className="flex-shrink-0" />
-        </header>
+            <RouterSelector className="flex-shrink-0" />
+          </header>
+        )}
 
         {/* Main content */}
         <main className="flex-1 overflow-y-auto">
