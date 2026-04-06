@@ -32,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2 } from "lucide-react";
+import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 function formatValidity(v: string | null | undefined): string {
@@ -64,7 +64,15 @@ export default function Forfaits() {
 
   const { data: profiles = [], isLoading: loadingProfiles } = useListRouterProfiles(
     selectedRouterId ?? 0,
-    { query: { enabled: !!selectedRouterId } },
+    {
+      query: {
+        enabled: !!selectedRouterId,
+        staleTime: 5 * 60_000,
+        gcTime: 10 * 60_000,
+        refetchOnWindowFocus: false,
+        placeholderData: (prev) => prev,
+      },
+    },
   );
 
   const [showDialog, setShowDialog] = useState(false);
@@ -76,6 +84,7 @@ export default function Forfaits() {
   const [loadingPools, setLoadingPools] = useState(false);
   const [deletingName, setDeletingName] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [refreshingProfiles, setRefreshingProfiles] = useState(false);
 
   function setField<K extends keyof typeof defaultForm>(key: K, val: (typeof defaultForm)[K]) {
     setForm((f) => ({ ...f, [key]: val }));
@@ -168,6 +177,28 @@ export default function Forfaits() {
     }
   }
 
+  async function handleForceRefreshProfiles() {
+    if (!selectedRouterId) return;
+    setRefreshingProfiles(true);
+    try {
+      const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
+      if (!res.ok) throw new Error("refresh failed");
+      const freshProfiles = await res.json();
+      queryClient.setQueriesData(
+        {
+          queryKey: ["listRouterProfiles"],
+          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[1] === selectedRouterId,
+        },
+        freshProfiles,
+      );
+      queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+    } catch {
+      // keep current cached data if refresh fails
+    } finally {
+      setRefreshingProfiles(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -175,11 +206,22 @@ export default function Forfaits() {
           <h1 className="text-2xl font-bold text-gray-900">Forfaits</h1>
           <p className="text-sm text-gray-500">Profils hotspot disponibles sur vos routeurs MikroTik</p>
         </div>
-        {!isManager && (
-          <Button onClick={openCreate} disabled={!selectedRouterId} className="flex-shrink-0">
-            <Plus className="h-4 w-4 mr-1.5" /> Ajouter un forfait
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleForceRefreshProfiles}
+            disabled={!selectedRouterId || refreshingProfiles}
+            className="flex-shrink-0"
+          >
+            <RefreshCw className={`h-4 w-4 mr-1.5 ${refreshingProfiles ? "animate-spin" : ""}`} />
+            {refreshingProfiles ? "Actualisation..." : "Actualiser maintenant"}
           </Button>
-        )}
+          {!isManager && (
+            <Button onClick={openCreate} disabled={!selectedRouterId} className="flex-shrink-0">
+              <Plus className="h-4 w-4 mr-1.5" /> Ajouter un forfait
+            </Button>
+          )}
+        </div>
       </div>
 
       {!selectedRouterId && (

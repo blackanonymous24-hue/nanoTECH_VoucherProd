@@ -280,7 +280,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                         const month = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"][d.getMonth()];
                         const hh = String(d.getHours()).padStart(2, "0");
                         const mn = String(d.getMinutes()).padStart(2, "0");
-                        return { date: `${day} ${month} ${d.getFullYear()}`, time: `${hh}:${mn}` };
+                        const ss = String(d.getSeconds()).padStart(2, "0");
+                        return { date: `${day} ${month} ${d.getFullYear()}`, time: `${hh}:${mn}:${ss}` };
                       })();
                       return (
                         <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>

@@ -7,6 +7,45 @@ import { syncScriptCache } from "../lib/script-cache.js";
 
 const router = Router();
 
+interface ProfileListCache {
+  profiles: Awaited<ReturnType<typeof listProfiles>>;
+  expiresAt: number;
+}
+const profileListCache = new Map<number, ProfileListCache>();
+const profileListInFlight = new Map<number, Promise<Awaited<ReturnType<typeof listProfiles>>>>();
+const PROFILE_LIST_CACHE_TTL = 300_000; // 5 min
+
+function getFreshProfileCache(routerId: number) {
+  const cached = profileListCache.get(routerId);
+  if (cached && Date.now() < cached.expiresAt) return cached.profiles;
+  return null;
+}
+
+function setProfileCache(routerId: number, profiles: Awaited<ReturnType<typeof listProfiles>>) {
+  profileListCache.set(routerId, { profiles, expiresAt: Date.now() + PROFILE_LIST_CACHE_TTL });
+}
+
+function invalidateProfileListCache(routerId: number) {
+  profileListCache.delete(routerId);
+}
+
+async function fetchProfilesWithCache(routerId: number, conn: RouterConnection) {
+  const inFlight = profileListInFlight.get(routerId);
+  if (inFlight) return inFlight;
+
+  const task = listProfiles(conn)
+    .then((profiles) => {
+      setProfileCache(routerId, profiles);
+      return profiles;
+    })
+    .finally(() => {
+      profileListInFlight.delete(routerId);
+    });
+
+  profileListInFlight.set(routerId, task);
+  return task;
+}
+
 router.get("/routers", async (_req, res): Promise<void> => {
   const routers = await db
     .select({
@@ -206,10 +245,40 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+  const freshCached = getFreshProfileCache(id);
+  const forceRefresh = String(req.query.refresh ?? "") === "1";
+
+  if (freshCached && !forceRefresh) {
+    res.json(freshCached);
+    return;
+  }
+
+  const staleCached = profileListCache.get(id)?.profiles ?? null;
   try {
-    const profiles = await listProfiles({ host: r.host, port: r.port, username: r.username, password: r.password });
-    res.json(profiles);
+    const timeoutMs = staleCached ? 1200 : 7000;
+    const profiles = await Promise.race([
+      fetchProfilesWithCache(id, conn),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+
+    if (profiles) {
+      res.json(profiles);
+      return;
+    }
+
+    if (staleCached) {
+      res.json(staleCached);
+      return;
+    }
+
+    const fetched = await fetchProfilesWithCache(id, conn);
+    res.json(fetched);
   } catch (err) {
+    if (staleCached) {
+      res.json(staleCached);
+      return;
+    }
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
 });
@@ -247,6 +316,7 @@ router.post("/routers/:id/profiles", async (req, res): Promise<void> => {
         parentQueue: (parentQueue ?? "").trim(),
       },
     );
+    invalidateProfileListCache(id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de créer le profil" });
@@ -288,6 +358,7 @@ router.put("/routers/:id/profiles/:profileName", async (req, res): Promise<void>
         parentQueue: (parentQueue ?? "").trim(),
       },
     );
+    invalidateProfileListCache(id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de modifier le profil" });
@@ -346,6 +417,7 @@ router.delete("/routers/:id/profiles/:profileName", async (req, res): Promise<vo
       { host: r.host, port: r.port, username: r.username, password: r.password },
       profileName,
     );
+    invalidateProfileListCache(id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de supprimer le profil" });

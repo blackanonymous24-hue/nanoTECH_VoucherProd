@@ -37,6 +37,7 @@ function buildPreamble(v: VoucherVars): string {
 $hotspotname = '${hotspotname}';
 $dnsname     = '${dnsname}';
 $getprice    = '${price}';
+$getsprice   = '${price}';
 $price       = '${price}';
 $currency    = '${currency}';
 $username    = '${username}';
@@ -45,7 +46,22 @@ $usermode    = ($username === $password) ? 'vc' : 'up';
 $timelimit   = '${timelimit}';
 $datalimit   = '${datalimit}';
 $validity    = '${validity}';
+$getvalidity = '${validity}';
+$profile     = '';
+$comment     = '';
 $num         = ${num};
+
+// Color map aligned with Mikhmon-like defaults (fallback included)
+$__priceKey = preg_replace('/\\D+/', '', (string)$getprice);
+$__colorMap = [
+  '0' => '#E50877', '100' => '#752CEB', '200' => '#804000', '300' => '#13C013',
+  '500' => '#ECA352', '1000' => '#F75418', '1500' => '#FF69B4', '2500' => '#F70000',
+  '3000' => '#F70000', '13000' => '#2E8B57', '15000' => '#2E8B57',
+  '17000' => '#0000FF', '20000' => '#0000FF', '35000' => '#6495ED',
+  '40000' => '#6495ED', '80000' => '#FF8C00', '85000' => '#FF8C00',
+  '160000' => '#DC143C', '170000' => '#DC143C',
+];
+$color = $__colorMap[$__priceKey] ?? '#1433FD';
 
 // QR code — remplace le canvas QRious.js de MikHmon par une image statique
 $urilogin = 'http://' . $dnsname . '/login?username=' . urlencode($username) . '&password=' . urlencode($password);

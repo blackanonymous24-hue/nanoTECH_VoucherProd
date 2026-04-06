@@ -249,6 +249,78 @@ const VARIABLES = [
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+const DEFAULT_MIKHMON_PHP = `<?php
+// Mikhmon v3-like default template (editable)
+?>
+<!--mks-mulai-->
+<table style="display:inline-block;border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;overflow:hidden;position:relative;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
+  <tbody>
+    <tr>
+      <td style="background:<?= $color ?>;color:#676;padding:0px;" valign="top" colspan="2">
+        <div style="text-align:center;color:#fff;font-size:8px;font-weight:bold;margin:1px;padding:2.5px;">
+          <b><?= $hotspotname ?></b>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td style="color:#666;" valign="top">
+        <table style="width:100%;">
+          <tbody>
+            <tr>
+              <td style="width:35px;">
+                <div style="position:relative;z-index:-1;padding:0px;float:left;">
+                  <div style="position:absolute;top:0;display:inline;margin-top:-100px;width:0;height:0;border-top:170px solid transparent;border-left:30px solid transparent;border-right:170px solid #DCDCDC;"></div>
+                </div>
+              </td>
+              <td style="width:30px;">
+                <div style="margin:-10px;text-align:right;font-weight:bold;font-size:10px;padding-left:18px;color:<?= $color ?>;"><small style="font-size:10px;margin-left:-65px;position:absolute;"><?= $getprice ?> <?= $currency ?></small></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="color:#666;border-collapse:collapse;" valign="top">
+        <table style="width:100%;border-collapse:collapse;">
+          <tbody>
+            <tr>
+              <td style="width:80px;" valign="top">
+                <div style="clear:both;color:#555;margin-top:-7px;margin-bottom:2.5px;">
+                  <?php if($usermode == "vc"){?>
+                    <div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div>
+                    <div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:<?= $color ?>;"><?= $username ?></div>
+                  <?php }elseif($usermode == "up"){?>
+                    <div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div>
+                    <div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:<?= $color ?>;">User: <?= $username ?><br>Pass: <?= $password ?></div>
+                  <?php }?>
+                </div>
+                <div style="text-align:center;color:#111;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
+                  Veuillez conserver ce ticket jusqu'à l'épuisement du forfait.
+                </div>
+              </td>
+              <td style="width:120px;text-align:right;" valign="top">
+                <div style="clear:both;padding:0 2.5px;font-size:7px;font-weight:bold;color:#000000;">
+                  <?= $validity ?><br><?= $timelimit ?><br><?= $datalimit ?>
+                </div>
+                <?= $qrcode ?>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:<?= $color ?>;color:#666;padding:0px;" valign="top" colspan="2">
+                <div style="text-align:left;color:#fff;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
+                  <b><?= $dnsname ?></b><span style="float:right;"> [<?= $num ?>]</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<!--mks-akhir-->`;
+
 export default function TicketTemplate() {
   const { role } = useAuth();
   const isManager = role === "manager";
@@ -323,6 +395,16 @@ export default function TicketTemplate() {
     toast({ title: "Modèle réinitialisé", description: "Le modèle par défaut a été restauré." });
   }, [mode, toast]);
 
+  const handleUseDefaultMikhmon = useCallback(() => {
+    setMode("php");
+    setTab("code");
+    setPhpCode(DEFAULT_MIKHMON_PHP);
+    toast({
+      title: "Modèle Mikhmon chargé",
+      description: "Le template PHP par défaut est prêt. Clique sur Sauvegarder pour l'activer.",
+    });
+  }, [toast]);
+
   // ── Aperçu PHP — appel serveur avec données d'exemple
   const handlePhpPreview = useCallback(async () => {
     if (!phpCode.trim()) return;
@@ -366,7 +448,7 @@ export default function TicketTemplate() {
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {mode === "php"
-              ? "Fichier PHP MikHmon — exécuté côté serveur avec les vraies variables"
+              ? "Mode Mikhmon v3: collez directement votre code PHP du template, sans conversion"
               : <>Code HTML — les variables <code className="text-xs bg-gray-100 px-1 rounded">{"{{var}}"}</code> remplacent les valeurs dynamiques</>
             }
           </p>
@@ -395,6 +477,9 @@ export default function TicketTemplate() {
           )}
           {mode === "php" && (
             <>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleUseDefaultMikhmon}>
+                <FileCode className="h-3.5 w-3.5" /> Coller modèle Mikhmon
+              </Button>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fileRef.current?.click()}>
                 <Upload className="h-3.5 w-3.5" /> Importer .php
               </Button>
@@ -439,7 +524,7 @@ export default function TicketTemplate() {
                   onChange={(e) => mode === "php" ? setPhpCode(e.target.value) : setHtmlCode(e.target.value)}
                   spellCheck={false}
                   placeholder={mode === "php"
-                    ? "Importez un fichier template PHP de MikHmon (.php) ou collez le code ici…"
+                    ? "Collez ici le code PHP complet du template Mikhmon v3 (template.php / template-small.php / template-thermal.php)…"
                     : "Code HTML du ticket avec les variables {{...}}"}
                 />
               ) : (
@@ -465,10 +550,10 @@ export default function TicketTemplate() {
           {mode === "php" ? (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Mode PHP — Comment ça marche</CardTitle>
+                <CardTitle className="text-sm font-semibold">Mode Mikhmon v3 — Collage direct PHP</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-xs text-gray-600">
-                <p>Le fichier PHP est exécuté <strong>côté serveur</strong> à chaque impression. Les variables sont injectées automatiquement avant l'exécution :</p>
+                <p>Collez/importez le template PHP brut de Mikhmon v3. Il est exécuté <strong>côté serveur</strong> à chaque impression, avec variables injectées automatiquement :</p>
                 <div className="bg-gray-950 text-purple-300 font-mono p-3 rounded-lg text-xs space-y-0.5">
                   {[
                     ["$hotspotname", "Nom du routeur"],
@@ -490,7 +575,7 @@ export default function TicketTemplate() {
                     </div>
                   ))}
                 </div>
-                <p className="text-gray-400">La couleur <code>$color</code>, le formatage de <code>$validity</code> et <code>$timelimit</code> sont calculés par le PHP du template lui-même (comme dans MikHmon). Le <code>$qrcode</code> devient une image statique.</p>
+                <p className="text-gray-400">Tu peux coller le code complet tel quel. Les marqueurs <code>&lt;!--mks-mulai--&gt;</code> / <code>&lt;!--mks-akhir--&gt;</code> sont pris en charge. Si absents, le rendu complet est tout de même utilisé.</p>
               </CardContent>
             </Card>
           ) : (

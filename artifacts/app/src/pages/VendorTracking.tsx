@@ -49,6 +49,9 @@ interface VendorSummaryEntry {
   vendorName: string;
   count: number;
   amount: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+  paymentStatus?: "none" | "partial" | "full";
 }
 
 interface DailyTrackingResponse {
@@ -56,17 +59,23 @@ interface DailyTrackingResponse {
   summary: VendorSummaryEntry[];
   vouchers: VoucherEntry[];
   weekSummary: VendorSummaryEntry[];
+  weekStart?: string;
+  weekEnd?: string;
 }
 
-/** Returns "Lundi dd Mmmm yyyy – Aujourd'hui" label for current week */
-function currentWeekLabel(): string {
-  const now  = new Date();
-  const day  = now.getDay(); // 0=Sun
-  const diff = (day === 0 ? -6 : 1) - day; // offset to Monday
-  const mon  = new Date(now);
-  mon.setDate(now.getDate() + diff);
-  const fmt  = (d: Date) => `${String(d.getDate()).padStart(2,"0")} ${MONTH_NAMES_FR[d.getMonth()]} ${d.getFullYear()}`;
-  return `${fmt(mon)} – ${fmt(now)}`;
+function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
+  if (!weekStart || !weekEnd) return "Semaine";
+  return `${fmtDateFr(weekStart)} – ${fmtDateFr(weekEnd)}`;
+}
+
+function paymentBadge(status?: "none" | "partial" | "full"): { text: string; cls: string } {
+  if (status === "full") {
+    return { text: "Versement intégral", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+  }
+  if (status === "partial") {
+    return { text: "Versement partiel", cls: "bg-amber-50 text-amber-700 border-amber-200" };
+  }
+  return { text: "Non versé", cls: "bg-gray-100 text-gray-600 border-gray-200" };
 }
 
 /* ── Print helper ────────────────────────────────────────────── */
@@ -108,6 +117,8 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
         <td>${s.vendorName}</td>
         <td style="text-align:center">${s.count}</td>
         <td style="text-align:right">${fmtAmount(s.amount)}</td>
+        <td style="text-align:right">${fmtAmount(s.paidAmount ?? 0)}</td>
+        <td>${paymentBadge(s.paymentStatus).text}</td>
       </tr>`,
     )
     .join("");
@@ -126,19 +137,23 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
     .join("");
 
   const weekSection = weekRows ? `
-<h3>Résumé semaine en cours &nbsp;<small style="font-weight:normal;color:#555">(${currentWeekLabel()})</small></h3>
+<h3>Résumé de la semaine &nbsp;<small style="font-weight:normal;color:#555">(${weekLabelFromRange(data.weekStart, data.weekEnd)})</small></h3>
 <table>
   <thead><tr>
     <th style="width:30px">N°</th>
     <th>Vendeur</th>
     <th class="center" style="width:80px">Tickets</th>
-    <th class="right"  style="width:110px">Total (FCFA)</th>
+    <th class="right"  style="width:100px">Total (FCFA)</th>
+    <th class="right"  style="width:100px">Versé (FCFA)</th>
+    <th style="width:120px">Statut</th>
   </tr></thead>
   <tbody>${weekRows}</tbody>
   <tfoot><tr>
     <td colspan="2" style="text-align:right">TOTAL SEMAINE</td>
     <td class="center">${weekCount}</td>
     <td class="right">${fmtAmount(weekTotal)}</td>
+    <td class="right">${fmtAmount((data.weekSummary ?? []).reduce((s, r) => s + (r.paidAmount ?? 0), 0))}</td>
+    <td></td>
   </tr></tfoot>
 </table>` : "";
 
@@ -153,6 +168,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
   th, td { border: 1px solid #000; padding: 4px 6px; }
   th { background: #f0f0f0; font-weight: bold; text-align: left; }
   tfoot td { font-weight: bold; background: #e8e8e8; }
+  .detail-total-row td { font-weight: bold; background: #e8e8e8; }
   .right { text-align: right; }
   .center { text-align: center; }
   @page { size: A4; margin: 10mm 7mm; }
@@ -194,12 +210,13 @@ ${weekSection}
     <th>Vendeur</th>
     <th class="right" style="width:90px">Prix (FCFA)</th>
   </tr></thead>
-  <tbody>${detailRows}</tbody>
-  <tfoot><tr>
-    <td colspan="4"></td>
-    <td style="text-align:right">TOTAL</td>
-    <td class="right">${fmtAmount(vouchers.reduce((s, v) => s + v.amount, 0))}</td>
-  </tr></tfoot>
+  <tbody>${detailRows}
+    <tr class="detail-total-row">
+      <td colspan="4"></td>
+      <td style="text-align:right">TOTAL</td>
+      <td class="right">${fmtAmount(vouchers.reduce((s, v) => s + v.amount, 0))}</td>
+    </tr>
+  </tbody>
 </table>
 <script>window.onload = function() { window.print(); };</script>
 </body></html>`;
@@ -254,7 +271,7 @@ export default function VendorTracking() {
       const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
       const wkSummary    = data.weekSummary ?? [];
       const dateFr       = fmtDateFr(applied);
-      const weekLabel    = currentWeekLabel();
+      const weekLabel    = weekLabelFromRange(data.weekStart, data.weekEnd);
 
       /* ── Compute canvas height ── */
       const titleH   = 60;
@@ -421,6 +438,7 @@ export default function VendorTracking() {
   const activeSummary   = useMemo(() => summary.filter((s) => s.count > 0), [summary]);
   const weekTotal_amount = useMemo(() => weekSummary.reduce((s, r) => s + r.amount, 0), [weekSummary]);
   const weekTotal_count  = useMemo(() => weekSummary.reduce((s, r) => s + r.count,  0), [weekSummary]);
+  const weekTotal_paid   = useMemo(() => weekSummary.reduce((s, r) => s + (r.paidAmount ?? 0), 0), [weekSummary]);
 
   if (!selectedRouterId) {
     return (
@@ -592,12 +610,14 @@ export default function VendorTracking() {
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="px-3 py-2 text-left text-gray-500 font-medium w-10">#</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Vendeur</th>
-                    <th className="px-3 py-2 text-center text-gray-500 font-medium w-28">Tickets</th>
-                    <th className="px-3 py-2 text-right text-gray-500 font-medium w-36">Total (FCFA)</th>
+                    <th className="px-3 py-2 text-center text-gray-500 font-medium w-20">Tickets</th>
+                    <th className="px-3 py-2 text-right text-gray-500 font-medium w-28">Total (FCFA)</th>
+                    <th className="px-3 py-2 text-right text-gray-500 font-medium w-28">Versé (FCFA)</th>
+                    <th className="px-3 py-2 text-center text-gray-500 font-medium w-36">Statut versement</th>
                   </tr>
                   <tr className="bg-indigo-50 border-b border-indigo-100">
-                    <th colSpan={4} className="px-3 py-1.5 text-left text-indigo-700 font-medium text-xs">
-                      Semaine en cours — {currentWeekLabel()}
+                    <th colSpan={6} className="px-3 py-1.5 text-left text-indigo-700 font-medium text-xs">
+                      Semaine de la date filtrée — {weekLabelFromRange(data?.weekStart, data?.weekEnd)}
                     </th>
                   </tr>
                 </thead>
@@ -609,6 +629,14 @@ export default function VendorTracking() {
                       <td className="px-3 py-2 text-center tabular-nums text-gray-700">{s.count}</td>
                       <td className="px-3 py-2 text-right font-semibold text-gray-800 tabular-nums">
                         {fmtAmount(s.amount)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-gray-700 tabular-nums">
+                        {fmtAmount(s.paidAmount ?? 0)}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold ${paymentBadge(s.paymentStatus).cls}`}>
+                          {paymentBadge(s.paymentStatus).text}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -624,6 +652,10 @@ export default function VendorTracking() {
                     <td className="px-3 py-2 text-right text-sm font-bold text-indigo-700 tabular-nums">
                       {fmtAmount(weekTotal_amount)} FCFA
                     </td>
+                    <td className="px-3 py-2 text-right text-sm font-bold text-indigo-700 tabular-nums">
+                      {fmtAmount(weekTotal_paid)} FCFA
+                    </td>
+                    <td />
                   </tr>
                 </tfoot>
               </table>

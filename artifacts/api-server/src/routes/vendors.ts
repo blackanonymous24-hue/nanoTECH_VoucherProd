@@ -600,7 +600,12 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
 
   const summary = [...summaryMap.values()].sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));
 
-  // ── Week summary (Mon 00:00 UTC → now) per vendor ────────────────────
+  // ── Week summary (week of the filtered day) per vendor ────────────────
+  const weekStart = mondayOf(dateStr);
+  const wStart = new Date(weekStart + "T00:00:00.000Z");
+  const wEnd = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const weekEnd = new Date(wEnd.getTime() - 1).toISOString().slice(0, 10);
+
   const weekSoldRaw = await db
     .select({
       vendorId:    vouchersTable.vendorId,
@@ -614,11 +619,21 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
       and(
         eq(vouchersTable.routerId, routerId),
         isNotNull(vouchersTable.usedAt),
-        sql`${vouchersTable.usedAt} >= date_trunc('week', current_date at time zone 'UTC')`,
-        sql`${vouchersTable.usedAt} <  current_date + interval '1 day'`,
+        sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+        sql`${vouchersTable.usedAt} <  ${wEnd.toISOString()}`,
       ),
     )
     .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
+
+  const weekPayments = await db
+    .select()
+    .from(vendorPaymentsTable)
+    .where(
+      and(
+        eq(vendorPaymentsTable.routerId, routerId),
+        eq(vendorPaymentsTable.weekStart, weekStart),
+      ),
+    );
 
   // Aggregate week rows per vendor — same max(sqlSum, count×price) approach
   const weekMap = new Map<number | null, { vendorId: number | null; vendorName: string; count: number; amount: number }>();
@@ -639,11 +654,29 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     w.count  += cnt;
     w.amount += amt;
   }
+  const paidByVendor = new Map<number, number>();
+  for (const p of weekPayments) {
+    paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) ?? 0) + p.amount);
+  }
+
   const weekSummary = [...weekMap.values()]
-    .filter((w) => w.count > 0)
+    .map((w) => {
+      const paidAmount = w.vendorId ? (paidByVendor.get(w.vendorId) ?? 0) : 0;
+      const remainingAmount = Math.max(0, w.amount - paidAmount);
+      const paymentStatus =
+        w.amount <= 0
+          ? "none"
+          : remainingAmount <= 0
+            ? "full"
+            : paidAmount > 0
+              ? "partial"
+              : "none";
+      return { ...w, paidAmount, remainingAmount, paymentStatus };
+    })
+    .filter((w) => w.count > 0 || w.paidAmount > 0)
     .sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));
 
-  res.json({ date: dateStr, summary, vouchers: enriched, weekSummary });
+  res.json({ date: dateStr, summary, vouchers: enriched, weekSummary, weekStart, weekEnd });
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

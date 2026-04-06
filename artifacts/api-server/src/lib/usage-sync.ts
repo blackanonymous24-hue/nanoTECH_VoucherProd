@@ -79,7 +79,9 @@ export async function runUsageSync(
     updated += newWithoutDetails.length;
   }
 
-  // ── Pass 2: fix already-synced vouchers with wrong usedAt date ─────────
+  // ── Pass 2: fix already-synced vouchers with wrong usedAt timestamp ─────
+  // Keep this threshold low so temporary fallback dates (sync-time based)
+  // are quickly replaced by the real MikroTik sale timestamp from script cache.
   const alreadySynced = vouchers.filter(
     (v) => v.usedAt !== null && saleDetails.has(v.username.toLowerCase()),
   );
@@ -89,7 +91,7 @@ export async function runUsageSync(
     const scriptDate = detail.saleDate;
     const storedDate = v.usedAt as Date;
     const diffMs = Math.abs(scriptDate.getTime() - storedDate.getTime());
-    if (diffMs > 86400_000) {
+    if (diffMs > 60_000) {
       await db
         .update(vouchersTable)
         .set({
