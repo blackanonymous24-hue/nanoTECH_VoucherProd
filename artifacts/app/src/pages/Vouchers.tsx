@@ -295,9 +295,9 @@ export default function Vouchers() {
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const firstUser = usersForPrint[0];
       const printProfile = firstUser?.profile ?? "";
-      const printValidity = toSlug(profilesList.find((p) => p.name === printProfile)?.validity ?? "");
+      const compactValidity = (profilesList.find((p) => p.name === printProfile)?.validity ?? "").trim().replace(/\s+/g, "");
       const printComment = firstUser?.comment ?? "";
-      const printParts = ["Voucher", toSlug(activeRouter?.name ?? ""), printValidity, printComment, toSlug(printProfile)].filter(Boolean);
+      const printParts = ["Voucher", toSlug(activeRouter?.name ?? ""), compactValidity, printComment, toSlug(printProfile)].filter(Boolean);
       printTickets(data.html as string[], printParts.join("-"));
     } catch (err: unknown) {
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
