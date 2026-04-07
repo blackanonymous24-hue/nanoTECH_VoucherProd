@@ -49,7 +49,7 @@ function AppRoutes() {
 
   useEffect(() => {
     setIsRouteLoading(true);
-    const timer = window.setTimeout(() => setIsRouteLoading(false), 260);
+    const timer = window.setTimeout(() => setIsRouteLoading(false), 150);
     return () => window.clearTimeout(timer);
   }, [location, routeReloadToken]);
 
@@ -66,16 +66,10 @@ function AppRoutes() {
     <RouterProvider>
       <Layout>
         {isRouteLoading ? (
-          <div className="fixed inset-0 z-50 bg-slate-900/28 backdrop-blur-[1px]">
-            <div className="mx-auto mt-24 w-full max-w-3xl px-6">
-              <div className="rounded-2xl border border-slate-300/30 bg-slate-100/55 p-5 shadow-sm">
-                <p className="mb-3 text-xs font-medium tracking-wide text-slate-600">Chargement...</p>
-                <div className="space-y-2.5">
-                  <div className="route-wave h-3 w-full rounded-md" />
-                  <div className="route-wave h-3 w-11/12 rounded-md [animation-delay:120ms]" />
-                  <div className="route-wave h-3 w-9/12 rounded-md [animation-delay:240ms]" />
-                </div>
-              </div>
+          <div className="flex min-h-[220px] items-center justify-center">
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+              Chargement de la page...
             </div>
           </div>
         ) : (
