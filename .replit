@@ -9,7 +9,7 @@ id = "artifacts/mockup-sandbox"
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
-build = ["sh", "-c", "pnpm --filter @workspace/app run build && pnpm --filter @workspace/api-server run build"]
+build = ["sh", "-c", "corepack enable && pnpm install && pnpm --filter @workspace/app run build && pnpm --filter @workspace/api-server run build"]
 run = ["sh", "-c", "pnpm --filter @workspace/api-server run start"]
 
 [deployment.postBuild]

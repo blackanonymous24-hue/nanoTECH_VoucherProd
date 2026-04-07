@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/command";
 import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { applyVars, getStoredTemplate, getStoredPHP, isPHPMode } from "@/pages/TicketTemplate";
+import { getStoredPHP } from "@/pages/TicketTemplate";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -180,7 +180,6 @@ export default function GenerateVouchers() {
   };
 
   const handlePrint = async () => {
-    if (!isPHPMode()) { window.print(); return; }
     const php = getStoredPHP()!;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
@@ -207,14 +206,39 @@ export default function GenerateVouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      const sec = document.getElementById("voucher-print-section");
-      if (sec) {
-        sec.innerHTML = (data.html as string[]).join("");
-        sec.style.display = "flex";
-        sec.style.flexWrap = "wrap";
+      const win = window.open("", "_blank", "noopener,noreferrer");
+      if (!win) throw new Error("Le navigateur a bloqué l'ouverture du nouvel onglet.");
+      const content = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Voucher-${selectedRouter?.name ?? "router"}</title>
+    <style>
+      body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      table.voucher { display:inline-block; border:2px solid black; margin:2px; }
+      #num { float:right; display:inline-block; }
+      @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
+      @media print {
+        table { page-break-after:auto; }
+        tr { page-break-inside:avoid; page-break-after:auto; }
+        td { page-break-inside:avoid; page-break-after:auto; }
+        thead { display:table-header-group; }
+        tfoot { display:table-footer-group; }
       }
-      window.print();
-      if (sec) { sec.innerHTML = ""; sec.style.display = "none"; }
+    </style>
+  </head>
+  <body>
+    ${(data.html as string[]).join("")}
+    <script>
+      window.addEventListener("load", function () {
+        setTimeout(function () { window.print(); }, 60);
+      });
+    </script>
+  </body>
+</html>`;
+      win.document.open();
+      win.document.write(content);
+      win.document.close();
     } catch (err: unknown) {
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     }
@@ -655,45 +679,7 @@ export default function GenerateVouchers() {
       </div>
 
       {/* ── Print section — uses global @media print CSS ── */}
-      <div id="voucher-print-section" style={{ display: "none" }}>
-        {generatedVouchers.map((v, idx) => {
-          const PRICE_COLORS: Record<string, string> = {
-            "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
-            "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
-            "13000":"#2E8B57","15000":"#2E8B57","17000":"#0000FF","20000":"#0000FF",
-            "35000":"#6495ED","40000":"#6495ED","80000":"#FF8C00","85000":"#FF8C00",
-            "160000":"#DC143C","170000":"#DC143C",
-          };
-          const color = PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD";
-          const rawV = v.validity ?? "";
-          const vl = rawV.slice(-1), vn = rawV.slice(0, -1);
-          const validity = vl === "d" ? `Validité : ${vn} Jour(s)` : vl === "h" ? `Validité : ${vn} Heure(s)` : vl === "w" ? `Validité : ${vn} Semaine(s)` : rawV;
-          const isVC = v.username === v.password;
-          const codeblock = isVC
-            ? `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div><div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">${v.username}</div>`
-            : `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div><div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">User: ${v.username}<br>Pass: ${v.password}</div>`;
-          const qrData = isVC ? v.username : `${v.username}:${v.password}`;
-          const qrcode = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(qrData)}&margin=2`;
-          const tpl = getStoredTemplate();
-          const vars: Record<string, string> = {
-            hotspotname: selectedRouter?.name ?? "",
-            dnsname: (selectedRouter as any)?.contact ?? "",
-            username: v.username,
-            password: v.password,
-            price: String(v.price ?? ""),
-            currency: "FCFA",
-            validity,
-            timelimit: "",
-            datalimit: "",
-            num: String(idx + 1),
-            profile: v.profileName ?? "",
-            color,
-            codeblock,
-            qrcode,
-          };
-          return <div key={v.id} dangerouslySetInnerHTML={{ __html: applyVars(tpl, vars) }} />;
-        })}
-      </div>
+      <div id="voucher-print-section" style={{ display: "none" }} />
     </div>
   );
 }

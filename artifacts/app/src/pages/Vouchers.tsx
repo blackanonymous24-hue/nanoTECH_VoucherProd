@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   useListRouterUsers,
@@ -40,48 +40,12 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { applyVars, getStoredTemplate, getStoredPHP, isPHPMode } from "@/pages/TicketTemplate";
+import { getStoredPHP } from "@/pages/TicketTemplate";
 
 type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-// ─── Print helpers ────────────────────────────────────────────────────────────
-
-function getPriceColor(price: string | number | null | undefined): string {
-  const map: Record<string, string> = {
-    "0": "#E50877", "100": "#752CEB", "200": "#804000",
-    "300": "#13C013", "500": "#ECA352", "1000": "#F75418",
-    "1500": "#FF69B4", "2500": "#F70000", "3000": "#F70000",
-    "13000": "#2E8B57", "15000": "#2E8B57",
-    "17000": "#0000FF", "20000": "#0000FF",
-    "35000": "#6495ED", "40000": "#6495ED",
-    "80000": "#FF8C00", "85000": "#FF8C00",
-    "160000": "#DC143C", "170000": "#DC143C",
-  };
-  return map[String(price ?? "")] ?? "#1433FD";
-}
-
-function formatValidityLabel(v: string | null | undefined): string {
-  if (!v) return "";
-  const last = v.slice(-1);
-  const num = v.slice(0, -1);
-  if (last === "d") return `Validité : ${num} Jour(s)`;
-  if (last === "h") return `Validité : ${num} Heure(s)`;
-  if (last === "w") return `Validité : ${num} Semaine(s)`;
-  return v;
-}
-
-function formatUptimeLabel(v: string | null | undefined): string {
-  if (!v) return "";
-  const last = v.slice(-1);
-  const num = v.slice(0, -1);
-  if (last === "d") return `Durée : ${num} Jour(s)`;
-  if (last === "h") return `Durée : ${num} Heure(s)`;
-  if (last === "w") return `Durée : ${num} Semaine(s)`;
-  return v;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -113,6 +77,7 @@ export default function Vouchers() {
   const [isSelectingAll, setIsSelectingAll] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
+  const [autoLoadedRouterId, setAutoLoadedRouterId] = useState<number | null>(null);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -143,6 +108,19 @@ export default function Vouchers() {
     ? lots
     : lots.filter((l) => l.profile === filterProfile);
   const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
+
+  // Mikhmon-like behavior: on page open/router switch, preselect latest generated lot.
+  useEffect(() => {
+    if (!activeRouterId || lots.length === 0) return;
+    if (autoLoadedRouterId === activeRouterId) return;
+    const latestLot = lots[0]?.name;
+    if (!latestLot) return;
+    setView("list");
+    setFilterComment(latestLot);
+    setPage(0);
+    setSelectedUsernames(new Set());
+    setAutoLoadedRouterId(activeRouterId);
+  }, [activeRouterId, lots, autoLoadedRouterId]);
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   const {
@@ -285,7 +263,6 @@ export default function Vouchers() {
 
   // ── Print ────────────────────────────────────────────────────────────────────
   const handlePrintVouchers = async () => {
-    if (!isPHPMode()) { window.print(); return; }
     const php = getStoredPHP()!;
     const usersForPrint = selectedUsernames.size > 0
       ? filtered.filter((u) => selectedUsernames.has(u.username))
@@ -313,14 +290,7 @@ export default function Vouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      const sec = document.getElementById("voucher-print-section");
-      if (sec) {
-        sec.innerHTML = (data.html as string[]).join("");
-        sec.style.display = "flex";
-        sec.style.flexWrap = "wrap";
-      }
-      window.print();
-      if (sec) { sec.innerHTML = ""; sec.style.display = "none"; }
+      openPrintTab(data.html as string[], `Voucher-${activeRouter?.name ?? "router"}`);
     } catch (err: unknown) {
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     }
@@ -392,6 +362,42 @@ export default function Vouchers() {
   const handleCommentChange = (v: string) => {
     setFilterComment(v);
     setPage(0);
+  };
+
+  const openPrintTab = (htmlItems: string[], title: string) => {
+    const win = window.open("", "_blank", "noopener,noreferrer");
+    if (!win) throw new Error("Le navigateur a bloqué l'ouverture du nouvel onglet.");
+    const content = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      table.voucher { display:inline-block; border:2px solid black; margin:2px; }
+      #num { float:right; display:inline-block; }
+      @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
+      @media print {
+        table { page-break-after:auto; }
+        tr { page-break-inside:avoid; page-break-after:auto; }
+        td { page-break-inside:avoid; page-break-after:auto; }
+        thead { display:table-header-group; }
+        tfoot { display:table-footer-group; }
+      }
+    </style>
+  </head>
+  <body>
+    ${htmlItems.join("")}
+    <script>
+      window.addEventListener("load", function () {
+        setTimeout(function () { window.print(); }, 60);
+      });
+    </script>
+  </body>
+</html>`;
+    win.document.open();
+    win.document.write(content);
+    win.document.close();
   };
 
   return (
@@ -896,22 +902,7 @@ export default function Vouchers() {
       <Download className="hidden" />
 
       {/* ── Print section — hidden on screen, visible on print ── */}
-      <div id="voucher-print-section" style={{ display: "none" }}>
-        {(selectedUsernames.size > 0
-          ? filtered.filter((u) => selectedUsernames.has(u.username))
-          : filtered
-        ).map((user, idx) => (
-          <VoucherPrintCard
-            key={user.username}
-            user={user}
-            profilePrice={profilesList.find((p) => p.name === user.profile)?.price ?? ""}
-            profileValidity={profilesList.find((p) => p.name === user.profile)?.validity ?? ""}
-            hotspotName={activeRouter?.name ?? ""}
-            dnsName={(activeRouter as any)?.contact ?? ""}
-            num={idx + 1}
-          />
-        ))}
-      </div>
+      <div id="voucher-print-section" style={{ display: "none" }} />
     </div>
   );
 }
@@ -967,60 +958,4 @@ function UserRow({
       </div>
     </div>
   );
-}
-
-// ─── VoucherPrintCard ─────────────────────────────────────────────────────────
-
-function VoucherPrintCard({
-  user,
-  profilePrice,
-  profileValidity,
-  hotspotName,
-  dnsName,
-  num,
-}: {
-  user: HotspotUser;
-  profilePrice: string;
-  profileValidity: string;
-  hotspotName: string;
-  dnsName: string;
-  num: number;
-}) {
-  const color = getPriceColor(profilePrice || null);
-
-  const isVoucherMode = user.username === user.password;
-
-  const validityStr = formatValidityLabel(profileValidity || null);
-  const uptimeStr = formatUptimeLabel(user.limitUptime);
-  const qrData = isVoucherMode
-    ? user.username
-    : `User:${user.username} Pass:${user.password}`;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(qrData)}&margin=2`;
-
-  const storedTpl = getStoredTemplate();
-
-  const codeblock = isVoucherMode
-    ? `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div>` +
-      `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">${user.username}</div>`
-    : `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:10px;color:#444;">Compte Utilisateur</div>` +
-      `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:12px;color:${color};">User: ${user.username}<br>Pass: ${user.password}</div>`;
-
-  const vars: Record<string, string> = {
-    hotspotname: hotspotName,
-    dnsname: dnsName,
-    username: user.username,
-    password: user.password,
-    price: String(profilePrice ?? ""),
-    currency: "FCFA",
-    validity: validityStr,
-    timelimit: uptimeStr,
-    datalimit: user.limitBytesTotal ?? "",
-    num: String(num),
-    profile: user.profile,
-    color,
-    codeblock,
-    qrcode: qrUrl,
-  };
-
-  return <div dangerouslySetInnerHTML={{ __html: applyVars(storedTpl, vars) }} style={{ display: "inline-block", verticalAlign: "top" }} />;
 }

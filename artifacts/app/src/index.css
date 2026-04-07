@@ -387,3 +387,10 @@
   font-size: 12px; font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.04em; margin: 14px 0 4px; color: #374151;
 }
+
+/* Dashboard: keep traffic/logs side-by-side on landscape screens */
+@media (orientation: landscape) and (min-width: 768px) {
+  .traffic-logs-layout {
+    flex-direction: row;
+  }
+}

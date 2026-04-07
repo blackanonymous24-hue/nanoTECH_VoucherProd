@@ -583,7 +583,7 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-4 items-stretch">
+      <div className="traffic-logs-layout flex flex-col gap-4 items-stretch">
       <TrafficMonitorCard routerId={selectedRouterId} />
       <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) if [ \"$CI\" = \"true\" ]; then echo \"Non-pnpm install detected in CI; continuing for deployment compatibility.\" >&2; else echo \"Use pnpm instead\" >&2; exit 1; fi ;; esac'",
     "build": "pnpm --filter @workspace/app run build && pnpm --filter @workspace/api-server run build",
     "start": "pnpm --filter @workspace/api-server run start",
     "typecheck:libs": "tsc --build",
