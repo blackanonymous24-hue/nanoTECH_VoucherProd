@@ -1,7 +1,8 @@
-const PRINT_CSS = `
-  body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+const TICKET_CSS = `
   table.voucher { display:inline-block; border:2px solid black; margin:2px; }
   #num { float:right; display:inline-block; }
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
   @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
   @media print {
     table { page-break-after:auto; }
@@ -13,45 +14,63 @@ const PRINT_CSS = `
 `;
 
 /**
- * Imprime des tickets HTML en injectant une zone d'impression dans la page principale
- * et en appelant window.print(). Compatible Chrome, Edge, Firefox, Safari.
- * Le titre document.title est utilisé comme nom de fichier par tous les navigateurs.
+ * Imprime des tickets HTML via un <iframe> invisible injecté dans la page.
+ * L'iframe reçoit un document HTML complet, ce qui garantit un rendu correct.
+ * document.title de la page principale est changé temporairement pour
+ * que Edge/Chrome/Firefox utilisent le bon nom de fichier.
  */
 export function printTickets(htmlItems: string[], title: string): void {
-  const uid = `vn-print-${Date.now()}`;
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText =
+    "position:fixed;top:-9999px;left:-9999px;width:1024px;height:768px;border:0;opacity:0;pointer-events:none;";
+  document.body.appendChild(iframe);
 
-  // Zone de contenu à imprimer (cachée à l'écran)
-  const printDiv = document.createElement("div");
-  printDiv.id = uid;
-  printDiv.innerHTML = htmlItems.join("");
+  const doc = iframe.contentDocument;
+  if (!doc) {
+    document.body.removeChild(iframe);
+    return;
+  }
 
-  // Style : masquer tout sauf la zone d'impression lors de l'impression
-  const styleTag = document.createElement("style");
-  styleTag.setAttribute("data-print-uid", uid);
-  styleTag.textContent = `
-    @media screen { #${uid} { display:none; } }
-    @media print {
-      body > *:not(#${uid}) { display:none !important; visibility:hidden !important; }
-      #${uid} { display:block !important; visibility:visible !important; }
-      ${PRINT_CSS}
-    }
-  `;
+  const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      body {
+        color: #000;
+        background: #fff;
+        font-size: 14px;
+        font-family: Helvetica, Arial, sans-serif;
+        margin: 0;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      ${TICKET_CSS}
+    </style>
+  </head>
+  <body>${htmlItems.join("")}</body>
+</html>`;
 
-  document.head.appendChild(styleTag);
-  document.body.appendChild(printDiv);
+  doc.open();
+  doc.write(html);
+  doc.close();
 
+  // Changer le titre de la fenêtre principale — utilisé par tous les navigateurs
+  // comme nom de fichier dans la boîte "Enregistrer en PDF"
   const prevTitle = document.title;
   document.title = title;
 
-  // Laisser le DOM se mettre à jour avant d'imprimer
   setTimeout(() => {
-    window.print();
-
-    // Nettoyer après impression (délai pour laisser la boîte s'ouvrir)
-    setTimeout(() => {
-      document.title = prevTitle;
-      try { document.head.removeChild(styleTag); } catch (_) {}
-      try { document.body.removeChild(printDiv); } catch (_) {}
-    }, 1500);
-  }, 100);
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } finally {
+      // Restaurer le titre et nettoyer l'iframe après que la boîte s'est ouverte
+      setTimeout(() => {
+        document.title = prevTitle;
+        try { document.body.removeChild(iframe); } catch (_) {}
+      }, 3000);
+    }
+  }, 500);
 }
