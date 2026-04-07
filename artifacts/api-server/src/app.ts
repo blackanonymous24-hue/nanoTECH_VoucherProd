@@ -1,5 +1,7 @@
 import express from "express";
 import pinoHttp from "pino-http";
+import path from "path";
+import fs from "fs";
 import { logger } from "./lib/logger.js";
 import { router } from "./routes/index.js";
 
@@ -34,3 +36,14 @@ app.use("/api", (_req, res, next) => {
 });
 
 app.use("/api", router);
+
+// Serve the compiled frontend if it exists (production deployment)
+// CWD = artifacts/api-server when started via pnpm --filter
+const frontendDist = path.resolve(process.cwd(), "../app/dist/public");
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  // SPA fallback — all non-API routes return index.html
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(frontendDist, "index.html"));
+  });
+}
