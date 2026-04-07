@@ -271,7 +271,7 @@ export default function Vouchers() {
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
-        hotspotname: (activeRouter as any)?.hotspotName || activeRouter?.name ?? "",
+        hotspotname: (activeRouter as any)?.hotspotName || (activeRouter?.name ?? ""),
         dnsname: (activeRouter as any)?.contact ?? "",
         username: user.username,
         password: user.password,
