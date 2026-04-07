@@ -63,12 +63,17 @@ function AppRoutes() {
     }
   }, [location, qc]);
 
+  // Vendor portal manages its own auth — always render it regardless of admin session
+  if (location.startsWith("/vendor-portal")) {
+    return <VendorPortal />;
+  }
+
   if (!isAuthenticated) {
     const isVendorPage = location === "/vendeur" || location.startsWith("/vendeur/");
     return <LoginPage mode={isVendorPage ? "vendor" : "admin"} />;
   }
 
-  if (role === "vendor" || location.startsWith("/vendor-portal")) {
+  if (role === "vendor") {
     return <VendorPortal />;
   }
 
