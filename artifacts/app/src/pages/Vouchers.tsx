@@ -108,6 +108,8 @@ export default function Vouchers() {
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
   const [isDeletingLot, setIsDeletingLot] = useState(false);
   const [isDisabling, setIsDisabling] = useState(false);
+  const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
 
@@ -212,6 +214,32 @@ export default function Vouchers() {
       toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
     } finally {
       setIsDisabling(false);
+    }
+  };
+
+  // ── Delete selected usernames ────────────────────────────────────────────────
+  const handleDeleteSelected = async () => {
+    if (!activeRouterId || selectedUsernames.size === 0) return;
+    setIsDeletingSelected(true);
+    try {
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usernames: [...selectedUsernames] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { deleted: number };
+      toast({
+        title: `${data.deleted} voucher(s) supprimé(s)`,
+        description: `Profil : ${filterProfile}`,
+      });
+      setSelectedUsernames(new Set());
+      setConfirmDeleteSelected(false);
+      refetch();
+    } catch (err) {
+      toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
+    } finally {
+      setIsDeletingSelected(false);
     }
   };
 
@@ -581,21 +609,78 @@ export default function Vouchers() {
                 </div>
               )}
 
-              {selectedUsernames.size > 0 && (
-                <div className="flex items-center gap-3 mb-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5">
-                  <span className="text-sm text-blue-700 font-medium">
-                    {selectedUsernames.size} sélectionné(s)
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handlePrintVouchers}
-                    className="gap-1.5"
-                  >
-                    <Printer className="h-3.5 w-3.5" /> Imprimer
-                  </Button>
+              {/* Selection banner — shown when at least one user is ticked */}
+              {(filterProfile !== "all" || selectedUsernames.size > 0) && (
+                <div className="flex items-center gap-3 mb-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 flex-wrap">
+                  {/* "Select all of profile" shortcut */}
+                  {filterProfile !== "all" && filtered.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedUsernames(
+                          selectedUsernames.size === filtered.length
+                            ? new Set()
+                            : new Set(filtered.map((u) => u.username)),
+                        )
+                      }
+                      className="text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2 transition-colors"
+                    >
+                      {selectedUsernames.size === filtered.length
+                        ? "Désélectionner tout"
+                        : `Sélectionner tout (${filtered.length.toLocaleString("fr")})`}
+                    </button>
+                  )}
+
+                  {selectedUsernames.size > 0 && (
+                    <>
+                      <span className="text-sm text-blue-700 font-medium">
+                        {selectedUsernames.size} sélectionné(s)
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handlePrintVouchers}
+                        className="gap-1.5"
+                      >
+                        <Printer className="h-3.5 w-3.5" /> Imprimer
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setConfirmDeleteSelected(true)}
+                        className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Supprimer ({selectedUsernames.size})
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
+
+              {/* Confirmation dialog — delete selected */}
+              <AlertDialog open={confirmDeleteSelected} onOpenChange={setConfirmDeleteSelected}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Supprimer {selectedUsernames.size} voucher(s) ?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Cette action supprimera définitivement {selectedUsernames.size} utilisateur(s)
+                      du profil <strong>{filterProfile}</strong> sur MikroTik.
+                      Cette opération est irréversible.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Annuler</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteSelected}
+                      disabled={isDeletingSelected}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      {isDeletingSelected ? "Suppression..." : "Supprimer définitivement"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
               <Card>
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
