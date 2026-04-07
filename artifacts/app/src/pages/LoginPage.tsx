@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Wifi, LogIn, Copy, Check } from "lucide-react";
+import { Wifi, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,23 +18,8 @@ export default function LoginPage({ mode }: LoginPageProps) {
   const [form, setForm] = useState({ login: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const isAdmin = mode === "admin";
-
-  /* ── Shareable link for this interface ─────────────────────────── */
-  const origin = window.location.origin;
-  const thisPath  = isAdmin ? `${BASE}/admin`   : `${BASE}/vendeur`;
-  const otherPath = isAdmin ? `${BASE}/vendeur`  : `${BASE}/admin`;
-  const thisUrl   = `${origin}${thisPath}`;
-  const otherUrl  = `${origin}${otherPath}`;
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(thisUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,38 +120,6 @@ export default function LoginPage({ mode }: LoginPageProps) {
               {loading ? "Connexion..." : "Se connecter"}
             </Button>
           </form>
-        </div>
-
-        {/* Shareable link for THIS interface */}
-        <div className="mt-4 bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">
-            Lien de cette interface
-          </p>
-          <div className="flex items-center gap-2">
-            <span className={`flex-1 text-xs font-mono truncate ${isAdmin ? "text-blue-400" : "text-emerald-400"}`}>
-              {thisUrl}
-            </span>
-            <button
-              type="button"
-              onClick={handleCopy}
-              title="Copier le lien"
-              className="flex-shrink-0 p-1.5 rounded-md text-gray-500 hover:text-white hover:bg-gray-700 transition-colors"
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Link to the OTHER interface */}
-        <div className="mt-2 text-center">
-          <button
-            type="button"
-            onClick={() => navigate(otherPath)}
-            className="text-[11px] text-gray-600 hover:text-gray-400 transition-colors"
-          >
-            {isAdmin ? "→ Interface vendeurs" : "→ Interface administrateurs"}&nbsp;
-            <span className="font-mono opacity-60">{otherUrl}</span>
-          </button>
         </div>
 
       </div>
