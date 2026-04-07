@@ -57,7 +57,11 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 /** "3h"→"3H", "1d"→"1J", "30m"→"30M", "1w"→"1S" */
 function validityCode(validity: string | null | undefined): string {
   if (!validity) return "";
-  const m = validity.trim().match(/^(\d+)([a-zA-Z]+)$/);
+  const s = validity.trim();
+  // Conversions spéciales : 30 jours = 1 mois, 7 jours = 1 semaine
+  if (/^30d$/i.test(s)) return "1M";
+  if (/^7d$/i.test(s))  return "1S";
+  const m = s.match(/^(\d+)([a-zA-Z]+)$/);
   if (!m) return "";
   const map: Record<string, string> = { h: "H", d: "J", m: "M", w: "S" };
   return m[1] + (map[m[2].toLowerCase()] ?? m[2].toUpperCase());
