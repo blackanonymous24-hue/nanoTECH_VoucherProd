@@ -1,8 +1,7 @@
-const TICKET_CSS = `
+const PRINT_CSS = `
+  body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; border:2px solid black; margin:2px; }
   #num { float:right; display:inline-block; }
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
   @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
   @media print {
     table { page-break-after:auto; }
@@ -15,14 +14,12 @@ const TICKET_CSS = `
 
 /**
  * Imprime des tickets HTML via un <iframe> invisible injecté dans la page.
- * L'iframe reçoit un document HTML complet, ce qui garantit un rendu correct.
- * document.title de la page principale est changé temporairement pour
- * que Edge/Chrome/Firefox utilisent le bon nom de fichier.
+ * Évite complètement le bloqueur de popups — aucune autorisation navigateur requise.
  */
 export function printTickets(htmlItems: string[], title: string): void {
   const iframe = document.createElement("iframe");
-  iframe.style.cssText =
-    "position:fixed;top:-9999px;left:-9999px;width:1024px;height:768px;border:0;opacity:0;pointer-events:none;";
+  iframe.setAttribute("title", title);
+  iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;visibility:hidden;";
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument;
@@ -36,18 +33,7 @@ export function printTickets(htmlItems: string[], title: string): void {
   <head>
     <meta charset="utf-8" />
     <title>${title}</title>
-    <style>
-      body {
-        color: #000;
-        background: #fff;
-        font-size: 14px;
-        font-family: Helvetica, Arial, sans-serif;
-        margin: 0;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      ${TICKET_CSS}
-    </style>
+    <style>${PRINT_CSS}</style>
   </head>
   <body>${htmlItems.join("")}</body>
 </html>`;
@@ -55,22 +41,19 @@ export function printTickets(htmlItems: string[], title: string): void {
   doc.open();
   doc.write(html);
   doc.close();
-
-  // Changer le titre de la fenêtre principale — utilisé par tous les navigateurs
-  // comme nom de fichier dans la boîte "Enregistrer en PDF"
-  const prevTitle = document.title;
-  document.title = title;
+  doc.title = title;
 
   setTimeout(() => {
+    const prevTitle = document.title;
+    document.title = title;
     try {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
     } finally {
-      // Restaurer le titre et nettoyer l'iframe après que la boîte s'est ouverte
       setTimeout(() => {
         document.title = prevTitle;
         try { document.body.removeChild(iframe); } catch (_) {}
-      }, 3000);
+      }, 2000);
     }
-  }, 500);
+  }, 400);
 }
