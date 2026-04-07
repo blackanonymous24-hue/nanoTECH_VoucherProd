@@ -2,6 +2,7 @@ import express from "express";
 import pinoHttp from "pino-http";
 import path from "path";
 import fs from "fs";
+import { createProxyMiddleware } from "http-proxy-middleware";
 import { logger } from "./lib/logger.js";
 import { router } from "./routes/index.js";
 
@@ -46,4 +47,15 @@ if (fs.existsSync(frontendDist)) {
   app.get("*", (_req, res) => {
     res.sendFile(path.join(frontendDist, "index.html"));
   });
+} else {
+  // Development: proxy all non-API requests to the Vite dev server
+  const vitePort = process.env.VITE_PORT ?? "23863";
+  app.use(
+    "/",
+    createProxyMiddleware({
+      target: `http://localhost:${vitePort}`,
+      changeOrigin: true,
+      ws: true,
+    }),
+  );
 }
