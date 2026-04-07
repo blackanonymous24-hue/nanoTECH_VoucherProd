@@ -13,47 +13,45 @@ const PRINT_CSS = `
 `;
 
 /**
- * Imprime des tickets HTML via un <iframe> invisible injecté dans la page.
- * Évite complètement le bloqueur de popups — aucune autorisation navigateur requise.
+ * Imprime des tickets HTML en injectant une zone d'impression dans la page principale
+ * et en appelant window.print(). Compatible Chrome, Edge, Firefox, Safari.
+ * Le titre document.title est utilisé comme nom de fichier par tous les navigateurs.
  */
 export function printTickets(htmlItems: string[], title: string): void {
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("title", title);
-  iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;visibility:hidden;";
-  document.body.appendChild(iframe);
+  const uid = `vn-print-${Date.now()}`;
 
-  const doc = iframe.contentDocument;
-  if (!doc) {
-    document.body.removeChild(iframe);
-    return;
-  }
+  // Zone de contenu à imprimer (cachée à l'écran)
+  const printDiv = document.createElement("div");
+  printDiv.id = uid;
+  printDiv.innerHTML = htmlItems.join("");
 
-  const html = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>${PRINT_CSS}</style>
-  </head>
-  <body>${htmlItems.join("")}</body>
-</html>`;
-
-  doc.open();
-  doc.write(html);
-  doc.close();
-  doc.title = title;
-
-  setTimeout(() => {
-    const prevTitle = document.title;
-    document.title = title;
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } finally {
-      setTimeout(() => {
-        document.title = prevTitle;
-        try { document.body.removeChild(iframe); } catch (_) {}
-      }, 2000);
+  // Style : masquer tout sauf la zone d'impression lors de l'impression
+  const styleTag = document.createElement("style");
+  styleTag.setAttribute("data-print-uid", uid);
+  styleTag.textContent = `
+    @media screen { #${uid} { display:none; } }
+    @media print {
+      body > *:not(#${uid}) { display:none !important; visibility:hidden !important; }
+      #${uid} { display:block !important; visibility:visible !important; }
+      ${PRINT_CSS}
     }
-  }, 400);
+  `;
+
+  document.head.appendChild(styleTag);
+  document.body.appendChild(printDiv);
+
+  const prevTitle = document.title;
+  document.title = title;
+
+  // Laisser le DOM se mettre à jour avant d'imprimer
+  setTimeout(() => {
+    window.print();
+
+    // Nettoyer après impression (délai pour laisser la boîte s'ouvrir)
+    setTimeout(() => {
+      document.title = prevTitle;
+      try { document.head.removeChild(styleTag); } catch (_) {}
+      try { document.body.removeChild(printDiv); } catch (_) {}
+    }, 1500);
+  }, 100);
 }
