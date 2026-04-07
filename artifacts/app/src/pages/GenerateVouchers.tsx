@@ -334,7 +334,7 @@ export default function GenerateVouchers() {
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
     };
     const vouchers = lot.vouchers.map((v, idx) => ({
-      hotspotname: lot.routerName,
+      hotspotname: (selectedRouter as any)?.hotspotName || lot.routerName,
       dnsname: (selectedRouter as any)?.contact ?? "",
       username: v.username,
       password: v.password,
