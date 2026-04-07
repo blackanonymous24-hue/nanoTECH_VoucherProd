@@ -182,15 +182,8 @@ export default function Vouchers() {
     query: { enabled: !!activeRouterId, staleTime: 120_000 },
   });
 
-  const sortedProfiles = useMemo(
-    () =>
-      [...profilesList].sort((a, b) => {
-        const pa = parseFloat((a.price ?? "").replace(/\s/g, "")) || 0;
-        const pb = parseFloat((b.price ?? "").replace(/\s/g, "")) || 0;
-        return pa - pb;
-      }),
-    [profilesList],
-  );
+  // Keep MikroTik insertion order (= creation order), same as Mikhmon
+  const sortedProfiles = profilesList;
 
   // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
   const handleDisableLot = async (comment: string, enable: boolean) => {
