@@ -390,18 +390,13 @@ export default function Vouchers() {
       }
     </style>
   </head>
-  <body>
-    ${htmlItems.join("")}
-    <script>
-      window.addEventListener("load", function () {
-        setTimeout(function () { window.print(); }, 60);
-      });
-    </script>
-  </body>
+  <body>${htmlItems.join("")}</body>
 </html>`;
     win.document.open();
     win.document.write(content);
     win.document.close();
+    // Appel depuis la fenêtre parente — plus fiable que l'événement load inline
+    setTimeout(() => { try { win.print(); } catch (_) {} }, 500);
   };
 
   return (
