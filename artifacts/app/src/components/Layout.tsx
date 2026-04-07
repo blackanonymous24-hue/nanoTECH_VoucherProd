@@ -207,7 +207,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             <Wifi className="h-4 w-4 text-blue-400" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-white leading-none">VoucherNet</p>
+            <p className="text-sm font-bold text-white leading-none">nanoTECH Vouchers Bills</p>
             <p className="text-[10px] text-gray-500 mt-0.5 leading-none truncate">
               {routerIdentity ?? "Gestion Hotspot MikroTik"}
             </p>
@@ -470,7 +470,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
                 <Wifi className="h-3.5 w-3.5 text-blue-400" />
               </div>
-              <span className="font-bold text-white truncate text-sm">VoucherNet</span>
+              <span className="font-bold text-white truncate text-sm">nanoTECH Vouchers Bills</span>
             </div>
 
             <RouterSelector className="flex-shrink-0" />

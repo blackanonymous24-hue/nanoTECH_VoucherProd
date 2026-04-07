@@ -68,7 +68,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
           <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg ${isAdmin ? "bg-blue-600" : "bg-emerald-600"}`}>
             <Wifi className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">VoucherNet</h1>
+          <h1 className="text-2xl font-bold text-white">nanoTECH Vouchers Bills</h1>
           <p className="text-sm text-gray-400 mt-1">Gestion Hotspot MikroTik</p>
         </div>
 
