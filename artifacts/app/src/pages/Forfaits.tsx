@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useListRouterProfiles } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -85,6 +85,36 @@ export default function Forfaits() {
   const [deletingName, setDeletingName] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [refreshingProfiles, setRefreshingProfiles] = useState(false);
+  const [localProfiles, setLocalProfiles] = useState<(typeof profiles)>([]);
+
+  const localCacheKey = selectedRouterId ? `forfaits-cache:${selectedRouterId}` : null;
+
+  useEffect(() => {
+    if (!localCacheKey) {
+      setLocalProfiles([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(localCacheKey);
+      setLocalProfiles(raw ? JSON.parse(raw) : []);
+    } catch {
+      setLocalProfiles([]);
+    }
+  }, [localCacheKey]);
+
+  useEffect(() => {
+    if (!localCacheKey || profiles.length === 0) return;
+    try {
+      localStorage.setItem(localCacheKey, JSON.stringify(profiles));
+    } catch {
+      // ignore quota/serialization issues
+    }
+  }, [localCacheKey, profiles]);
+
+  const displayedProfiles = useMemo(
+    () => (profiles.length > 0 ? profiles : localProfiles),
+    [profiles, localProfiles],
+  );
 
   function setField<K extends keyof typeof defaultForm>(key: K, val: (typeof defaultForm)[K]) {
     setForm((f) => ({ ...f, [key]: val }));
@@ -234,11 +264,11 @@ export default function Forfaits() {
         </Card>
       )}
 
-      {selectedRouterId && loadingProfiles && (
+      {selectedRouterId && loadingProfiles && displayedProfiles.length === 0 && (
         <div className="text-sm text-gray-400">Chargement des forfaits...</div>
       )}
 
-      {selectedRouterId && !loadingProfiles && profiles.length === 0 && (
+      {selectedRouterId && !loadingProfiles && displayedProfiles.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-gray-500">Aucun profil trouvé sur ce routeur.</p>
@@ -246,11 +276,11 @@ export default function Forfaits() {
         </Card>
       )}
 
-      {profiles.length > 0 && (
+      {displayedProfiles.length > 0 && (
         <>
-          <p className="text-sm text-gray-500 mb-4">{profiles.length} forfait(s) trouvé(s)</p>
+          <p className="text-sm text-gray-500 mb-4">{displayedProfiles.length} forfait(s) trouvé(s)</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {profiles.map((p) => (
+            {displayedProfiles.map((p) => (
               <Card key={p.name} className="hover:shadow-md transition-shadow">
                 <div className="flex p-4 gap-2">
                   <div className="flex-1 min-w-0 space-y-2">

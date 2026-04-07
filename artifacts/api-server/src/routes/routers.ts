@@ -13,7 +13,7 @@ interface ProfileListCache {
 }
 const profileListCache = new Map<number, ProfileListCache>();
 const profileListInFlight = new Map<number, Promise<Awaited<ReturnType<typeof listProfiles>>>>();
-const PROFILE_LIST_CACHE_TTL = 300_000; // 5 min
+const PROFILE_LIST_CACHE_TTL = 900_000; // 15 min
 
 function getFreshProfileCache(routerId: number) {
   const cached = profileListCache.get(routerId);
@@ -255,23 +255,14 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   }
 
   const staleCached = profileListCache.get(id)?.profiles ?? null;
+  if (staleCached && !forceRefresh) {
+    // Stale-while-revalidate: return instantly, refresh in background.
+    void fetchProfilesWithCache(id, conn).catch(() => undefined);
+    res.json(staleCached);
+    return;
+  }
+
   try {
-    const timeoutMs = staleCached ? 1200 : 7000;
-    const profiles = await Promise.race([
-      fetchProfilesWithCache(id, conn),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-    ]);
-
-    if (profiles) {
-      res.json(profiles);
-      return;
-    }
-
-    if (staleCached) {
-      res.json(staleCached);
-      return;
-    }
-
     const fetched = await fetchProfilesWithCache(id, conn);
     res.json(fetched);
   } catch (err) {
