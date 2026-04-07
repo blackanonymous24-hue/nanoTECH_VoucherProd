@@ -315,6 +315,14 @@ export default function GenerateVouchers() {
       saveLastLot(lot);
       queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
       toast({ title: `${allVouchers.length} voucher(s) généré(s) avec succès !` });
+
+      // Réinitialiser les paramètres de génération pour le prochain lot
+      setComment(makeBatchId(passwordMode === "random" ? "up" : "vc"));
+      setQty("10");
+      setPrefix("");
+      setTimelimit("");
+      setDatalimit("");
+      setVendorId("");
     } finally {
       setProgress(null);
     }
