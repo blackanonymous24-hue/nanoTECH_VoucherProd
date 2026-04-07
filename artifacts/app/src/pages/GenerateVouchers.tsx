@@ -789,7 +789,7 @@ export default function GenerateVouchers() {
                   {isPrinting
                     ? <Loader2 className="h-4 w-4 animate-spin" />
                     : <Printer className="h-4 w-4" />}
-                  {isPrinting ? "Génération en cours..." : "Imprimer les tickets"}
+                  {isPrinting ? "Impression en cours..." : "Imprimer les tickets"}
                 </Button>
                 <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleCopyAll(lastLot)} title="Copier tous les codes">
                   <Copy className="h-4 w-4" />

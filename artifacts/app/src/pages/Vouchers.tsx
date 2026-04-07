@@ -594,7 +594,7 @@ export default function Vouchers() {
                       {isPrinting
                         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         : <Printer className="h-3.5 w-3.5" />}
-                      {isPrinting ? "En cours..." : "Imprimer"}
+                      {isPrinting ? "Impression en cours..." : "Imprimer"}
                     </Button>
                     <Button
                       size="sm"
@@ -650,7 +650,7 @@ export default function Vouchers() {
                         {isPrinting
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <Printer className="h-3.5 w-3.5" />}
-                        {isPrinting ? "En cours..." : "Imprimer"}
+                        {isPrinting ? "Impression en cours..." : "Imprimer"}
                       </Button>
                       <Button
                         size="sm"
