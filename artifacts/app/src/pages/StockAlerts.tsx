@@ -41,10 +41,11 @@ export default function StockAlerts() {
     alerts: Alert[];
   }>({
     queryKey: ["stock-alerts", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = selectedRouterId ? `?routerId=${selectedRouterId}` : "";
       const res = await fetch(`${BASE}/api/vendors/stock-alerts${params}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal,
       });
       if (!res.ok) throw new Error("stock-alerts failed");
       return res.json();
@@ -52,6 +53,7 @@ export default function StockAlerts() {
     staleTime: 60_000,
     enabled: !!token,
     refetchInterval: 120_000,
+    refetchIntervalInBackground: false,
   });
 
   const alerts = data?.alerts ?? [];

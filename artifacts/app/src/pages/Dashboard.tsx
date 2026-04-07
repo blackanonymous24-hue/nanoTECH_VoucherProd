@@ -131,8 +131,8 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
   // Fetch interface list when router changes
   const { data: ifaceList } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
     queryKey: ["interfaces", routerId],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`);
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`, { signal });
       if (!res.ok) throw new Error("interfaces unavailable");
       return res.json();
     },
@@ -157,13 +157,14 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
 
   const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
     queryKey: ["traffic", routerId, selectedIface],
-    queryFn: async () => {
-      const res = await fetch(trafficUrl);
+    queryFn: async ({ signal }) => {
+      const res = await fetch(trafficUrl, { signal });
       if (!res.ok) throw new Error("traffic unavailable");
       return res.json();
     },
     enabled: !!routerId && !!selectedIface,
     refetchInterval: 3_000,
+    refetchIntervalInBackground: false,
     staleTime: 2_500,
     retry: false,
     throwOnError: false,
@@ -286,7 +287,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
 
 export default function Dashboard() {
   const { data, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
-    query: { refetchInterval: 10_000, staleTime: 9_000 },
+    query: { refetchInterval: 10_000, staleTime: 9_000, refetchIntervalInBackground: false },
   });
   const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity } = useRouterContext();
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
@@ -300,14 +301,15 @@ export default function Dashboard() {
     refetch: refetchSessions,
   } = useQuery({
     queryKey: ["router-sessions", selectedRouterId],
-    queryFn: async (): Promise<number> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions`);
+    queryFn: async ({ signal }): Promise<number> => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: unknown = await res.json();
       return Array.isArray(data) ? data.length : 0;
     },
     enabled: !!selectedRouterId,
     refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
     staleTime: 9_000,
     throwOnError: false,
     retry: false,
@@ -319,8 +321,8 @@ export default function Dashboard() {
     refetch: refetchUsers,
   } = useQuery({
     queryKey: ["router-users-count", selectedRouterId],
-    queryFn: async (): Promise<number> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`);
+    queryFn: async ({ signal }): Promise<number> => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`, { signal });
       if (!res.ok) return 0;
       const data: unknown = await res.json();
       if (Array.isArray(data)) return data.length;
@@ -333,6 +335,7 @@ export default function Dashboard() {
     },
     enabled: !!selectedRouterId,
     refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
     staleTime: 9_000,
     throwOnError: false,
   });
@@ -347,6 +350,7 @@ export default function Dashboard() {
       query: {
         enabled: !!selectedRouterId,
         refetchInterval: 10_000,
+        refetchIntervalInBackground: false,
         staleTime: 9_000,
       },
     },
@@ -365,6 +369,7 @@ export default function Dashboard() {
       query: {
         enabled: !!selectedRouterId,
         refetchInterval: 5_000,
+        refetchIntervalInBackground: false,
         staleTime: 4_000,
       },
     },
@@ -424,8 +429,8 @@ export default function Dashboard() {
     refetch: refetchInfo,
   } = useQuery<RouterInfo>({
     queryKey: ["router-info", selectedRouterId],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/info`);
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/info`, { signal });
       if (!res.ok) throw new Error("info unavailable");
       return res.json() as Promise<RouterInfo>;
     },

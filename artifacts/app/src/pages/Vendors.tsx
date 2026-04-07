@@ -331,11 +331,11 @@ export default function Vendors() {
 
   const { data: vendors = [], isLoading, refetch: refetchVendors } = useQuery<Vendor[]>({
     queryKey: ["vendors", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const url = selectedRouterId
         ? `${BASE}/api/vendors?routerId=${selectedRouterId}`
         : `${BASE}/api/vendors`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<Vendor[]>;
     },

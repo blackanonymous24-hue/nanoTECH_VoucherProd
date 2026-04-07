@@ -35,15 +35,16 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
 
   const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery<VendorSummary[]>({
     queryKey: ["vendors-summary", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const url = selectedRouterId
         ? `${BASE}/api/vendors/reports/summary?routerId=${selectedRouterId}`
         : `${BASE}/api/vendors/reports/summary`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<VendorSummary[]>;
     },
     refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
     staleTime: 25_000,
   });
 

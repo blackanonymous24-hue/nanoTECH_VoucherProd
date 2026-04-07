@@ -91,8 +91,8 @@ export default function Vouchers() {
     refetch: refetchLots,
   } = useQuery({
     queryKey: ["router-lots", activeRouterId],
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/routers/${activeRouterId}/lots`);
+    queryFn: async ({ signal }) => {
+      const r = await fetch(`${BASE}/api/routers/${activeRouterId}/lots`, { signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json() as Promise<{ lots: LotSummary[]; total: number }>;
     },

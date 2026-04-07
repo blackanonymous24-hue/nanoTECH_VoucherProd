@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RouterProvider } from "@/contexts/RouterContext";
@@ -31,6 +31,8 @@ function AppRoutes() {
   const { isAuthenticated, role } = useAuth();
   const [routeReloadToken, setRouteReloadToken] = useState(0);
   const [isRouteLoading, setIsRouteLoading] = useState(true);
+  const qc = useQueryClient();
+  const prevLocationRef = useRef(location);
 
   useEffect(() => {
     const onForceRemount = (event: Event) => {
@@ -52,6 +54,14 @@ function AppRoutes() {
     const timer = window.setTimeout(() => setIsRouteLoading(false), 150);
     return () => window.clearTimeout(timer);
   }, [location, routeReloadToken]);
+
+  // Cancel all in-flight API requests when navigating to a different page
+  useEffect(() => {
+    if (prevLocationRef.current !== location) {
+      void qc.cancelQueries();
+      prevLocationRef.current = location;
+    }
+  }, [location, qc]);
 
   if (!isAuthenticated) {
     const isVendorPage = location === "/vendeur" || location.startsWith("/vendeur/");

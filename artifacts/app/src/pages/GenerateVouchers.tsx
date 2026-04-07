@@ -99,11 +99,11 @@ export default function GenerateVouchers() {
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null }[]>({
     queryKey: ["vendors", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const url = selectedRouterId
         ? `${GEN_BASE}/api/vendors?routerId=${selectedRouterId}`
         : `${GEN_BASE}/api/vendors`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal });
       if (!res.ok) return [];
       return res.json() as Promise<{ id: number; name: string }[]>;
     },

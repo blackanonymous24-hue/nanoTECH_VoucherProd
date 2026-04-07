@@ -41,8 +41,8 @@ export default function Managers() {
 
   const { data: managers = [], isLoading } = useQuery<Manager[]>({
     queryKey: ["managers"],
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/managers`, { headers });
+    queryFn: async ({ signal }) => {
+      const r = await fetch(`${BASE}/api/managers`, { headers, signal });
       if (!r.ok) throw new Error("Erreur chargement");
       return r.json();
     },

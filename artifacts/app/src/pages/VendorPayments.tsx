@@ -254,9 +254,9 @@ function WeekCard({
 
   const { data, isLoading, isError } = useQuery<WeeklySummaryResponse>({
     queryKey: qk,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = new URLSearchParams({ routerId: String(routerId), weekStart });
-      const res = await fetch(`${BASE}/api/vendors/weekly-summary?${params}`);
+      const res = await fetch(`${BASE}/api/vendors/weekly-summary?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

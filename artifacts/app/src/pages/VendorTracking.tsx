@@ -241,10 +241,10 @@ export default function VendorTracking() {
 
   const { data, isLoading, isError, error } = useQuery<DailyTrackingResponse>({
     queryKey: ["vendor-tracking", selectedRouterId, applied],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedRouterId) return { date: applied, summary: [], vouchers: [], weekSummary: [] };
       const params = new URLSearchParams({ date: applied, routerId: String(selectedRouterId) });
-      const res = await fetch(`${BASE}/api/vendors/daily-tracking?${params}`);
+      const res = await fetch(`${BASE}/api/vendors/daily-tracking?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
