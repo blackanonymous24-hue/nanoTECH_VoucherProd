@@ -66,17 +66,15 @@ function AppRoutes() {
     <RouterProvider>
       <Layout>
         {isRouteLoading ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-950/95 via-slate-900/95 to-slate-950/95 backdrop-blur-sm">
-            <div className="route-loader-glow relative w-[320px] max-w-[90vw] rounded-2xl border border-white/10 bg-white/[0.04] p-6 shadow-2xl">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="route-loader-spinner h-8 w-8 rounded-full" />
-                <div>
-                  <p className="text-sm font-semibold text-white">Chargement de la page</p>
-                  <p className="text-xs text-white/60">Synchronisation des données...</p>
+          <div className="fixed inset-0 z-50 bg-slate-900/28 backdrop-blur-[1px]">
+            <div className="mx-auto mt-24 w-full max-w-3xl px-6">
+              <div className="rounded-2xl border border-slate-300/30 bg-slate-100/55 p-5 shadow-sm">
+                <p className="mb-3 text-xs font-medium tracking-wide text-slate-600">Chargement...</p>
+                <div className="space-y-2.5">
+                  <div className="route-wave h-3 w-full rounded-md" />
+                  <div className="route-wave h-3 w-11/12 rounded-md [animation-delay:120ms]" />
+                  <div className="route-wave h-3 w-9/12 rounded-md [animation-delay:240ms]" />
                 </div>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                <div className="route-loader-bar h-full rounded-full" />
               </div>
             </div>
           </div>
