@@ -3,6 +3,7 @@ import {
   useListRouterProfiles,
   useGenerateVouchers,
   getListVouchersQueryKey,
+  getListRouterProfilesQueryKey,
 } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
@@ -85,6 +86,7 @@ export default function GenerateVouchers() {
   const [comment, setComment] = useState(() => makeBatchId("vc"));
   const [vendorId, setVendorId] = useState<string>("");
   const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
+  const [lastLotName, setLastLotName] = useState<string>("");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
@@ -121,6 +123,30 @@ export default function GenerateVouchers() {
     setProfile("");
   }, [selectedRouterId]);
 
+  // Restore last generated lot card when reopening Generate tab.
+  useEffect(() => {
+    if (!selectedRouterId) {
+      setGeneratedVouchers([]);
+      setLastLotName("");
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(`generate-last-lot:${selectedRouterId}`);
+      if (!raw) {
+        setGeneratedVouchers([]);
+        setLastLotName("");
+        return;
+      }
+      const parsed = JSON.parse(raw) as { lotName?: string; vouchers?: Voucher[] };
+      setGeneratedVouchers(Array.isArray(parsed.vouchers) ? parsed.vouchers : []);
+      setLastLotName(parsed.lotName ?? "");
+      if (parsed.lotName) setComment(parsed.lotName);
+    } catch {
+      setGeneratedVouchers([]);
+      setLastLotName("");
+    }
+  }, [selectedRouterId]);
+
   // On page load (Generate tab), force a MikroTik profile sync once per router
   // so both Generate and Forfaits use fresh profile metadata.
   useEffect(() => {
@@ -132,15 +158,9 @@ export default function GenerateVouchers() {
         if (!res.ok || cancelled) return;
         const freshProfiles = await res.json();
         if (cancelled) return;
-        queryClient.setQueriesData(
-          {
-            queryKey: ["listRouterProfiles"],
-            predicate: (query) =>
-              Array.isArray(query.queryKey) && query.queryKey[1] === selectedRouterId,
-          },
-          freshProfiles,
-        );
-        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
+        queryClient.setQueryData(profileKey, freshProfiles);
+        queryClient.invalidateQueries({ queryKey: profileKey });
       } catch {
         // Keep existing cached profiles if live sync fails.
       }
@@ -152,6 +172,14 @@ export default function GenerateVouchers() {
   }, [selectedRouterId, queryClient]);
 
   const selectedProfile = profiles.find((p) => p.name === profile);
+
+  // If a profile was renamed in MikroTik, clear stale selected value.
+  useEffect(() => {
+    if (!profile) return;
+    if (!profiles.some((p) => p.name === profile)) {
+      setProfile("");
+    }
+  }, [profiles, profile]);
 
   const selectedVendor = vendors.find((v) => String(v.id) === vendorId);
   const vendorSuffix =
@@ -172,13 +200,18 @@ export default function GenerateVouchers() {
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
     const profilePrice = selectedProfile?.price ?? "";
     const profileValidity = selectedProfile?.validity ?? "";
-    const BATCH_SIZE = total >= 600 ? 200 : total >= 250 ? 120 : 80;
+    const BATCH_SIZE = 50; // requested fixed lot size for clearer progress
+    const MAX_CONCURRENCY = total >= 400 ? 3 : 2; // parallel batches for speed
     const allVouchers: Voucher[] = [];
     let done = 0;
+    let cursor = 0;
 
-    try {
-      while (done < total) {
-        const qtyBatch = Math.min(BATCH_SIZE, total - done);
+    const runOneBatch = async () => {
+      while (cursor < total) {
+        const start = cursor;
+        cursor += BATCH_SIZE;
+        const qtyBatch = Math.min(BATCH_SIZE, total - start);
+        if (qtyBatch <= 0) return;
         const generated = await generateMutation.mutateAsync({
           data: {
             routerId: selectedRouterId,
@@ -200,8 +233,22 @@ export default function GenerateVouchers() {
         done += generated.length;
         setProgress({ done, total });
       }
+    };
+
+    try {
+      const workers = Array.from({ length: Math.min(MAX_CONCURRENCY, Math.ceil(total / BATCH_SIZE)) }, () => runOneBatch());
+      await Promise.all(workers);
 
       setGeneratedVouchers(allVouchers);
+      setLastLotName(effectiveComment);
+      try {
+        localStorage.setItem(
+          `generate-last-lot:${selectedRouterId}`,
+          JSON.stringify({ lotName: effectiveComment, vouchers: allVouchers }),
+        );
+      } catch {
+        // ignore storage quota errors
+      }
       queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
       toast({ title: `${allVouchers.length} voucher(s) généré(s) avec succès !` });
     } finally {
@@ -210,6 +257,15 @@ export default function GenerateVouchers() {
   };
 
   const handlePrint = async () => {
+    const win = window.open("", "_blank", "noopener,noreferrer");
+    if (!win) {
+      toast({ title: "Erreur impression PHP", description: "Le navigateur a bloqué l'ouverture du nouvel onglet.", variant: "destructive" });
+      return;
+    }
+    win.document.open();
+    win.document.write("<!doctype html><html><body style='font-family:Arial,sans-serif;padding:16px;color:#444'>Préparation de l'impression...</body></html>");
+    win.document.close();
+
     const php = getStoredPHP()!;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
@@ -236,8 +292,6 @@ export default function GenerateVouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      const win = window.open("", "_blank", "noopener,noreferrer");
-      if (!win) throw new Error("Le navigateur a bloqué l'ouverture du nouvel onglet.");
       const content = `<!doctype html>
 <html>
   <head>
@@ -270,6 +324,7 @@ export default function GenerateVouchers() {
       win.document.write(content);
       win.document.close();
     } catch (err: unknown) {
+      try { win.close(); } catch { /* ignore */ }
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     }
   };
@@ -294,7 +349,8 @@ export default function GenerateVouchers() {
     const lines = generatedVouchers.map((v, i) =>
       `${i + 1}. ${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
     );
-    downloadFile(`Lot: ${comment}\n\n${lines.join("\n")}`, `${comment}.txt`, "text/plain");
+    const lotName = lastLotName || comment;
+    downloadFile(`Lot: ${lotName}\n\n${lines.join("\n")}`, `${lotName}.txt`, "text/plain");
   };
 
   const handleExportCsv = () => {
@@ -302,7 +358,8 @@ export default function GenerateVouchers() {
     const rows = generatedVouchers.map((v, i) =>
       `${i + 1},"${v.username}","${v.password}","${v.profileName ?? ""}","${v.validity ?? ""}","${v.price ?? ""}"`
     ).join("\n");
-    downloadFile(header + rows, `${comment}.csv`, "text/csv");
+    const lotName = lastLotName || comment;
+    downloadFile(header + rows, `${lotName}.csv`, "text/csv");
   };
 
   return (
@@ -650,7 +707,7 @@ export default function GenerateVouchers() {
                 <div className="flex items-center gap-3 min-w-0">
                   <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
                   <div className="min-w-0">
-                    <p className="font-mono font-semibold text-gray-900 text-sm break-all">{comment}</p>
+                    <p className="font-mono font-semibold text-gray-900 text-sm break-all">{lastLotName || comment}</p>
                     <div className="flex flex-wrap items-center gap-2 mt-0.5">
                       <span className="text-xs text-green-600 font-medium">
                         {generatedVouchers.length} voucher(s) générés

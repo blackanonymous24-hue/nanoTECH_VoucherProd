@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useListRouterProfiles } from "@workspace/api-client-react";
+import { getListRouterProfilesQueryKey, useListRouterProfiles } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -126,15 +126,9 @@ export default function Forfaits() {
         if (!res.ok || cancelled) return;
         const freshProfiles = await res.json();
         if (cancelled) return;
-        queryClient.setQueriesData(
-          {
-            queryKey: ["listRouterProfiles"],
-            predicate: (query) =>
-              Array.isArray(query.queryKey) && query.queryKey[1] === selectedRouterId,
-          },
-          freshProfiles,
-        );
-        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
+        queryClient.setQueryData(profileKey, freshProfiles);
+        queryClient.invalidateQueries({ queryKey: profileKey });
       } catch {
         // Keep current cached values if live sync fails.
       }
@@ -210,7 +204,7 @@ export default function Forfaits() {
       setShowDialog(false);
       setForm(defaultForm);
       setEditingName(null);
-      queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+      queryClient.invalidateQueries({ queryKey: getListRouterProfilesQueryKey(selectedRouterId) });
     } catch {
       setError("Impossible de contacter le serveur.");
     } finally {
@@ -228,7 +222,7 @@ export default function Forfaits() {
       );
       if (res.ok) {
         setDeletingName(null);
-        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+        queryClient.invalidateQueries({ queryKey: getListRouterProfilesQueryKey(selectedRouterId) });
       }
     } catch { /* ignore */ } finally {
       setDeleting(false);
@@ -242,14 +236,9 @@ export default function Forfaits() {
       const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
       if (!res.ok) throw new Error("refresh failed");
       const freshProfiles = await res.json();
-      queryClient.setQueriesData(
-        {
-          queryKey: ["listRouterProfiles"],
-          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[1] === selectedRouterId,
-        },
-        freshProfiles,
-      );
-      queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+      const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
+      queryClient.setQueryData(profileKey, freshProfiles);
+      queryClient.invalidateQueries({ queryKey: profileKey });
     } catch {
       // keep current cached data if refresh fails
     } finally {

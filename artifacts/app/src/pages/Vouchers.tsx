@@ -263,6 +263,15 @@ export default function Vouchers() {
 
   // ── Print ────────────────────────────────────────────────────────────────────
   const handlePrintVouchers = async () => {
+    const printWin = window.open("", "_blank", "noopener,noreferrer");
+    if (!printWin) {
+      toast({ title: "Erreur impression PHP", description: "Le navigateur a bloqué l'ouverture du nouvel onglet.", variant: "destructive" });
+      return;
+    }
+    printWin.document.open();
+    printWin.document.write("<!doctype html><html><body style='font-family:Arial,sans-serif;padding:16px;color:#444'>Préparation de l'impression...</body></html>");
+    printWin.document.close();
+
     const php = getStoredPHP()!;
     const usersForPrint = selectedUsernames.size > 0
       ? filtered.filter((u) => selectedUsernames.has(u.username))
@@ -290,8 +299,9 @@ export default function Vouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      openPrintTab(data.html as string[], `Voucher-${activeRouter?.name ?? "router"}`);
+      openPrintTab(data.html as string[], `Voucher-${activeRouter?.name ?? "router"}`, printWin);
     } catch (err: unknown) {
+      try { printWin.close(); } catch { /* ignore */ }
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     }
   };
@@ -364,9 +374,7 @@ export default function Vouchers() {
     setPage(0);
   };
 
-  const openPrintTab = (htmlItems: string[], title: string) => {
-    const win = window.open("", "_blank", "noopener,noreferrer");
-    if (!win) throw new Error("Le navigateur a bloqué l'ouverture du nouvel onglet.");
+  const openPrintTab = (htmlItems: string[], title: string, win: Window) => {
     const content = `<!doctype html>
 <html>
   <head>
