@@ -63,7 +63,7 @@ router.get("/vendors", async (req, res): Promise<void> => {
 });
 
 router.post("/vendors", async (req, res): Promise<void> => {
-  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2, commissionRate } = req.body as {
+  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2, commissionRate, isDemo } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -73,6 +73,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
     commentSuffix?: string;
     commentSuffix2?: string;
     commissionRate?: number;
+    isDemo?: boolean;
   };
 
   if (!name || name.trim() === "") {
@@ -115,6 +116,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
       commentSuffix: commentSuffix?.trim() || null,
       commentSuffix2: commentSuffix2?.trim() || null,
       commissionRate: Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0))),
+      isDemo: isDemo === true,
     })
     .returning();
   res.status(201).json(safeVendor(vendor));
@@ -147,13 +149,14 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, phone, email, username, password, isActive, commentSuffix, commentSuffix2, commissionRate } = req.body as {
+  const { name, phone, email, username, password, isActive, isDemo, commentSuffix, commentSuffix2, commissionRate } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
     username?: string;
     password?: string;
     isActive?: boolean;
+    isDemo?: boolean;
     commentSuffix?: string;
     commentSuffix2?: string;
     commissionRate?: number;
@@ -186,6 +189,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (email !== undefined) updates.email = email?.trim() || null;
   if (resolvedUsername !== undefined) updates.username = resolvedUsername;
   if (isActive !== undefined) updates.isActive = isActive;
+  if (isDemo !== undefined) updates.isDemo = isDemo === true;
   if (commentSuffix !== undefined) updates.commentSuffix = commentSuffix?.trim() || null;
   if (commentSuffix2 !== undefined) updates.commentSuffix2 = commentSuffix2?.trim() || null;
   if (commissionRate !== undefined) updates.commissionRate = Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0)));
@@ -365,7 +369,10 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
   const vendors = await db
     .select()
     .from(vendorsTable)
-    .where(routerId ? eq(vendorsTable.routerId, routerId) : undefined)
+    .where(and(
+      routerId ? eq(vendorsTable.routerId, routerId) : undefined,
+      eq(vendorsTable.isDemo, false),
+    ))
     .orderBy(vendorsTable.name);
 
   // Fetch profile prices for all unique routers — sync (non-blocking): returns
@@ -524,12 +531,15 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     return parseFloat(raw.replace(/[^0-9.]/g, "")) || 0;
   }
 
-  // Fetch vendors for this router
-  const vendors = await db
+  // Fetch vendors for this router (all, including demo — needed for voucher enrichment)
+  const allVendors = await db
     .select()
     .from(vendorsTable)
     .where(eq(vendorsTable.routerId, routerId))
     .orderBy(vendorsTable.name);
+  const demoVendorIds = new Set(allVendors.filter((v) => v.isDemo).map((v) => v.id));
+  // Non-demo vendors only for summary reporting
+  const vendors = allVendors.filter((v) => !v.isDemo);
 
   // Fetch all sold vouchers for the day (across all vendors on this router)
   const sold = await db
@@ -555,12 +565,13 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     )
     .orderBy(vouchersTable.usedAt);
 
-  // Build vendor lookup
-  const vendorMap = new Map(vendors.map((v) => [v.id, v]));
+  // Build vendor lookup from ALL vendors (including demo) for correct name resolution
+  const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
 
   // Enrich each voucher — resolve amount via priceMap when salePrice/price missing.
   // Use case-insensitive lookup to handle DB names like "3-Heures" vs MikroTik "3-Heure".
-  const enriched = sold.map((v) => {
+  // Filter out vouchers from demo vendors (they are excluded from reports).
+  const enriched = sold.filter((v) => !v.vendorId || !demoVendorIds.has(v.vendorId)).map((v) => {
     const rawAmount = parseFloat(v.salePrice || v.price || "0") || 0;
     const unitPrice = resolveUnitPrice(v.profileName);
     const amount    = Math.max(rawAmount, unitPrice);
@@ -641,11 +652,13 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     weekMap.set(v.id, { vendorId: v.id, vendorName: v.name, count: 0, amount: 0 });
   }
   for (const row of weekSoldRaw) {
+    const key  = row.vendorId;
+    // Skip demo vendors — they are excluded from reports
+    if (key && demoVendorIds.has(key)) continue;
     const cnt  = Number(row.count);
     const raw  = Math.max(Number(row.salePriceSum), Number(row.priceSum));
     const unit = resolveUnitPrice(row.profileName);
     const amt  = Math.max(raw, cnt * unit);
-    const key  = row.vendorId;
     if (!weekMap.has(key)) {
       const vname = key ? (vendorMap.get(key)?.name ?? "Inconnu") : "Sans vendeur";
       weekMap.set(key, { vendorId: key, vendorName: vname, count: 0, amount: 0 });
@@ -710,7 +723,7 @@ router.get("/vendors/weekly-summary", async (req, res) => {
     const vendors = await db
       .select()
       .from(vendorsTable)
-      .where(and(eq(vendorsTable.routerId, routerId), eq(vendorsTable.isActive, true)));
+      .where(and(eq(vendorsTable.routerId, routerId), eq(vendorsTable.isActive, true), eq(vendorsTable.isDemo, false)));
 
     const salesRaw = await db
       .select({

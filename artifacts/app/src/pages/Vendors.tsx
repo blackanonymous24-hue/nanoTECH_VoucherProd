@@ -44,6 +44,7 @@ export type PersonFormData = {
   commentSuffix: string;
   commentSuffix2: string;
   commissionRate: number;
+  isDemo: boolean;
 };
 
 export function PersonForm({
@@ -66,6 +67,7 @@ export function PersonForm({
     commentSuffix: string | null;
     commentSuffix2: string | null;
     commissionRate: number | null;
+    isDemo: boolean | null;
   }>;
   onSubmit: (data: PersonFormData) => void;
   onCancel: () => void;
@@ -86,6 +88,7 @@ export function PersonForm({
   const [commentSuffix2, setCommentSuffix2] = useState(initial?.commentSuffix2 ?? "");
   const [suffixTouched, setSuffixTouched] = useState(!!initial?.commentSuffix);
   const [commissionRate, setCommissionRate] = useState(String(initial?.commissionRate ?? 0));
+  const [isDemo, setIsDemo] = useState(initial?.isDemo ?? false);
 
   const handleNameChange = (v: string) => {
     const upper = forManager ? v : v.toUpperCase();
@@ -97,7 +100,7 @@ export function PersonForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, phone, email, username, password, commentSuffix, commentSuffix2, commissionRate: Math.min(100, Math.max(0, parseInt(commissionRate || "0", 10) || 0)) });
+        onSubmit({ name, phone, email, username, password, commentSuffix, commentSuffix2, commissionRate: Math.min(100, Math.max(0, parseInt(commissionRate || "0", 10) || 0)), isDemo });
       }}
       className="flex flex-col gap-0"
     >
@@ -223,6 +226,24 @@ export function PersonForm({
         )}
 
         {!forManager && (
+          <div className="pt-2 border-t flex items-start gap-3 rounded-md border border-orange-200 bg-orange-50 px-3 py-2">
+            <input
+              id="pf-isdemo"
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-orange-500 cursor-pointer"
+              checked={isDemo}
+              onChange={(e) => setIsDemo(e.target.checked)}
+            />
+            <label htmlFor="pf-isdemo" className="cursor-pointer select-none">
+              <span className="text-sm font-medium text-orange-800">Vendeur démo (non facturé)</span>
+              <p className="text-xs text-orange-600 mt-0.5">
+                Les ventes de ce vendeur n'apparaîtront pas dans les rapports et ne seront pas comptabilisées.
+              </p>
+            </label>
+          </div>
+        )}
+
+        {!forManager && (
           <div className="pt-2 border-t">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Identifiants de lot <span className="font-normal normal-case text-gray-400">(optionnels)</span>
@@ -344,6 +365,7 @@ export default function Vendors() {
           ...(data.commentSuffix ? { commentSuffix: data.commentSuffix } : {}),
           ...(data.commentSuffix2 ? { commentSuffix2: data.commentSuffix2 } : {}),
           commissionRate: data.commissionRate,
+          isDemo: data.isDemo,
         } as any,
       });
       invalidate();
@@ -373,6 +395,7 @@ export default function Vendors() {
           commentSuffix: data.commentSuffix || null,
           commentSuffix2: data.commentSuffix2 || null,
           commissionRate: data.commissionRate,
+          isDemo: data.isDemo,
         } as any,
       });
       invalidate();
@@ -549,9 +572,16 @@ export default function Vendors() {
                       )}
                     </div>
                   </div>
-                  <Badge variant={vendor.isActive ? "default" : "secondary"} className="flex-shrink-0 mt-0.5">
-                    {vendor.isActive ? "Actif" : "Inactif"}
-                  </Badge>
+                  <div className="flex flex-col gap-1 items-end flex-shrink-0">
+                    <Badge variant={vendor.isActive ? "default" : "secondary"}>
+                      {vendor.isActive ? "Actif" : "Inactif"}
+                    </Badge>
+                    {(vendor as any).isDemo && (
+                      <Badge variant="outline" className="text-orange-600 border-orange-300 bg-orange-50 text-[10px] px-1.5">
+                        Démo
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
 
@@ -673,6 +703,7 @@ export default function Vendors() {
                 commentSuffix: (editVendor as any).commentSuffix ?? null,
                 commentSuffix2: (editVendor as any).commentSuffix2 ?? null,
                 commissionRate: (editVendor as any).commissionRate ?? 0,
+                isDemo: (editVendor as any).isDemo ?? false,
               }}
               onSubmit={handleEdit}
               onCancel={() => { setEditVendor(null); setEditError(""); }}
