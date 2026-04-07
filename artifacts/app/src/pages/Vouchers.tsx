@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Printer,
+  Loader2,
   Search,
   RefreshCw,
   WifiOff,
@@ -68,6 +69,7 @@ export default function Vouchers() {
   const [search, setSearch] = useState("");
   const [filterProfile, setFilterProfile] = useState<string>("all");
   const [filterComment, setFilterComment] = useState<string>("all");
+  const [isPrinting, setIsPrinting] = useState(false);
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
@@ -281,6 +283,7 @@ export default function Vouchers() {
         num: idx + 1,
       };
     });
+    setIsPrinting(true);
     try {
       const resp = await fetch(`${BASE}/api/render-tickets`, {
         method: "POST",
@@ -298,6 +301,8 @@ export default function Vouchers() {
       printTickets(data.html as string[], printParts.join("-"));
     } catch (err: unknown) {
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
+    } finally {
+      setIsPrinting(false);
     }
   };
 
@@ -583,9 +588,13 @@ export default function Vouchers() {
                       size="sm"
                       variant="ghost"
                       onClick={handlePrintVouchers}
+                      disabled={isPrinting}
                       className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
                     >
-                      <Printer className="h-3.5 w-3.5" /> Imprimer
+                      {isPrinting
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Printer className="h-3.5 w-3.5" />}
+                      {isPrinting ? "En cours..." : "Imprimer"}
                     </Button>
                     <Button
                       size="sm"
@@ -635,9 +644,13 @@ export default function Vouchers() {
                         size="sm"
                         variant="outline"
                         onClick={handlePrintVouchers}
+                        disabled={isPrinting}
                         className="gap-1.5"
                       >
-                        <Printer className="h-3.5 w-3.5" /> Imprimer
+                        {isPrinting
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Printer className="h-3.5 w-3.5" />}
+                        {isPrinting ? "En cours..." : "Imprimer"}
                       </Button>
                       <Button
                         size="sm"

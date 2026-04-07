@@ -20,7 +20,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package } from "lucide-react";
+import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
@@ -114,6 +114,7 @@ export default function GenerateVouchers() {
   const [vendorId, setVendorId] = useState<string>("");
   const [lastLot, setLastLot] = useState<LastLot | null>(() => loadLastLot());
   const [loadingLastLot, setLoadingLastLot] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
@@ -346,6 +347,7 @@ export default function GenerateVouchers() {
       num: idx + 1,
       color: PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD",
     }));
+    setIsPrinting(true);
     try {
       const resp = await fetch(`${BASE}/api/render-tickets`, {
         method: "POST",
@@ -360,6 +362,8 @@ export default function GenerateVouchers() {
       printTickets(data.html as string[], printParts.join("-"));
     } catch (err: unknown) {
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
+    } finally {
+      setIsPrinting(false);
     }
   };
 
@@ -780,8 +784,12 @@ export default function GenerateVouchers() {
                 <Button
                   className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
                   onClick={() => handlePrint(lastLot)}
+                  disabled={isPrinting}
                 >
-                  <Printer className="h-4 w-4" /> Imprimer les tickets
+                  {isPrinting
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Printer className="h-4 w-4" />}
+                  {isPrinting ? "Génération en cours..." : "Imprimer les tickets"}
                 </Button>
                 <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleCopyAll(lastLot)} title="Copier tous les codes">
                   <Copy className="h-4 w-4" />
