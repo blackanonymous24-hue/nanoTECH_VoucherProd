@@ -102,7 +102,7 @@ export default function GenerateVouchers() {
   const queryClient = useQueryClient();
 
   const [profile, setProfile] = useState<string>("");
-  const [qty, setQty] = useState("10");
+  const [qty, setQty] = useState("1");
   const [prefix, setPrefix] = useState("");
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
   const [charType, setCharType] = useState<CharType>("mix");
@@ -318,7 +318,7 @@ export default function GenerateVouchers() {
 
       // Réinitialiser les paramètres de génération pour le prochain lot
       setComment(makeBatchId(passwordMode === "random" ? "up" : "vc"));
-      setQty("10");
+      setQty("1");
       setPrefix("");
       setTimelimit("");
       setDatalimit("");
