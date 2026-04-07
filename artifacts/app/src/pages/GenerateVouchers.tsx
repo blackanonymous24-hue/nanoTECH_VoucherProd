@@ -332,6 +332,13 @@ export default function GenerateVouchers() {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
     };
+    // Ouvrir la fenêtre AVANT tout await — le navigateur bloque window.open() après un await
+    const win = window.open("", "_blank", "noopener,noreferrer");
+    if (!win) {
+      toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site dans votre navigateur.", variant: "destructive" });
+      return;
+    }
+    win.document.write("<!doctype html><html><body style='font-family:sans-serif;padding:2rem;color:#333'>Génération des tickets en cours...</body></html>");
     const vouchers = lot.vouchers.map((v, idx) => ({
       hotspotname: lot.routerName,
       dnsname: (selectedRouter as any)?.contact ?? "",
@@ -353,8 +360,6 @@ export default function GenerateVouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      const win = window.open("", "_blank", "noopener,noreferrer");
-      if (!win) throw new Error("Le navigateur a bloqué l'ouverture du nouvel onglet.");
       const content = `<!doctype html>
 <html>
   <head>
@@ -387,6 +392,7 @@ export default function GenerateVouchers() {
       win.document.write(content);
       win.document.close();
     } catch (err: unknown) {
+      win.close();
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     }
   };
