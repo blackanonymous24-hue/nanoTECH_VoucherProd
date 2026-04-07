@@ -481,7 +481,7 @@ export default function Vendors() {
           <Button
             variant="outline"
             className="gap-2"
-            onClick={() => { window.location.href = `${portalBase}/vendor-portal`; }}
+            onClick={() => window.open(`${portalBase}/vendor-portal`, "_blank")}
           >
             <ExternalLink className="h-4 w-4" /> Portail vendeur
           </Button>

@@ -2,7 +2,6 @@ import "source-map-support/register.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
 import { startRealtimeVendorSync } from "./lib/vendor-sync.js";
-import { seedIfEmpty } from "./seed.js";
 
 const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
@@ -13,9 +12,6 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
   logger.error({ reason }, "Unhandled promise rejection — keeping process alive");
 });
-
-// Seed production DB on first startup (no-op if already seeded)
-await seedIfEmpty();
 
 app.listen(port, "0.0.0.0", () => {
   logger.info({ port }, "API server started");
