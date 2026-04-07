@@ -7,7 +7,7 @@ router = "path"
 
 [[services]]
 name = "api"
-paths = ["/"]
+paths = ["/api"]
 localPort = 3001
 
 [services.development]
