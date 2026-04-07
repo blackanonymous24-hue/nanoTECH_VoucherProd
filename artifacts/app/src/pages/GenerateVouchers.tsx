@@ -20,9 +20,36 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown } from "lucide-react";
+import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
+
+const LS_KEY = "vouchernet-last-lot";
+
+type LastLot = {
+  vouchers: Voucher[];
+  comment: string;
+  routerName: string;
+  routerId: number;
+  profileName: string;
+  price: string;
+  validity: string;
+  vendorName: string;
+  generatedAt: string;
+};
+
+function loadLastLot(): LastLot | null {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? (JSON.parse(raw) as LastLot) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastLot(lot: LastLot) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(lot)); } catch { /* noop */ }
+}
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -84,7 +111,7 @@ export default function GenerateVouchers() {
   const [mbgb, setMbgb] = useState<number>(1048576);
   const [comment, setComment] = useState(() => makeBatchId("vc"));
   const [vendorId, setVendorId] = useState<string>("");
-  const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
+  const [lastLot, setLastLot] = useState<LastLot | null>(() => loadLastLot());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
@@ -201,7 +228,19 @@ export default function GenerateVouchers() {
         setProgress({ done, total });
       }
 
-      setGeneratedVouchers(allVouchers);
+      const lot: LastLot = {
+        vouchers: allVouchers,
+        comment: effectiveComment,
+        routerName: selectedRouter?.name ?? "",
+        routerId: selectedRouterId,
+        profileName: selectedProfile?.name ?? profile,
+        price: selectedProfile?.price ?? "",
+        validity: selectedProfile?.validity ?? "",
+        vendorName: selectedVendor?.name ?? "",
+        generatedAt: new Date().toISOString(),
+      };
+      setLastLot(lot);
+      saveLastLot(lot);
       queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
       toast({ title: `${allVouchers.length} voucher(s) généré(s) avec succès !` });
     } finally {
@@ -209,14 +248,14 @@ export default function GenerateVouchers() {
     }
   };
 
-  const handlePrint = async () => {
+  const handlePrint = async (lot: LastLot) => {
     const php = getStoredPHP()!;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
     };
-    const vouchers = generatedVouchers.map((v, idx) => ({
-      hotspotname: selectedRouter?.name ?? "",
+    const vouchers = lot.vouchers.map((v, idx) => ({
+      hotspotname: lot.routerName,
       dnsname: (selectedRouter as any)?.contact ?? "",
       username: v.username,
       password: v.password,
@@ -242,7 +281,7 @@ export default function GenerateVouchers() {
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Voucher-${selectedRouter?.name ?? "router"}</title>
+    <title>Voucher-${lot.routerName}</title>
     <style>
       body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
       table.voucher { display:inline-block; border:2px solid black; margin:2px; }
@@ -274,14 +313,6 @@ export default function GenerateVouchers() {
     }
   };
 
-  const handleCopyAll = () => {
-    const text = generatedVouchers
-      .map((v) => `${v.username} / ${v.password}`)
-      .join("\n");
-    navigator.clipboard.writeText(text);
-    toast({ title: "Codes copiés dans le presse-papier" });
-  };
-
   const downloadFile = (content: string, filename: string, mime: string) => {
     const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
@@ -290,19 +321,25 @@ export default function GenerateVouchers() {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportTxt = () => {
-    const lines = generatedVouchers.map((v, i) =>
-      `${i + 1}. ${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
-    );
-    downloadFile(`Lot: ${comment}\n\n${lines.join("\n")}`, `${comment}.txt`, "text/plain");
+  const handleCopyAll = (lot: LastLot) => {
+    const text = lot.vouchers.map((v) => `${v.username} / ${v.password}`).join("\n");
+    navigator.clipboard.writeText(text);
+    toast({ title: "Codes copiés dans le presse-papier" });
   };
 
-  const handleExportCsv = () => {
+  const handleExportTxt = (lot: LastLot) => {
+    const lines = lot.vouchers.map((v, i) =>
+      `${i + 1}. ${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
+    );
+    downloadFile(`Lot: ${lot.comment}\n\n${lines.join("\n")}`, `${lot.comment}.txt`, "text/plain");
+  };
+
+  const handleExportCsv = (lot: LastLot) => {
     const header = "N°,Username,Password,Profil,Validité,Prix\n";
-    const rows = generatedVouchers.map((v, i) =>
+    const rows = lot.vouchers.map((v, i) =>
       `${i + 1},"${v.username}","${v.password}","${v.profileName ?? ""}","${v.validity ?? ""}","${v.price ?? ""}"`
     ).join("\n");
-    downloadFile(header + rows, `${comment}.csv`, "text/csv");
+    downloadFile(header + rows, `${lot.comment}.csv`, "text/csv");
   };
 
   return (
@@ -643,58 +680,79 @@ export default function GenerateVouchers() {
         </Card>
 
         <div>
-          {generatedVouchers.length > 0 && (
+          {lastLot ? (
             <Card className="overflow-hidden">
-              {/* ── Lot header — styled like Tous les lots ── */}
-              <div className="flex flex-wrap items-start justify-between gap-3 px-4 sm:px-5 py-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="font-mono font-semibold text-gray-900 text-sm break-all">{comment}</p>
-                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                      <span className="text-xs text-green-600 font-medium">
-                        {generatedVouchers.length} voucher(s) générés
-                      </span>
-                      {generatedVouchers[0]?.profileName && (
-                        <>
-                          <span className="text-gray-300">·</span>
-                          <span className="text-xs text-gray-400">{generatedVouchers[0].profileName}</span>
-                        </>
-                      )}
-                      {generatedVouchers[0]?.price && (
-                        <>
-                          <span className="text-gray-300">·</span>
-                          <span className="text-xs text-gray-400">{generatedVouchers[0].price} FCFA</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
+              {/* ── En-tête lot ── */}
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100 px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Dernier lot généré</span>
+                  <span className="ml-auto text-xs text-gray-400 flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {new Date(lastLot.generatedAt).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}
+                  </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleExportTxt} title="Exporter en .txt">
-                    <FileText className="h-3.5 w-3.5" /> .txt
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleExportCsv} title="Exporter en .csv">
-                    <Table2 className="h-3.5 w-3.5" /> .csv
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleCopyAll} title="Copier tous les codes">
-                    <Copy className="h-3.5 w-3.5" /> Copier
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handlePrint} title="Imprimer les tickets">
-                    <Printer className="h-3.5 w-3.5" /> Imprimer
-                  </Button>
+                <p className="font-mono font-bold text-gray-900 text-sm break-all">{lastLot.comment}</p>
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 border-0">
+                    <Package className="h-3 w-3 mr-1" />{lastLot.vouchers.length} vouchers
+                  </Badge>
+                  {lastLot.profileName && (
+                    <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-700 border-0">
+                      {lastLot.profileName}
+                    </Badge>
+                  )}
+                  {lastLot.validity && (
+                    <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-700 border-0">
+                      ⏱ {lastLot.validity}
+                    </Badge>
+                  )}
+                  {lastLot.price && (
+                    <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-0">
+                      {lastLot.price} FCFA
+                    </Badge>
+                  )}
+                  {lastLot.vendorName && (
+                    <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600 border-0">
+                      {lastLot.vendorName}
+                    </Badge>
+                  )}
+                  {lastLot.routerName && (
+                    <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500 border-0">
+                      <RouterIcon className="h-3 w-3 mr-1" />{lastLot.routerName}
+                    </Badge>
+                  )}
                 </div>
               </div>
 
-              {/* ── Compact codes list ── */}
-              <div className="border-t border-gray-100 max-h-80 overflow-y-auto">
+              {/* ── Bouton Imprimer proéminent ── */}
+              <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap gap-2">
+                <Button
+                  className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={() => handlePrint(lastLot)}
+                >
+                  <Printer className="h-4 w-4" /> Imprimer les tickets
+                </Button>
+                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleCopyAll(lastLot)} title="Copier tous les codes">
+                  <Copy className="h-4 w-4" />
+                </Button>
+                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportTxt(lastLot)} title="Exporter .txt">
+                  <FileText className="h-4 w-4" />
+                </Button>
+                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
+                  <Table2 className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* ── Liste des codes ── */}
+              <div className="max-h-[420px] overflow-y-auto">
                 <div className="divide-y divide-gray-50">
-                  {generatedVouchers.map((v, i) => (
-                    <div key={v.id} className="flex items-center gap-3 px-5 py-2">
+                  {lastLot.vouchers.map((v, i) => (
+                    <div key={v.id ?? i} className="flex items-center gap-3 px-4 py-1.5 hover:bg-gray-50 transition-colors">
                       <span className="text-xs text-gray-300 w-6 text-right flex-shrink-0 tabular-nums">{i + 1}</span>
-                      <code className="font-mono text-sm font-semibold text-gray-900 flex-1">{v.username}</code>
+                      <code className="font-mono text-sm font-semibold text-gray-900 flex-1 select-all">{v.username}</code>
                       {v.username !== v.password && (
-                        <code className="font-mono text-xs text-gray-400 flex-shrink-0">{v.password}</code>
+                        <code className="font-mono text-xs text-gray-400 flex-shrink-0 select-all">{v.password}</code>
                       )}
                       {v.validity && (
                         <span className="text-xs text-blue-500 flex-shrink-0">{v.validity}</span>
@@ -704,6 +762,12 @@ export default function GenerateVouchers() {
                 </div>
               </div>
             </Card>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+              <Package className="h-10 w-10 text-gray-300 mb-3" />
+              <p className="text-sm font-medium text-gray-400">Aucun lot généré</p>
+              <p className="text-xs text-gray-300 mt-1">Le dernier lot apparaîtra ici</p>
+            </div>
           )}
         </div>
       </div>
