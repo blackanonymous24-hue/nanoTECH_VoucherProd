@@ -357,8 +357,20 @@ export default function GenerateVouchers() {
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const compactValidity = (lot.validity || lot.vouchers[0]?.validity || "").trim().replace(/\s+/g, "");
-      const printParts = ["Voucher", toSlug(lot.routerName), compactValidity, lot.comment, toSlug(lot.profileName)].filter(Boolean);
+      const toFileValidity = (v: string) => {
+        const s = v.trim();
+        const mk = s.match(/^(\d+)(h|d|m|w)$/i);
+        if (mk) {
+          const map: Record<string, string> = { h: "Heure", d: "Jour", m: "Minute", w: "Semaine" };
+          return mk[1] + (map[mk[2].toLowerCase()] ?? mk[2].toUpperCase());
+        }
+        return s.replace(/[\s-]+/g, "");
+      };
+      const rawValidity = lot.validity || lot.vouchers[0]?.validity || "";
+      const compactValidity = toFileValidity(rawValidity);
+      const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
+      const profileSlug = lot.profileName.trim().split(/\s+/)[0] ?? lot.profileName;
+      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       printTickets(data.html as string[], printParts.join("-"));
     } catch (err: unknown) {
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });

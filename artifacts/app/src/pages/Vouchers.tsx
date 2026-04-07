@@ -293,11 +293,23 @@ export default function Vouchers() {
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
+      const toFileValidity = (v: string) => {
+        const s = v.trim();
+        const mk = s.match(/^(\d+)(h|d|m|w)$/i);
+        if (mk) {
+          const map: Record<string, string> = { h: "Heure", d: "Jour", m: "Minute", w: "Semaine" };
+          return mk[1] + (map[mk[2].toLowerCase()] ?? mk[2].toUpperCase());
+        }
+        return s.replace(/[\s-]+/g, "");
+      };
       const firstUser = usersForPrint[0];
       const printProfile = firstUser?.profile ?? "";
-      const compactValidity = (profilesList.find((p) => p.name === printProfile)?.validity ?? "").trim().replace(/\s+/g, "");
+      const rawValidity = profilesList.find((p) => p.name === printProfile)?.validity ?? "";
+      const compactValidity = toFileValidity(rawValidity);
       const printComment = firstUser?.comment ?? "";
-      const printParts = ["Voucher", toSlug(activeRouter?.name ?? ""), compactValidity, printComment, toSlug(printProfile)].filter(Boolean);
+      const hotspotName = (activeRouter as any)?.hotspotName || activeRouter?.name || "";
+      const profileSlug = printProfile.trim().split(/\s+/)[0] ?? printProfile;
+      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment, profileSlug].filter(Boolean);
       printTickets(data.html as string[], printParts.join("-"));
     } catch (err: unknown) {
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
