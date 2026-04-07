@@ -75,6 +75,7 @@ function AppRoutes() {
         ) : (
           <Switch key={`${location}:${routeReloadToken}`}>
             <Route path="/" component={Dashboard} />
+            <Route path="/admin" component={Dashboard} />
             <Route path="/vendeur" component={Dashboard} />
             <Route path="/routers" component={Routers} />
             <Route path="/forfaits" component={Forfaits} />
