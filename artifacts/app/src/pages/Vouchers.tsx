@@ -135,7 +135,11 @@ export default function Vouchers() {
   const lots: LotSummary[] = lotsData?.lots ?? [];
   const totalUsers = lotsData?.total ?? 0;
   // For the filter dropdown: derive from lots (server already sorted)
-  const uniqueComments = lots.map((l) => ({ name: l.name, count: l.count }));
+  // When a profile is selected, only show lots belonging to that profile
+  const lotsForCommentFilter = filterProfile === "all"
+    ? lots
+    : lots.filter((l) => l.profile === filterProfile);
+  const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   const {
@@ -338,6 +342,7 @@ export default function Vouchers() {
 
   const handleProfileChange = (v: string) => {
     setFilterProfile(v);
+    setFilterComment("all"); // reset lot filter when profile changes
     setPage(0);
   };
 
