@@ -110,6 +110,7 @@ export default function Vouchers() {
   const [isDisabling, setIsDisabling] = useState(false);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
 
@@ -214,6 +215,27 @@ export default function Vouchers() {
       toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
     } finally {
       setIsDisabling(false);
+    }
+  };
+
+  // ── Select ALL users of the current profile/lot filter (no page limit) ───────
+  const handleSelectAllProfile = async () => {
+    if (!activeRouterId || filterProfile === "all") return;
+    setIsSelectingAll(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("profile", filterProfile);
+      if (filterComment !== "all") params.set("comment", filterComment);
+      if (search) params.set("search", search);
+      params.set("limit", "999999");
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { users: HotspotUser[] };
+      setSelectedUsernames(new Set(data.users.map((u) => u.username)));
+    } catch {
+      toast({ title: "Erreur chargement", variant: "destructive" });
+    } finally {
+      setIsSelectingAll(false);
     }
   };
 
@@ -612,23 +634,28 @@ export default function Vouchers() {
               {/* Selection banner — shown when at least one user is ticked */}
               {(filterProfile !== "all" || selectedUsernames.size > 0) && (
                 <div className="flex items-center gap-3 mb-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 flex-wrap">
-                  {/* "Select all of profile" shortcut */}
-                  {filterProfile !== "all" && filtered.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedUsernames(
-                          selectedUsernames.size === filtered.length
-                            ? new Set()
-                            : new Set(filtered.map((u) => u.username)),
-                        )
-                      }
-                      className="text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2 transition-colors"
-                    >
-                      {selectedUsernames.size === filtered.length
-                        ? "Désélectionner tout"
-                        : `Sélectionner tout (${filtered.length.toLocaleString("fr")})`}
-                    </button>
+                  {/* "Select all of profile" shortcut — fetches ALL, not just loaded page */}
+                  {filterProfile !== "all" && filteredTotal > 0 && (
+                    selectedUsernames.size > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUsernames(new Set())}
+                        className="text-xs text-blue-500 hover:text-blue-700 underline underline-offset-2 transition-colors"
+                      >
+                        Désélectionner tout
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleSelectAllProfile}
+                        disabled={isSelectingAll}
+                        className="text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2 transition-colors disabled:opacity-50"
+                      >
+                        {isSelectingAll
+                          ? "Chargement..."
+                          : `Sélectionner tout (${filteredTotal.toLocaleString("fr")})`}
+                      </button>
+                    )
                   )}
 
                   {selectedUsernames.size > 0 && (
