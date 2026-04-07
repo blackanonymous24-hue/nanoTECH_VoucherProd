@@ -37,7 +37,14 @@ export async function runUsageSync(
   );
 
   const vouchers = await db
-    .select({ id: vouchersTable.id, username: vouchersTable.username, usedAt: vouchersTable.usedAt })
+    .select({
+      id: vouchersTable.id,
+      username: vouchersTable.username,
+      usedAt: vouchersTable.usedAt,
+      salePrice: vouchersTable.salePrice,
+      macAddress: vouchersTable.macAddress,
+      saleIp: vouchersTable.saleIp,
+    })
     .from(vouchersTable)
     .where(baseWhere);
 
@@ -79,7 +86,7 @@ export async function runUsageSync(
     updated += newWithoutDetails.length;
   }
 
-  // ── Pass 2: fix already-synced vouchers with wrong usedAt timestamp ─────
+  // ── Pass 2: fix already-synced vouchers with wrong usedAt/network fields ─
   // Keep this threshold low so temporary fallback dates (sync-time based)
   // are quickly replaced by the real MikroTik sale timestamp from script cache.
   const alreadySynced = vouchers.filter(
@@ -91,7 +98,10 @@ export async function runUsageSync(
     const scriptDate = detail.saleDate;
     const storedDate = v.usedAt as Date;
     const diffMs = Math.abs(scriptDate.getTime() - storedDate.getTime());
-    if (diffMs > 60_000) {
+    const salePriceChanged = (v.salePrice ?? "") !== (detail.salePrice || "");
+    const macChanged = (v.macAddress ?? "") !== (detail.mac || "");
+    const ipChanged = (v.saleIp ?? "") !== (detail.ip || "");
+    if (diffMs > 60_000 || salePriceChanged || macChanged || ipChanged) {
       await db
         .update(vouchersTable)
         .set({

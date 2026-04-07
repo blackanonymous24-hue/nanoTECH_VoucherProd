@@ -113,9 +113,9 @@ export async function syncScriptCache(
 }
 
 /**
- * Returns a Map<username_lower, CachedSaleDetail> with the most recent entry
- * per user across the entire cache for the given router.
- * Used by runUsageSync as a fast drop-in for the old fetchSaleDetails() API call.
+ * Returns a Map<username_lower, CachedSaleDetail> with the first known sale entry
+ * (earliest timestamp) per user across the cache for the given router.
+ * This aligns `usedAt` with first voucher usage (not latest login/sync).
  */
 export async function getCachedSaleDetails(routerId: number): Promise<Map<string, CachedSaleDetail>> {
   const rows = await db
@@ -133,7 +133,13 @@ export async function getCachedSaleDetails(routerId: number): Promise<Map<string
   for (const row of rows) {
     const key      = row.username.toLowerCase();
     const existing = map.get(key);
-    if (!existing || row.saleDate > existing.saleDate) {
+    const rowHasNet = Boolean((row.ip ?? "").trim() || (row.mac ?? "").trim());
+    const existingHasNet = Boolean((existing?.ip ?? "").trim() || (existing?.mac ?? "").trim());
+    if (
+      !existing ||
+      row.saleDate < existing.saleDate ||
+      (row.saleDate.getTime() === existing.saleDate.getTime() && rowHasNet && !existingHasNet)
+    ) {
       map.set(key, {
         saleDate:  row.saleDate,
         salePrice: row.price || null,

@@ -1,5 +1,5 @@
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
-import { db, routersTable, vouchersTable } from "@workspace/db";
+import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles, type RouterConnection } from "./mikrotik.js";
 import { runUsageSync } from "./usage-sync.js";
 import { syncScriptCache, getCachedSalesByBatch } from "./script-cache.js";
@@ -8,6 +8,8 @@ import { logger } from "./logger.js";
 /** Throttle: don't sync the same vendor more than once every 2 minutes */
 const SYNC_TTL = 2 * 60_000;
 const lastSyncAt = new Map<number, number>();
+let realtimeTimer: ReturnType<typeof setInterval> | null = null;
+let realtimeRunning = false;
 
 /**
  * Step 3 of vendor sync — reads historical sales from the LOCAL SCRIPT CACHE
@@ -331,4 +333,48 @@ export async function syncMikrotikUsersToVendor(
     lastSyncAt.delete(vendorId); // reset on error so next call retries
     logger.warn({ vendorId, routerId, err }, "vendor sync: failed (non-blocking)");
   }
+}
+
+/**
+ * Starts a background periodic sync loop for all active vendors.
+ * This keeps sale date/IP/MAC updates flowing without user interaction.
+ */
+export function startRealtimeVendorSync(): void {
+  if (realtimeTimer) return;
+
+  const intervalMs = Math.max(10_000, parseInt(process.env.VENDOR_SYNC_INTERVAL_MS ?? "30000", 10) || 30000);
+
+  const tick = async () => {
+    if (realtimeRunning) return;
+    realtimeRunning = true;
+    try {
+      const vendors = await db
+        .select({
+          id: vendorsTable.id,
+          routerId: vendorsTable.routerId,
+          commentSuffix: vendorsTable.commentSuffix,
+          commentSuffix2: vendorsTable.commentSuffix2,
+          isActive: vendorsTable.isActive,
+        })
+        .from(vendorsTable);
+
+      const active = vendors.filter((v) => v.isActive && v.routerId);
+      await Promise.allSettled(
+        active.map((v) => {
+          const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
+          if (suffixes.length === 0) return Promise.resolve();
+          return syncMikrotikUsersToVendor(v.id, v.routerId!, suffixes, true);
+        }),
+      );
+    } catch (err) {
+      logger.warn({ err }, "realtime vendor sync tick failed");
+    } finally {
+      realtimeRunning = false;
+    }
+  };
+
+  // Run once shortly after boot, then periodically.
+  setTimeout(() => { void tick(); }, 3000);
+  realtimeTimer = setInterval(() => { void tick(); }, intervalMs);
+  logger.info({ intervalMs }, "realtime vendor sync started");
 }
