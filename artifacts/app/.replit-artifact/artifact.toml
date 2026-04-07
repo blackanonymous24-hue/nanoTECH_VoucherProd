@@ -18,8 +18,6 @@ localPort = 23863
 run = "pnpm --filter @workspace/app run dev"
 
 [services.production]
-serve = "static"
-publicDir = "dist"
 build = [ "pnpm", "--filter", "@workspace/app", "run", "build" ]
 
 [services.env]
