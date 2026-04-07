@@ -75,8 +75,8 @@ function SalesMiniCard({ label, amount, count, icon: Icon, color }: {
   return (
     <div className={`flex flex-col items-center justify-center rounded-lg p-3 gap-0.5 ${color}`}>
       <Icon className="h-4 w-4 opacity-60" />
-      <span className={`${amountFontClass(formatted)} font-bold leading-none mt-0.5 tabular-nums`}>{formatted}</span>
-      <span className="text-[10px] font-semibold opacity-50 leading-none">FCFA</span>
+      <span className={`${amountFontClass(formatted)} fit-price font-bold leading-none mt-0.5`}>{formatted}</span>
+      <span className="fit-text text-[10px] font-semibold opacity-50 leading-none">FCFA</span>
       <span className="text-[10px] opacity-60">{count} ticket{count !== 1 ? "s" : ""} vendu{count !== 1 ? "s" : ""}</span>
       <span className="text-xs text-center leading-tight opacity-80 font-medium mt-0.5">{label}</span>
     </div>
@@ -132,7 +132,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
       </div>
 
       {/* Totaux — 3 cartes */}
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-5">
         <Card>
           <CardContent className="pt-5">
             <div className="flex items-center gap-2">
@@ -190,7 +190,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <SalesMiniCard label="Aujourd'hui"     amount={ss.todayAmount}     count={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" />
             <SalesMiniCard label="Hier"             amount={ss.yesterdayAmount} count={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
             <SalesMiniCard label="Cette semaine"   amount={ss.weekAmount}      count={ss.weekSold}       icon={CalendarClock} color="bg-blue-50 text-blue-700" />
@@ -256,8 +256,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
             {data.recentVouchers.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8 px-4">Aucune vente enregistrée</p>
             ) : (
-              <div className="max-h-80 overflow-y-auto">
-                <table className="w-full text-xs border-collapse">
+              <div className="max-h-80 overflow-x-auto overflow-y-auto">
+                <table className="w-full min-w-[620px] text-xs border-collapse">
                   <thead>
                     <tr className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
                       <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">User</th>
@@ -458,7 +458,7 @@ export default function Reports() {
       </div>
 
       {totalJour > 0 && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <Card>
             <CardContent className="pt-5">
               <div className="flex items-center gap-2">

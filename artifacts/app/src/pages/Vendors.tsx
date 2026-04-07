@@ -105,7 +105,8 @@ export function PersonForm({
       className="flex flex-col gap-0"
     >
       {/* Scrollable fields */}
-      <div className="overflow-y-auto px-1 space-y-3" style={{ maxHeight: "calc(90vh - 180px)" }}>
+      <div className="overflow-y-auto px-1" style={{ maxHeight: "calc(90vh - 180px)" }}>
+        <div className="form-shell space-y-3">
         {serverError && (
           <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
             {serverError}
@@ -275,14 +276,15 @@ export function PersonForm({
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* Fixed footer */}
       <DialogFooter className="pt-4 mt-2 border-t">
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>
           Annuler
         </Button>
-        <Button type="submit" disabled={loading || !name.trim()}>
+        <Button type="submit" size="sm" disabled={loading || !name.trim()}>
           {loading ? "Enregistrement..." : "Enregistrer"}
         </Button>
       </DialogFooter>
@@ -673,7 +675,7 @@ export default function Vendors() {
 
       {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={(o) => { if (!o) { setShowCreate(false); setCreateError(""); } }}>
-        <DialogContent className="max-w-md w-full">
+        <DialogContent className="max-w-md w-full sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Ajouter un vendeur</DialogTitle>
           </DialogHeader>
@@ -689,7 +691,7 @@ export default function Vendors() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editVendor} onOpenChange={(o) => { if (!o) { setEditVendor(null); setEditError(""); } }}>
-        <DialogContent className="max-w-md w-full">
+        <DialogContent className="max-w-md w-full sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Modifier le vendeur</DialogTitle>
           </DialogHeader>

@@ -542,7 +542,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? (activeSessions ?? 0) : 0}
@@ -583,7 +583,7 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="flex gap-4 items-stretch">
+      <div className="flex flex-col xl:flex-row gap-4 items-stretch">
       <TrafficMonitorCard routerId={selectedRouterId} />
       <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
@@ -698,12 +698,12 @@ function StatCard({
                 </>
               ) : label !== undefined ? (
                 <>
-                  <p className="text-xl font-bold text-gray-900 leading-tight">{label || "0 FCFA"}</p>
+                  <p className="fit-price font-bold text-gray-900 leading-tight">{label || "0 FCFA"}</p>
                   {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
                 </>
               ) : (
                 <>
-                  <p className="text-2xl font-bold text-gray-900">{(value ?? 0).toLocaleString()}</p>
+                  <p className="fit-price font-bold text-gray-900">{(value ?? 0).toLocaleString()}</p>
                   {sub && <p className="text-xs text-gray-400 -mt-0.5">{sub}</p>}
                 </>
               )}

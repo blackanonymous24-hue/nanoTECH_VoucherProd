@@ -224,6 +224,28 @@
 }
 
 @layer utilities {
+  .fit-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fit-price {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(0.72rem, 1.8vw, 1.35rem);
+    line-height: 1.1;
+  }
+
+  .form-shell {
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.9rem;
+    background: hsl(var(--muted) / 0.35);
+    padding: 0.9rem;
+  }
+
   input[type="search"]::-webkit-search-cancel-button {
     @apply hidden;
   }

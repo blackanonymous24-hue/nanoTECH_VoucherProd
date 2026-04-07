@@ -132,27 +132,28 @@ export default function GenerateVouchers() {
       : "";
   const effectiveComment = comment + vendorSuffix;
 
-  const BATCH_SIZE = 50;
-
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRouterId || !profile) return;
 
     const total = parseInt(qty, 10);
-    const allVouchers: Voucher[] = [];
-    let done = 0;
     setProgress({ done: 0, total });
 
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
+    const profilePrice = selectedProfile?.price ?? "";
+    const profileValidity = selectedProfile?.validity ?? "";
+    const BATCH_SIZE = total >= 600 ? 200 : total >= 250 ? 120 : 80;
+    const allVouchers: Voucher[] = [];
+    let done = 0;
 
     try {
       while (done < total) {
-        const batchQty = Math.min(BATCH_SIZE, total - done);
-        const batch = await generateMutation.mutateAsync({
+        const qtyBatch = Math.min(BATCH_SIZE, total - done);
+        const generated = await generateMutation.mutateAsync({
           data: {
             routerId: selectedRouterId,
             profile,
-            qty: batchQty,
+            qty: qtyBatch,
             prefix: prefix || null,
             comment: effectiveComment || null,
             vendorId: vendorId ? parseInt(vendorId, 10) : null,
@@ -161,10 +162,12 @@ export default function GenerateVouchers() {
             userLength: parseInt(userLength, 10),
             timelimit: timelimit || undefined,
             datalimit: dlBytes,
+            profilePrice,
+            profileValidity,
           },
         });
-        allVouchers.push(...batch);
-        done += batch.length;
+        allVouchers.push(...generated);
+        done += generated.length;
         setProgress({ done, total });
       }
 
@@ -263,7 +266,7 @@ export default function GenerateVouchers() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleGenerate} className="space-y-4">
+            <form onSubmit={handleGenerate} className="form-shell space-y-4">
 
               {selectedRouter ? (
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-200 rounded-lg">
@@ -344,7 +347,7 @@ export default function GenerateVouchers() {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label>Quantité</Label>
                   <Input
@@ -370,11 +373,11 @@ export default function GenerateVouchers() {
 
               <div>
                 <Label className="mb-2 block">Mode de connexion</Label>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => { setPasswordMode("same"); setComment(makeBatchId("vc")); }}
-                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                    className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
                       passwordMode === "same"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
@@ -387,7 +390,7 @@ export default function GenerateVouchers() {
                   <button
                     type="button"
                     onClick={() => { setPasswordMode("random"); setComment(makeBatchId("up")); }}
-                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                    className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
                       passwordMode === "random"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
@@ -401,7 +404,7 @@ export default function GenerateVouchers() {
               </div>
 
               {/* ─ Format + Longueur ─ */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label>Format</Label>
                   <select
@@ -436,7 +439,7 @@ export default function GenerateVouchers() {
               </div>
 
               {/* ─ Limites facultatives ─ */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label>Limite de temps <span className="text-gray-400 text-xs">(optionnel)</span></Label>
                   <Input
@@ -568,6 +571,9 @@ export default function GenerateVouchers() {
                     </div>
                     <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">
                       {progress.done} / {progress.total}
+                    </span>
+                    <span className="text-xs text-gray-400 tabular-nums whitespace-nowrap">
+                      Restants: {Math.max(0, progress.total - progress.done)}
                     </span>
                   </div>
                 )}

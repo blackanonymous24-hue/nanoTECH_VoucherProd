@@ -264,7 +264,7 @@ export default function Forfaits() {
                     {p.price && p.price !== "0" ? (
                       <div className="flex items-center gap-2 text-sm">
                         <Banknote className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                        <span className="text-gray-700 font-semibold">{p.price} FCFA</span>
+                        <span className="fit-price text-gray-700 font-semibold">{p.price} FCFA</span>
                       </div>
                     ) : null}
 
@@ -351,7 +351,7 @@ export default function Forfaits() {
           </DialogHeader>
 
           <div className="overflow-y-auto flex-1 pr-1">
-          <div className="grid grid-cols-2 gap-3 py-1">
+          <div className="form-shell grid grid-cols-1 sm:grid-cols-2 gap-3 py-1">
 
             <div className="col-span-2 space-y-1.5">
               <Label>Nom <span className="text-red-500">*</span></Label>

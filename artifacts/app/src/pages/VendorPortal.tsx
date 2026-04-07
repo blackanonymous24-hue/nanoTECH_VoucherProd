@@ -357,7 +357,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                         <Banknote className="h-5 w-5 text-white" />
                       </div>
                       <div>
-                        <p className="text-2xl font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
+                        <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
                         <p className="text-xs text-gray-500">FCFA estimé</p>
                       </div>
                     </CardContent>
@@ -376,8 +376,8 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                     {data.vouchers.length === 0 ? (
                       <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente ce jour</p>
                     ) : (
-                      <div className="max-h-80 overflow-y-auto scroll-card">
-                        <table className="w-full text-xs border-collapse">
+                      <div className="max-h-80 overflow-x-auto overflow-y-auto scroll-card">
+                        <table className="w-full min-w-[620px] text-xs border-collapse">
                           <thead>
                             <tr className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200">
                               <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">User</th>
@@ -581,7 +581,7 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
                       <Banknote className="h-5 w-5 text-white" />
                     </div>
                     <div>
-                      <p className="text-2xl font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
+                        <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
                       <p className="text-xs text-gray-500">FCFA estimé</p>
                     </div>
                   </CardContent>
@@ -620,8 +620,8 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
                   {data.vouchers.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente enregistrée</p>
                   ) : (
-                    <div className="max-h-80 overflow-y-auto scroll-card">
-                      <table className="w-full text-xs border-collapse">
+                    <div className="max-h-80 overflow-x-auto overflow-y-auto scroll-card">
+                      <table className="w-full min-w-[620px] text-xs border-collapse">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200">
                             <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">User</th>
@@ -1241,8 +1241,8 @@ function Dashboard({ token, vendor, onLogout }: {
                   return filtered.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-8 px-4">Aucun résultat pour « {recentSearch} »</p>
                   ) : (
-                  <div className="max-h-[360px] overflow-y-auto scroll-card">
-                    <table className="w-full text-xs border-collapse">
+                  <div className="max-h-[360px] overflow-x-auto overflow-y-auto scroll-card">
+                    <table className="w-full min-w-[620px] text-xs border-collapse">
                       <thead>
                         <tr className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
                           <th className="text-left px-3 py-2 font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide text-[10px]">User</th>

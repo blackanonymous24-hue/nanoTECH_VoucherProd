@@ -553,7 +553,8 @@ export default function Routers() {
             <DialogTitle>{editRouter ? "Modifier le routeur" : "Ajouter un routeur"}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col gap-0">
-            <div className="overflow-y-auto px-1 space-y-4" style={{ maxHeight: "calc(90vh - 180px)" }}>
+            <div className="overflow-y-auto px-1" style={{ maxHeight: "calc(90vh - 180px)" }}>
+              <div className="form-shell space-y-4">
               <div>
                 <Label>Nom</Label>
                 <Input
@@ -595,7 +596,7 @@ export default function Routers() {
                 />
                 <p className="text-xs text-gray-400 mt-0.5">Port API RouterOS — par défaut 8728 (ou votre port NAT)</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label>Utilisateur</Label>
                   <Input
@@ -617,6 +618,7 @@ export default function Routers() {
                     required={!editRouter}
                   />
                 </div>
+              </div>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-4 mt-2 border-t">

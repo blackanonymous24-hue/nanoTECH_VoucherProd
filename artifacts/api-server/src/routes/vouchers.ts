@@ -2,6 +2,7 @@ import { Router } from "express";
 import { eq, and, isNotNull, isNull, desc, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
+import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 
 /**
  * After inserting vouchers, attribute any with vendorId=null to the matching
@@ -74,7 +75,7 @@ router.get("/vouchers", async (req, res): Promise<void> => {
 });
 
 router.post("/vouchers/generate", async (req, res): Promise<void> => {
-  const { routerId, profile, qty, prefix, comment, server, vendorId, passwordMode, charType, userLength, timelimit, datalimit } = req.body as {
+  const { routerId, profile, qty, prefix, comment, server, vendorId, passwordMode, charType, userLength, timelimit, datalimit, profilePrice, profileValidity } = req.body as {
     routerId?: number;
     profile?: string;
     qty?: number;
@@ -87,37 +88,51 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     userLength?: number;
     timelimit?: string;
     datalimit?: number;
+    profilePrice?: string;
+    profileValidity?: string;
   };
 
   if (!routerId || !profile || !qty) {
     res.status(400).json({ error: "routerId, profile et qty sont requis" });
     return;
   }
-  if (qty < 1 || qty > 200) {
-    res.status(400).json({ error: "qty doit être entre 1 et 200" });
+  if (qty < 1 || qty > 1000) {
+    res.status(400).json({ error: "qty doit être entre 1 et 1000" });
     return;
   }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  let price = "";
-  let validity = "";
+  let price = profilePrice ?? "";
+  let validity = profileValidity ?? "";
 
+  // Fast path: read price from in-memory cache and trigger background refresh if stale.
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
-    const profiles = await listProfiles({ host: r.host, port: r.port, username: r.username, password: r.password });
-    const prof = profiles.find((p) => p.name === profile);
-    if (prof) {
-      price = prof.price ?? "";
-      validity = prof.validity ?? "";
-    }
+    const priceMap = getCachedProfilePricesSync(routerId, conn);
+    price = priceMap.get(profile) ?? "";
   } catch {
-    // Continue without profile metadata
+    // non-blocking
+  }
+
+  // If not provided by frontend, resolve from MikroTik once (best effort).
+  if (!price || !validity) {
+    try {
+      const profiles = await listProfiles(conn);
+      const prof = profiles.find((p) => p.name === profile);
+      if (prof) {
+        if (!price) price = prof.price ?? "";
+        if (!validity) validity = prof.validity ?? "";
+      }
+    } catch {
+      // Continue without profile metadata
+    }
   }
 
   try {
     const generated = await generateVouchers(
-      { host: r.host, port: r.port, username: r.username, password: r.password },
+      conn,
       { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "same", charType, userLength, timelimit: timelimit || undefined, datalimit: datalimit || undefined },
     );
 

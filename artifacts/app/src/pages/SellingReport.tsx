@@ -169,7 +169,7 @@ export default function SellingReport() {
 
         <CardContent className="pt-4 space-y-3">
           {/* ── Filter bar ─────────────────────────────────────── */}
-          <div className="flex flex-wrap items-end gap-2">
+          <div className="form-shell flex flex-wrap items-end gap-2">
             {/* Day */}
             <div className="flex flex-col gap-1">
               <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Jour</span>
@@ -261,7 +261,7 @@ export default function SellingReport() {
           {/* ── Table ──────────────────────────────────────────── */}
           {!isLoading && (
             <div className="overflow-x-auto rounded-lg border border-gray-100">
-              <table className="w-full text-xs border-collapse">
+              <table className="w-full min-w-[680px] text-xs border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="px-3 py-2 text-left text-gray-500 font-medium w-10">#</th>
