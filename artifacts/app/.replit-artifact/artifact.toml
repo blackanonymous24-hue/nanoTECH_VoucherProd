@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Nouveau Projet"
+title = "VoucherNet"
 version = "1.0.0"
 id = "artifacts/app"
 router = "path"
@@ -18,13 +18,8 @@ localPort = 23863
 run = "pnpm --filter @workspace/app run dev"
 
 [services.production]
+run = "pnpm --filter @workspace/app run serve"
 build = [ "pnpm", "--filter", "@workspace/app", "run", "build" ]
-publicDir = "artifacts/app/dist/public"
-serve = "static"
-
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
 
 [services.env]
 PORT = "23863"
