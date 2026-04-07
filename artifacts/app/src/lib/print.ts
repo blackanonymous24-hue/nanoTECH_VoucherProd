@@ -44,11 +44,14 @@ export function printTickets(htmlItems: string[], title: string): void {
   doc.title = title;
 
   setTimeout(() => {
+    const prevTitle = document.title;
+    document.title = title;
     try {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
     } finally {
       setTimeout(() => {
+        document.title = prevTitle;
         try { document.body.removeChild(iframe); } catch (_) {}
       }, 2000);
     }
