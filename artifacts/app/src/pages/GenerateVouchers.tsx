@@ -354,7 +354,10 @@ export default function GenerateVouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      printTickets(data.html as string[], `Voucher-${lot.routerName}`);
+      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
+      const printValidity = toSlug(lot.validity || lot.vouchers[0]?.validity || "");
+      const printParts = ["Voucher", toSlug(lot.routerName), printValidity, lot.comment, toSlug(lot.profileName)].filter(Boolean);
+      printTickets(data.html as string[], printParts.join("-"));
     } catch (err: unknown) {
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     }
