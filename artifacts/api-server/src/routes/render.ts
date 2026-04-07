@@ -4,6 +4,7 @@ import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { randomBytes } from "crypto";
+import QRCode from "qrcode";
 
 const router = Router();
 
@@ -20,7 +21,7 @@ type VoucherVars = {
   num?: string | number;
 };
 
-function buildPreamble(v: VoucherVars): string {
+async function buildPreamble(v: VoucherVars): Promise<string> {
   const e = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const hotspotname = e(String(v.hotspotname ?? ""));
   const dnsname     = e(String(v.dnsname ?? ""));
@@ -32,6 +33,27 @@ function buildPreamble(v: VoucherVars): string {
   const datalimit   = e(String(v.datalimit ?? ""));
   const validity    = e(String(v.validity ?? ""));
   const num         = Number(v.num ?? 1);
+
+  // Determine QR data the same way Mikhmon does
+  const usermode  = (String(v.username ?? "") === String(v.password ?? "")) ? "vc" : "up";
+  const urilogin  = `http://${String(v.dnsname ?? "")}/login?username=${encodeURIComponent(String(v.username ?? ""))}&password=${encodeURIComponent(String(v.password ?? ""))}`;
+  const qrData    = usermode === "vc" ? String(v.username ?? "") : urilogin;
+
+  // Generate QR code as base64 data URI — no external request needed at print time
+  let qrDataUri = "";
+  try {
+    qrDataUri = await QRCode.toDataURL(qrData || " ", {
+      width: 64,
+      margin: 1,
+      color: { dark: "#000000", light: "#ffffff" },
+    });
+  } catch {
+    qrDataUri = "";
+  }
+
+  const qrImgTag = qrDataUri
+    ? `<img src="${qrDataUri}" style="width:32px;height:32px;border-radius:3px;" alt="QR">`
+    : "";
 
   return `<?php
 $hotspotname = '${hotspotname}';
@@ -63,10 +85,10 @@ $__colorMap = [
 ];
 $color = $__colorMap[$__priceKey] ?? '#1433FD';
 
-// QR code — remplace le canvas QRious.js de MikHmon par une image statique
+// QR code — pré-généré en base64 côté serveur, pas de requête externe à l'impression
 $urilogin = 'http://' . $dnsname . '/login?username=' . urlencode($username) . '&password=' . urlencode($password);
 $qrData   = ($usermode === 'vc') ? $username : $urilogin;
-$qrcode   = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=' . urlencode($qrData) . '&margin=2" style="width:32px;height:32px;border-radius:3px;" alt="QR">';
+$qrcode   = '${qrImgTag.replace(/'/g, "\\'")}';
 
 // Stub formatBytes si non disponible
 if (!function_exists('formatBytes')) {
@@ -97,8 +119,9 @@ router.post("/render-tickets", async (req, res) => {
     const htmlArray: string[] = [];
 
     for (const vars of vouchers) {
-      const script = buildPreamble(vars) + "\n" + php;
-      const tmpFile = join(tmpdir(), `vnet_${randomBytes(8).toString("hex")}.php`);
+      const preamble = await buildPreamble(vars);
+      const script   = preamble + "\n" + php;
+      const tmpFile  = join(tmpdir(), `vnet_${randomBytes(8).toString("hex")}.php`);
 
       await writeFile(tmpFile, script, "utf-8");
 
