@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   useListRouterUsers,
@@ -77,7 +77,6 @@ export default function Vouchers() {
   const [isSelectingAll, setIsSelectingAll] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
-  const [autoLoadedRouterId, setAutoLoadedRouterId] = useState<number | null>(null);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -108,19 +107,6 @@ export default function Vouchers() {
     ? lots
     : lots.filter((l) => l.profile === filterProfile);
   const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
-
-  // Mikhmon-like behavior: on page open/router switch, preselect latest generated lot.
-  useEffect(() => {
-    if (!activeRouterId || lots.length === 0) return;
-    if (autoLoadedRouterId === activeRouterId) return;
-    const latestLot = lots[0]?.name;
-    if (!latestLot) return;
-    setView("list");
-    setFilterComment(latestLot);
-    setPage(0);
-    setSelectedUsernames(new Set());
-    setAutoLoadedRouterId(activeRouterId);
-  }, [activeRouterId, lots, autoLoadedRouterId]);
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   const {
