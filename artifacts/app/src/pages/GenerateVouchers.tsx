@@ -23,6 +23,7 @@ import {
 import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
+import { printTickets } from "@/lib/print";
 
 const LS_KEY = "vouchernet-last-lot";
 
@@ -332,13 +333,6 @@ export default function GenerateVouchers() {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
     };
-    // Ouvrir la fenêtre AVANT tout await — le navigateur bloque window.open() après un await
-    const win = window.open("", "_blank", "noopener,noreferrer");
-    if (!win) {
-      toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site dans votre navigateur.", variant: "destructive" });
-      return;
-    }
-    win.document.write("<!doctype html><html><body style='font-family:sans-serif;padding:2rem;color:#333'>Génération des tickets en cours...</body></html>");
     const vouchers = lot.vouchers.map((v, idx) => ({
       hotspotname: lot.routerName,
       dnsname: (selectedRouter as any)?.contact ?? "",
@@ -360,34 +354,8 @@ export default function GenerateVouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      const content = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Voucher-${lot.routerName}</title>
-    <style>
-      body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-      table.voucher { display:inline-block; border:2px solid black; margin:2px; }
-      #num { float:right; display:inline-block; }
-      @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
-      @media print {
-        table { page-break-after:auto; }
-        tr { page-break-inside:avoid; page-break-after:auto; }
-        td { page-break-inside:avoid; page-break-after:auto; }
-        thead { display:table-header-group; }
-        tfoot { display:table-footer-group; }
-      }
-    </style>
-  </head>
-  <body>${(data.html as string[]).join("")}</body>
-</html>`;
-      win.document.open();
-      win.document.write(content);
-      win.document.close();
-      // Appel depuis la fenêtre parente — plus fiable que l'événement load inline
-      setTimeout(() => { try { win.print(); } catch (_) {} }, 500);
+      printTickets(data.html as string[], `Voucher-${lot.routerName}`);
     } catch (err: unknown) {
-      win.close();
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     }
   };

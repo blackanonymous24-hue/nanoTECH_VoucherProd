@@ -41,6 +41,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { getStoredPHP } from "@/pages/TicketTemplate";
+import { printTickets } from "@/lib/print";
 
 type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
 
@@ -265,13 +266,6 @@ export default function Vouchers() {
       toast({ title: "Aucun voucher à imprimer", description: "Sélectionnez un lot ou des vouchers d'abord.", variant: "destructive" });
       return;
     }
-    // Ouvrir la fenêtre AVANT tout await — le navigateur bloque window.open() après un await
-    const win = window.open("", "_blank", "noopener,noreferrer");
-    if (!win) {
-      toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site dans votre navigateur.", variant: "destructive" });
-      return;
-    }
-    win.document.write("<!doctype html><html><body style='font-family:sans-serif;padding:2rem;color:#333'>Génération des tickets en cours...</body></html>");
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -295,9 +289,8 @@ export default function Vouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      writeAndPrintWindow(win, data.html as string[], `Voucher-${activeRouter?.name ?? "router"}`);
+      printTickets(data.html as string[], `Voucher-${activeRouter?.name ?? "router"}`);
     } catch (err: unknown) {
-      win.close();
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     }
   };
@@ -368,35 +361,6 @@ export default function Vouchers() {
   const handleCommentChange = (v: string) => {
     setFilterComment(v);
     setPage(0);
-  };
-
-  const writeAndPrintWindow = (win: Window, htmlItems: string[], title: string) => {
-    const content = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>
-      body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-      table.voucher { display:inline-block; border:2px solid black; margin:2px; }
-      #num { float:right; display:inline-block; }
-      @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
-      @media print {
-        table { page-break-after:auto; }
-        tr { page-break-inside:avoid; page-break-after:auto; }
-        td { page-break-inside:avoid; page-break-after:auto; }
-        thead { display:table-header-group; }
-        tfoot { display:table-footer-group; }
-      }
-    </style>
-  </head>
-  <body>${htmlItems.join("")}</body>
-</html>`;
-    win.document.open();
-    win.document.write(content);
-    win.document.close();
-    // Appel depuis la fenêtre parente — plus fiable que l'événement load inline
-    setTimeout(() => { try { win.print(); } catch (_) {} }, 500);
   };
 
   return (
