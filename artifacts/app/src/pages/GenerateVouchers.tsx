@@ -121,6 +121,36 @@ export default function GenerateVouchers() {
     setProfile("");
   }, [selectedRouterId]);
 
+  // On page load (Generate tab), force a MikroTik profile sync once per router
+  // so both Generate and Forfaits use fresh profile metadata.
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
+        if (!res.ok || cancelled) return;
+        const freshProfiles = await res.json();
+        if (cancelled) return;
+        queryClient.setQueriesData(
+          {
+            queryKey: ["listRouterProfiles"],
+            predicate: (query) =>
+              Array.isArray(query.queryKey) && query.queryKey[1] === selectedRouterId,
+          },
+          freshProfiles,
+        );
+        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+      } catch {
+        // Keep existing cached profiles if live sync fails.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRouterId, queryClient]);
+
   const selectedProfile = profiles.find((p) => p.name === profile);
 
   const selectedVendor = vendors.find((v) => String(v.id) === vendorId);
