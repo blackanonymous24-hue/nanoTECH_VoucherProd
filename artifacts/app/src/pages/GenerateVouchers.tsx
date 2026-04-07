@@ -319,7 +319,15 @@ export default function GenerateVouchers() {
   };
 
   const handlePrint = async (lot: LastLot) => {
-    const php = getStoredPHP()!;
+    const php = getStoredPHP();
+    if (!php) {
+      toast({
+        title: "Aucun modèle de ticket configuré",
+        description: "Allez dans Modèle de ticket pour charger votre template PHP.",
+        variant: "destructive",
+      });
+      return;
+    }
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",

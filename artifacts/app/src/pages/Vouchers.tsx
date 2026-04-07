@@ -249,10 +249,22 @@ export default function Vouchers() {
 
   // ── Print ────────────────────────────────────────────────────────────────────
   const handlePrintVouchers = async () => {
-    const php = getStoredPHP()!;
+    const php = getStoredPHP();
+    if (!php) {
+      toast({
+        title: "Aucun modèle de ticket configuré",
+        description: "Allez dans Modèle de ticket pour charger votre template PHP.",
+        variant: "destructive",
+      });
+      return;
+    }
     const usersForPrint = selectedUsernames.size > 0
       ? filtered.filter((u) => selectedUsernames.has(u.username))
       : filtered;
+    if (usersForPrint.length === 0) {
+      toast({ title: "Aucun voucher à imprimer", description: "Sélectionnez un lot ou des vouchers d'abord.", variant: "destructive" });
+      return;
+    }
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
