@@ -41,6 +41,7 @@ export function printTickets(htmlItems: string[], title: string): void {
   doc.open();
   doc.write(html);
   doc.close();
+  doc.title = title;
 
   setTimeout(() => {
     try {
