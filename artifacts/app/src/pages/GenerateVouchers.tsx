@@ -112,9 +112,11 @@ export default function GenerateVouchers() {
   const [comment, setComment] = useState(() => makeBatchId("vc"));
   const [vendorId, setVendorId] = useState<string>("");
   const [lastLot, setLastLot] = useState<LastLot | null>(() => loadLastLot());
+  const [loadingLastLot, setLoadingLastLot] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
+  const autoLoadAttempted = useState(() => new Set<number>())[0];
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
   useEffect(() => {
@@ -177,6 +179,74 @@ export default function GenerateVouchers() {
       cancelled = true;
     };
   }, [selectedRouterId, queryClient]);
+
+  // Auto-load the most recent lot from API when localStorage is empty
+  useEffect(() => {
+    if (lastLot !== null) return;
+    if (!selectedRouterId) return;
+    if (autoLoadAttempted.has(selectedRouterId)) return;
+    autoLoadAttempted.add(selectedRouterId);
+
+    const controller = new AbortController();
+    setLoadingLastLot(true);
+
+    void (async () => {
+      try {
+        const lotsRes = await fetch(
+          `${GEN_BASE}/api/routers/${selectedRouterId}/lots`,
+          { signal: controller.signal },
+        );
+        if (!lotsRes.ok) return;
+        const { lots: apiLots } = await lotsRes.json() as {
+          lots: Array<{ name: string; count: number; profile: string | null }>;
+        };
+        if (!apiLots.length) return;
+
+        const firstLot = apiLots[0];
+
+        const usersRes = await fetch(
+          `${GEN_BASE}/api/routers/${selectedRouterId}/users?comment=${encodeURIComponent(firstLot.name)}&limit=5000`,
+          { signal: controller.signal },
+        );
+        if (!usersRes.ok) return;
+        const { users } = await usersRes.json() as { users: Array<{ username: string; password: string; profile: string }> };
+        if (!users.length) return;
+
+        // Cross-reference profile metadata (prices/validity) from already-loaded profiles
+        const prof = profiles.find((p) => p.name === firstLot.profile);
+
+        const lot: LastLot = {
+          vouchers: users.map((u, i) => ({
+            id: i,
+            routerId: selectedRouterId,
+            username: u.username,
+            password: u.password,
+            profileName: u.profile ?? firstLot.profile ?? "",
+            price: prof?.price ?? "",
+            validity: prof?.validity ?? "",
+            createdAt: new Date().toISOString(),
+          })),
+          comment: firstLot.name,
+          routerName: selectedRouter?.name ?? "",
+          routerId: selectedRouterId,
+          profileName: firstLot.profile ?? "",
+          price: prof?.price ?? "",
+          validity: prof?.validity ?? "",
+          vendorName: "",
+          generatedAt: new Date().toISOString(),
+        };
+
+        setLastLot(lot);
+        saveLastLot(lot);
+      } catch {
+        // Router offline or aborted — keep "Aucun lot" state, user can generate
+      } finally {
+        setLoadingLastLot(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [selectedRouterId, lastLot, profiles, selectedRouter, autoLoadAttempted]);
 
   const selectedProfile = profiles.find((p) => p.name === profile);
 
@@ -762,11 +832,16 @@ export default function GenerateVouchers() {
                 </div>
               </div>
             </Card>
+          ) : loadingLastLot ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+              <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
+              <p className="text-sm font-medium text-gray-400">Chargement du dernier lot…</p>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
               <Package className="h-10 w-10 text-gray-300 mb-3" />
-              <p className="text-sm font-medium text-gray-400">Aucun lot généré</p>
-              <p className="text-xs text-gray-300 mt-1">Le dernier lot apparaîtra ici</p>
+              <p className="text-sm font-medium text-gray-400">Aucun lot disponible</p>
+              <p className="text-xs text-gray-300 mt-1">Le dernier lot apparaîtra ici après la génération</p>
             </div>
           )}
         </div>
