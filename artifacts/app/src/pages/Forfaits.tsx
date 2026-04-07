@@ -116,6 +116,34 @@ export default function Forfaits() {
     [profiles, localProfiles],
   );
 
+  // Auto-sync profiles from MikroTik when opening the Forfaits tab.
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
+        if (!res.ok || cancelled) return;
+        const freshProfiles = await res.json();
+        if (cancelled) return;
+        queryClient.setQueriesData(
+          {
+            queryKey: ["listRouterProfiles"],
+            predicate: (query) =>
+              Array.isArray(query.queryKey) && query.queryKey[1] === selectedRouterId,
+          },
+          freshProfiles,
+        );
+        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+      } catch {
+        // Keep current cached values if live sync fails.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRouterId, queryClient]);
+
   function setField<K extends keyof typeof defaultForm>(key: K, val: (typeof defaultForm)[K]) {
     setForm((f) => ({ ...f, [key]: val }));
   }
