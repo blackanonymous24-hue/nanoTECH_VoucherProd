@@ -14,7 +14,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
@@ -446,25 +445,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </aside>
       )}
 
-      {/* ── Mobile: top bar + Sheet drawer ── */}
+      {/* ── Mobile: top bar + custom slide-in drawer ── */}
       <div className="flex flex-col flex-1 min-w-0">
 
         {/* Mobile top bar */}
         {isMobile && (
-          <header className="flex items-center gap-2 bg-[#0d1117] text-white px-3 py-2.5 flex-shrink-0 border-b border-white/[0.06]">
-            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-              <SheetTrigger asChild>
-                <Button size="icon" variant="ghost" className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8">
-                  {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-                </Button>
-              </SheetTrigger>
-              <SheetContent
-                side="left"
-                className="w-64 p-0 bg-[#0d1117] text-white border-white/[0.06]"
-              >
-                {mobileOpen && <NavContent onNavigate={() => setMobileOpen(false)} />}
-              </SheetContent>
-            </Sheet>
+          <header className="flex items-center gap-2 bg-[#0d1117] text-white px-3 py-2.5 flex-shrink-0 border-b border-white/[0.06] z-30 relative">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8 transition-colors"
+              onClick={() => setMobileOpen((o) => !o)}
+              aria-label={mobileOpen ? "Fermer le menu" : "Ouvrir le menu"}
+            >
+              {mobileOpen
+                ? <X className="h-5 w-5 transition-transform duration-200" />
+                : <Menu className="h-5 w-5 transition-transform duration-200" />}
+            </Button>
 
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
@@ -477,10 +474,40 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </header>
         )}
 
-        {/* Main content */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
-        </main>
+        {/* Mobile slide-in drawer — positioned below the header */}
+        {isMobile && (
+          <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
+            {/* Backdrop */}
+            {mobileOpen && (
+              <div
+                className="absolute inset-0 bg-black/50 z-10"
+                onClick={() => setMobileOpen(false)}
+              />
+            )}
+
+            {/* Sliding nav panel */}
+            <div
+              className={cn(
+                "absolute top-0 left-0 h-full w-64 bg-[#0d1117] text-white border-r border-white/[0.06] z-20 flex flex-col transition-transform duration-300 ease-in-out",
+                mobileOpen ? "translate-x-0" : "-translate-x-full"
+              )}
+            >
+              <NavContent onNavigate={() => setMobileOpen(false)} />
+            </div>
+
+            {/* Main content */}
+            <main className="flex-1 overflow-y-auto">
+              <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
+            </main>
+          </div>
+        )}
+
+        {/* Desktop main content (no drawer) */}
+        {!isMobile && (
+          <main className="flex-1 overflow-y-auto">
+            <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
+          </main>
+        )}
       </div>
     </div>
   );
