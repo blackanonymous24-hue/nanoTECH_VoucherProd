@@ -1043,6 +1043,29 @@ export async function deleteHotspotUsersByNames(
   }, 30_000);
 }
 
+/**
+ * Rename a hotspot user on MikroTik (changes the `name` field).
+ * Returns false if the user is not found.
+ */
+export async function renameHotspotUser(
+  conn: RouterConnection,
+  oldUsername: string,
+  newUsername: string,
+): Promise<boolean> {
+  return withRouter(conn, async (api) => {
+    const all = await api.write("/ip/hotspot/user/print");
+    const user = all.find((u) => (u["name"] as string ?? "").toLowerCase() === oldUsername.toLowerCase());
+    if (!user) return false;
+    const id = user[".id"] as string | undefined;
+    if (!id) return false;
+    await api.write("/ip/hotspot/user/set", [
+      `=.id=${id}`,
+      `=name=${newUsername}`,
+    ]);
+    return true;
+  }, 15_000);
+}
+
 export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
   return withRouter(conn, async (api) => {
     const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);

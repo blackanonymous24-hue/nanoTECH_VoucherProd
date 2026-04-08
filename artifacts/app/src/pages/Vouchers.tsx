@@ -39,7 +39,16 @@ import {
   Power,
   Check,
   ChevronsUpDown,
+  Pencil,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { getStoredPHP } from "@/pages/TicketTemplate";
@@ -83,6 +92,9 @@ export default function Vouchers() {
   const [confirmToggleSelected, setConfirmToggleSelected] = useState<boolean | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<HotspotUser | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [isSavingRename, setIsSavingRename] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -397,6 +409,40 @@ export default function Vouchers() {
       setSelectedUsernames(new Set());
     } else {
       setSelectedUsernames(new Set(pageUsers.map((u) => u.username)));
+    }
+  };
+
+  // ── Rename (edit username) ────────────────────────────────────────────────
+  const openEditUser = (user: HotspotUser) => {
+    setEditingUser(user);
+    setRenameValue(user.username);
+  };
+
+  const handleRenameUser = async () => {
+    if (!activeRouterId || !editingUser) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === editingUser.username) { setEditingUser(null); return; }
+    setIsSavingRename(true);
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(editingUser.username)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ newUsername: trimmed }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      toast({ title: "Utilisateur renommé", description: `${editingUser.username} → ${trimmed}` });
+      setEditingUser(null);
+      refetch();
+    } catch (err) {
+      toast({ title: "Erreur renommage", description: String(err), variant: "destructive" });
+    } finally {
+      setIsSavingRename(false);
     }
   };
 
@@ -818,6 +864,7 @@ export default function Vouchers() {
                           user={user}
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
+                          onEdit={() => openEditUser(user)}
                         />
                       ))}
                     </div>
@@ -946,6 +993,47 @@ export default function Vouchers() {
         </>
       )}
 
+      {/* Rename user dialog */}
+      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename) setEditingUser(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Modifier l'identifiant</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">Identifiant actuel</Label>
+              <p className="font-mono text-sm bg-gray-50 rounded px-3 py-2 border border-gray-200">
+                {editingUser?.username}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-input" className="text-xs text-gray-500">Nouvel identifiant</Label>
+              <Input
+                id="rename-input"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleRenameUser(); }}
+                placeholder="Nouveau nom d'utilisateur..."
+                className="font-mono"
+                autoFocus
+                disabled={isSavingRename}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingUser(null)} disabled={isSavingRename}>
+              Annuler
+            </Button>
+            <Button
+              onClick={() => void handleRenameUser()}
+              disabled={isSavingRename || !renameValue.trim() || renameValue.trim() === editingUser?.username}
+            >
+              {isSavingRename ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Enregistrement...</> : "Enregistrer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete lot confirmation */}
       <AlertDialog open={!!deletingLot} onOpenChange={(o) => { if (!o) setDeletingLot(null); }}>
         <AlertDialogContent>
@@ -982,14 +1070,16 @@ function UserRow({
   user,
   selected,
   onToggle,
+  onEdit,
 }: {
   user: HotspotUser;
   selected: boolean;
   onToggle: () => void;
+  onEdit: () => void;
 }) {
   return (
     <div
-      className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 ${selected ? "bg-blue-50" : ""}`}
+      className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 group ${selected ? "bg-blue-50" : ""}`}
     >
       <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
         <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded flex-shrink-0" />
@@ -1027,6 +1117,13 @@ function UserRow({
           </div>
         </div>
       </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        className="ml-2 flex-shrink-0 p-1.5 rounded text-gray-300 hover:text-blue-500 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity"
+        title="Modifier l'identifiant"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }
