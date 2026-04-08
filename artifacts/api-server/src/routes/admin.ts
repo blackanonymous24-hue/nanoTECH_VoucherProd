@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
-import { db, adminSettingsTable, vendorsTable, managersTable } from "@workspace/db";
+import { db, adminSettingsTable, vendorsTable, managersTable, routersTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken } from "../lib/manager-auth.js";
+import { purgePhantomVouchers } from "../lib/vendor-sync.js";
 
 const router = Router();
 
@@ -100,6 +101,29 @@ router.put("/admin/credentials", async (req, res): Promise<void> => {
     .set({ login: login.trim(), passwordHash })
     .where(eq(adminSettingsTable.id, admin.id));
   res.json({ ok: true });
+});
+
+router.post("/admin/purge-phantoms", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+
+  const { routerId } = req.body as { routerId?: number };
+
+  const routers = routerId
+    ? await db.select({ id: routersTable.id, host: routersTable.host, name: routersTable.name }).from(routersTable).where(eq(routersTable.id, routerId))
+    : await db.select({ id: routersTable.id, host: routersTable.host, name: routersTable.name }).from(routersTable);
+
+  const results: Array<Awaited<ReturnType<typeof purgePhantomVouchers>> & { routerName: string }> = [];
+  for (const r of routers) {
+    const result = await purgePhantomVouchers(r.id);
+    results.push({ ...result, routerName: r.name ?? r.host });
+  }
+
+  const totalDeleted = results.reduce((sum, r) => sum + r.deleted, 0);
+  res.json({ results, totalDeleted });
 });
 
 export default router;

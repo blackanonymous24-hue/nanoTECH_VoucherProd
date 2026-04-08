@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -207,6 +207,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode },
         ...(isAdmin ? [{ href: "/managers", label: "Gérants de zone", icon: UserCog }] : []),
+        ...(isAdmin ? [{ href: "/maintenance", label: "Maintenance", icon: Wrench }] : []),
       ],
     },
   ];

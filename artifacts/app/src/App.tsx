@@ -24,6 +24,7 @@ import Managers from "@/pages/Managers";
 import VendorTracking from "@/pages/VendorTracking";
 import VendorPayments from "@/pages/VendorPayments";
 import StockAlerts from "@/pages/StockAlerts";
+import Maintenance from "@/pages/Maintenance";
 import NotFound from "@/pages/not-found";
 
 function PageSkeleton() {
@@ -153,6 +154,7 @@ function AppRoutes() {
             <Route path="/ticket-template" component={TicketTemplate} />
             <Route path="/managers" component={Managers} />
             <Route path="/stock-alerts" component={StockAlerts} />
+            <Route path="/maintenance" component={role === "admin" ? Maintenance : Dashboard} />
             <Route component={NotFound} />
           </Switch>
         )}

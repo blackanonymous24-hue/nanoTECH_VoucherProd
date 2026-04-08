@@ -455,6 +455,74 @@ export async function syncMikrotikUsersToVendor(
 }
 
 /**
+ * Purges unsold DB vouchers (usedAt IS NULL) whose username is NOT present
+ * in the live MikroTik hotspot user list for the given router.
+ *
+ * Safety guards:
+ *  - Skips entirely if MikroTik returns 0 users (router unreachable / empty)
+ *  - Only touches vouchers with usedAt IS NULL (never modifies sold records)
+ *  - Deletes in chunks of 200 to avoid large IN clauses
+ */
+export async function purgePhantomVouchers(routerId: number): Promise<{
+  routerId: number;
+  routerHost: string;
+  skipped: boolean;
+  reason?: string;
+  activeUsersCount: number;
+  unsoldInDb: number;
+  deleted: number;
+}> {
+  const [router] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!router) {
+    return { routerId, routerHost: "unknown", skipped: true, reason: "Routeur introuvable", activeUsersCount: 0, unsoldInDb: 0, deleted: 0 };
+  }
+
+  const conn: RouterConnection = { host: router.host, port: router.port, username: router.username, password: router.password };
+
+  let allUsers: Awaited<ReturnType<typeof listHotspotUsers>>;
+  try {
+    allUsers = await listHotspotUsers(conn, 30_000);
+  } catch (err) {
+    logger.warn({ routerId, err }, "purge-phantoms: impossible de joindre MikroTik — ignoré");
+    return { routerId, routerHost: router.host, skipped: true, reason: "Connexion MikroTik échouée", activeUsersCount: 0, unsoldInDb: 0, deleted: 0 };
+  }
+
+  if (allUsers.length === 0) {
+    logger.warn({ routerId }, "purge-phantoms: MikroTik a retourné 0 users — garde de sécurité activée");
+    return { routerId, routerHost: router.host, skipped: true, reason: "MikroTik a retourné 0 utilisateurs (garde de sécurité)", activeUsersCount: 0, unsoldInDb: 0, deleted: 0 };
+  }
+
+  const activeUsernames = new Set(allUsers.map((u) => u.username.toLowerCase()));
+
+  const unsoldRows = await db
+    .select({ id: vouchersTable.id, username: vouchersTable.username })
+    .from(vouchersTable)
+    .where(and(eq(vouchersTable.routerId, routerId), isNull(vouchersTable.usedAt)));
+
+  const phantomIds = unsoldRows
+    .filter((v) => !activeUsernames.has(v.username.toLowerCase()))
+    .map((v) => v.id);
+
+  if (phantomIds.length === 0) {
+    logger.info({ routerId, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length }, "purge-phantoms: aucun fantôme trouvé");
+    return { routerId, routerHost: router.host, skipped: false, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length, deleted: 0 };
+  }
+
+  const CHUNK = 200;
+  let deleted = 0;
+  for (let i = 0; i < phantomIds.length; i += CHUNK) {
+    const rows = await db
+      .delete(vouchersTable)
+      .where(inArray(vouchersTable.id, phantomIds.slice(i, i + CHUNK)))
+      .returning({ id: vouchersTable.id });
+    deleted += rows.length;
+  }
+
+  logger.info({ routerId, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length, deleted }, "purge-phantoms: vouchers fantômes supprimés");
+  return { routerId, routerHost: router.host, skipped: false, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length, deleted };
+}
+
+/**
  * Starts a background periodic sync loop for all active vendors.
  * This keeps sale date/IP/MAC updates flowing without user interaction.
  */

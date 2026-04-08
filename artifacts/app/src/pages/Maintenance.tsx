@@ -1,0 +1,189 @@
+import { useState } from "react";
+import { Ghost, Trash2, CheckCircle, AlertTriangle, Loader2, ShieldCheck, Router } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { useNavigate } from "@/hooks/use-app-navigate";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+type PurgeResult = {
+  routerId: number;
+  routerHost: string;
+  routerName: string;
+  skipped: boolean;
+  reason?: string;
+  activeUsersCount: number;
+  unsoldInDb: number;
+  deleted: number;
+};
+
+type PurgeResponse = {
+  results: PurgeResult[];
+  totalDeleted: number;
+};
+
+export default function Maintenance() {
+  const { role, token } = useAuth();
+  const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<PurgeResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (role !== "admin") {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-500">
+        Accès réservé à l'administrateur
+      </div>
+    );
+  }
+
+  async function runPurge() {
+    setLoading(true);
+    setData(null);
+    setError(null);
+    try {
+      const res = await fetch(`${BASE}/api/admin/purge-phantoms`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Erreur ${res.status}`);
+      }
+      const json: PurgeResponse = await res.json();
+      setData(json);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur inconnue");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const totalDeleted = data?.totalDeleted ?? 0;
+  const hasResults = !!data;
+
+  return (
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-white flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5 text-blue-400" />
+          Maintenance
+        </h1>
+        <p className="text-sm text-gray-400 mt-1">
+          Outils de nettoyage et de diagnostic de la base de données
+        </p>
+      </div>
+
+      {/* ── Purge fantômes ─────────────────────────────────────── */}
+      <Card className="bg-[#141414] border-white/[0.06]">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-white text-base">
+            <Ghost className="h-4 w-4 text-orange-400" />
+            Vouchers fantômes
+          </CardTitle>
+          <CardDescription className="text-gray-400 text-sm">
+            Supprime les vouchers en base de données marqués comme non vendus mais absents de
+            MikroTik. Seuls les vouchers sans <code className="text-xs bg-white/10 px-1 rounded">usedAt</code> sont traités.
+            <br />
+            <span className="text-yellow-400 font-medium">
+              Garde de sécurité :
+            </span>{" "}
+            si MikroTik retourne 0 utilisateurs (routeur injoignable), le routeur est ignoré.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button
+            onClick={runPurge}
+            disabled={loading}
+            variant="destructive"
+            className="gap-2"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            {loading ? "Purge en cours…" : "Lancer la purge des fantômes"}
+          </Button>
+
+          {error && (
+            <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {hasResults && (
+            <div className="space-y-3">
+              {/* Summary banner */}
+              <div
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border ${
+                  totalDeleted > 0
+                    ? "bg-red-500/10 border-red-500/20 text-red-300"
+                    : "bg-green-500/10 border-green-500/20 text-green-300"
+                }`}
+              >
+                {totalDeleted > 0 ? (
+                  <Trash2 className="h-4 w-4 shrink-0" />
+                ) : (
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                )}
+                {totalDeleted > 0
+                  ? `${totalDeleted} voucher${totalDeleted > 1 ? "s" : ""} fantôme${totalDeleted > 1 ? "s" : ""} supprimé${totalDeleted > 1 ? "s" : ""}`
+                  : "Aucun voucher fantôme trouvé — base propre"}
+              </div>
+
+              {/* Per-router breakdown */}
+              <div className="space-y-2">
+                {data?.results.map((r) => (
+                  <div
+                    key={r.routerId}
+                    className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+                  >
+                    <Router className="h-4 w-4 mt-0.5 text-gray-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-white">{r.routerName}</span>
+                        <span className="text-xs text-gray-500">{r.routerHost}</span>
+                        {r.skipped && (
+                          <Badge variant="outline" className="text-yellow-400 border-yellow-500/30 text-[10px]">
+                            Ignoré
+                          </Badge>
+                        )}
+                        {!r.skipped && r.deleted > 0 && (
+                          <Badge variant="outline" className="text-red-400 border-red-500/30 text-[10px]">
+                            −{r.deleted} supprimé{r.deleted > 1 ? "s" : ""}
+                          </Badge>
+                        )}
+                        {!r.skipped && r.deleted === 0 && (
+                          <Badge variant="outline" className="text-green-400 border-green-500/30 text-[10px]">
+                            Propre
+                          </Badge>
+                        )}
+                      </div>
+                      {r.skipped ? (
+                        <p className="text-xs text-yellow-400/70 mt-0.5">{r.reason}</p>
+                      ) : (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {r.activeUsersCount} utilisateurs MikroTik · {r.unsoldInDb} non vendus en DB
+                          {r.deleted > 0 ? ` → ${r.deleted} fantôme${r.deleted > 1 ? "s" : ""} purgé${r.deleted > 1 ? "s" : ""}` : " → aucun fantôme"}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
