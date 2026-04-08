@@ -8,7 +8,7 @@ import { router } from "./routes/index.js";
 
 export const app = express();
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 app.use(
   pinoHttp({
@@ -37,6 +37,14 @@ app.use("/api", (_req, res, next) => {
 });
 
 app.use("/api", router);
+
+// JSON error handler — catches body-parser 413, 400, and other API errors
+// Must be AFTER the router so it only fires for /api paths that errored
+app.use("/api", (err: Error & { status?: number; type?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const status = (err as any).status ?? (err as any).statusCode ?? 500;
+  const message = err.message ?? "Erreur serveur";
+  res.status(status).json({ error: message });
+});
 
 // Serve the compiled frontend if it exists (production deployment)
 // CWD = artifacts/api-server when started via pnpm --filter
