@@ -910,12 +910,15 @@ function Dashboard({ token, vendor, onLogout }: {
             size="sm"
             variant="ghost"
             className="gap-1.5"
+            title="Modifier mot de passe"
             onClick={() => { setPwdCurrent(""); setPwdNew(""); setPwdConfirm(""); setPwdError(""); setPwdSuccess(false); setShowChangePwd(true); }}
           >
-            <KeyRound className="h-4 w-4" /> Modifier mot de passe
+            <KeyRound className="h-4 w-4" />
+            <span className="hidden sm:inline">Modifier mot de passe</span>
           </Button>
-          <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300" onClick={onLogout}>
-            <LogOut className="h-4 w-4" /> Se déconnecter
+          <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300" title="Se déconnecter" onClick={onLogout}>
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Se déconnecter</span>
           </Button>
         </div>
       </header>
