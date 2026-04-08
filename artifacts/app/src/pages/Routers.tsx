@@ -425,13 +425,15 @@ export default function Routers() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!isManager && (
-            <Button variant="outline" className="gap-2" onClick={() => setShowCredentials(true)}>
-              <KeyRound className="h-4 w-4" /> Identifiants admin
+            <Button variant="outline" className="gap-2" title="Identifiants admin" onClick={() => setShowCredentials(true)}>
+              <KeyRound className="h-4 w-4" />
+              <span className="hidden sm:inline">Identifiants admin</span>
             </Button>
           )}
           {!isManager && (
-            <Button onClick={openCreate} className="gap-2">
-              <Plus className="h-4 w-4" /> Ajouter un routeur
+            <Button onClick={openCreate} className="gap-2" title="Ajouter un routeur">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ajouter un routeur</span>
             </Button>
           )}
         </div>

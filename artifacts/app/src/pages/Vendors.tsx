@@ -481,26 +481,32 @@ export default function Vendors() {
           <Button
             variant="outline"
             className="gap-2"
+            title="Portail vendeur"
             onClick={() => window.open(`${portalBase}/vendeur`, "_blank")}
           >
-            <ExternalLink className="h-4 w-4" /> Portail vendeur
+            <ExternalLink className="h-4 w-4" />
+            <span className="hidden sm:inline">Portail vendeur</span>
           </Button>
           {!isManager && selectedRouterId && vendors.length > 0 && (
             <Button
               variant="outline"
               className="gap-2"
+              title="Taux groupé"
               onClick={() => { setBulkCommissionRate("0"); setShowBulkCommission(true); }}
             >
-              <Percent className="h-4 w-4" /> Taux groupé
+              <Percent className="h-4 w-4" />
+              <span className="hidden sm:inline">Taux groupé</span>
             </Button>
           )}
           {!isManager && (
             <Button
               onClick={() => { setCreateError(""); setShowCreate(true); }}
               className="gap-2"
+              title="Ajouter un vendeur"
               disabled={!selectedRouterId}
             >
-              <Plus className="h-4 w-4" /> Ajouter un vendeur
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ajouter un vendeur</span>
             </Button>
           )}
         </div>

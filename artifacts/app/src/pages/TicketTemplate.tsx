@@ -374,7 +374,7 @@ export default function TicketTemplate() {
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <FileCode className="h-6 w-6 text-blue-500" />
@@ -384,24 +384,27 @@ export default function TicketTemplate() {
             Mode Mikhmon v3: collez directement votre code PHP du template, sans conversion
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {hasSaved && !isManager && (
-            <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50">
-              <RotateCcw className="h-3.5 w-3.5" /> Réinitialiser
+            <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50" title="Réinitialiser">
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Réinitialiser</span>
             </Button>
           )}
           <>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleUseDefaultMikhmon}>
-              <FileCode className="h-3.5 w-3.5" /> Coller modèle Mikhmon
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleUseDefaultMikhmon} title="Coller modèle Mikhmon">
+              <FileCode className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Coller modèle Mikhmon</span>
             </Button>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fileRef.current?.click()}>
-              <Upload className="h-3.5 w-3.5" /> Importer .php
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fileRef.current?.click()} title="Importer .php">
+              <Upload className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Importer .php</span>
             </Button>
             <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
           </>
-          <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved}>
+          <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
-            {saved ? "Sauvegardé ✓" : "Sauvegarder"}
+            <span className="hidden sm:inline">{saved ? "Sauvegardé ✓" : "Sauvegarder"}</span>
           </Button>
         </div>
       </div>

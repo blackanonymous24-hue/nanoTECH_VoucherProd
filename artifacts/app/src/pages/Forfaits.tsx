@@ -259,24 +259,26 @@ export default function Forfaits() {
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Forfaits</h1>
           <p className="text-sm text-gray-500">Profils hotspot disponibles sur vos routeurs MikroTik</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             onClick={handleForceRefreshProfiles}
             disabled={!selectedRouterId || refreshingProfiles}
-            className="flex-shrink-0"
+            className="gap-2"
+            title="Actualiser maintenant"
           >
-            <RefreshCw className={`h-4 w-4 mr-1.5 ${refreshingProfiles ? "animate-spin" : ""}`} />
-            {refreshingProfiles ? "Actualisation..." : "Actualiser maintenant"}
+            <RefreshCw className={`h-4 w-4 ${refreshingProfiles ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">{refreshingProfiles ? "Actualisation..." : "Actualiser maintenant"}</span>
           </Button>
           {!isManager && (
-            <Button onClick={openCreate} disabled={!selectedRouterId} className="flex-shrink-0">
-              <Plus className="h-4 w-4 mr-1.5" /> Ajouter un forfait
+            <Button onClick={openCreate} disabled={!selectedRouterId} className="gap-2" title="Ajouter un forfait">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ajouter un forfait</span>
             </Button>
           )}
         </div>

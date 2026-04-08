@@ -113,8 +113,9 @@ export default function Managers() {
             Comptes avec accès complet sauf création/suppression de ressources
           </p>
         </div>
-        <Button onClick={() => { setCreateError(""); setCreateOpen(true); }} className="gap-2">
-          <Plus className="h-4 w-4" /> Ajouter un gérant
+        <Button onClick={() => { setCreateError(""); setCreateOpen(true); }} className="gap-2" title="Ajouter un gérant">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">Ajouter un gérant</span>
         </Button>
       </div>
 

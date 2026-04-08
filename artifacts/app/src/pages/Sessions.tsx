@@ -106,9 +106,10 @@ export default function Sessions() {
             onClick={() => refetch()}
             disabled={isFetching}
             className="gap-2 flex-shrink-0"
+            title="Actualiser"
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-            Actualiser
+            <span className="hidden sm:inline">Actualiser</span>
           </Button>
         )}
       </div>
