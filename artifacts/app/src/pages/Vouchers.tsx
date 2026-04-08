@@ -95,6 +95,9 @@ export default function Vouchers() {
   const [editingUser, setEditingUser] = useState<HotspotUser | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [isSavingRename, setIsSavingRename] = useState(false);
+  const [lotsSearch, setLotsSearch] = useState("");
+  const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
+  const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -125,6 +128,23 @@ export default function Vouchers() {
     ? lots
     : lots.filter((l) => l.profile === filterProfile);
   const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
+
+  // ── Lots view: local search + profile filter ──────────────────────────────────
+  const debouncedLotsSearch = useDebounce(lotsSearch, 200);
+  const filteredLots = useMemo(() => {
+    let result = lots;
+    if (lotsFilterProfile !== "all") result = result.filter((l) => l.profile === lotsFilterProfile);
+    if (debouncedLotsSearch.trim()) {
+      const q = debouncedLotsSearch.toLowerCase().trim();
+      result = result.filter(
+        (l) =>
+          l.name.toLowerCase().includes(q) ||
+          (l.profile ?? "").toLowerCase().includes(q) ||
+          l.preview.some((u) => u.username.toLowerCase().includes(q)),
+      );
+    }
+    return result;
+  }, [lots, lotsFilterProfile, debouncedLotsSearch]);
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   const {
@@ -905,7 +925,85 @@ export default function Vouchers() {
           {/* ─── LOTS VIEW ─── */}
           {view === "lots" && (
             <>
-              {lots.length === 0 ? (
+              {/* Search bar + profile filter for lots */}
+              {lots.length > 0 && (
+                <Card className="mb-4">
+                  <CardContent className="py-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="relative flex-1 min-w-48">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                        <Input
+                          className="pl-8"
+                          placeholder="Rechercher un lot, un vendeur, un forfait..."
+                          value={lotsSearch}
+                          onChange={(e) => setLotsSearch(e.target.value)}
+                        />
+                      </div>
+                      {/* Forfait filter */}
+                      <Popover open={lotsProfilePopoverOpen} onOpenChange={setLotsProfilePopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className="w-44 justify-between text-sm font-normal"
+                          >
+                            <span className="truncate">
+                              {lotsFilterProfile === "all" ? "Tous les forfaits" : lotsFilterProfile}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-52 p-1" align="end">
+                          <div className="max-h-56 overflow-y-auto">
+                            <button
+                              className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterProfile === "all" ? "font-semibold text-blue-600" : ""}`}
+                              onClick={() => { setLotsFilterProfile("all"); setLotsProfilePopoverOpen(false); }}
+                            >
+                              Tous les forfaits
+                            </button>
+                            {[...new Set(lots.map((l) => l.profile).filter(Boolean) as string[])].sort().map((p) => (
+                              <button
+                                key={p}
+                                className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterProfile === p ? "font-semibold text-blue-600" : ""}`}
+                                onClick={() => { setLotsFilterProfile(p); setLotsProfilePopoverOpen(false); }}
+                              >
+                                {p}
+                              </button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      {/* Reset */}
+                      {(lotsSearch || lotsFilterProfile !== "all") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => { setLotsSearch(""); setLotsFilterProfile("all"); }}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          Réinitialiser
+                        </Button>
+                      )}
+
+                      <span className="text-xs text-gray-400 ml-auto">
+                        {filteredLots.length === lots.length
+                          ? `${lots.length} lot(s)`
+                          : `${filteredLots.length} / ${lots.length} lot(s)`}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {lotsLoading ? (
+                <Card>
+                  <CardContent className="py-12 text-center text-gray-400 text-sm">
+                    <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-3 text-gray-300" />
+                    Chargement des lots...
+                  </CardContent>
+                </Card>
+              ) : lots.length === 0 ? (
                 <Card>
                   <CardContent className="py-16 text-center">
                     <Package className="h-12 w-12 text-gray-300 mx-auto mb-3" />
@@ -915,9 +1013,17 @@ export default function Vouchers() {
                     </p>
                   </CardContent>
                 </Card>
+              ) : filteredLots.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <Search className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500 font-medium">Aucun lot trouvé</p>
+                    <p className="text-sm text-gray-400 mt-1">Modifiez la recherche ou réinitialisez les filtres</p>
+                  </CardContent>
+                </Card>
               ) : (
                 <div className="space-y-3">
-                  {lots.map((lot) => (
+                  {filteredLots.map((lot) => (
                     <Card key={lot.name} className="overflow-hidden">
                       <div className="flex items-center justify-between px-5 py-4">
                         <div className="flex items-center gap-3 min-w-0">
