@@ -124,11 +124,12 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
 
   // Build reusable WHERE conditions scoped to vendor + their current router (avoids
   // stale profiles from previous router assignments) and excludes blank profileNames.
+  // and() natively ignores undefined conditions — no spread needed.
+  const routerEq = vendor.routerId != null ? eq(vouchersTable.routerId, vendor.routerId) : undefined;
   const vendorRouterCond = and(
     eq(vouchersTable.vendorId, id),
-    isNotNull(vouchersTable.profileName),
     ne(vouchersTable.profileName, ""),
-    ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
+    routerEq,
   );
 
   const [totalsRows, byProfileRaw, [periodStatsRow], recentSales, availableVouchers] = await Promise.all([
@@ -272,14 +273,14 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     month: "Mois en cours",
   };
 
+  const periodRouterEq = vendor.routerId != null ? eq(vouchersTable.routerId, vendor.routerId) : undefined;
   const periodBaseCond = and(
     eq(vouchersTable.vendorId, id),
     periodFilter,
-    ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
+    periodRouterEq,
   );
   const periodProfileCond = and(
     periodBaseCond,
-    isNotNull(vouchersTable.profileName),
     ne(vouchersTable.profileName, ""),
   );
 

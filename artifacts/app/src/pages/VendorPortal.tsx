@@ -1086,7 +1086,7 @@ function Dashboard({ token, vendor, onLogout }: {
             )}
 
             {/* ── Stock par forfait ─────────────────────────────────── */}
-            {data.byProfile.length > 0 && (
+            {data.byProfile.filter(p => (p.total - p.used) > 0 || (p.soldThisMonth ?? 0) > 0).length > 0 && (
               <Card>
                 <CardHeader className="pb-2 border-b border-gray-100">
                   <div className="flex items-center justify-between">
@@ -1099,7 +1099,7 @@ function Dashboard({ token, vendor, onLogout }: {
                 </CardHeader>
                 <CardContent className="pt-4">
                   <div className="space-y-3">
-                    {data.byProfile.map((p) => {
+                    {data.byProfile.filter(p => (p.total - p.used) > 0 || (p.soldThisMonth ?? 0) > 0).map((p) => {
                       const available      = p.total - p.used;
                       const soldThisMonth  = p.soldThisMonth ?? 0;
                       const total          = available + soldThisMonth;
@@ -1172,14 +1172,14 @@ function Dashboard({ token, vendor, onLogout }: {
               </CardContent>
             </Card>
 
-            {data.byProfile.length > 0 && (
+            {data.byProfile.some(p => (p.soldThisMonth ?? 0) > 0) && (
               <Card>
                 <CardHeader className="pb-2 border-b border-gray-100">
                   <CardTitle className="text-base">Par forfait — ce mois</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-3">
                   <div className="space-y-2">
-                    {[...data.byProfile]
+                    {[...data.byProfile.filter(p => (p.soldThisMonth ?? 0) > 0)]
                       .sort((a, b) => (parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0) - (parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0))
                       .map((p) => {
                         const available = p.total - p.used;
