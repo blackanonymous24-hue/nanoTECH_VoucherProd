@@ -547,31 +547,31 @@ export default function Vendors() {
                       <Users className="h-5 w-5 text-blue-600" />
                     </div>
                     <div className="min-w-0">
-                      <CardTitle className="text-base group-hover:text-blue-700 transition-colors">
+                      <CardTitle className="text-base group-hover:text-blue-700 transition-colors truncate">
                         {vendor.name}
                       </CardTitle>
                       {vendor.phone && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5 min-w-0">
                           <Phone className="h-3 w-3 flex-shrink-0" />
-                          {vendor.phone}
+                          <span className="truncate">{vendor.phone}</span>
                         </div>
                       )}
                       {(vendor as any).email && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5 min-w-0">
                           <Mail className="h-3 w-3 flex-shrink-0" />
-                          {(vendor as any).email}
+                          <span className="truncate">{(vendor as any).email}</span>
                         </div>
                       )}
                       {(vendor as any).username && (
-                        <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5">
+                        <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5 min-w-0">
                           <KeyRound className="h-3 w-3 flex-shrink-0" />
-                          @{(vendor as any).username}
+                          <span className="truncate">@{(vendor as any).username}</span>
                         </div>
                       )}
                       {((vendor as any).commentSuffix || (vendor as any).commentSuffix2) && (
-                        <div className="flex items-center gap-1 text-xs text-orange-500 mt-0.5">
+                        <div className="flex items-center gap-1 text-xs text-orange-500 mt-0.5 min-w-0">
                           <Tag className="h-3 w-3 flex-shrink-0" />
-                          <span className="font-mono">
+                          <span className="font-mono truncate">
                             {[(vendor as any).commentSuffix, (vendor as any).commentSuffix2]
                               .filter(Boolean)
                               .join(" · ")}

@@ -118,15 +118,15 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
 
   return (
     <div>
-      <div className="mb-6 flex items-center gap-4">
-        <Button variant="outline" size="sm" onClick={onBack} className="gap-2">
+      <div className="mb-6 flex items-center gap-3">
+        <Button variant="outline" size="sm" onClick={onBack} className="gap-2 flex-shrink-0">
           <ArrowLeft className="h-4 w-4" /> Retour
         </Button>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{data.vendor.name}</h1>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-bold text-gray-900 truncate">{data.vendor.name}</h1>
           <p className="text-sm text-gray-500">Rapport de vente détaillé</p>
         </div>
-        <Badge variant={data.vendor.isActive ? "default" : "secondary"} className="ml-auto">
+        <Badge variant={data.vendor.isActive ? "default" : "secondary"} className="flex-shrink-0">
           {data.vendor.isActive ? "Actif" : "Inactif"}
         </Badge>
       </div>
@@ -346,16 +346,16 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
               <Users className="h-5 w-5 text-blue-600" />
             </div>
-            <div>
-              <CardTitle className="text-base">{summary.vendor.name}</CardTitle>
-              {summary.vendor.phone && <p className="text-xs text-gray-500">{summary.vendor.phone}</p>}
+            <div className="min-w-0">
+              <CardTitle className="text-base truncate">{summary.vendor.name}</CardTitle>
+              {summary.vendor.phone && <p className="text-xs text-gray-500 truncate">{summary.vendor.phone}</p>}
             </div>
           </div>
-          <Badge variant={summary.vendor.isActive ? "default" : "secondary"}>
+          <Badge variant={summary.vendor.isActive ? "default" : "secondary"} className="flex-shrink-0">
             {summary.vendor.isActive ? "Actif" : "Inactif"}
           </Badge>
         </div>

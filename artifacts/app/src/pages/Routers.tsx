@@ -459,43 +459,43 @@ export default function Routers() {
             return (
               <Card key={r.id} className={isSelected ? "ring-2 ring-blue-500" : ""}>
                 <CardContent className="py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={`p-2 rounded-lg ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <div className={`p-2 rounded-lg flex-shrink-0 ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
                         <Wifi className={`h-5 w-5 ${isSelected ? "text-white" : "text-blue-500"}`} />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-gray-900">{r.name}</span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-semibold text-gray-900 truncate max-w-[140px] sm:max-w-none">{r.name}</span>
                           {(r as any).hotspotName && (
-                            <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono">{(r as any).hotspotName}</span>
+                            <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono truncate max-w-[100px]">{(r as any).hotspotName}</span>
                           )}
                           {isSelected && (
-                            <Badge className="bg-blue-100 text-blue-700 border-blue-300 gap-1">
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-300 gap-1 flex-shrink-0">
                               <CheckCircle2 className="h-3 w-3" /> Actif
                             </Badge>
                           )}
                           <Badge
                             variant="outline"
-                            className={r.isActive ? "text-green-600 border-green-200" : "text-gray-400"}
+                            className={`flex-shrink-0 ${r.isActive ? "text-green-600 border-green-200" : "text-gray-400"}`}
                           >
                             {r.isActive ? "Connecté" : "Inactif"}
                           </Badge>
                           {testResults[r.id] && (
                             <Badge
                               variant="outline"
-                              className={testResults[r.id].success ? "text-green-600 border-green-200" : "text-red-500 border-red-200"}
+                              className={`flex-shrink-0 ${testResults[r.id].success ? "text-green-600 border-green-200" : "text-red-500 border-red-200"}`}
                             >
                               {testResults[r.id].success ? "✓ En ligne" : "✗ Hors ligne"}
                             </Badge>
                           )}
                         </div>
-                        <p className="text-sm text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-500 mt-0.5 truncate">
                           {r.host}:{r.port} · {r.username}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
                       {!isSelected && (
                         <Button
                           size="sm"

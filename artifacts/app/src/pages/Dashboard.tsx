@@ -703,13 +703,13 @@ function StatCard({
                 </>
               ) : label !== undefined ? (
                 <>
-                  <p className="fit-price font-bold text-gray-900 leading-tight">{label || "0 FCFA"}</p>
-                  {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+                  <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
+                  {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
                 </>
               ) : (
                 <>
-                  <p className="fit-price font-bold text-gray-900">{(value ?? 0).toLocaleString()}</p>
-                  {sub && <p className="text-xs text-gray-400 -mt-0.5">{sub}</p>}
+                  <p className="fit-price font-bold text-gray-900 truncate">{(value ?? 0).toLocaleString()}</p>
+                  {sub && <p className="text-xs text-gray-400 -mt-0.5 truncate">{sub}</p>}
                 </>
               )}
             </div>

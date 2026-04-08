@@ -134,15 +134,15 @@ function StatCard({
       <div className={`h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
         <Icon className="h-6 w-6 text-white" />
       </div>
-      <div>
+      <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1">
-          <p className={`${fcfa ? amountFontClass(formatted) : "text-2xl"} font-bold text-gray-900 tabular-nums`}>{formatted}</p>
-          {fcfa && <span className="text-xs font-medium text-gray-400">FCFA</span>}
+          <p className={`${fcfa ? amountFontClass(formatted) : "text-2xl"} font-bold text-gray-900 tabular-nums truncate`}>{formatted}</p>
+          {fcfa && <span className="text-xs font-medium text-gray-400 flex-shrink-0">FCFA</span>}
         </div>
         {sub !== undefined && (
-          <p className="text-xs text-gray-400">{sub} ticket{sub !== 1 ? "s" : ""}</p>
+          <p className="text-xs text-gray-400 truncate">{sub} ticket{sub !== 1 ? "s" : ""}</p>
         )}
-        <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+        <p className="text-xs text-gray-500 mt-0.5 truncate">{label}</p>
       </div>
     </CardContent>
   );
