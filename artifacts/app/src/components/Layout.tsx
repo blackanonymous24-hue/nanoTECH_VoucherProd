@@ -107,7 +107,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       return res.json();
     },
     staleTime: 60_000,
-    enabled: !!token && isStockAlertsPage,
+    refetchInterval: 60_000,
+    enabled: !!token,
   });
   const lowStockCount = stockAlerts?.count ?? 0;
 
