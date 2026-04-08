@@ -103,6 +103,8 @@ export default function Vouchers() {
   const [confirmToggleSelected, setConfirmToggleSelected] = useState<boolean | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
+  const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
+  const [filterVendor, setFilterVendor] = useState<string>("all");
   const [editingUser, setEditingUser] = useState<HotspotUser | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [isSavingRename, setIsSavingRename] = useState(false);
@@ -136,11 +138,21 @@ export default function Vouchers() {
   const lots: LotSummary[] = lotsData?.lots ?? [];
   const totalUsers = lotsData?.total ?? 0;
   // For the filter dropdown: derive from lots (server already sorted)
-  // When a profile is selected, only show lots belonging to that profile
-  const lotsForCommentFilter = filterProfile === "all"
-    ? lots
-    : lots.filter((l) => l.profile === filterProfile);
+  // Apply both profile and vendor filters so lot dropdown is narrowed
+  const lotsForCommentFilter = lots
+    .filter((l) => filterProfile === "all" || l.profile === filterProfile)
+    .filter((l) => filterVendor === "all" || extractVendorFromLot(l.name) === filterVendor);
   const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
+
+  // Unique vendor list for the list-view vendor filter (reuses same extraction)
+  const uniqueVendors = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of lots) {
+      const v = extractVendorFromLot(l.name);
+      if (v) set.add(v);
+    }
+    return [...set].sort();
+  }, [lots]);
 
   // ── Lots view: local search + profile + vendor filters ───────────────────────
   const debouncedLotsSearch = useDebounce(lotsSearch, 200);
@@ -500,12 +512,18 @@ export default function Vouchers() {
 
   const handleProfileChange = (v: string) => {
     setFilterProfile(v);
-    setFilterComment("all"); // reset lot filter when profile changes
+    setFilterComment("all");
     setPage(0);
   };
 
   const handleCommentChange = (v: string) => {
     setFilterComment(v);
+    setPage(0);
+  };
+
+  const handleVendorChange = (v: string) => {
+    setFilterVendor(v);
+    setFilterComment("all"); // reset lot when vendor changes
     setPage(0);
   };
 
@@ -687,6 +705,49 @@ export default function Vouchers() {
                         </div>
                       </PopoverContent>
                     </Popover>
+
+                    {/* Combobox — Vendeur */}
+                    <Popover open={vendorPopoverOpen} onOpenChange={setVendorPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={vendorPopoverOpen}
+                          className={`w-44 justify-between font-normal ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                        >
+                          <span className="truncate whitespace-nowrap">
+                            {filterVendor === "all" ? "Tous les vendeurs" : filterVendor}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto min-w-[11rem] max-w-xs p-0" align="start">
+                        <div className="overflow-y-auto max-h-60 py-1">
+                          <button
+                            onClick={() => { handleVendorChange("all"); setVendorPopoverOpen(false); }}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
+                          >
+                            <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterVendor === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                            Tous les vendeurs
+                          </button>
+                          {uniqueVendors.length === 0 ? (
+                            <p className="px-3 py-2 text-xs text-gray-400 italic">Aucun vendeur identifié.</p>
+                          ) : (
+                            uniqueVendors.map((v) => (
+                              <button
+                                key={v}
+                                onClick={() => { handleVendorChange(v); setVendorPopoverOpen(false); }}
+                                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
+                              >
+                                <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterVendor === v ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                                {v}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+
                     <span className="text-xs text-gray-400">↻ 30s</span>
                   </div>
                 </CardContent>
