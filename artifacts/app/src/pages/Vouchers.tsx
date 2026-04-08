@@ -59,6 +59,17 @@ type LotSummary = { name: string; count: number; profile: string | null; preview
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// Extract vendor name from lot name: "vc-991-04.08.26-3JEZECHIEL" → "EZECHIEL"
+// Format after date: -{digits}{profile_letter(s)}{VENDOR_NAME}
+// Profile codes: 1J, 3J, 1S, 1M, 2S, 1H, 2H, 5H, etc.
+function extractVendorFromLot(name: string): string | null {
+  // Format: "vc-{qty}-{DD.MM.YY}-{digits}{1_profile_letter}{VENDORNAME}"
+  // e.g. "vc-991-04.08.26-3JEZECHIEL" → "EZECHIEL"
+  //       "vc-881-04.08.26-1SDIALLO"  → "DIALLO"
+  const m = name.match(/-\d{2}\.\d{2}\.\d{2}-\d+[A-Z]([A-Z]{2,})$/);
+  return m ? m[1] : null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function downloadFile(content: string, filename: string, mime: string) {
@@ -97,7 +108,9 @@ export default function Vouchers() {
   const [isSavingRename, setIsSavingRename] = useState(false);
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
+  const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
   const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
+  const [lotsVendorPopoverOpen, setLotsVendorPopoverOpen] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -129,22 +142,36 @@ export default function Vouchers() {
     : lots.filter((l) => l.profile === filterProfile);
   const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
 
-  // ── Lots view: local search + profile filter ──────────────────────────────────
+  // ── Lots view: local search + profile + vendor filters ───────────────────────
   const debouncedLotsSearch = useDebounce(lotsSearch, 200);
+
+  // Build unique vendor list from lot names (extracted via naming convention)
+  const lotsVendors = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of lots) {
+      const v = extractVendorFromLot(l.name);
+      if (v) set.add(v);
+    }
+    return [...set].sort();
+  }, [lots]);
+
   const filteredLots = useMemo(() => {
     let result = lots;
     if (lotsFilterProfile !== "all") result = result.filter((l) => l.profile === lotsFilterProfile);
+    if (lotsFilterVendor !== "all")
+      result = result.filter((l) => extractVendorFromLot(l.name) === lotsFilterVendor);
     if (debouncedLotsSearch.trim()) {
       const q = debouncedLotsSearch.toLowerCase().trim();
       result = result.filter(
         (l) =>
           l.name.toLowerCase().includes(q) ||
           (l.profile ?? "").toLowerCase().includes(q) ||
+          (extractVendorFromLot(l.name) ?? "").toLowerCase().includes(q) ||
           l.preview.some((u) => u.username.toLowerCase().includes(q)),
       );
     }
     return result;
-  }, [lots, lotsFilterProfile, debouncedLotsSearch]);
+  }, [lots, lotsFilterProfile, lotsFilterVendor, debouncedLotsSearch]);
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   const {
@@ -939,13 +966,50 @@ export default function Vouchers() {
                           onChange={(e) => setLotsSearch(e.target.value)}
                         />
                       </div>
+                      {/* Vendor filter */}
+                      {lotsVendors.length > 0 && (
+                        <Popover open={lotsVendorPopoverOpen} onOpenChange={setLotsVendorPopoverOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className={`w-40 justify-between text-sm font-normal ${lotsFilterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                            >
+                              <span className="truncate">
+                                {lotsFilterVendor === "all" ? "Tous les vendeurs" : lotsFilterVendor}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-48 p-1" align="start">
+                            <div className="max-h-64 overflow-y-auto">
+                              <button
+                                className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterVendor === "all" ? "font-semibold text-blue-600" : ""}`}
+                                onClick={() => { setLotsFilterVendor("all"); setLotsVendorPopoverOpen(false); }}
+                              >
+                                Tous les vendeurs
+                              </button>
+                              {lotsVendors.map((v) => (
+                                <button
+                                  key={v}
+                                  className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterVendor === v ? "font-semibold text-blue-600" : ""}`}
+                                  onClick={() => { setLotsFilterVendor(v); setLotsVendorPopoverOpen(false); }}
+                                >
+                                  {v}
+                                </button>
+                              ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      )}
+
                       {/* Forfait filter */}
                       <Popover open={lotsProfilePopoverOpen} onOpenChange={setLotsProfilePopoverOpen}>
                         <PopoverTrigger asChild>
                           <Button
                             variant="outline"
                             role="combobox"
-                            className="w-44 justify-between text-sm font-normal"
+                            className={`w-44 justify-between text-sm font-normal ${lotsFilterProfile !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
                             <span className="truncate">
                               {lotsFilterProfile === "all" ? "Tous les forfaits" : lotsFilterProfile}
@@ -975,11 +1039,11 @@ export default function Vouchers() {
                       </Popover>
 
                       {/* Reset */}
-                      {(lotsSearch || lotsFilterProfile !== "all") && (
+                      {(lotsSearch || lotsFilterProfile !== "all" || lotsFilterVendor !== "all") && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => { setLotsSearch(""); setLotsFilterProfile("all"); }}
+                          onClick={() => { setLotsSearch(""); setLotsFilterProfile("all"); setLotsFilterVendor("all"); }}
                           className="text-gray-400 hover:text-gray-600"
                         >
                           Réinitialiser
@@ -1040,6 +1104,14 @@ export default function Vouchers() {
                                 <>
                                   <span className="text-gray-300">·</span>
                                   <span className="text-xs text-gray-400">{lot.profile}</span>
+                                </>
+                              )}
+                              {extractVendorFromLot(lot.name) && (
+                                <>
+                                  <span className="text-gray-300">·</span>
+                                  <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                                    {extractVendorFromLot(lot.name)}
+                                  </span>
                                 </>
                               )}
                             </div>
