@@ -161,6 +161,33 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
   }
 });
 
+// POST /vouchers/users-toggle — enable/disable a specific set of usernames
+router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
+  const { routerId, usernames, enable } = req.body as {
+    routerId?: number;
+    usernames?: string[];
+    enable?: boolean;
+  };
+  if (!routerId || !Array.isArray(usernames) || usernames.length === 0) {
+    res.status(400).json({ error: "routerId et usernames sont requis" });
+    return;
+  }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const result = await enableDisableHotspotUsers(
+      { host: r.host, port: r.port, username: r.username, password: r.password },
+      usernames,
+      enable ?? false,
+    );
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
 router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
   const { routerId, comment, enable } = req.body as {
     routerId?: number;

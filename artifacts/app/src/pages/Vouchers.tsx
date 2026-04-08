@@ -36,6 +36,7 @@ import {
   Package,
   List,
   PowerOff,
+  Power,
   Check,
   ChevronsUpDown,
 } from "lucide-react";
@@ -78,6 +79,8 @@ export default function Vouchers() {
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
+  const [isTogglingSelected, setIsTogglingSelected] = useState(false);
+  const [confirmToggleSelected, setConfirmToggleSelected] = useState<boolean | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
 
@@ -196,6 +199,33 @@ export default function Vouchers() {
       toast({ title: "Erreur chargement", variant: "destructive" });
     } finally {
       setIsSelectingAll(false);
+    }
+  };
+
+  // ── Toggle (enable/disable) selected usernames ───────────────────────────────
+  const handleToggleSelected = async (enable: boolean) => {
+    if (!activeRouterId || selectedUsernames.size === 0) return;
+    setIsTogglingSelected(true);
+    try {
+      const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routerId: activeRouterId, usernames: [...selectedUsernames], enable }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { done: number };
+      toast({
+        title: enable
+          ? `${data.done} voucher(s) réactivé(s)`
+          : `${data.done} voucher(s) désactivé(s)`,
+      });
+      setSelectedUsernames(new Set());
+      setConfirmToggleSelected(null);
+      refetch();
+    } catch (err) {
+      toast({ title: "Erreur", description: String(err), variant: "destructive" });
+    } finally {
+      setIsTogglingSelected(false);
     }
   };
 
@@ -667,6 +697,26 @@ export default function Vouchers() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        onClick={() => setConfirmToggleSelected(false)}
+                        disabled={isTogglingSelected}
+                        className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
+                      >
+                        <PowerOff className="h-3.5 w-3.5" />
+                        Désactiver
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setConfirmToggleSelected(true)}
+                        disabled={isTogglingSelected}
+                        className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
+                      >
+                        <Power className="h-3.5 w-3.5" />
+                        Activer
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => setConfirmDeleteSelected(true)}
                         className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
                       >
@@ -677,6 +727,32 @@ export default function Vouchers() {
                   )}
                 </div>
               )}
+
+              {/* Confirmation dialog — activate/deactivate selected */}
+              <AlertDialog open={confirmToggleSelected !== null} onOpenChange={(open) => { if (!open) setConfirmToggleSelected(null); }}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {confirmToggleSelected ? "Activer" : "Désactiver"} {selectedUsernames.size} voucher(s) ?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {confirmToggleSelected
+                        ? `${selectedUsernames.size} voucher(s) seront réactivés sur MikroTik.`
+                        : `${selectedUsernames.size} voucher(s) seront désactivés sur MikroTik. Les sessions actives seront coupées.`}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Annuler</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => confirmToggleSelected !== null && void handleToggleSelected(confirmToggleSelected)}
+                      disabled={isTogglingSelected}
+                      className={confirmToggleSelected ? "bg-green-600 hover:bg-green-700" : "bg-orange-600 hover:bg-orange-700"}
+                    >
+                      {isTogglingSelected ? "En cours..." : confirmToggleSelected ? "Activer" : "Désactiver"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
               {/* Confirmation dialog — delete selected */}
               <AlertDialog open={confirmDeleteSelected} onOpenChange={setConfirmDeleteSelected}>
