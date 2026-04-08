@@ -32,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw, ArrowRightLeft } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 function formatValidity(v: string | null | undefined): string {
@@ -85,6 +85,8 @@ export default function Forfaits() {
   const [deletingName, setDeletingName] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [refreshingProfiles, setRefreshingProfiles] = useState(false);
+  const [syncingNames, setSyncingNames] = useState(false);
+  const [syncNamesMsg, setSyncNamesMsg] = useState<string | null>(null);
   const [localProfiles, setLocalProfiles] = useState<(typeof profiles)>([]);
 
   const localCacheKey = selectedRouterId ? `forfaits-cache:${selectedRouterId}` : null;
@@ -257,6 +259,27 @@ export default function Forfaits() {
     }
   }
 
+  async function handleSyncNames() {
+    if (!selectedRouterId) return;
+    setSyncingNames(true);
+    setSyncNamesMsg(null);
+    try {
+      const res = await fetch(`/api/routers/${selectedRouterId}/profiles/sync-names`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setSyncNamesMsg(`Erreur: ${(body as { error?: string }).error ?? res.statusText}`);
+      } else {
+        setSyncNamesMsg("Noms synchronisés avec succès");
+        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+        setTimeout(() => setSyncNamesMsg(null), 4000);
+      }
+    } catch (e) {
+      setSyncNamesMsg(`Erreur: ${String(e)}`);
+    } finally {
+      setSyncingNames(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
@@ -275,6 +298,16 @@ export default function Forfaits() {
             <RefreshCw className={`h-4 w-4 ${refreshingProfiles ? "animate-spin" : ""}`} />
             <span className="hidden sm:inline">{refreshingProfiles ? "Actualisation..." : "Actualiser maintenant"}</span>
           </Button>
+          <Button
+            variant="outline"
+            onClick={handleSyncNames}
+            disabled={!selectedRouterId || syncingNames}
+            className="gap-2"
+            title="Détecter et appliquer les renommages de forfaits MikroTik"
+          >
+            <ArrowRightLeft className={`h-4 w-4 ${syncingNames ? "animate-pulse" : ""}`} />
+            <span className="hidden sm:inline">{syncingNames ? "Sync noms..." : "Sync noms"}</span>
+          </Button>
           {!isManager && (
             <Button onClick={openCreate} disabled={!selectedRouterId} className="gap-2" title="Ajouter un forfait">
               <Plus className="h-4 w-4" />
@@ -283,6 +316,12 @@ export default function Forfaits() {
           )}
         </div>
       </div>
+
+      {syncNamesMsg && (
+        <div className={`mb-4 rounded-md px-4 py-2 text-sm font-medium ${syncNamesMsg.startsWith("Erreur") ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
+          {syncNamesMsg}
+        </div>
+      )}
 
       {!selectedRouterId && (
         <Card>

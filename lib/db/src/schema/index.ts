@@ -5,3 +5,4 @@ export * from "./admin-settings.js";
 export * from "./managers.js";
 export * from "./script-sales.js";
 export * from "./vendor-payments.js";
+export * from "./profiles-cache.js";

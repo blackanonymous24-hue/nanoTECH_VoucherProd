@@ -4,6 +4,7 @@ import { db, routersTable, vouchersTable } from "@workspace/db";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
+import { syncProfileRenames } from "../lib/vendor-sync.js";
 
 const router = Router();
 
@@ -392,6 +393,29 @@ router.post("/routers/:id/profiles/merge", async (req, res): Promise<void> => {
     .returning({ id: vouchersTable.id });
 
   res.json({ ok: true, updated: result.length });
+});
+
+/**
+ * POST /routers/:id/profiles/sync-names
+ * Manually trigger the profile rename detection for a specific router.
+ * Fetches current profiles from MikroTik, compares with the persisted
+ * mikrotikId→name cache, and bulk-updates ALL vouchers (sold + unsold)
+ * when a rename is detected.
+ */
+router.post("/routers/:id/profiles/sync-names", async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    await syncProfileRenames(id, { host: r.host, port: r.port, username: r.username, password: r.password });
+    invalidateProfileListCache(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 router.delete("/routers/:id/profiles/:profileName", async (req, res): Promise<void> => {

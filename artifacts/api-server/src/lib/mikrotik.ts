@@ -29,6 +29,7 @@ export interface RouterConnection {
 }
 
 export interface HotspotProfile {
+  mikrotikId: string;
   name: string;
   rateLimit: string | null;
   validity: string | null;
@@ -309,14 +310,15 @@ export async function listProfiles(conn: RouterConnection): Promise<HotspotProfi
       const onLogin = (p["on-login"] as string) ?? "";
       const parsed = onLogin.includes(",") ? parseProfileOnLogin(onLogin) : EMPTY_PARSED;
       return {
-        name: fixEncoding((p["name"] as string) ?? ""),
-        rateLimit: (p["rate-limit"] as string) || null,
-        validity: parsed.validity || null,
-        price: parsed.price || null,
+        mikrotikId:  (p[".id"] as string) ?? "",
+        name:        fixEncoding((p["name"] as string) ?? ""),
+        rateLimit:   (p["rate-limit"] as string) || null,
+        validity:    parsed.validity || null,
+        price:       parsed.price || null,
         sellingPrice: parsed.sellingPrice || null,
         sharedUsers: (p["shared-users"] as string) || null,
-        addrPool: (p["address-pool"] as string) || null,
-        lockMac: parsed.lockMac,
+        addrPool:    (p["address-pool"] as string) || null,
+        lockMac:     parsed.lockMac,
         expiredMode: parsed.expiredMode || null,
         parentQueue: (p["parent-queue"] as string) || parsed.parentQueue || null,
       };

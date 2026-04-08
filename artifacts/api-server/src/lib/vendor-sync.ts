@@ -1,5 +1,5 @@
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
-import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
+import { db, routersTable, vouchersTable, vendorsTable, profilesCacheTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles, type RouterConnection } from "./mikrotik.js";
 import { runUsageSync } from "./usage-sync.js";
 import { syncScriptCache, getCachedSalesByBatch } from "./script-cache.js";
@@ -97,6 +97,87 @@ async function syncHistoricalScriptSalesToVendor(
   }
 
   return { created, reattributed };
+}
+
+/**
+ * Detects profile renames in MikroTik by comparing the persisted mikrotikId→name
+ * mapping with the current MikroTik profiles list.
+ *
+ * MikroTik profile .id (e.g. "*1") is IMMUTABLE even across renames.
+ * When a rename is detected we bulk-update ALL vouchers (including sold ones)
+ * for this router so every report, tracking view, and report page shows the
+ * current name immediately.
+ *
+ * Should be called once per router per sync cycle, before per-vendor syncs.
+ */
+export async function syncProfileRenames(routerId: number, conn: RouterConnection): Promise<void> {
+  try {
+    const allProfiles = await listProfiles(conn).catch(() => [] as Awaited<ReturnType<typeof listProfiles>>);
+    if (allProfiles.length === 0) return; // safety: don't act on an empty list (connection failure)
+
+    // Load what we last knew for this router
+    const cached = await db
+      .select({ mikrotikId: profilesCacheTable.mikrotikId, profileName: profilesCacheTable.profileName })
+      .from(profilesCacheTable)
+      .where(eq(profilesCacheTable.routerId, routerId));
+
+    const cacheMap = new Map(cached.map((c) => [c.mikrotikId, c.profileName]));
+    const currentIds = new Set(allProfiles.map((p) => p.mikrotikId).filter(Boolean));
+
+    const renames: Array<{ oldName: string; newName: string }> = [];
+    const toUpsert: Array<{ routerId: number; mikrotikId: string; profileName: string }> = [];
+
+    for (const p of allProfiles) {
+      if (!p.mikrotikId) continue;
+      const knownName = cacheMap.get(p.mikrotikId);
+      if (knownName === undefined) {
+        // New profile — add to cache
+        toUpsert.push({ routerId, mikrotikId: p.mikrotikId, profileName: p.name });
+      } else if (knownName !== p.name) {
+        // Same MikroTik ID, different name → RENAME detected
+        renames.push({ oldName: knownName, newName: p.name });
+        toUpsert.push({ routerId, mikrotikId: p.mikrotikId, profileName: p.name });
+      }
+    }
+
+    // Apply renames to ALL vouchers on this router (sold + unsold, all vendors)
+    for (const { oldName, newName } of renames) {
+      await db
+        .update(vouchersTable)
+        .set({ profileName: newName })
+        .where(and(
+          eq(vouchersTable.routerId, routerId),
+          eq(vouchersTable.profileName, oldName),
+        ));
+      logger.info({ routerId, oldName, newName }, "profile-sync: renamed profile propagated to all vouchers");
+    }
+
+    // Upsert cache entries
+    if (toUpsert.length > 0) {
+      await db
+        .insert(profilesCacheTable)
+        .values(toUpsert.map((r) => ({ ...r, updatedAt: new Date() })))
+        .onConflictDoUpdate({
+          target: [profilesCacheTable.routerId, profilesCacheTable.mikrotikId],
+          set: { profileName: sql`excluded.profile_name`, updatedAt: sql`now()` },
+        });
+    }
+
+    // Remove cache entries for profiles that no longer exist in MikroTik
+    for (const cached of cacheMap) {
+      const [mkId] = cached;
+      if (!currentIds.has(mkId)) {
+        await db
+          .delete(profilesCacheTable)
+          .where(and(
+            eq(profilesCacheTable.routerId, routerId),
+            eq(profilesCacheTable.mikrotikId, mkId),
+          ));
+      }
+    }
+  } catch (err) {
+    logger.warn({ routerId, err }, "profile-sync: syncProfileRenames failed (non-blocking)");
+  }
 }
 
 /**
@@ -348,16 +429,32 @@ export function startRealtimeVendorSync(): void {
     if (realtimeRunning) return;
     realtimeRunning = true;
     try {
-      const vendors = await db
-        .select({
+      const [vendors, routers] = await Promise.all([
+        db.select({
           id: vendorsTable.id,
           routerId: vendorsTable.routerId,
           commentSuffix: vendorsTable.commentSuffix,
           commentSuffix2: vendorsTable.commentSuffix2,
           isActive: vendorsTable.isActive,
-        })
-        .from(vendorsTable);
+        }).from(vendorsTable),
+        db.select().from(routersTable),
+      ]);
 
+      // ── Phase 1: sync profile renames once per router ──────────────────
+      // Must run before per-vendor syncs so vendor stats already reflect new names.
+      const activeRouterIds = new Set(
+        vendors.filter((v) => v.isActive && v.routerId).map((v) => v.routerId!),
+      );
+      await Promise.allSettled(
+        routers
+          .filter((r) => activeRouterIds.has(r.id))
+          .map((r) => {
+            const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+            return syncProfileRenames(r.id, conn);
+          }),
+      );
+
+      // ── Phase 2: per-vendor sync (hotspot users, history, usage) ───────
       const active = vendors.filter((v) => v.isActive && v.routerId);
       await Promise.allSettled(
         active.map((v) => {
