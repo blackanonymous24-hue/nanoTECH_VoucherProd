@@ -109,10 +109,11 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     ? await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
     : null;
 
-  // Background sync: import MikroTik hotspot users matching vendor suffixes (non-blocking)
+  // Sync MikroTik users before building response so counts are accurate.
+  // Throttled by SYNC_TTL (2 min) so most calls return instantly.
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
-    void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
+    await syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
   }
 
   const startOfDay = new Date();

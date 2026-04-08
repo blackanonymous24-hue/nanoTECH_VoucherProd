@@ -410,6 +410,44 @@ export async function syncMikrotikUsersToVendor(
     } catch (syncErr) {
       logger.warn({ vendorId, routerId, err: syncErr }, "vendor sync: usage backfill failed (non-blocking)");
     }
+
+    // ── Step 6: purge unsold vouchers absent from MikroTik ───────────────
+    // After step 5, any voucher still with usedAt IS NULL that doesn't appear
+    // on MikroTik was admin-deleted without going through a sale.
+    // Safety guard: only run when MikroTik returned at least 1 user total
+    // (avoids wiping DB if the connection returned an empty list silently).
+    if (allUsers.length > 0) {
+      const matchedUsernames = new Set(matched.map((u) => u.username.toLowerCase()));
+
+      // Re-query unsold vouchers after step 5 so usedAt is up-to-date
+      const suffixConds = activeSuffixes.map((s) => sql`${vouchersTable.comment} LIKE ${"%" + s}`);
+      const unsoldInDb = await db
+        .select({ id: vouchersTable.id, username: vouchersTable.username })
+        .from(vouchersTable)
+        .where(and(
+          eq(vouchersTable.vendorId, vendorId),
+          eq(vouchersTable.routerId, routerId),
+          isNull(vouchersTable.usedAt),
+          sql`(${sql.join(suffixConds, sql` OR `)})`,
+        ));
+
+      const toPurge = unsoldInDb.filter((v) => !matchedUsernames.has(v.username.toLowerCase()));
+
+      if (toPurge.length > 0) {
+        const CHUNK = 200;
+        let deleted = 0;
+        for (let i = 0; i < toPurge.length; i += CHUNK) {
+          const rows = await db
+            .delete(vouchersTable)
+            .where(inArray(vouchersTable.id, toPurge.slice(i, i + CHUNK).map((v) => v.id)))
+            .returning({ id: vouchersTable.id });
+          deleted += rows.length;
+        }
+        if (deleted > 0) {
+          logger.info({ vendorId, routerId, deleted }, "vendor sync: purged unsold vouchers absent from MikroTik");
+        }
+      }
+    }
   } catch (err) {
     lastSyncAt.delete(vendorId); // reset on error so next call retries
     logger.warn({ vendorId, routerId, err }, "vendor sync: failed (non-blocking)");
