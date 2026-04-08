@@ -182,7 +182,12 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     .map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
 
   const totals = totalsRows[0];
-  const totalAvailable = availableVouchers.filter((v) => v.usedAt === null).length;
+  // Compute totalAvailable from byProfile (already filtered by routerId + valid profileName)
+  // so Home card matches the per-profile breakdown exactly.
+  const totalAvailable = byProfile.reduce(
+    (sum, p) => sum + (Number(p.total) - Number(p.used ?? 0)),
+    0,
+  );
 
   const salesStats = {
     todaySold:       Number(periodStatsRow?.todaySold       ?? 0),

@@ -498,6 +498,13 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
   const totals = totalsRows[0];
   const salesStats = computeSalesStats(profilePeriodCounts, priceMap);
 
+  // Compute totalAvailable from byProfile (filtered by routerId + valid profileName)
+  // so this matches what the vendor sees on their Home card.
+  const totalAvailable = byProfile.reduce(
+    (sum, p) => sum + (Number(p.total) - Number(p.used ?? 0)),
+    0,
+  );
+
   // Enrich recentVouchers: use salePrice (from sync), else price (from generation), else profile cache
   const enrichedRecentVouchers = recentVouchers.map((v) => ({
     ...v,
@@ -509,6 +516,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     totalVouchers: totals?.total        ?? 0,
     totalPrinted:  Number(totals?.printed ?? 0),
     totalUsed:     Number(totals?.used    ?? 0),
+    totalAvailable,
     salesStats,
     byProfile,
     recentVouchers: enrichedRecentVouchers,

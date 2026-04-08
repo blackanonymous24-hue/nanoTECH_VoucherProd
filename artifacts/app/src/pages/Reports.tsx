@@ -111,7 +111,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
 
   if (isLoading || !data) return <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>;
 
-  const nonSold   = data.totalVouchers - data.totalUsed;
+  const nonSold   = data.totalAvailable ?? (data.totalVouchers - data.totalUsed);
   const ss        = data.salesStats;
   const todaySold = ss.todaySold;
   const totalJour = nonSold + todaySold;
