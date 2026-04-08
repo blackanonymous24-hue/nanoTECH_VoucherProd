@@ -647,9 +647,9 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     );
 
   // Aggregate week rows per vendor — same max(sqlSum, count×price) approach
-  const weekMap = new Map<number | null, { vendorId: number | null; vendorName: string; count: number; amount: number }>();
+  const weekMap = new Map<number | null, { vendorId: number | null; vendorName: string; count: number; amount: number; commissionRate: number }>();
   for (const v of vendors) {
-    weekMap.set(v.id, { vendorId: v.id, vendorName: v.name, count: 0, amount: 0 });
+    weekMap.set(v.id, { vendorId: v.id, vendorName: v.name, count: 0, amount: 0, commissionRate: v.commissionRate ?? 0 });
   }
   for (const row of weekSoldRaw) {
     const key  = row.vendorId;
@@ -672,19 +672,27 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) ?? 0) + p.amount);
   }
 
+  // Commission only applies once the week is fully over
+  const weekEndedForSummary = new Date(weekEnd + "T23:59:59.999Z") < new Date();
+
   const weekSummary = [...weekMap.values()]
     .map((w) => {
-      const paidAmount = w.vendorId ? (paidByVendor.get(w.vendorId) ?? 0) : 0;
-      const remainingAmount = Math.max(0, w.amount - paidAmount);
+      const paidAmount   = w.vendorId ? (paidByVendor.get(w.vendorId) ?? 0) : 0;
+      const commission   = (weekEndedForSummary && w.commissionRate > 0)
+        ? Math.round(w.amount * w.commissionRate) / 100
+        : 0;
+      // What the vendor actually owes = sales - commission
+      const expected     = Math.max(0, w.amount - commission);
+      const remainingAmount = Math.max(0, expected - paidAmount);
       const paymentStatus =
-        w.amount <= 0
+        expected <= 0
           ? "none"
-          : remainingAmount <= 0
+          : paidAmount >= expected
             ? "full"
             : paidAmount > 0
               ? "partial"
               : "none";
-      return { ...w, paidAmount, remainingAmount, paymentStatus };
+      return { ...w, paidAmount, commission, remainingAmount, paymentStatus };
     })
     .filter((w) => w.count > 0 || w.paidAmount > 0)
     .sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));

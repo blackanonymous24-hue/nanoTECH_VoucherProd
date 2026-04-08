@@ -70,7 +70,7 @@ function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
 
 function paymentBadge(status?: "none" | "partial" | "full"): { text: string; cls: string } {
   if (status === "full") {
-    return { text: "Versement intégral", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    return { text: "Soldé", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
   }
   if (status === "partial") {
     return { text: "Versement partiel", cls: "bg-amber-50 text-amber-700 border-amber-200" };
