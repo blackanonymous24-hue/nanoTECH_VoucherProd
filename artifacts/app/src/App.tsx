@@ -70,7 +70,9 @@ function AppRoutes() {
 
   if (!isAuthenticated) {
     const isVendorPage = location === "/vendeur" || location.startsWith("/vendeur/");
-    return <LoginPage mode={isVendorPage ? "vendor" : "admin"} />;
+    const isChoosePage = location === "/" || location === "/login";
+    const loginMode = isVendorPage ? "vendor" : isChoosePage ? "choose" : "admin";
+    return <LoginPage mode={loginMode} />;
   }
 
   if (role === "vendor") {
