@@ -98,17 +98,16 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     alerts: { vendorId: number | null; vendorName: string; profileName: string; available: number }[];
   }>({
     queryKey: ["stock-alerts", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = selectedRouterId ? `?routerId=${selectedRouterId}` : "";
-      const res = await fetch(`${BASE}/api/vendors/stock-alerts${params}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await fetch(`${BASE}/api/vendors/stock-alerts${params}`, { signal });
       if (!res.ok) throw new Error("stock-alerts failed");
-      return res.json();
+      return res.json() as Promise<{ count: number; alerts: { vendorId: number | null; vendorName: string; profileName: string; available: number }[] }>;
     },
     staleTime: 60_000,
     refetchInterval: 60_000,
-    enabled: !!token,
+    refetchIntervalInBackground: true,
+    retry: 2,
   });
   const lowStockCount = stockAlerts?.count ?? 0;
 
