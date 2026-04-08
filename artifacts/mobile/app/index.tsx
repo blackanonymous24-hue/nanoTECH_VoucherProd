@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -22,10 +22,31 @@ export default function AppScreen() {
   const [hasError, setHasError] = useState(false);
   const [currentUrl, setCurrentUrl] = useState(PROD_URL);
 
+  // Track whether the first (HTTP) page load has completed.
+  // After that, SPA pushState navigations must NOT trigger the loading overlay
+  // because onLoadStart fires but onLoadEnd never fires for client-side routing.
+  const initialLoadDoneRef = useRef(false);
+  // Set when the user explicitly asks for a reload (retry/home) so the
+  // overlay is shown again for that one real HTTP request.
+  const expectingReloadRef = useRef(false);
+
   const handleNavigationStateChange = (state: WebViewNavigation) => {
     setCanGoBack(state.canGoBack);
     setCurrentUrl(state.url);
   };
+
+  const handleLoadStart = useCallback(() => {
+    // Show overlay only during the very first load OR an explicit reload
+    if (!initialLoadDoneRef.current || expectingReloadRef.current) {
+      setIsLoading(true);
+    }
+  }, []);
+
+  const handleLoadEnd = useCallback(() => {
+    setIsLoading(false);
+    initialLoadDoneRef.current = true;
+    expectingReloadRef.current = false;
+  }, []);
 
   const handleBack = () => {
     webViewRef.current?.goBack();
@@ -33,10 +54,14 @@ export default function AppScreen() {
 
   const handleRefresh = () => {
     setHasError(false);
+    expectingReloadRef.current = true;
+    setIsLoading(true);
     webViewRef.current?.reload();
   };
 
   const handleHome = () => {
+    expectingReloadRef.current = true;
+    setIsLoading(true);
     webViewRef.current?.injectJavaScript(`window.location.href = '${PROD_URL}';`);
   };
 
@@ -92,8 +117,8 @@ export default function AppScreen() {
           source={{ uri: PROD_URL }}
           style={styles.webview}
           onNavigationStateChange={handleNavigationStateChange}
-          onLoadStart={() => setIsLoading(true)}
-          onLoadEnd={() => setIsLoading(false)}
+          onLoadStart={handleLoadStart}
+          onLoadEnd={handleLoadEnd}
           onError={() => { setHasError(true); setIsLoading(false); }}
           onHttpError={() => { setIsLoading(false); }}
           allowsBackForwardNavigationGestures={Platform.OS === "ios"}
@@ -108,7 +133,7 @@ export default function AppScreen() {
         />
       )}
 
-      {/* Loading overlay */}
+      {/* Loading overlay — only during initial load or explicit reloads */}
       {isLoading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#60a5fa" />
