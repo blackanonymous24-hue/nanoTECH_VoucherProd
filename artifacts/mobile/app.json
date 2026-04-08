@@ -23,7 +23,10 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#0f172a"
       },
-      "permissions": ["INTERNET", "ACCESS_NETWORK_STATE"]
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -40,6 +43,11 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e98e0147-dde6-40d9-b38f-e22cbd92fcc4"
+      }
     }
   }
 }

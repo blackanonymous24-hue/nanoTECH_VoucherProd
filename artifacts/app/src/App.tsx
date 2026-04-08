@@ -26,6 +26,51 @@ import VendorPayments from "@/pages/VendorPayments";
 import StockAlerts from "@/pages/StockAlerts";
 import NotFound from "@/pages/not-found";
 
+function PageSkeleton() {
+  return (
+    <div className="p-4 md:p-6 space-y-6 animate-pulse">
+      {/* Title bar */}
+      <div className="flex items-center justify-between">
+        <div className="skeleton h-7 w-48 rounded-md" />
+        <div className="skeleton h-8 w-24 rounded-md" />
+      </div>
+
+      {/* Stat cards row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-white border border-gray-100 rounded-xl p-4 space-y-3 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="skeleton h-10 w-10 rounded-lg flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="skeleton h-5 w-16 rounded" />
+                <div className="skeleton h-3 w-20 rounded" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Table skeleton */}
+      <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+        <div className="border-b border-gray-100 px-4 py-3 flex items-center gap-3">
+          <div className="skeleton h-5 w-32 rounded" />
+          <div className="skeleton h-7 w-40 rounded-md ml-auto" />
+        </div>
+        <div className="divide-y divide-gray-50">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="px-4 py-3 flex items-center gap-4">
+              <div className="skeleton h-8 w-8 rounded-full flex-shrink-0" />
+              <div className="skeleton h-4 flex-1 rounded" style={{ maxWidth: `${55 + (i % 3) * 15}%` }} />
+              <div className="skeleton h-4 w-16 rounded hidden sm:block" />
+              <div className="skeleton h-6 w-14 rounded-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppRoutes() {
   const [location] = useLocation();
   const { isAuthenticated, role } = useAuth();
@@ -81,14 +126,12 @@ function AppRoutes() {
 
   return (
     <RouterProvider>
+      {/* Top progress bar — fixed overlay, doesn't affect layout */}
+      {isRouteLoading && <div className="topbar-track" />}
+
       <Layout>
         {isRouteLoading ? (
-          <div className="flex min-h-[220px] items-center justify-center">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
-              Chargement de la page...
-            </div>
-          </div>
+          <PageSkeleton />
         ) : (
           <Switch key={`${location}:${routeReloadToken}`}>
             <Route path="/" component={Dashboard} />

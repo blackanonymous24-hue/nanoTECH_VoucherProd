@@ -399,3 +399,49 @@
     flex-direction: row;
   }
 }
+
+/* ── Top page progress bar ─────────────────────────────────── */
+@keyframes topbar-bar1 {
+  0%   { left: -35%; right: 100%; }
+  60%  { left: 100%; right: -90%; }
+  100% { left: 100%; right: -90%; }
+}
+@keyframes topbar-bar2 {
+  0%   { left: -200%; right: 100%; }
+  60%  { left: 107%; right: -8%; }
+  100% { left: 107%; right: -8%; }
+}
+.topbar-track {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  z-index: 9999;
+  overflow: hidden;
+  background: transparent;
+}
+.topbar-track::before,
+.topbar-track::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  background: #3b82f6;
+  will-change: left, right;
+}
+.topbar-track::before {
+  animation: topbar-bar1 2.1s cubic-bezier(0.65,0.815,0.735,0.395) infinite;
+}
+.topbar-track::after {
+  animation: topbar-bar2 2.1s cubic-bezier(0.165,0.84,0.44,1) 1.15s infinite;
+}
+
+/* ── Skeleton shimmer ──────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 600px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
