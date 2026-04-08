@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -455,7 +455,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
                 <Button size="icon" variant="ghost" className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8">
-                  <Menu className="h-5 w-5" />
+                  {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
                 </Button>
               </SheetTrigger>
               <SheetContent
