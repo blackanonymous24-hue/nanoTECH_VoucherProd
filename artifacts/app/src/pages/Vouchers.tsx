@@ -966,30 +966,32 @@ export default function Vouchers() {
                           onChange={(e) => setLotsSearch(e.target.value)}
                         />
                       </div>
-                      {/* Vendor filter */}
-                      {lotsVendors.length > 0 && (
-                        <Popover open={lotsVendorPopoverOpen} onOpenChange={setLotsVendorPopoverOpen}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              className={`w-40 justify-between text-sm font-normal ${lotsFilterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                      {/* Vendor filter — always visible */}
+                      <Popover open={lotsVendorPopoverOpen} onOpenChange={setLotsVendorPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className={`w-40 justify-between text-sm font-normal ${lotsFilterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                          >
+                            <span className="truncate">
+                              {lotsFilterVendor === "all" ? "Tous les vendeurs" : lotsFilterVendor}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-48 p-1" align="start">
+                          <div className="max-h-64 overflow-y-auto">
+                            <button
+                              className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterVendor === "all" ? "font-semibold text-blue-600" : ""}`}
+                              onClick={() => { setLotsFilterVendor("all"); setLotsVendorPopoverOpen(false); }}
                             >
-                              <span className="truncate">
-                                {lotsFilterVendor === "all" ? "Tous les vendeurs" : lotsFilterVendor}
-                              </span>
-                              <ChevronsUpDown className="ml-2 h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-48 p-1" align="start">
-                            <div className="max-h-64 overflow-y-auto">
-                              <button
-                                className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterVendor === "all" ? "font-semibold text-blue-600" : ""}`}
-                                onClick={() => { setLotsFilterVendor("all"); setLotsVendorPopoverOpen(false); }}
-                              >
-                                Tous les vendeurs
-                              </button>
-                              {lotsVendors.map((v) => (
+                              Tous les vendeurs
+                            </button>
+                            {lotsVendors.length === 0 ? (
+                              <p className="text-xs text-gray-400 px-3 py-2 italic">Aucun vendeur identifié</p>
+                            ) : (
+                              lotsVendors.map((v) => (
                                 <button
                                   key={v}
                                   className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterVendor === v ? "font-semibold text-blue-600" : ""}`}
@@ -997,11 +999,11 @@ export default function Vouchers() {
                                 >
                                   {v}
                                 </button>
-                              ))}
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                      )}
+                              ))
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
 
                       {/* Forfait filter */}
                       <Popover open={lotsProfilePopoverOpen} onOpenChange={setLotsProfilePopoverOpen}>
