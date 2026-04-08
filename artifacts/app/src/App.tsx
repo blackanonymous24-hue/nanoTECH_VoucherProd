@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -28,7 +28,7 @@ import NotFound from "@/pages/not-found";
 
 function PageSkeleton() {
   return (
-    <div className="p-4 md:p-6 space-y-6 animate-pulse">
+    <div className="p-4 md:p-6 space-y-6">
       {/* Title bar */}
       <div className="flex items-center justify-between">
         <div className="skeleton h-7 w-48 rounded-md" />
@@ -94,9 +94,10 @@ function AppRoutes() {
     };
   }, [location]);
 
-  useEffect(() => {
+  // useLayoutEffect fires before paint → skeleton shows BEFORE new page content appears
+  useLayoutEffect(() => {
     setIsRouteLoading(true);
-    const timer = window.setTimeout(() => setIsRouteLoading(false), 150);
+    const timer = window.setTimeout(() => setIsRouteLoading(false), 400);
     return () => window.clearTimeout(timer);
   }, [location, routeReloadToken]);
 
