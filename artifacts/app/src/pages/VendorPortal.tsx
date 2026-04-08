@@ -110,11 +110,11 @@ function fmtFcfa(n: number): string {
 }
 
 function amountFontClass(formatted: string): string {
-  const len = formatted.replace(/\s/g, "").length;
-  if (len <= 5)  return "text-2xl";
-  if (len <= 7)  return "text-xl";
-  if (len <= 9)  return "text-lg";
-  return "text-base";
+  const len = formatted.replace(/[\s\u00A0]/g, "").length;
+  if (len <= 4)  return "text-xl";
+  if (len <= 6)  return "text-lg";
+  if (len <= 8)  return "text-base";
+  return "text-sm";
 }
 
 function StatCard({
@@ -130,19 +130,18 @@ function StatCard({
 }) {
   const formatted = fcfa ? fmtFcfa(value) : String(value);
   const inner = (
-    <CardContent className="p-4 flex items-center gap-4">
-      <div className={`h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
-        <Icon className="h-6 w-6 text-white" />
+    <CardContent className="p-3 flex items-center gap-2.5">
+      <div className={`h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
+        <Icon className="h-4 w-4 text-white" />
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1">
-          <p className={`${fcfa ? amountFontClass(formatted) : "text-2xl"} font-bold text-gray-900 tabular-nums truncate`}>{formatted}</p>
-          {fcfa && <span className="text-xs font-medium text-gray-400 flex-shrink-0">FCFA</span>}
-        </div>
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <p className={`${fcfa ? amountFontClass(formatted) : "text-xl"} font-bold text-gray-900 tabular-nums leading-tight truncate`}>
+          {formatted}{fcfa && <span className="text-[10px] font-medium text-gray-400 ml-0.5">F</span>}
+        </p>
         {sub !== undefined && (
-          <p className="text-xs text-gray-400 truncate">{sub} ticket{sub !== 1 ? "s" : ""}</p>
+          <p className="text-[10px] text-gray-400 truncate leading-tight">{sub} ticket{sub !== 1 ? "s" : ""}</p>
         )}
-        <p className="text-xs text-gray-500 mt-0.5 truncate">{label}</p>
+        <p className="text-[10px] text-gray-500 truncate leading-tight">{label}</p>
       </div>
     </CardContent>
   );
