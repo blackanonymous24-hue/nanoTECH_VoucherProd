@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
+import { eq, desc, ne, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable } from "@workspace/db";
 import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
@@ -122,6 +122,15 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
 
+  // Build reusable WHERE conditions scoped to vendor + their current router (avoids
+  // stale profiles from previous router assignments) and excludes blank profileNames.
+  const vendorRouterCond = and(
+    eq(vouchersTable.vendorId, id),
+    isNotNull(vouchersTable.profileName),
+    ne(vouchersTable.profileName, ""),
+    ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
+  );
+
   const [totalsRows, byProfileRaw, [periodStatsRow], recentSales, availableVouchers] = await Promise.all([
     buildTotals(id),
     db
@@ -134,7 +143,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
         soldThisMonth:  sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfMonth}) as int)`,
       })
       .from(vouchersTable)
-      .where(eq(vouchersTable.vendorId, id))
+      .where(vendorRouterCond)
       .groupBy(vouchersTable.profileName)
       .orderBy(desc(count())),
     buildPortalPeriodStats(id),
@@ -147,7 +156,11 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     db
       .select()
       .from(vouchersTable)
-      .where(eq(vouchersTable.vendorId, id))
+      .where(
+        vendor.routerId != null
+          ? and(eq(vouchersTable.vendorId, id), eq(vouchersTable.routerId, vendor.routerId))
+          : eq(vouchersTable.vendorId, id),
+      )
       .orderBy(desc(vouchersTable.createdAt)),
   ]);
 
@@ -259,11 +272,22 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     month: "Mois en cours",
   };
 
+  const periodBaseCond = and(
+    eq(vouchersTable.vendorId, id),
+    periodFilter,
+    ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
+  );
+  const periodProfileCond = and(
+    periodBaseCond,
+    isNotNull(vouchersTable.profileName),
+    ne(vouchersTable.profileName, ""),
+  );
+
   const [vouchers, byProfileRaw] = await Promise.all([
     db
       .select()
       .from(vouchersTable)
-      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
+      .where(periodBaseCond)
       .orderBy(desc(vouchersTable.usedAt)),
     db
       .select({
@@ -272,7 +296,7 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
         revenue: sql<number>`coalesce(sum(nullif(${vouchersTable.price}, '')::numeric), 0)`,
       })
       .from(vouchersTable)
-      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
+      .where(periodProfileCond)
       .groupBy(vouchersTable.profileName)
       .orderBy(desc(count())),
   ]);

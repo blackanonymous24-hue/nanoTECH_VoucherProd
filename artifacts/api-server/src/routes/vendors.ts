@@ -329,7 +329,10 @@ router.get("/vendors/stock-alerts", async (req, res): Promise<void> => {
     .where(
       and(
         isNotNull(vouchersTable.vendorId),
+        isNotNull(vouchersTable.profileName),
+        ne(vouchersTable.profileName, ""),
         routerId ? eq(vendorsTable.routerId, routerId) : undefined,
+        routerId ? eq(vouchersTable.routerId, routerId) : undefined,
       )
     )
     .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
