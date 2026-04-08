@@ -437,7 +437,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
 
   return (
-    <div className="flex min-h-svh bg-gray-100 dark:bg-gray-950">
+    <div className="flex min-h-svh bg-gray-100 dark:bg-gray-950 overflow-x-hidden">
 
       {/* ── Desktop sidebar ── */}
       {!isMobile && (
