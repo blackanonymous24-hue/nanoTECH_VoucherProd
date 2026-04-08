@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, and, count, sql, isNotNull, ilike, inArray } from "drizzle-orm";
+import { eq, desc, and, ne, count, sql, isNotNull, ilike, inArray } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
@@ -391,7 +391,7 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
     vendors.map(async (vendor) => {
       const [[row], profileCounts] = await Promise.all([
         buildTotals(vendor.id),
-        buildProfilePeriodCounts(vendor.id),
+        buildProfilePeriodCounts(vendor.id, vendor.routerId),
       ]);
 
       const priceMap = (vendor.routerId ? routerPriceMaps.get(vendor.routerId) : undefined) ?? new Map<string, string>();
@@ -426,6 +426,16 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     ? await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId))
     : [];
 
+  // Build WHERE conditions for byProfile: always filter by vendorId,
+  // additionally by routerId when the vendor has one (avoids stale profiles
+  // from previous router assignments), and exclude blank profileNames.
+  const byProfileConditions = and(
+    eq(vouchersTable.vendorId, id),
+    isNotNull(vouchersTable.profileName),
+    ne(vouchersTable.profileName, ""),
+    ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
+  );
+
   const [totalsRows, byProfileRaw, profilePeriodCounts, recentVouchers] = await Promise.all([
     buildTotals(id),
 
@@ -437,11 +447,11 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
         used:    sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
       })
       .from(vouchersTable)
-      .where(eq(vouchersTable.vendorId, id))
+      .where(byProfileConditions)
       .groupBy(vouchersTable.profileName)
       .orderBy(desc(count())),
 
-    buildProfilePeriodCounts(id),
+    buildProfilePeriodCounts(id, vendor.routerId),
 
     db
       .select()

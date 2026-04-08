@@ -215,6 +215,9 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
             ) : (
               <div className="space-y-4">
                 {[...data.byProfile].sort((a, b) => {
+                  const wa = Number((a as any).weekSold ?? 0);
+                  const wb = Number((b as any).weekSold ?? 0);
+                  if (wb !== wa) return wb - wa;
                   const pa = parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0;
                   const pb = parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0;
                   return pa - pb;

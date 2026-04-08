@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { db, vouchersTable } from "@workspace/db";
 
 /**
@@ -9,9 +9,17 @@ import { db, vouchersTable } from "@workspace/db";
  * the voucher's stored `price` field. This makes revenue correct even when
  * profileName doesn't match the MikroTik profile cache (e.g. historical
  * vouchers imported from scripts whose profileName is the human-readable label).
+ *
+ * @param routerId  When provided, restricts to vouchers from that router only
+ *                  (avoids stale profiles from previous router assignments).
  */
-export function buildProfilePeriodCounts(vendorId: number) {
+export function buildProfilePeriodCounts(vendorId: number, routerId?: number | null) {
   const effectivePrice = sql<number>`coalesce(nullif(${vouchersTable.salePrice}, ''), nullif(${vouchersTable.price}, ''))::numeric`;
+
+  const conditions = [
+    eq(vouchersTable.vendorId, vendorId),
+    ...(routerId != null ? [eq(vouchersTable.routerId, routerId)] : []),
+  ];
 
   return db
     .select({
@@ -30,7 +38,7 @@ export function buildProfilePeriodCounts(vendorId: number) {
       lastMonthAmount:   sql<number>`coalesce(sum(${effectivePrice}) filter (where ${vouchersTable.usedAt} >= date_trunc('month', current_date - interval '1 month') and ${vouchersTable.usedAt} < date_trunc('month', current_date)), 0)`,
     })
     .from(vouchersTable)
-    .where(eq(vouchersTable.vendorId, vendorId))
+    .where(and(...conditions))
     .groupBy(vouchersTable.profileName);
 }
 
