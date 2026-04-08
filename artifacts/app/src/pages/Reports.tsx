@@ -202,14 +202,14 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
+        <Card className="flex flex-col h-96">
+          <CardHeader className="pb-2 flex-none">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Par forfait</CardTitle>
               <span className="text-[10px] font-semibold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">Semaine en cours</span>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex-1 min-h-0 overflow-y-auto">
             {data.byProfile.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
             ) : (
@@ -244,8 +244,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
+        <Card className="flex flex-col h-96">
+          <CardHeader className="pb-2 flex-none">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Dernières ventes</CardTitle>
               {data.recentVouchers.length > 0 && (
@@ -255,11 +255,11 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
               )}
             </div>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="flex-1 min-h-0 p-0">
             {data.recentVouchers.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8 px-4">Aucune vente enregistrée</p>
             ) : (
-              <div className="max-h-80 overflow-x-auto overflow-y-auto">
+              <div className="h-full overflow-x-auto overflow-y-auto">
                 <table className="w-full min-w-[620px] text-xs border-collapse">
                   <thead>
                     <tr className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
