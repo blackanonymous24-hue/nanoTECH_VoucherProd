@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, desc, and, ne, count, sql, isNotNull, ilike, inArray } from "drizzle-orm";
-import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable } from "@workspace/db";
+import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
 import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -436,7 +436,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
   );
 
-  const [totalsRows, byProfileRaw, profilePeriodCounts, recentVouchers] = await Promise.all([
+  const [totalsRows, byProfileRaw, profilePeriodCounts, recentVouchers, validProfileRows] = await Promise.all([
     buildTotals(id),
 
     db
@@ -459,7 +459,17 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
       .where(and(eq(vouchersTable.vendorId, id), isNotNull(vouchersTable.usedAt)))
       .orderBy(desc(vouchersTable.usedAt))
       .limit(50),
+
+    // Fetch currently valid profiles from the local cache (reflects live MikroTik state)
+    vendor.routerId != null
+      ? db.select({ profileName: profilesCacheTable.profileName })
+          .from(profilesCacheTable)
+          .where(eq(profilesCacheTable.routerId, vendor.routerId))
+      : Promise.resolve([] as { profileName: string }[]),
   ]);
+
+  // Build a set of profiles that still exist in MikroTik
+  const validProfileNames = new Set(validProfileRows.map((r) => r.profileName));
 
   // Fetch profile prices from MikroTik cache — authoritative source for amounts
   let priceMap = new Map<string, string>();
@@ -467,13 +477,16 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     const conn: RouterConnection = { host: router.host, port: router.port, username: router.username, password: router.password };
     priceMap = await getCachedProfilePrices(vendor.routerId!, conn);
   }
-  // Merge week sales per profile so the frontend gauge can show current-week activity
+  // Merge week sales per profile so the frontend gauge can show current-week activity.
+  // Filter out profiles that no longer exist in MikroTik (only when cache is populated).
   const weekCountMap = new Map(profilePeriodCounts.map((r) => [r.profileName, Number(r.weekSold)]));
-  const byProfile = byProfileRaw.map((row) => ({
-    ...row,
-    price:    priceMap.get(row.profileName) ?? "",
-    weekSold: weekCountMap.get(row.profileName) ?? 0,
-  }));
+  const byProfile = byProfileRaw
+    .filter((row) => validProfileNames.size === 0 || validProfileNames.has(row.profileName))
+    .map((row) => ({
+      ...row,
+      price:    priceMap.get(row.profileName) ?? "",
+      weekSold: weekCountMap.get(row.profileName) ?? 0,
+    }));
 
   const totals = totalsRows[0];
   const salesStats = computeSalesStats(profilePeriodCounts, priceMap);

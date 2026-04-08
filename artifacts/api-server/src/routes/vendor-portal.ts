@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { eq, desc, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
-import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable } from "@workspace/db";
+import { eq, desc, ne, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
+import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -122,7 +122,15 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
 
-  const [totalsRows, byProfileRaw, [periodStatsRow], recentSales, availableVouchers] = await Promise.all([
+  // Only show vouchers from the vendor's current router with a non-blank profileName
+  const byProfileConditions = and(
+    eq(vouchersTable.vendorId, id),
+    isNotNull(vouchersTable.profileName),
+    ne(vouchersTable.profileName, ""),
+    ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
+  );
+
+  const [totalsRows, byProfileRaw, [periodStatsRow], recentSales, availableVouchers, validProfileRows] = await Promise.all([
     buildTotals(id),
     db
       .select({
@@ -134,7 +142,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
         soldThisMonth:  sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfMonth}) as int)`,
       })
       .from(vouchersTable)
-      .where(eq(vouchersTable.vendorId, id))
+      .where(byProfileConditions)
       .groupBy(vouchersTable.profileName)
       .orderBy(desc(count())),
     buildPortalPeriodStats(id),
@@ -149,7 +157,16 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
       .from(vouchersTable)
       .where(eq(vouchersTable.vendorId, id))
       .orderBy(desc(vouchersTable.createdAt)),
+    // Fetch currently valid profiles from the local cache (reflects live MikroTik state)
+    vendor.routerId != null
+      ? db.select({ profileName: profilesCacheTable.profileName })
+          .from(profilesCacheTable)
+          .where(eq(profilesCacheTable.routerId, vendor.routerId))
+      : Promise.resolve([] as { profileName: string }[]),
   ]);
+
+  // Build a set of profiles that still exist in MikroTik
+  const validProfileNames = new Set(validProfileRows.map((r) => r.profileName));
 
   // Profile price cache (still used to enrich byProfile and recentSales display)
   let priceMap = new Map<string, string>();
@@ -157,7 +174,11 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
     priceMap = getCachedProfilePricesSync(vendor.routerId, conn);
   }
-  const byProfile = byProfileRaw.map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
+
+  // Filter out profiles that no longer exist in MikroTik (only when cache is populated)
+  const byProfile = byProfileRaw
+    .filter((row) => validProfileNames.size === 0 || validProfileNames.has(row.profileName))
+    .map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
 
   const totals = totalsRows[0];
   const totalAvailable = availableVouchers.filter((v) => v.usedAt === null).length;
