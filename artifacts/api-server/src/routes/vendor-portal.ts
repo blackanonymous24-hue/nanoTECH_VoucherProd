@@ -298,7 +298,7 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
       .orderBy(desc(count())),
   ]);
 
-  // Enrich byProfile with real prices from MikroTik profiles
+  // Enrich byProfile with real prices from MikroTik profiles + filter deleted/renamed profiles
   let periodPriceMap = new Map<string, string>();
   if (vendor.routerId) {
     const [routerForPeriod] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
@@ -307,7 +307,26 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
       periodPriceMap = await getCachedProfilePrices(vendor.routerId, conn);
     }
   }
-  const byProfile = byProfileRaw.map((row) => ({ ...row, price: periodPriceMap.get(row.profileName) ?? "" }));
+
+  // Filter: only show profiles that still exist in MikroTik (from profilesCache)
+  // This ensures renamed profiles show the new name and deleted profiles are hidden.
+  // When cache is empty (first boot), all non-empty profiles are shown as fallback.
+  let validPeriodProfileNames = new Set<string>();
+  if (vendor.routerId) {
+    const cachedPeriodProfiles = await db
+      .select({ profileName: profilesCacheTable.profileName })
+      .from(profilesCacheTable)
+      .where(eq(profilesCacheTable.routerId, vendor.routerId));
+    validPeriodProfileNames = new Set(cachedPeriodProfiles.map((c) => c.profileName));
+  }
+
+  const filteredByProfileRaw = byProfileRaw.filter(
+    (row) =>
+      row.profileName &&
+      row.profileName.trim() !== "" &&
+      (validPeriodProfileNames.size === 0 || validPeriodProfileNames.has(row.profileName)),
+  );
+  const byProfile = filteredByProfileRaw.map((row) => ({ ...row, price: periodPriceMap.get(row.profileName) ?? "" }));
 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
