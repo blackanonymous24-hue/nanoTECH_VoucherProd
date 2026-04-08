@@ -1083,6 +1083,44 @@ export async function disconnectSession(conn: RouterConnection, username: string
   });
 }
 
+/**
+ * Reset a hotspot user's usage stats (uptime, bytes-in, bytes-out → 0)
+ * and kick any active session. Returns false if the user is not found.
+ */
+export async function resetHotspotUser(
+  conn: RouterConnection,
+  username: string,
+): Promise<{ found: boolean; sessionKicked: number }> {
+  return withRouter(conn, async (api) => {
+    const all = await api.write("/ip/hotspot/user/print");
+    const user = all.find((u) => (u["name"] as string ?? "").toLowerCase() === username.toLowerCase());
+    if (!user) return { found: false, sessionKicked: 0 };
+
+    const id = user[".id"] as string | undefined;
+    if (id) {
+      await api.write("/ip/hotspot/user/set", [
+        `=.id=${id}`,
+        `=uptime=0s`,
+        `=bytes-in=0`,
+        `=bytes-out=0`,
+      ]);
+    }
+
+    // Kick active session(s)
+    const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);
+    let sessionKicked = 0;
+    for (const s of sessions) {
+      const sid = s[".id"] as string | undefined;
+      if (sid) {
+        await api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]);
+        sessionKicked++;
+      }
+    }
+
+    return { found: true, sessionKicked };
+  }, 20_000);
+}
+
 // ─── Character sets (MikHMon-compatible) ─────────────────────────────────────
 export type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
 

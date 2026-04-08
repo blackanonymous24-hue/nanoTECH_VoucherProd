@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, resetHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -662,6 +662,36 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
       .set({ username: trimmed })
       .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.username, oldUsername)));
     res.json({ ok: true, oldUsername, newUsername: trimmed });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const username = decodeURIComponent(req.params.username as string);
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+  try {
+    const result = await resetHotspotUser(conn, username);
+    if (!result.found) {
+      res.status(404).json({ error: "Utilisateur introuvable sur le routeur" });
+      return;
+    }
+
+    // Clear usedAt in DB so the voucher is marked unsold again
+    await db
+      .update(vouchersTable)
+      .set({ usedAt: null })
+      .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.username, username)));
+
+    userCache.delete(id);
+    res.json({ ok: true, username, sessionKicked: result.sessionKicked });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

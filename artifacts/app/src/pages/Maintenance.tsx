@@ -4,7 +4,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useNavigate } from "@/hooks/use-app-navigate";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -26,8 +25,6 @@ type PurgeResponse = {
 
 export default function Maintenance() {
   const { role, token } = useAuth();
-  const navigate = useNavigate();
-
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<PurgeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);

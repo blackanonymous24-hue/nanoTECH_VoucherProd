@@ -40,6 +40,8 @@ import {
   Check,
   ChevronsUpDown,
   Pencil,
+  RotateCcw,
+  MoreHorizontal,
 } from "lucide-react";
 import {
   Dialog,
@@ -48,6 +50,12 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -108,6 +116,8 @@ export default function Vouchers() {
   const [editingUser, setEditingUser] = useState<HotspotUser | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [isSavingRename, setIsSavingRename] = useState(false);
+  const [confirmResetUser, setConfirmResetUser] = useState<HotspotUser | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
@@ -502,6 +512,32 @@ export default function Vouchers() {
       toast({ title: "Erreur renommage", description: String(err), variant: "destructive" });
     } finally {
       setIsSavingRename(false);
+    }
+  };
+
+  const handleResetUser = async () => {
+    if (!activeRouterId || !confirmResetUser) return;
+    setIsResetting(true);
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(confirmResetUser.username)}/reset`,
+        { method: "POST", headers: { "Content-Type": "application/json" } },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json() as { sessionKicked: number };
+      toast({
+        title: "Utilisateur réinitialisé",
+        description: `${confirmResetUser.username} — compteurs remis à zéro${data.sessionKicked > 0 ? ", session déconnectée" : ""}`,
+      });
+      setConfirmResetUser(null);
+      refetch();
+    } catch (err) {
+      toast({ title: "Erreur de réinitialisation", description: String(err), variant: "destructive" });
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -973,6 +1009,7 @@ export default function Vouchers() {
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
+                          onReset={() => setConfirmResetUser(user)}
                         />
                       ))}
                     </div>
@@ -1234,6 +1271,37 @@ export default function Vouchers() {
         </>
       )}
 
+      {/* Reset user confirmation dialog */}
+      <AlertDialog open={!!confirmResetUser} onOpenChange={(o) => { if (!o && !isResetting) setConfirmResetUser(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Réinitialiser l'utilisateur ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>
+                  L'utilisateur <span className="font-mono font-semibold">{confirmResetUser?.username}</span> sera réinitialisé :
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-gray-500">
+                  <li>Compteurs MikroTik remis à zéro (uptime, octets)</li>
+                  <li>Session active déconnectée</li>
+                  <li>Marqué comme non vendu en base de données</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResetting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleResetUser()}
+              disabled={isResetting}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {isResetting ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Réinitialisation…</> : "Réinitialiser"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Rename user dialog */}
       <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename) setEditingUser(null); }}>
         <DialogContent className="max-w-sm">
@@ -1312,11 +1380,13 @@ function UserRow({
   selected,
   onToggle,
   onEdit,
+  onReset,
 }: {
   user: HotspotUser;
   selected: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  onReset: () => void;
 }) {
   return (
     <div
@@ -1358,13 +1428,34 @@ function UserRow({
           </div>
         </div>
       </div>
-      <button
-        onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        className="ml-2 flex-shrink-0 p-1.5 rounded text-gray-300 hover:text-blue-500 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-opacity"
-        title="Modifier l'identifiant"
-      >
-        <Pencil className="h-3.5 w-3.5" />
-      </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            onClick={(e) => e.stopPropagation()}
+            className="ml-2 flex-shrink-0 p-1.5 rounded text-gray-300 hover:text-gray-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Actions"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[160px]">
+          <DropdownMenuItem
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            className="gap-2 cursor-pointer"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Modifier l'identifiant
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => { e.stopPropagation(); onReset(); }}
+            className="gap-2 cursor-pointer text-orange-600 focus:text-orange-600"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Réinitialiser
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
