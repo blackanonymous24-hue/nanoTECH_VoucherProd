@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1402,6 +1403,7 @@ function Dashboard({ token, vendor, onLogout }: {
 
 export default function VendorPortal() {
   const { token, vendorInfo, logout } = useAuth();
+  const [, navigate] = useLocation();
 
   if (!token || !vendorInfo) return null;
 
@@ -1412,5 +1414,10 @@ export default function VendorPortal() {
     username: vendorInfo.username,
   };
 
-  return <Dashboard token={token} vendor={vendor} onLogout={logout} />;
+  const handleLogout = () => {
+    logout();
+    navigate("/vendeur");
+  };
+
+  return <Dashboard token={token} vendor={vendor} onLogout={handleLogout} />;
 }

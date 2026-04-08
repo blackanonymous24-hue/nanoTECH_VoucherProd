@@ -62,9 +62,14 @@ function RouterSelector({ className }: { className?: string }) {
 }
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { routerIdentity, selectedRouterId } = useRouterContext();
   const { logout, role, token } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/admin");
+  };
   const isAdmin = role === "admin";
   const isManager = role === "manager";
   const isStockAlertsPage = location.startsWith("/stock-alerts");
@@ -348,7 +353,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
         {/* Logout */}
         <button
-          onClick={logout}
+          onClick={handleLogout}
           className="w-full flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
         >
           <LogOut className="h-3.5 w-3.5" />
