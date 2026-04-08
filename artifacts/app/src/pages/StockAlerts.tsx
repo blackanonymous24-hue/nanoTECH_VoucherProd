@@ -53,7 +53,7 @@ export default function StockAlerts() {
     staleTime: 60_000,
     enabled: !!token,
     refetchInterval: 120_000,
-    refetchIntervalInBackground: false,
+    refetchIntervalInBackground: true,
   });
 
   const alerts = data?.alerts ?? [];
