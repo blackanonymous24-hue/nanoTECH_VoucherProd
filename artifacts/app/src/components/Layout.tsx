@@ -25,10 +25,18 @@ import { Label } from "@/components/ui/label";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function RouterSelector({ className }: { className?: string }) {
-  const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline } = useRouterContext();
+  const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked } = useRouterContext();
+
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      {routersLoading && routers.length === 0 ? (
+      {isRouterLocked ? (
+        /* Locked: show router name as read-only badge */
+        <div className="flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-white/5 border border-white/10 text-xs text-gray-200 min-w-0">
+          <Router className="h-3 w-3 text-gray-400 flex-shrink-0" />
+          <span className="truncate">{selectedRouter?.name ?? "Routeur assigné"}</span>
+          <span className="ml-0.5 text-[9px] text-amber-400 font-medium flex-shrink-0">🔒</span>
+        </div>
+      ) : routersLoading && routers.length === 0 ? (
         <div className="h-8 w-32 bg-white/5 rounded-md animate-pulse" />
       ) : (
         <Select
@@ -177,7 +185,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       label: "Réseau",
       items: [
         { href: "/",         label: "Tableau de bord", icon: LayoutDashboard },
-        { href: "/routers",  label: "Routeurs",         icon: Router },
+        ...(!isManager ? [{ href: "/routers", label: "Routeurs", icon: Router }] : []),
         { href: "/forfaits", label: "Forfaits",          icon: PackageOpen },
         { href: "/sessions", label: "Clients actifs",   icon: Activity },
       ],

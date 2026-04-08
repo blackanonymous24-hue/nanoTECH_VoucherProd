@@ -138,7 +138,7 @@ function AppRoutes() {
             <Route path="/" component={Dashboard} />
             <Route path="/admin" component={Dashboard} />
             <Route path="/vendeur" component={Dashboard} />
-            <Route path="/routers" component={Routers} />
+            <Route path="/routers" component={role === "manager" ? Dashboard : Routers} />
             <Route path="/forfaits" component={Forfaits} />
             <Route path="/sessions" component={Sessions} />
             <Route path="/generate" component={GenerateVouchers} />

@@ -46,7 +46,7 @@ router.post("/login", async (req, res): Promise<void> => {
       res.json({
         role: "manager",
         token: createManagerToken(manager.id),
-        manager: { id: manager.id, name: manager.name, username: manager.username },
+        manager: { id: manager.id, name: manager.name, username: manager.username, routerId: manager.routerId ?? null },
       });
       return;
     }

@@ -28,8 +28,8 @@ router.get("/managers", async (req, res): Promise<void> => {
 
 router.post("/managers", async (req, res): Promise<void> => {
   if (!requireAdmin(req, res)) return;
-  const { name, username, password } = req.body as {
-    name?: string; username?: string; password?: string;
+  const { name, username, password, routerId } = req.body as {
+    name?: string; username?: string; password?: string; routerId?: number | null;
   };
   if (!name?.trim()) { res.status(400).json({ error: "Le nom est requis" }); return; }
   if (!username?.trim()) { res.status(400).json({ error: "Le nom d'utilisateur est requis" }); return; }
@@ -42,7 +42,7 @@ router.post("/managers", async (req, res): Promise<void> => {
 
   const passwordHash = await hashPassword(password);
   const [manager] = await db.insert(managersTable)
-    .values({ name: name.trim(), username: username.trim(), passwordHash })
+    .values({ name: name.trim(), username: username.trim(), passwordHash, routerId: routerId ?? null })
     .returning();
   res.status(201).json(safeManager(manager));
 });
@@ -80,8 +80,8 @@ router.put("/managers/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, username, password, isActive } = req.body as {
-    name?: string; username?: string; password?: string; isActive?: boolean;
+  const { name, username, password, isActive, routerId } = req.body as {
+    name?: string; username?: string; password?: string; isActive?: boolean; routerId?: number | null;
   };
 
   if (username?.trim()) {
@@ -96,6 +96,7 @@ router.put("/managers/:id", async (req, res): Promise<void> => {
   if (name !== undefined) updates.name = name.trim();
   if (username !== undefined) updates.username = username.trim();
   if (isActive !== undefined) updates.isActive = isActive;
+  if ("routerId" in req.body) updates.routerId = routerId ?? null;
   if (password && password.trim()) {
     if (password.length < 4) { res.status(400).json({ error: "Mot de passe trop court (4 car. minimum)" }); return; }
     updates.passwordHash = await hashPassword(password);

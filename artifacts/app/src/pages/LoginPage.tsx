@@ -98,9 +98,11 @@ export default function LoginPage({ mode }: LoginPageProps) {
         return;
       }
 
-      login(data.token, data.role, data.vendor ?? undefined);
+      login(data.token, data.role, data.vendor ?? undefined, data.manager?.routerId ?? null);
       if (data.role === "vendor") {
         navigate("/vendor-portal");
+      } else if (data.role === "manager") {
+        navigate("/");
       } else {
         navigate("/routers");
       }

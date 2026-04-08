@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import { useListRouters } from "@workspace/api-client-react";
 import type { Router } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface RouterContextValue {
   selectedRouterId: number | null;
@@ -13,6 +14,7 @@ interface RouterContextValue {
   setRouterOnline: (online: boolean) => void;
   routerIdentity: string | null;
   setRouterIdentity: (identity: string | null) => void;
+  isRouterLocked: boolean;
 }
 
 const RouterContext = createContext<RouterContextValue>({
@@ -26,11 +28,15 @@ const RouterContext = createContext<RouterContextValue>({
   setRouterOnline: () => {},
   routerIdentity: null,
   setRouterIdentity: () => {},
+  isRouterLocked: false,
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
 
 export function RouterProvider({ children }: { children: ReactNode }) {
+  const { managerRouterId, role } = useAuth();
+  const isRouterLocked = role === "manager" && managerRouterId != null;
+
   const { data: freshRouters, isLoading: routersLoading } = useListRouters({
     query: { staleTime: 30_000, gcTime: 5 * 60_000 },
   });
@@ -46,15 +52,25 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   }, [freshRouters]);
 
   const [selectedRouterId, setSelectedRouterIdState] = useState<number | null>(() => {
+    if (isRouterLocked) return managerRouterId;
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? parseInt(stored, 10) : null;
   });
+
+  // When a manager's assigned router changes (e.g. they re-login), sync the selection
+  useEffect(() => {
+    if (isRouterLocked && managerRouterId != null) {
+      setSelectedRouterIdState(managerRouterId);
+      localStorage.setItem(STORAGE_KEY, String(managerRouterId));
+    }
+  }, [isRouterLocked, managerRouterId]);
 
   const [pingTrigger, setPingTrigger] = useState(0);
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
   const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
+    if (isRouterLocked) return; // Locked: ignore changes
     setSelectedRouterIdState(id);
     if (id === null) {
       localStorage.removeItem(STORAGE_KEY);
@@ -62,14 +78,11 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       setRouterIdentity(null);
     } else {
       localStorage.setItem(STORAGE_KEY, String(id));
-      // Trigger immediate data refresh — no ping needed
       setRouterOnline(null);
       setRouterIdentity(null);
       setPingTrigger((n) => n + 1);
     }
-  }, []);
-
-  // No auto-selection: user must explicitly pick a router from the Routers page or sidebar
+  }, [isRouterLocked]);
 
   // On initial load, if a router is already stored, trigger a fetch immediately
   const didInitialTrigger = useRef(false);
@@ -95,6 +108,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       setRouterOnline,
       routerIdentity,
       setRouterIdentity,
+      isRouterLocked,
     }}>
       {children}
     </RouterContext.Provider>
