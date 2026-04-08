@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
-import { useLocation } from "wouter";
+import { useAppNavigate } from "@/hooks/use-app-navigate";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -14,7 +14,7 @@ interface LoginPageProps {
 
 export default function LoginPage({ mode }: LoginPageProps) {
   const { login } = useAuth();
-  const [, navigate] = useLocation();
+  const navigate = useAppNavigate();
   const [form, setForm] = useState({ login: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

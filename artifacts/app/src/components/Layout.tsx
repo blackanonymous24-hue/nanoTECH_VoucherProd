@@ -10,6 +10,7 @@ import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAppNavigate } from "@/hooks/use-app-navigate";
 
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -62,13 +63,14 @@ function RouterSelector({ className }: { className?: string }) {
 }
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
-  const [location, navigate] = useLocation();
+  const [location] = useLocation();
   const { routerIdentity, selectedRouterId } = useRouterContext();
   const { logout, role, token } = useAuth();
+  const appNavigate = useAppNavigate();
 
   const handleLogout = () => {
     logout();
-    navigate("/admin");
+    appNavigate("/admin");
   };
   const isAdmin = role === "admin";
   const isManager = role === "manager";

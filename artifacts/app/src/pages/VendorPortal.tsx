@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1403,7 +1403,7 @@ function Dashboard({ token, vendor, onLogout }: {
 
 export default function VendorPortal() {
   const { token, vendorInfo, logout } = useAuth();
-  const [, navigate] = useLocation();
+  const appNavigate = useAppNavigate();
 
   if (!token || !vendorInfo) return null;
 
@@ -1416,7 +1416,7 @@ export default function VendorPortal() {
 
   const handleLogout = () => {
     logout();
-    navigate("/vendeur");
+    appNavigate("/vendeur");
   };
 
   return <Dashboard token={token} vendor={vendor} onLogout={handleLogout} />;
