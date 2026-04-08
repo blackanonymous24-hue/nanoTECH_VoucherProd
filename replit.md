@@ -62,6 +62,14 @@ Tables: `routers`, `vouchers`, `vendors`, `admin_settings`, `managers`
 id serial PK, name text, username text UNIQUE, password_hash text, is_active bool, created_at, updated_at
 ```
 
+## Application mobile (Expo)
+- `artifacts/mobile` — WebView Expo wrappant `https://nanotech-voucher.replit.app`
+- Production: `build.js` démarre Metro, compile les bundles iOS/Android, crée `static-build/`
+- Serve: `serve.js` (Node.js built-ins) sert les bundles + landing page sur `$PORT`
+- Santé: `/status` et `/health` → `{ status: "ok" }`
+- Versions compatibles Expo SDK 54: `react-native-webview@13.15.0`, `react-native-keyboard-controller@1.18.5`
+
 ## Workflows
 - `artifacts/app: web` — `pnpm --filter @workspace/app run dev`
 - `artifacts/api-server: api` — `pnpm --filter @workspace/api-server run dev`
+- `artifacts/mobile: expo` — `pnpm --filter @workspace/mobile run dev`
