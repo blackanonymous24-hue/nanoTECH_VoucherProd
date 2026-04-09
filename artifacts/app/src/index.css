@@ -400,40 +400,6 @@
   }
 }
 
-/* ── Top page progress bar ─────────────────────────────────── */
-@keyframes topbar-bar1 {
-  0%   { left: -35%; right: 100%; }
-  60%  { left: 100%; right: -90%; }
-  100% { left: 100%; right: -90%; }
-}
-@keyframes topbar-bar2 {
-  0%   { left: -200%; right: 100%; }
-  60%  { left: 107%; right: -8%; }
-  100% { left: 107%; right: -8%; }
-}
-.topbar-track {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  z-index: 9999;
-  overflow: hidden;
-  background: rgba(59,130,246,0.15);
-}
-.topbar-track::before,
-.topbar-track::after {
-  content: '';
-  position: absolute;
-  top: 0; bottom: 0;
-  background: linear-gradient(90deg, #2563eb, #60a5fa, #2563eb);
-  box-shadow: 0 0 8px #3b82f6, 0 0 2px #93c5fd;
-  will-change: left, right;
-}
-.topbar-track::before {
-  animation: topbar-bar1 2.1s cubic-bezier(0.65,0.815,0.735,0.395) infinite;
-}
-.topbar-track::after {
-  animation: topbar-bar2 2.1s cubic-bezier(0.165,0.84,0.44,1) 1.15s infinite;
-}
 
 /* ── Skeleton shimmer ──────────────────────────────────────── */
 @keyframes shimmer {

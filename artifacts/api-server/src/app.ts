@@ -50,9 +50,30 @@ app.use("/api", (err: Error & { status?: number; type?: string }, _req: express.
 // CWD = artifacts/api-server when started via pnpm --filter
 const frontendDist = path.resolve(process.cwd(), "../app/dist/public");
 if (fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist));
+  // Hashed assets (JS/CSS chunks from Vite) — immutable, cache 1 year
+  app.use(
+    "/assets",
+    express.static(path.join(frontendDist, "assets"), {
+      maxAge: "1y",
+      immutable: true,
+      etag: false,
+    }),
+  );
+  // Everything else (index.html, favicon, etc.) — always revalidate
+  app.use(
+    express.static(frontendDist, {
+      maxAge: 0,
+      etag: true,
+      setHeaders(res, filePath) {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    }),
+  );
   // SPA fallback — all non-API routes return index.html
   app.get("/{*splat}", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
     res.sendFile(path.join(frontendDist, "index.html"));
   });
 } else {
