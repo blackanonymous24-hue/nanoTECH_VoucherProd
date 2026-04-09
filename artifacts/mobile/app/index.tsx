@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -13,39 +13,49 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 
 const PROD_URL = "https://nanotech-voucher.replit.app";
+const RELOAD_SPINNER_TIMEOUT = 8000;
 
 export default function AppScreen() {
   const webViewRef = useRef<WebView>(null);
   const insets = useSafeAreaInsets();
   const [canGoBack, setCanGoBack] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [currentUrl, setCurrentUrl] = useState(PROD_URL);
 
-  // Track whether the first (HTTP) page load has completed.
-  // After that, SPA pushState navigations must NOT trigger the loading overlay
-  // because onLoadStart fires but onLoadEnd never fires for client-side routing.
-  const initialLoadDoneRef = useRef(false);
-  // Set when the user explicitly asks for a reload (retry/home) so the
-  // overlay is shown again for that one real HTTP request.
-  const expectingReloadRef = useRef(false);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isExplicitReloadRef = useRef(false);
+
+  const clearReloadTimer = () => {
+    if (reloadTimerRef.current) {
+      clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = null;
+    }
+  };
+
+  const startReloadTimer = () => {
+    clearReloadTimer();
+    reloadTimerRef.current = setTimeout(() => {
+      setIsLoading(false);
+      isExplicitReloadRef.current = false;
+    }, RELOAD_SPINNER_TIMEOUT);
+  };
+
+  useEffect(() => {
+    return () => clearReloadTimer();
+  }, []);
 
   const handleNavigationStateChange = (state: WebViewNavigation) => {
     setCanGoBack(state.canGoBack);
     setCurrentUrl(state.url);
   };
 
-  const handleLoadStart = useCallback(() => {
-    // Show overlay only during the very first load OR an explicit reload
-    if (!initialLoadDoneRef.current || expectingReloadRef.current) {
-      setIsLoading(true);
-    }
-  }, []);
-
   const handleLoadEnd = useCallback(() => {
-    setIsLoading(false);
-    initialLoadDoneRef.current = true;
-    expectingReloadRef.current = false;
+    if (isExplicitReloadRef.current) {
+      clearReloadTimer();
+      setIsLoading(false);
+      isExplicitReloadRef.current = false;
+    }
   }, []);
 
   const handleBack = () => {
@@ -54,14 +64,16 @@ export default function AppScreen() {
 
   const handleRefresh = () => {
     setHasError(false);
-    expectingReloadRef.current = true;
+    isExplicitReloadRef.current = true;
     setIsLoading(true);
+    startReloadTimer();
     webViewRef.current?.reload();
   };
 
   const handleHome = () => {
-    expectingReloadRef.current = true;
+    isExplicitReloadRef.current = true;
     setIsLoading(true);
+    startReloadTimer();
     webViewRef.current?.injectJavaScript(`window.location.href = '${PROD_URL}';`);
   };
 
@@ -117,10 +129,9 @@ export default function AppScreen() {
           source={{ uri: PROD_URL }}
           style={styles.webview}
           onNavigationStateChange={handleNavigationStateChange}
-          onLoadStart={handleLoadStart}
           onLoadEnd={handleLoadEnd}
-          onError={() => { setHasError(true); setIsLoading(false); }}
-          onHttpError={() => { setIsLoading(false); }}
+          onError={() => { setHasError(true); setIsLoading(false); clearReloadTimer(); isExplicitReloadRef.current = false; }}
+          onHttpError={() => { setIsLoading(false); clearReloadTimer(); isExplicitReloadRef.current = false; }}
           allowsBackForwardNavigationGestures={Platform.OS === "ios"}
           pullToRefreshEnabled
           javaScriptEnabled
@@ -133,7 +144,7 @@ export default function AppScreen() {
         />
       )}
 
-      {/* Loading overlay — only during initial load or explicit reloads */}
+      {/* Loading overlay — only for explicit reloads (max 8s) */}
       {isLoading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#60a5fa" />
