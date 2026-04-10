@@ -170,12 +170,18 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
     const badge = statusBadge(s.paymentStatus);
     const sColor = s.paymentStatus === "full" ? "#065f46" : s.paymentStatus === "partial" ? "#92400e" : "#991b1b";
     const sBg    = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
+    const sBorder= s.paymentStatus === "full" ? "#6ee7b7" : s.paymentStatus === "partial" ? "#fcd34d" : "#fca5a5";
     const commRate = (s.commissionRate ?? 0);
     const resteColor = (s.remainingAmount ?? 0) > 0 ? "#991b1b" : "inherit";
+    const statusIcon = s.paymentStatus === "none"
+      ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="0.5" fill="${sColor}"/></svg>`
+      : s.paymentStatus === "full"
+      ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
+      : "";
     return `<div class="vcard">
   <div class="vcard-header">
     <span class="vname">${s.vendorName}</span>
-    <span class="vstatus" style="background:${sBg};color:${sColor}">${badge.text}</span>
+    <span class="vstatus" style="background:${sBg};color:${sColor};border:1px solid ${sBorder}">${statusIcon}${badge.text}</span>
   </div>
   <table>
     <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
@@ -220,7 +226,6 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
     <tr><td>Montant total vendu</td><td class="tval">${fmtAmount(totalAmount)} FCFA</td></tr>
     <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} FCFA</td></tr>
     <tr><td>Total reste</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
-    <tr><td>Total rémunérations</td><td class="tval">${totalComm > 0 ? fmtAmount(totalComm) + " FCFA" : "—"}</td></tr>
   </table>
 </div>
 <script>window.onload = function() { window.print(); };</script>
@@ -353,7 +358,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
       const sColor = s.paymentStatus === "full" ? "#065f46" : s.paymentStatus === "partial" ? "#92400e" : "#991b1b";
       const sBg    = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
       const sBorder= s.paymentStatus === "full" ? "#6ee7b7" : s.paymentStatus === "partial" ? "#fcd34d" : "#fca5a5";
-      const sTxt   = statusBadge(s.paymentStatus).text;
+      const sTxt   = (s.paymentStatus === "none" ? "⚠ " : s.paymentStatus === "full" ? "✓ " : "") + statusBadge(s.paymentStatus).text;
       const commRate = (s.commissionRate ?? 0);
 
       // Card background + border
@@ -741,7 +746,7 @@ export default function VendorTracking() {
                   <div className="px-3 py-1.5 bg-indigo-50 border-b border-indigo-100 text-indigo-700 font-semibold text-[10px] uppercase tracking-wide">
                     Totaux de la semaine
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-gray-100">
+                  <div className="grid grid-cols-3 divide-x divide-gray-100">
                     <div className="px-3 py-2">
                       <p className="text-gray-400 text-[10px]">Vendu</p>
                       <p className="font-bold text-gray-800 tabular-nums">{fmtAmount(weekTotal_amount)} <span className="font-normal text-gray-400">FCFA</span></p>
@@ -753,10 +758,6 @@ export default function VendorTracking() {
                     <div className="px-3 py-2">
                       <p className="text-gray-400 text-[10px]">Reste</p>
                       <p className={`font-bold tabular-nums ${weekTotal_reste > 0 ? "text-red-600" : "text-gray-400"}`}>{fmtAmount(weekTotal_reste)} <span className="font-normal text-gray-400">FCFA</span></p>
-                    </div>
-                    <div className="px-3 py-2">
-                      <p className="text-gray-400 text-[10px]">Rémunérations</p>
-                      <p className="font-bold text-gray-700 tabular-nums">{weekTotal_comm > 0 ? fmtAmount(weekTotal_comm) : "—"} {weekTotal_comm > 0 && <span className="font-normal text-gray-400">FCFA</span>}</p>
                     </div>
                   </div>
                 </div>
