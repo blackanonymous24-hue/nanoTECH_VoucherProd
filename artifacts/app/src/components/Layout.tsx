@@ -456,17 +456,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 <span>Mot de passe</span>
               </button>
             )}
-            {/* Add hotspot user — admin & manager */}
-            {(isAdmin || isManager) && (
-              <button
-                onClick={openAddUserDialog}
-                className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-blue-300 transition-colors px-2 py-1 rounded-lg hover:bg-blue-500/10 whitespace-nowrap"
-                title="Ajouter un utilisateur hotspot"
-              >
-                <UserPlus className="h-3.5 w-3.5" />
-                <span>Ajouter</span>
-              </button>
-            )}
           </div>
         </div>
 
