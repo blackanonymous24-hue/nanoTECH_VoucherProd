@@ -336,6 +336,7 @@
 .scroll-card { scrollbar-width: thin; scrollbar-color: #1f2937 transparent; }
 
 @media print {
+  @page { margin: 0.5cm; }
   body * { visibility: hidden !important; }
   #voucher-print-section,
   #voucher-print-section * { visibility: visible !important; }
