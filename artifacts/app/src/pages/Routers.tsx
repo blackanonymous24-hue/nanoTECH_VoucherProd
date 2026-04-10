@@ -466,7 +466,7 @@ export default function Routers() {
                       </div>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-semibold text-gray-900 truncate max-w-[140px] sm:max-w-none">{r.name}</span>
+                          <span className="font-semibold text-gray-900">{r.name}</span>
                           {(r as any).hotspotName && (
                             <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono truncate max-w-[100px]">{(r as any).hotspotName}</span>
                           )}
@@ -495,7 +495,7 @@ export default function Routers() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
                       {!isSelected && (
                         <Button
                           size="icon"
