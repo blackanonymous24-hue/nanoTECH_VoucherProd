@@ -145,6 +145,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
     const profiles = profileMap.get(s.vendorId) ?? [];
     const arr = (arrears?.arrears[String(s.vendorId)] ?? []).filter(a => a.remaining > 0);
     const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
+    const totalDu = s.amount + arrTotal;
     const profileRows = profiles.map(p => `
       <tr><td>${p.profileName}</td><td class="center">${p.count}</td><td class="right">${fmtAmount(p.amount)}</td></tr>`).join("");
     const arrearsSection = arr.length > 0 ? `
@@ -153,7 +154,10 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   </div>
   <table class="arr-table">
     <tbody>${arr.map(a => `<tr><td>${fmtDateFr(a.date)}</td><td class="right">${fmtAmount(a.remaining)} FCFA</td></tr>`).join("")}</tbody>
-  </table>` : "";
+  </table>
+  <div class="total-du">
+    <span>Total dû (vendu + arriéré)</span><span>${fmtAmount(totalDu)} FCFA</span>
+  </div>` : "";
     const hasArr = arr.length > 0;
     return `<div class="vcard${hasArr ? " vcard-arr" : ""}">
   <div class="vcard-header">
@@ -163,7 +167,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   <table>
     <thead><tr><th>Forfait</th><th class="center">Tkt</th><th class="right">Montant (FCFA)</th></tr></thead>
     <tbody>${profileRows}</tbody>
-    <tfoot><tr><td>Total</td><td class="center">${s.count}</td><td class="right">${fmtAmount(s.amount)}</td></tr></tfoot>
+    <tfoot><tr><td>Total vendu</td><td class="center">${s.count}</td><td class="right">${fmtAmount(s.amount)}</td></tr></tfoot>
   </table>${arrearsSection}
 </div>`;
   }).join("");
@@ -196,6 +200,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .arr-table { width: 100%; border-collapse: collapse; }
   .arr-table td { padding: 2px 6px; font-size: 8px; color: #ef4444; border-bottom: 1px solid #fee2e2; }
   .arr-table tr:last-child td { border-bottom: none; }
+  .total-du { display: flex; justify-content: space-between; padding: 4px 6px; background: #1e3a8a; color: #ffffff; font-size: 9px; font-weight: bold; border-top: 2px solid #1e3a8a; }
   .detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
   .detail-table th, .detail-table td { border: 1px solid #d1d5db; padding: 3px 5px; font-size: 9px; }
   .detail-table th { background: #f0f0f0; font-weight: bold; text-align: left; }
@@ -306,7 +311,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     const DPR = 2; const W = 430; const PAD = 16;
     const TITLE_H = 52; const CARD_GAP = 8;
     const CARD_HDR_H = 28; const COL_HDR_H = 18; const ROW_H = 20; const TOT_ROW_H = 24;
-    const ARR_HDR_H = 20; const ARR_ROW_H = 18; const FOOTER_H = 32;
+    const ARR_HDR_H = 20; const ARR_ROW_H = 18; const GRAND_ROW_H = 26; const FOOTER_H = 32;
 
     const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
     const dateFr = fmtDateFr(appliedDate);
@@ -328,7 +333,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     const cardH = (vendorId: number | null) => {
       const n = (profileMap.get(vendorId) ?? []).length;
       const arr = vendorArrears(vendorId);
-      const arrH = arr.length > 0 ? ARR_HDR_H + arr.length * ARR_ROW_H : 0;
+      const arrH = arr.length > 0 ? ARR_HDR_H + arr.length * ARR_ROW_H + GRAND_ROW_H : 0;
       return CARD_HDR_H + COL_HDR_H + n * ROW_H + TOT_ROW_H + arrH;
     };
     const grandCount  = dailySummary.reduce((s, r) => s + r.count, 0);
@@ -408,6 +413,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
       // Arriérés rows
       if (arr.length > 0) {
         const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
+        const totalDu = s.amount + arrTotal;
         rf(PAD, ry, CW, ARR_HDR_H, "#fef2f2");
         ln(PAD, ry, PAD + CW, ry, "#fca5a5");
         t("Arriérés", C_PROF, ry + ARR_HDR_H / 2, { size: 8, bold: true, color: "#b91c1c" });
@@ -420,6 +426,11 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
           ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#fee2e2");
           ry += ARR_ROW_H;
         });
+        // Total dû row
+        rf(PAD, ry, CW, GRAND_ROW_H, "#1e3a8a", [0, 0, 6, 6]);
+        t("Total dû (vendu + arriéré)", C_PROF, ry + GRAND_ROW_H / 2, { size: 8, bold: true, color: "#bfdbfe" });
+        t(fmtAmount(totalDu) + " FCFA", C_AMT, ry + GRAND_ROW_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
+        ry += GRAND_ROW_H;
       }
 
       y += ch + CARD_GAP;
@@ -994,6 +1005,18 @@ export default function VendorTracking() {
                                 </tr>
                               );
                             })}
+                            {/* ── Total dû (vendu + arriérés) ── */}
+                            {hasArrears && (() => {
+                              const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
+                              const totalDu = s.amount + allArrearsTotal;
+                              return (
+                                <tr className="border-t-2 border-blue-900 bg-blue-900">
+                                  <td className="px-3 py-2 font-bold text-white text-xs">Total dû <span className="font-normal text-blue-300">(vendu + arriéré)</span></td>
+                                  <td />
+                                  <td className="px-3 py-2 text-right font-bold text-white text-sm tabular-nums">{fmtAmount(totalDu)} FCFA</td>
+                                </tr>
+                              );
+                            })()}
                           </tbody>
                         </table>
                       </div>
