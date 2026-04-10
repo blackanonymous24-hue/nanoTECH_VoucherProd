@@ -633,10 +633,23 @@ importers:
         version: 5.9.3
 
   scripts:
+    dependencies:
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../lib/db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
+      pg:
+        specifier: ^8.16.0
+        version: 8.20.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 25.5.0
+      '@types/pg':
+        specifier: ^8.11.14
+        version: 8.20.0
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
