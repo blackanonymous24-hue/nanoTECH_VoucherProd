@@ -74,7 +74,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
-  const { routerIdentity, selectedRouterId, routers } = useRouterContext();
+  const { routerIdentity, selectedRouterId } = useRouterContext();
   const { logout, role, token } = useAuth();
   const appNavigate = useAppNavigate();
 
