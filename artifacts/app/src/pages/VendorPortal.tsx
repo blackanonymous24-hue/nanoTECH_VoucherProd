@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
-  User, RefreshCw, Clock, ChevronLeft, Search, Banknote, Printer, LogIn,
+  User, RefreshCw, Clock, ChevronLeft, ChevronRight, Search, Banknote, Printer, LogIn,
   PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
 
@@ -1022,18 +1022,26 @@ function Dashboard({ token, vendor, onLogout }: {
                         const dateObj = new Date(d.date + "T00:00:00Z");
                         const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
                         const weekday = cap(dateObj.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" }));
-                        const day     = dateObj.toLocaleDateString("fr-FR", { day: "2-digit", timeZone: "UTC" });
+                        const dayNum  = dateObj.toLocaleDateString("fr-FR", { day: "2-digit", timeZone: "UTC" });
                         const month   = cap(dateObj.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
                         const year    = dateObj.toLocaleDateString("fr-FR", { year: "numeric", timeZone: "UTC" });
-                        const label   = `Arriéré du ${weekday} ${day} ${month} ${year}`;
+                        const label   = `Arriéré du ${weekday} ${dayNum} ${month} ${year}`;
                         return (
-                          <div key={d.date} className="flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden">
-                            <span className="text-[11px] font-semibold text-orange-700 whitespace-nowrap truncate flex-1 min-w-0">{label}</span>
+                          <button
+                            key={d.date}
+                            type="button"
+                            onClick={() => setReportView({ day: dayNum, month, year })}
+                            className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer"
+                          >
+                            <span className="text-[11px] font-semibold text-orange-700 whitespace-nowrap truncate flex-1 min-w-0 flex items-center gap-1.5">
+                              {label}
+                              <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0" />
+                            </span>
                             <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
                               <span className="text-[10px] text-gray-400 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
                               <span className="text-[11px] font-bold text-orange-700 tabular-nums">{fmtFcfa(d.remaining)} FCFA</span>
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
