@@ -524,6 +524,97 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
 });
 
 /* ─────────────────────────────────────────────────────────────────
+ * GET /vendors/:id/period-sales?period=today|yesterday|week|month
+ * Admin version of the vendor-portal period-sales endpoint.
+ * Returns sold vouchers + byProfile breakdown for the given period.
+ * ──────────────────────────────────────────────────────────────── */
+router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const { period } = req.query as { period?: string };
+  if (!["today", "yesterday", "week", "month"].includes(period ?? "")) {
+    res.status(400).json({ error: "Période invalide" }); return;
+  }
+
+  const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
+  if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
+
+  const periodFilter =
+    period === "today"
+      ? sql`${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day'`
+    : period === "yesterday"
+      ? sql`${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date`
+    : period === "week"
+      ? sql`${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date)`
+      : sql`${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month'`;
+
+  const labels: Record<string, string> = {
+    today: "Aujourd'hui",
+    yesterday: "Hier",
+    week: "Semaine dernière",
+    month: "Mois en cours",
+  };
+
+  const [vouchers, byProfileRaw] = await Promise.all([
+    db
+      .select()
+      .from(vouchersTable)
+      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
+      .orderBy(desc(vouchersTable.usedAt)),
+    db
+      .select({
+        profileName: vouchersTable.profileName,
+        count: count(),
+        revenue: sql<number>`coalesce(sum(nullif(${vouchersTable.price}, '')::numeric), 0)`,
+      })
+      .from(vouchersTable)
+      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
+      .groupBy(vouchersTable.profileName)
+      .orderBy(desc(count())),
+  ]);
+
+  let priceMap = new Map<string, string>();
+  if (vendor.routerId) {
+    const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
+    if (routerRow) {
+      const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+      priceMap = await getCachedProfilePrices(vendor.routerId, conn);
+    }
+  }
+
+  let validProfileNames = new Set<string>();
+  if (vendor.routerId) {
+    const cached = await db
+      .select({ profileName: profilesCacheTable.profileName })
+      .from(profilesCacheTable)
+      .where(eq(profilesCacheTable.routerId, vendor.routerId));
+    validProfileNames = new Set(cached.map((c) => c.profileName));
+  }
+
+  const byProfile = byProfileRaw
+    .filter((row) => row.profileName && row.profileName.trim() !== "" && (validProfileNames.size === 0 || validProfileNames.has(row.profileName)))
+    .map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
+
+  const enrichedVouchers = vouchers.map((v) => ({
+    ...v,
+    price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
+  }));
+
+  const revenue = enrichedVouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
+
+  res.json({
+    vendorName: vendor.name,
+    period,
+    label: labels[period!],
+    total: enrichedVouchers.length,
+    revenue,
+    byProfile,
+    vouchers: enrichedVouchers,
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────
  * GET /vendors/daily-tracking?date=YYYY-MM-DD&routerId=X
  * Returns per-vendor sold-voucher list + summary for a given day.
  * date defaults to yesterday (UTC).
