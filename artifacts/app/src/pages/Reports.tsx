@@ -232,7 +232,6 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                         <span className="text-sm font-medium">{stat.profileName}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-blue-600 font-semibold tabular-nums">{weekSold} cette semaine</span>
-                          <span className="text-xs text-gray-400">{stat.total} total</span>
                         </div>
                       </div>
                       <SaleBar used={weekSold} total={gaugeTotal} />
