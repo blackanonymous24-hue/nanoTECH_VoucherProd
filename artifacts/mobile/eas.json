@@ -8,11 +8,17 @@
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "EXPO_MONOREPO_ROOT": "../../"
       }
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_MONOREPO_ROOT": "../../"
       }
     }
   }
