@@ -22,6 +22,13 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Ajoute 1 jour à une date ISO pour que le backend l'inclue dans la fenêtre (windowEnd = date - 1). */
+function nextDayIso(iso: string): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 interface DailyArrearEntry {
   date: string;
   salesAmount: number;
@@ -47,13 +54,11 @@ function ArrearRow({
   vendorId,
   entry,
   routerId,
-  refDate,
   onDone,
 }: {
   vendorId: number;
   entry: DailyArrearEntry;
   routerId: number;
-  refDate: string;
   onDone: () => void;
 }) {
   const [amount, setAmount]   = useState(String(entry.remaining));
@@ -136,12 +141,10 @@ function ArrearRow({
 function VendorCard({
   row,
   routerId,
-  refDate,
   onRefresh,
 }: {
   row: VendorRow;
   routerId: number;
-  refDate: string;
   onRefresh: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -181,7 +184,6 @@ function VendorCard({
               vendorId={row.vendorId}
               entry={a}
               routerId={routerId}
-              refDate={refDate}
               onDone={onRefresh}
             />
           ))}
@@ -200,11 +202,13 @@ export default function DailyPayments() {
   const [date, setDate]      = useState(todayIso);
   const queryClient          = useQueryClient();
 
+  const queryDate = nextDayIso(date);
+
   const { data, isLoading, isFetching } = useQuery<DailyArrearsResponse>({
-    queryKey: ["vendor-daily-arrears", selectedRouterId, date],
+    queryKey: ["vendor-daily-arrears", selectedRouterId, queryDate],
     queryFn: async ({ signal }) => {
       if (!selectedRouterId) return { arrears: {} };
-      const params = new URLSearchParams({ date, routerId: String(selectedRouterId) });
+      const params = new URLSearchParams({ date: queryDate, routerId: String(selectedRouterId) });
       const res = await fetch(`${BASE}/api/vendors/daily-arrears?${params}`, { signal });
       if (!res.ok) return { arrears: {} };
       return res.json() as Promise<DailyArrearsResponse>;
@@ -214,8 +218,8 @@ export default function DailyPayments() {
   });
 
   const refresh = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, date] });
-  }, [queryClient, selectedRouterId, date]);
+    void queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, queryDate] });
+  }, [queryClient, selectedRouterId, queryDate]);
 
   /* Build sorted vendor rows */
   const rows: VendorRow[] = [];
@@ -314,7 +318,6 @@ export default function DailyPayments() {
           key={row.vendorId}
           row={row}
           routerId={selectedRouterId}
-          refDate={date}
           onRefresh={refresh}
         />
       ))}
