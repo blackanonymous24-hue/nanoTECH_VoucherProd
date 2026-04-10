@@ -1020,18 +1020,18 @@ function Dashboard({ token, vendor, onLogout }: {
                     <div className="divide-y divide-orange-100">
                       {arrearsData.days.map((d) => {
                         const dateObj = new Date(d.date + "T00:00:00Z");
-                        const label = dateObj.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+                        const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+                        const weekday = cap(dateObj.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" }));
+                        const day     = dateObj.toLocaleDateString("fr-FR", { day: "2-digit", timeZone: "UTC" });
+                        const month   = cap(dateObj.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
+                        const year    = dateObj.toLocaleDateString("fr-FR", { year: "numeric", timeZone: "UTC" });
+                        const label   = `Arriéré du ${weekday} ${day} ${month} ${year}`;
                         return (
-                          <div key={d.date} className="flex items-center justify-between gap-2 px-4 py-3">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-[10px] font-semibold text-orange-600 bg-orange-100 border border-orange-200 rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0">
-                                Non versé
-                              </span>
-                              <span className="text-xs text-gray-600 capitalize truncate">{label}</span>
-                            </div>
-                            <div className="flex items-center gap-3 flex-shrink-0">
+                          <div key={d.date} className="flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden">
+                            <span className="text-[11px] font-semibold text-orange-700 whitespace-nowrap truncate flex-1 min-w-0">{label}</span>
+                            <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
                               <span className="text-[10px] text-gray-400 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
-                              <span className="text-sm font-bold text-orange-700 tabular-nums">{fmtFcfa(d.remaining)} FCFA</span>
+                              <span className="text-[11px] font-bold text-orange-700 tabular-nums">{fmtFcfa(d.remaining)} FCFA</span>
                             </div>
                           </div>
                         );
