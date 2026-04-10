@@ -250,10 +250,11 @@ router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
     .from(vouchersTable)
     .where(and(
       eq(vouchersTable.vendorId, payload.vendorId),
-      gte(vouchersTable.usedAt, start),
-      lt(vouchersTable.usedAt, end),
+      isNotNull(vouchersTable.printedAt),
+      gte(vouchersTable.printedAt, start),
+      lt(vouchersTable.printedAt, end),
     ))
-    .orderBy(desc(vouchersTable.usedAt));
+    .orderBy(desc(vouchersTable.printedAt));
 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
@@ -282,12 +283,12 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
 
   const periodFilter =
     period === "today"
-      ? sql`${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day'`
+      ? sql`${vouchersTable.printedAt} is not null and ${vouchersTable.printedAt} >= current_date and ${vouchersTable.printedAt} < current_date + interval '1 day'`
     : period === "yesterday"
-      ? sql`${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date`
+      ? sql`${vouchersTable.printedAt} is not null and ${vouchersTable.printedAt} >= current_date - interval '1 day' and ${vouchersTable.printedAt} < current_date`
     : period === "week"
-      ? sql`${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date)`
-      : sql`${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month'`;
+      ? sql`${vouchersTable.printedAt} is not null and ${vouchersTable.printedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.printedAt} < date_trunc('week', current_date)`
+      : sql`${vouchersTable.printedAt} is not null and ${vouchersTable.printedAt} >= date_trunc('month', current_date) and ${vouchersTable.printedAt} < date_trunc('month', current_date) + interval '1 month'`;
 
   const labels: Record<string, string> = {
     today: "Aujourd'hui",
