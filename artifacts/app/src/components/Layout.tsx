@@ -87,10 +87,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isStockAlertsPage = location.startsWith("/stock-alerts");
   const isVouchersPage = location.startsWith("/vouchers");
 
-  const handleTabClick = (href: string) => {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("app:route-remount", { detail: { path: href } }));
+  const handleTabClick = (href: string, e: React.MouseEvent) => {
+    const isCurrentPage = href === "/" ? location === "/" : location.startsWith(href);
+    if (isCurrentPage) {
+      e.preventDefault();
+      window.location.reload();
+      return;
     }
+    window.dispatchEvent(new CustomEvent("app:route-remount", { detail: { path: href } }));
     onNavigate?.();
   };
 
@@ -256,7 +260,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               </p>
               <Link
                 href="/stock-alerts"
-                onClick={() => handleTabClick("/stock-alerts")}
+                onClick={(e) => handleTabClick("/stock-alerts", e)}
                 className={cn(
                   "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
                   hasAlerts
@@ -306,7 +310,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   <Link
                     key={href}
                     href={href}
-                    onClick={() => handleTabClick(href)}
+                    onClick={(e) => handleTabClick(href, e)}
                     className={cn(
                       "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
                       isActive
