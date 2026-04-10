@@ -125,69 +125,80 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [pwdSuccess, setPwdSuccess]   = useState(false);
   const [pwdLoading, setPwdLoading]   = useState(false);
 
-  /* ── Add user dialog state (admin only) ── */
-  const [showAddUser, setShowAddUser]         = useState(false);
-  const [addUserType, setAddUserType]         = useState<"vendor" | "manager">("vendor");
-  const [addUserName, setAddUserName]         = useState("");
-  const [addUserPhone, setAddUserPhone]       = useState("");
-  const [addUserUsername, setAddUserUsername] = useState("");
-  const [addUserPassword, setAddUserPassword] = useState("");
-  const [addUserRouterId, setAddUserRouterId] = useState<string>("");
-  const [addUserCommission, setAddUserCommission] = useState("0");
-  const [addUserError, setAddUserError]       = useState("");
-  const [addUserSuccess, setAddUserSuccess]   = useState(false);
-  const [addUserLoading, setAddUserLoading]   = useState(false);
+  /* ── Add hotspot user dialog state (admin + manager) ── */
+  const [showAddUser, setShowAddUser]           = useState(false);
+  const [addName, setAddName]                   = useState("");
+  const [addPassword, setAddPassword]           = useState("");
+  const [addProfile, setAddProfile]             = useState("");
+  const [addComment, setAddComment]             = useState("");
+  const [addLimitUptime, setAddLimitUptime]     = useState("");
+  const [addLimitBytes, setAddLimitBytes]       = useState("");
+  const [addLimitBytesUnit, setAddLimitBytesUnit] = useState<"MB" | "GB">("MB");
+  const [addMac, setAddMac]                     = useState("");
+  const [addError, setAddError]                 = useState("");
+  const [addSuccess, setAddSuccess]             = useState(false);
+  const [addLoading, setAddLoading]             = useState(false);
+
+  /* Profile list for the selected router (fetched when dialog opens) */
+  const { data: dialogProfiles } = useQuery<{ name: string; price: string | null; validity: string | null }[]>({
+    queryKey: ["router-profiles-dialog", selectedRouterId],
+    queryFn: async ({ signal }) => {
+      if (!selectedRouterId) return [];
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/profiles`, { signal });
+      if (!res.ok) return [];
+      const data = await res.json() as { name: string; price?: string; validity?: string }[];
+      return data.map((p) => ({ name: p.name, price: p.price ?? null, validity: p.validity ?? null }));
+    },
+    enabled: showAddUser && !!selectedRouterId,
+    staleTime: 60_000,
+  });
 
   function openAddUserDialog() {
-    setAddUserType("vendor");
-    setAddUserName(""); setAddUserPhone(""); setAddUserUsername("");
-    setAddUserPassword(""); setAddUserRouterId(""); setAddUserCommission("0");
-    setAddUserError(""); setAddUserSuccess(false);
+    setAddName(""); setAddPassword(""); setAddProfile("");
+    setAddComment(""); setAddLimitUptime(""); setAddLimitBytes("");
+    setAddLimitBytesUnit("MB"); setAddMac("");
+    setAddError(""); setAddSuccess(false);
     setShowAddUser(true);
   }
 
-  async function handleAddUser() {
-    setAddUserError("");
-    if (!addUserName.trim()) { setAddUserError("Le nom est requis."); return; }
-    if (addUserType === "manager" && !addUserUsername.trim()) { setAddUserError("L'identifiant est requis pour un gérant."); return; }
-    if (addUserType === "manager" && addUserPassword.length < 4) { setAddUserError("Mot de passe requis (4 caractères minimum)."); return; }
-    if (addUserPassword && addUserPassword.length < 4) { setAddUserError("Le mot de passe doit comporter au moins 4 caractères."); return; }
-    setAddUserLoading(true);
+  async function handleAddHotspotUser() {
+    setAddError("");
+    if (!addName.trim())    { setAddError("Le nom d'utilisateur est requis."); return; }
+    if (!addPassword.trim()){ setAddError("Le mot de passe est requis."); return; }
+    if (!addProfile)        { setAddError("Le profil est requis."); return; }
+    if (!selectedRouterId)  { setAddError("Aucun routeur sélectionné."); return; }
+
+    let limitBytesTotal: string | undefined;
+    if (addLimitBytes.trim()) {
+      const bytes = parseFloat(addLimitBytes) * (addLimitBytesUnit === "GB" ? 1073741824 : 1048576);
+      limitBytesTotal = String(Math.round(bytes));
+    }
+
+    setAddLoading(true);
     try {
-      const endpoint = addUserType === "vendor" ? `${BASE}/api/vendors` : `${BASE}/api/managers`;
-      const body = addUserType === "vendor"
-        ? {
-            name: addUserName.trim(),
-            phone: addUserPhone.trim() || undefined,
-            username: addUserUsername.trim() || undefined,
-            password: addUserPassword || undefined,
-            routerId: addUserRouterId ? parseInt(addUserRouterId, 10) : undefined,
-            commissionRate: parseInt(addUserCommission, 10) || 0,
-          }
-        : {
-            name: addUserName.trim(),
-            username: addUserUsername.trim(),
-            password: addUserPassword,
-            routerId: addUserRouterId ? parseInt(addUserRouterId, 10) : undefined,
-          };
-      const res = await fetch(endpoint, {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/hotspot-users`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: addName.trim(),
+          password: addPassword.trim(),
+          profile: addProfile,
+          comment: addComment.trim() || undefined,
+          limitUptime: addLimitUptime.trim() || undefined,
+          limitBytesTotal,
+          macAddress: addMac.trim() || undefined,
+        }),
       });
       if (!res.ok) {
         const data = await res.json() as { error?: string };
-        setAddUserError(data.error ?? "Erreur inconnue");
+        setAddError(data.error ?? "Erreur MikroTik");
       } else {
-        setAddUserSuccess(true);
+        setAddSuccess(true);
       }
     } catch {
-      setAddUserError("Erreur réseau. Réessayez.");
+      setAddError("Erreur réseau. Réessayez.");
     } finally {
-      setAddUserLoading(false);
+      setAddLoading(false);
     }
   }
 
@@ -433,12 +444,12 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 <span>Mot de passe</span>
               </button>
             )}
-            {/* Add user — admin only */}
-            {isAdmin && (
+            {/* Add hotspot user — admin & manager */}
+            {(isAdmin || isManager) && (
               <button
                 onClick={openAddUserDialog}
                 className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-blue-300 transition-colors px-2 py-1 rounded-lg hover:bg-blue-500/10 whitespace-nowrap"
-                title="Ajouter un utilisateur"
+                title="Ajouter un utilisateur hotspot"
               >
                 <UserPlus className="h-3.5 w-3.5" />
                 <span>Ajouter</span>
@@ -529,26 +540,28 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         </DialogContent>
       </Dialog>
 
-      {/* ── Add user dialog (admin only) ── */}
+      {/* ── Add hotspot user dialog (admin + manager) ── */}
       <Dialog open={showAddUser} onOpenChange={(v) => { if (!v) setShowAddUser(false); }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="h-4 w-4 text-blue-500" />
-              Ajouter un utilisateur
+              Ajouter un utilisateur hotspot
             </DialogTitle>
           </DialogHeader>
 
-          {addUserSuccess ? (
+          {addSuccess ? (
             <div className="flex flex-col items-center gap-3 py-6">
               <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
                 <CheckCircle2 className="h-6 w-6 text-emerald-600" />
               </div>
-              <p className="text-sm font-medium text-emerald-700">
-                {addUserType === "vendor" ? "Vendeur" : "Gérant de zone"} créé avec succès !
-              </p>
+              <p className="text-sm font-medium text-emerald-700">Utilisateur <strong>{addName}</strong> créé avec succès !</p>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => { setAddUserSuccess(false); setAddUserName(""); setAddUserPhone(""); setAddUserUsername(""); setAddUserPassword(""); setAddUserRouterId(""); setAddUserCommission("0"); }}>
+                <Button variant="outline" onClick={() => {
+                  setAddSuccess(false);
+                  setAddName(""); setAddPassword(""); setAddProfile("");
+                  setAddComment(""); setAddLimitUptime(""); setAddLimitBytes(""); setAddMac("");
+                }}>
                   Ajouter un autre
                 </Button>
                 <Button onClick={() => setShowAddUser(false)}>Fermer</Button>
@@ -557,134 +570,131 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           ) : (
             <>
               <div className="space-y-3 py-1">
-                {/* Type selector */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Type d'utilisateur</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setAddUserType("vendor"); setAddUserError(""); }}
-                      className={cn(
-                        "flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-all",
-                        addUserType === "vendor"
-                          ? "bg-blue-50 border-blue-400 text-blue-700"
-                          : "bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700",
-                      )}
-                    >
-                      <Users className="h-3.5 w-3.5" />
-                      Vendeur
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setAddUserType("manager"); setAddUserError(""); }}
-                      className={cn(
-                        "flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-all",
-                        addUserType === "manager"
-                          ? "bg-amber-50 border-amber-400 text-amber-700"
-                          : "bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700",
-                      )}
-                    >
-                      <UserCog className="h-3.5 w-3.5" />
-                      Gérant de zone
-                    </button>
-                  </div>
-                </div>
 
-                {/* Nom */}
+                {/* Username */}
                 <div className="space-y-1">
-                  <Label className="text-xs">Nom <span className="text-red-500">*</span></Label>
+                  <Label className="text-xs">Nom d'utilisateur <span className="text-red-500">*</span></Label>
                   <Input
-                    value={addUserName}
-                    onChange={(e) => setAddUserName(e.target.value)}
-                    placeholder={addUserType === "vendor" ? "Nom du vendeur" : "Nom du gérant"}
-                    className="h-9 text-sm"
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    placeholder="Ex: user123"
+                    className="h-9 text-sm font-mono"
+                    autoComplete="off"
                   />
                 </div>
 
-                {/* Téléphone — vendeur seulement */}
-                {addUserType === "vendor" && (
-                  <div className="space-y-1">
-                    <Label className="text-xs">Téléphone</Label>
-                    <Input
-                      value={addUserPhone}
-                      onChange={(e) => setAddUserPhone(e.target.value)}
-                      placeholder="Ex: 77 000 00 00"
-                      className="h-9 text-sm"
-                    />
-                  </div>
-                )}
-
-                {/* Identifiant */}
+                {/* Password */}
                 <div className="space-y-1">
-                  <Label className="text-xs">
-                    Identifiant {addUserType === "manager" && <span className="text-red-500">*</span>}
-                  </Label>
+                  <Label className="text-xs">Mot de passe <span className="text-red-500">*</span></Label>
                   <Input
-                    value={addUserUsername}
-                    onChange={(e) => setAddUserUsername(e.target.value)}
-                    placeholder={addUserType === "vendor" ? "Optionnel (sinon = téléphone)" : "Identifiant de connexion"}
-                    className="h-9 text-sm"
-                    autoComplete="username"
-                  />
-                </div>
-
-                {/* Mot de passe */}
-                <div className="space-y-1">
-                  <Label className="text-xs">
-                    Mot de passe {addUserType === "manager" && <span className="text-red-500">*</span>}
-                  </Label>
-                  <Input
-                    type="password"
-                    value={addUserPassword}
-                    onChange={(e) => setAddUserPassword(e.target.value)}
-                    placeholder={addUserType === "vendor" ? "Optionnel — 4 caractères min" : "4 caractères minimum"}
-                    className="h-9 text-sm"
+                    value={addPassword}
+                    onChange={(e) => setAddPassword(e.target.value)}
+                    placeholder="Mot de passe"
+                    className="h-9 text-sm font-mono"
                     autoComplete="new-password"
                   />
                 </div>
 
-                {/* Routeur */}
+                {/* Profile */}
                 <div className="space-y-1">
-                  <Label className="text-xs">Routeur assigné</Label>
-                  <Select value={addUserRouterId} onValueChange={setAddUserRouterId}>
+                  <Label className="text-xs">Profil <span className="text-red-500">*</span></Label>
+                  <Select value={addProfile} onValueChange={setAddProfile}>
                     <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="— Aucun routeur —" />
+                      <SelectValue placeholder={dialogProfiles ? "— Choisir un profil —" : "Chargement…"} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Aucun routeur —</SelectItem>
-                      {routers.map((r) => (
-                        <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                      {(dialogProfiles ?? []).map((p) => (
+                        <SelectItem key={p.name} value={p.name}>
+                          <span className="font-medium">{p.name}</span>
+                          {(p.validity || p.price) && (
+                            <span className="ml-2 text-gray-400 text-[11px]">
+                              {[p.validity, p.price].filter(Boolean).join(" · ")}
+                            </span>
+                          )}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                {/* Commission — vendeur seulement */}
-                {addUserType === "vendor" && (
-                  <div className="space-y-1">
-                    <Label className="text-xs">Taux de commission (%)</Label>
+                {/* Limit uptime */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Limite de temps <span className="text-gray-400">(optionnel)</span></Label>
+                  <Input
+                    value={addLimitUptime}
+                    onChange={(e) => setAddLimitUptime(e.target.value)}
+                    placeholder="Ex: 1h30m, 2d, 00:30:00"
+                    className="h-9 text-sm font-mono"
+                    autoComplete="off"
+                  />
+                </div>
+
+                {/* Limit bytes total */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Limite de données <span className="text-gray-400">(optionnel)</span></Label>
+                  <div className="flex gap-2">
                     <Input
                       type="number"
                       min={0}
-                      max={100}
-                      value={addUserCommission}
-                      onChange={(e) => setAddUserCommission(e.target.value)}
-                      className="h-9 text-sm"
+                      value={addLimitBytes}
+                      onChange={(e) => setAddLimitBytes(e.target.value)}
+                      placeholder="Ex: 500"
+                      className="h-9 text-sm flex-1"
                     />
+                    <Select value={addLimitBytesUnit} onValueChange={(v) => setAddLimitBytesUnit(v as "MB" | "GB")}>
+                      <SelectTrigger className="h-9 w-20 text-sm flex-shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MB">MB</SelectItem>
+                        <SelectItem value="GB">GB</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
+                </div>
+
+                {/* Comment */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Commentaire <span className="text-gray-400">(optionnel)</span></Label>
+                  <Input
+                    value={addComment}
+                    onChange={(e) => setAddComment(e.target.value)}
+                    placeholder="Ex: Client spécial"
+                    className="h-9 text-sm"
+                    autoComplete="off"
+                  />
+                </div>
+
+                {/* MAC address */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Adresse MAC <span className="text-gray-400">(optionnel)</span></Label>
+                  <Input
+                    value={addMac}
+                    onChange={(e) => setAddMac(e.target.value)}
+                    placeholder="Ex: AA:BB:CC:DD:EE:FF"
+                    className="h-9 text-sm font-mono"
+                    autoComplete="off"
+                    onKeyDown={(e) => e.key === "Enter" && void handleAddHotspotUser()}
+                  />
+                </div>
+
+                {addError && (
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{addError}</p>
                 )}
 
-                {addUserError && (
-                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{addUserError}</p>
+                {!selectedRouterId && (
+                  <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    ⚠ Sélectionnez d'abord un routeur dans la barre latérale.
+                  </p>
                 )}
               </div>
 
               <DialogFooter>
-                <Button variant="outline" onClick={() => setShowAddUser(false)} disabled={addUserLoading}>
+                <Button variant="outline" onClick={() => setShowAddUser(false)} disabled={addLoading}>
                   Annuler
                 </Button>
-                <Button onClick={() => void handleAddUser()} disabled={addUserLoading}>
-                  {addUserLoading ? "Création…" : "Créer"}
+                <Button onClick={() => void handleAddHotspotUser()} disabled={addLoading || !selectedRouterId}>
+                  {addLoading ? "Ajout en cours…" : "Ajouter"}
                 </Button>
               </DialogFooter>
             </>

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, resetHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, resetHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -550,6 +550,42 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
     res.json({ users: paged, total });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// POST /routers/:id/hotspot-users — add a single MikroTik hotspot user
+router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const { name, password, profile, comment, server, limitUptime, limitBytesTotal, macAddress } = req.body as {
+    name?: string; password?: string; profile?: string; comment?: string;
+    server?: string; limitUptime?: string; limitBytesTotal?: string; macAddress?: string;
+  };
+
+  if (!name?.trim())     { res.status(400).json({ error: "Le nom d'utilisateur est requis" }); return; }
+  if (!password?.trim()) { res.status(400).json({ error: "Le mot de passe est requis" }); return; }
+  if (!profile?.trim())  { res.status(400).json({ error: "Le profil est requis" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  try {
+    await addHotspotUser(conn, {
+      name: name.trim(),
+      password: password.trim(),
+      profile: profile.trim(),
+      comment: comment?.trim() || undefined,
+      server: server?.trim() || undefined,
+      limitUptime: limitUptime?.trim() || undefined,
+      limitBytesTotal: limitBytesTotal?.trim() || undefined,
+      macAddress: macAddress?.trim() || undefined,
+    });
+    res.status(201).json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Erreur MikroTik";
+    res.status(502).json({ error: msg });
   }
 });
 

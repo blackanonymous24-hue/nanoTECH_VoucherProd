@@ -433,6 +433,33 @@ export async function listHotspotUsers(conn: RouterConnection, timeout = 15000):
   }, timeout);
 }
 
+export interface AddHotspotUserOpts {
+  name: string;
+  password: string;
+  profile: string;
+  comment?: string;
+  server?: string;
+  limitUptime?: string;
+  limitBytesTotal?: string;
+  macAddress?: string;
+}
+
+export async function addHotspotUser(conn: RouterConnection, opts: AddHotspotUserOpts): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const params: string[] = [
+      `=name=${opts.name}`,
+      `=password=${opts.password}`,
+      `=profile=${opts.profile}`,
+    ];
+    if (opts.comment)         params.push(`=comment=${opts.comment}`);
+    if (opts.server)          params.push(`=server=${opts.server}`);
+    if (opts.limitUptime)     params.push(`=limit-uptime=${opts.limitUptime}`);
+    if (opts.limitBytesTotal) params.push(`=limit-bytes-total=${opts.limitBytesTotal}`);
+    if (opts.macAddress)      params.push(`=mac-address=${opts.macAddress}`);
+    await api.write("/ip/hotspot/user/add", params);
+  }, 10_000);
+}
+
 export async function listSessions(conn: RouterConnection): Promise<HotspotSession[]> {
   return withRouter(conn, async (api) => {
     const sessions = await api.write("/ip/hotspot/active/print");
