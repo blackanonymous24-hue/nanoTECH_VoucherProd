@@ -10,6 +10,12 @@ import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 
 const router = Router();
 
+/* ── In-memory TTL cache for admin period-sales (30s) ───────── */
+const _apscache = new Map<string, { data: unknown; exp: number }>();
+const APSC_TTL = 30_000;
+function apscGet(k: string) { const e = _apscache.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
+function apscSet(k: string, d: unknown) { _apscache.set(k, { data: d, exp: Date.now() + APSC_TTL }); }
+
 function buildTotals(vendorId: number) {
   return db.select({
     total:   count(),
@@ -537,6 +543,10 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Période invalide" }); return;
   }
 
+  const cacheKey = `${id}:${period}`;
+  const hit = apscGet(cacheKey);
+  if (hit) { res.json(hit); return; }
+
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
 
@@ -603,7 +613,7 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
 
   const revenue = enrichedVouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
-  res.json({
+  const result = {
     vendorName: vendor.name,
     period,
     label: labels[period!],
@@ -611,7 +621,9 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     revenue,
     byProfile,
     vouchers: enrichedVouchers,
-  });
+  };
+  apscSet(cacheKey, result);
+  res.json(result);
 });
 
 /* ─────────────────────────────────────────────────────────────────

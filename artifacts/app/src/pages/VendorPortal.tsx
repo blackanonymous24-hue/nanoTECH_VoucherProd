@@ -512,18 +512,21 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
   );
 }
 
-function PeriodReport({ token, period, onBack, hotspotName }: {
+function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
   token: string;
   period: "today" | "yesterday" | "week" | "month";
   onBack: () => void;
   hotspotName?: string | null;
+  initialData?: PeriodSalesData | null;
 }) {
-  const [data, setData] = useState<PeriodSalesData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<PeriodSalesData | null>(initialData ?? null);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
+    const hasInitial = !!initialData;
+    if (!hasInitial) setLoading(true);
     setError("");
     api(`/vendor-portal/me/period-sales?period=${period}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -532,9 +535,10 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
         if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
         return res.json();
       })
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled && !hasInitial) setError(e.message); })
+      .finally(() => { if (!cancelled && !hasInitial) setLoading(false); });
+    return () => { cancelled = true; };
   }, [token, period]);
 
   return (
@@ -806,6 +810,7 @@ function Dashboard({ token, vendor, onLogout }: {
   const [periodView,  setPeriodView]  = useState<"today" | "yesterday" | "week" | "month" | null>(null);
 
   const notifiedProfilesRef = useRef<Set<string>>(new Set());
+  const periodCacheRef = useRef<Map<string, PeriodSalesData>>(new Map());
 
   const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -826,12 +831,24 @@ function Dashboard({ token, vendor, onLogout }: {
     }
   }, [token, onLogout]);
 
+  const prefetchPeriods = useCallback(() => {
+    const periods = ["today", "yesterday", "week", "month"] as const;
+    periods.forEach(async (p) => {
+      try {
+        const res = await api(`/vendor-portal/me/period-sales?period=${p}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) periodCacheRef.current.set(p, await res.json());
+      } catch { /* ignore — best effort */ }
+    });
+  }, [token]);
+
   useEffect(() => {
-    fetchData(true);
+    fetchData(true).then(() => { prefetchPeriods(); });
     // Silent background refresh every 15s — no loading spinner shown
-    const id = setInterval(() => fetchData(false), 15_000);
+    const id = setInterval(() => { fetchData(false); prefetchPeriods(); }, 15_000);
     return () => clearInterval(id);
-  }, [fetchData]);
+  }, [fetchData, prefetchPeriods]);
 
   // Demander la permission de notification au montage
   useEffect(() => {
@@ -858,7 +875,7 @@ function Dashboard({ token, vendor, onLogout }: {
   }, [data]);
 
   if (periodView) {
-    return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} hotspotName={data?.hotspotName} />;
+    return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} hotspotName={data?.hotspotName} initialData={periodCacheRef.current.get(periodView)} />;
   }
 
   if (reportView) {

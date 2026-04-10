@@ -8,6 +8,12 @@ import { type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
+/* ── In-memory TTL cache for period-sales (30s) ─────────────── */
+const _pscache = new Map<string, { data: unknown; exp: number }>();
+const PSC_TTL = 30_000;
+function pscGet(k: string) { const e = _pscache.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
+function pscSet(k: string, d: unknown) { _pscache.set(k, { data: d, exp: Date.now() + PSC_TTL }); }
+
 function buildTotals(vendorId: number) {
   return db.select({
     total:   count(),
@@ -265,6 +271,10 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     res.status(400).json({ error: "Période invalide" }); return;
   }
 
+  const cacheKey = `${payload.vendorId}:${period}`;
+  const hit = pscGet(cacheKey);
+  if (hit) { res.json(hit); return; }
+
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
   if (!vendor || !vendor.isActive) { res.status(403).json({ error: "Compte introuvable ou désactivé" }); return; }
 
@@ -336,7 +346,9 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
 
-  res.json({ period, label: labels[period!], total: vouchers.length, revenue, byProfile, vouchers });
+  const result = { period, label: labels[period!], total: vouchers.length, revenue, byProfile, vouchers };
+  pscSet(cacheKey, result);
+  res.json(result);
 });
 
 /* ── PUT /vendor-portal/me/password ─────────────────────────────────── */
