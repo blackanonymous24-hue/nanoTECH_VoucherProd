@@ -905,6 +905,21 @@ export default function Vouchers() {
                         <Power className="h-3.5 w-3.5" />
                         Activer
                       </Button>
+                      {selectedUsernames.size === 1 && (() => {
+                        const selUser = filtered.find((u) => selectedUsernames.has(u.username)) ?? null;
+                        return selUser ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setConfirmResetUser(selUser)}
+                            disabled={isResetting}
+                            className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            Réinitialiser
+                          </Button>
+                        ) : null;
+                      })()}
                       <Button
                         size="sm"
                         variant="ghost"

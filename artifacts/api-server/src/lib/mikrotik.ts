@@ -985,17 +985,17 @@ export async function enableDisableHotspotUsers(
     const notFound = usernames.filter((u) => !found.has(u.toLowerCase()));
     const disabledVal = enable ? "no" : "yes";
 
-    if (toSet.length > 0) {
-      // Single batch command — RouterOS accepts comma-separated .id list
-      // e.g. =.id=*1,*2,*3 — works for any number of users instantly
+    // RouterOS 7.x API requires one set command per item; comma-separated IDs
+    // in a single command are unreliable across versions.
+    for (const id of toSet) {
       await api.write("/ip/hotspot/user/set", [
-        `=.id=${toSet.join(",")}`,
+        `=.id=${id}`,
         `=disabled=${disabledVal}`,
       ]);
     }
 
     return { done: toSet.length, notFound };
-  }, 30_000);   // 30 s is plenty — batch set is a single round-trip
+  }, 30_000);
 }
 
 /**
