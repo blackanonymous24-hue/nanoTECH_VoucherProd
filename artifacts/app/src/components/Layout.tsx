@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -74,7 +74,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
-  const { routerIdentity, selectedRouterId } = useRouterContext();
+  const { routerIdentity, selectedRouterId, routers } = useRouterContext();
   const { logout, role, token } = useAuth();
   const appNavigate = useAppNavigate();
 
@@ -124,6 +124,72 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [pwdError, setPwdError]       = useState("");
   const [pwdSuccess, setPwdSuccess]   = useState(false);
   const [pwdLoading, setPwdLoading]   = useState(false);
+
+  /* ── Add user dialog state (admin only) ── */
+  const [showAddUser, setShowAddUser]         = useState(false);
+  const [addUserType, setAddUserType]         = useState<"vendor" | "manager">("vendor");
+  const [addUserName, setAddUserName]         = useState("");
+  const [addUserPhone, setAddUserPhone]       = useState("");
+  const [addUserUsername, setAddUserUsername] = useState("");
+  const [addUserPassword, setAddUserPassword] = useState("");
+  const [addUserRouterId, setAddUserRouterId] = useState<string>("");
+  const [addUserCommission, setAddUserCommission] = useState("0");
+  const [addUserError, setAddUserError]       = useState("");
+  const [addUserSuccess, setAddUserSuccess]   = useState(false);
+  const [addUserLoading, setAddUserLoading]   = useState(false);
+
+  function openAddUserDialog() {
+    setAddUserType("vendor");
+    setAddUserName(""); setAddUserPhone(""); setAddUserUsername("");
+    setAddUserPassword(""); setAddUserRouterId(""); setAddUserCommission("0");
+    setAddUserError(""); setAddUserSuccess(false);
+    setShowAddUser(true);
+  }
+
+  async function handleAddUser() {
+    setAddUserError("");
+    if (!addUserName.trim()) { setAddUserError("Le nom est requis."); return; }
+    if (addUserType === "manager" && !addUserUsername.trim()) { setAddUserError("L'identifiant est requis pour un gérant."); return; }
+    if (addUserType === "manager" && addUserPassword.length < 4) { setAddUserError("Mot de passe requis (4 caractères minimum)."); return; }
+    if (addUserPassword && addUserPassword.length < 4) { setAddUserError("Le mot de passe doit comporter au moins 4 caractères."); return; }
+    setAddUserLoading(true);
+    try {
+      const endpoint = addUserType === "vendor" ? `${BASE}/api/vendors` : `${BASE}/api/managers`;
+      const body = addUserType === "vendor"
+        ? {
+            name: addUserName.trim(),
+            phone: addUserPhone.trim() || undefined,
+            username: addUserUsername.trim() || undefined,
+            password: addUserPassword || undefined,
+            routerId: addUserRouterId ? parseInt(addUserRouterId, 10) : undefined,
+            commissionRate: parseInt(addUserCommission, 10) || 0,
+          }
+        : {
+            name: addUserName.trim(),
+            username: addUserUsername.trim(),
+            password: addUserPassword,
+            routerId: addUserRouterId ? parseInt(addUserRouterId, 10) : undefined,
+          };
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        setAddUserError(data.error ?? "Erreur inconnue");
+      } else {
+        setAddUserSuccess(true);
+      }
+    } catch {
+      setAddUserError("Erreur réseau. Réessayez.");
+    } finally {
+      setAddUserLoading(false);
+    }
+  }
 
   function openPwdDialog() {
     setPwdCurrent(""); setPwdNew(""); setPwdConfirm("");
@@ -355,17 +421,30 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             <span />
           )}
 
-          {/* Modify password — managers only */}
-          {isManager && (
-            <button
-              onClick={openPwdDialog}
-              className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-amber-300 transition-colors px-2 py-1 rounded-lg hover:bg-amber-500/10 whitespace-nowrap"
-              title="Modifier mon mot de passe"
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-              <span>Mot de passe</span>
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            {/* Modify password — managers only */}
+            {isManager && (
+              <button
+                onClick={openPwdDialog}
+                className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-amber-300 transition-colors px-2 py-1 rounded-lg hover:bg-amber-500/10 whitespace-nowrap"
+                title="Modifier mon mot de passe"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                <span>Mot de passe</span>
+              </button>
+            )}
+            {/* Add user — admin only */}
+            {isAdmin && (
+              <button
+                onClick={openAddUserDialog}
+                className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-blue-300 transition-colors px-2 py-1 rounded-lg hover:bg-blue-500/10 whitespace-nowrap"
+                title="Ajouter un utilisateur"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                <span>Ajouter</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Logout */}
@@ -443,6 +522,169 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 </Button>
                 <Button onClick={() => void handleChangePwd()} disabled={pwdLoading}>
                   {pwdLoading ? "Enregistrement…" : "Enregistrer"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add user dialog (admin only) ── */}
+      <Dialog open={showAddUser} onOpenChange={(v) => { if (!v) setShowAddUser(false); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-blue-500" />
+              Ajouter un utilisateur
+            </DialogTitle>
+          </DialogHeader>
+
+          {addUserSuccess ? (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              </div>
+              <p className="text-sm font-medium text-emerald-700">
+                {addUserType === "vendor" ? "Vendeur" : "Gérant de zone"} créé avec succès !
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => { setAddUserSuccess(false); setAddUserName(""); setAddUserPhone(""); setAddUserUsername(""); setAddUserPassword(""); setAddUserRouterId(""); setAddUserCommission("0"); }}>
+                  Ajouter un autre
+                </Button>
+                <Button onClick={() => setShowAddUser(false)}>Fermer</Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3 py-1">
+                {/* Type selector */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Type d'utilisateur</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setAddUserType("vendor"); setAddUserError(""); }}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-all",
+                        addUserType === "vendor"
+                          ? "bg-blue-50 border-blue-400 text-blue-700"
+                          : "bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700",
+                      )}
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      Vendeur
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setAddUserType("manager"); setAddUserError(""); }}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-all",
+                        addUserType === "manager"
+                          ? "bg-amber-50 border-amber-400 text-amber-700"
+                          : "bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700",
+                      )}
+                    >
+                      <UserCog className="h-3.5 w-3.5" />
+                      Gérant de zone
+                    </button>
+                  </div>
+                </div>
+
+                {/* Nom */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Nom <span className="text-red-500">*</span></Label>
+                  <Input
+                    value={addUserName}
+                    onChange={(e) => setAddUserName(e.target.value)}
+                    placeholder={addUserType === "vendor" ? "Nom du vendeur" : "Nom du gérant"}
+                    className="h-9 text-sm"
+                  />
+                </div>
+
+                {/* Téléphone — vendeur seulement */}
+                {addUserType === "vendor" && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Téléphone</Label>
+                    <Input
+                      value={addUserPhone}
+                      onChange={(e) => setAddUserPhone(e.target.value)}
+                      placeholder="Ex: 77 000 00 00"
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                )}
+
+                {/* Identifiant */}
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    Identifiant {addUserType === "manager" && <span className="text-red-500">*</span>}
+                  </Label>
+                  <Input
+                    value={addUserUsername}
+                    onChange={(e) => setAddUserUsername(e.target.value)}
+                    placeholder={addUserType === "vendor" ? "Optionnel (sinon = téléphone)" : "Identifiant de connexion"}
+                    className="h-9 text-sm"
+                    autoComplete="username"
+                  />
+                </div>
+
+                {/* Mot de passe */}
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    Mot de passe {addUserType === "manager" && <span className="text-red-500">*</span>}
+                  </Label>
+                  <Input
+                    type="password"
+                    value={addUserPassword}
+                    onChange={(e) => setAddUserPassword(e.target.value)}
+                    placeholder={addUserType === "vendor" ? "Optionnel — 4 caractères min" : "4 caractères minimum"}
+                    className="h-9 text-sm"
+                    autoComplete="new-password"
+                  />
+                </div>
+
+                {/* Routeur */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Routeur assigné</Label>
+                  <Select value={addUserRouterId} onValueChange={setAddUserRouterId}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="— Aucun routeur —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— Aucun routeur —</SelectItem>
+                      {routers.map((r) => (
+                        <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Commission — vendeur seulement */}
+                {addUserType === "vendor" && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Taux de commission (%)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={addUserCommission}
+                      onChange={(e) => setAddUserCommission(e.target.value)}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                )}
+
+                {addUserError && (
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{addUserError}</p>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowAddUser(false)} disabled={addUserLoading}>
+                  Annuler
+                </Button>
+                <Button onClick={() => void handleAddUser()} disabled={addUserLoading}>
+                  {addUserLoading ? "Création…" : "Créer"}
                 </Button>
               </DialogFooter>
             </>
