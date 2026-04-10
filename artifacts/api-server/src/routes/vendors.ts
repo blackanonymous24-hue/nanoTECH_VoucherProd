@@ -939,28 +939,55 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     }
   }
 
-  // Build arrears: only finished weeks with remaining balance
+  // Build arrears: distribute payments oldest-first within each finished week
   const arrears: Record<string, { date: string; amount: number }[]> = {};
 
   for (const [vendorId, dayMap] of vendorDayMap) {
-    const commRate    = vendorCommMap.get(vendorId) ?? 0;
-    const wm          = vendorWeekMap.get(vendorId)!;
+    const commRate = vendorCommMap.get(vendorId) ?? 0;
+    const wm       = vendorWeekMap.get(vendorId)!;
+
+    // Group this vendor's days by week
+    const weekDaysMap = new Map<string, { date: string; amount: number }[]>();
+    for (const [date, amt] of dayMap) {
+      const ws = mondayOf(date);
+      if (!weekDaysMap.has(ws)) weekDaysMap.set(ws, []);
+      weekDaysMap.get(ws)!.push({ date, amount: amt });
+    }
+
     const vendorArr: { date: string; amount: number }[] = [];
 
-    for (const [date, dayAmt] of dayMap) {
-      const ws          = mondayOf(date);
-      const weekTotal   = wm.get(ws) ?? 0;
-      const commission  = commRate > 0 ? Math.round(weekTotal * commRate) / 100 : 0;
-      const expected    = Math.max(0, weekTotal - commission);
-      const paid        = paidByVendorWeek.get(`${vendorId}|${ws}`) ?? 0;
-      // Week must be fully over to confirm arrears
+    for (const [ws, days] of weekDaysMap) {
+      // Only finished weeks
       const weekEndTime = new Date(ws + "T00:00:00.000Z").getTime() + 7 * 24 * 60 * 60 * 1000;
-      const weekOver    = weekEndTime <= Date.now();
-      if (weekOver && expected > 0 && paid < expected) {
-        vendorArr.push({ date, amount: dayAmt });
+      if (weekEndTime > Date.now()) continue;
+
+      const weekTotal  = wm.get(ws) ?? 0;
+      const commission = commRate > 0 ? Math.round(weekTotal * commRate) / 100 : 0;
+      const expected   = Math.max(0, weekTotal - commission);
+      if (expected <= 0) continue;
+
+      // Available payment to distribute (capped at expected to avoid over-clearing)
+      let budget = Math.min(paidByVendorWeek.get(`${vendorId}|${ws}`) ?? 0, expected);
+      if (budget >= expected) continue; // fully paid week — no arrears
+
+      // Sort days oldest first and distribute budget
+      days.sort((a, b) => a.date.localeCompare(b.date));
+      for (const day of days) {
+        if (budget <= 0) {
+          vendorArr.push({ date: day.date, amount: day.amount });
+        } else if (budget >= day.amount) {
+          // This day is fully covered — remove from arrears
+          budget -= day.amount;
+        } else {
+          // Partially covered — show only the remaining amount
+          vendorArr.push({ date: day.date, amount: day.amount - budget });
+          budget = 0;
+        }
       }
     }
-    vendorArr.sort((a, b) => b.date.localeCompare(a.date));
+
+    // Sort oldest first (most urgent at top)
+    vendorArr.sort((a, b) => a.date.localeCompare(b.date));
     if (vendorArr.length > 0) arrears[String(vendorId)] = vendorArr;
   }
 
