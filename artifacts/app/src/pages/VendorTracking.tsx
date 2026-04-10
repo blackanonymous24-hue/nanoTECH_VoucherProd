@@ -157,79 +157,72 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
   if (win) { win.document.write(html); win.document.close(); }
 }
 
-/* ── Print helper: weekly report ─────────────────────────────── */
+/* ── Print helper: weekly report — un bloc par vendeur ──────── */
 function openWeekPrintWindow(data: DailyTrackingResponse) {
   const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
   const ws = data.weekSummary ?? [];
-  const totalCount  = ws.reduce((s, r) => s + r.count, 0);
   const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
   const totalPaid   = ws.reduce((s, r) => s + (r.paidAmount ?? 0), 0);
   const totalReste  = ws.reduce((s, r) => s + (r.remainingAmount ?? 0), 0);
   const totalComm   = ws.reduce((s, r) => s + (r.commission ?? 0), 0);
 
-  const rows = ws.map((s, i) => {
-    const expected = Math.max(0, s.amount - (s.commission ?? 0));
-    const paidPct = expected > 0 ? Math.round(((s.paidAmount ?? 0) / expected) * 100) + "%" : "—";
-    const statusTxt = statusBadge(s.paymentStatus).text;
-    const statusColor = s.paymentStatus === "full" ? "#065f46" : s.paymentStatus === "partial" ? "#92400e" : "#991b1b";
-    const statusBg    = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
-    return `<tr>
-      <td>${i + 1}</td>
-      <td>${s.vendorName}</td>
-      <td class="center">${s.count}</td>
-      <td class="right">${fmtAmount(s.amount)}</td>
-      <td class="right">${fmtAmount(s.paidAmount ?? 0)}</td>
-      <td class="right">${fmtAmount(s.remainingAmount ?? 0)}</td>
-      <td class="center">${paidPct}</td>
-      <td class="right">${s.commission ? fmtAmount(s.commission) : "—"}</td>
-      <td class="center"><span style="background:${statusBg};color:${statusColor};padding:2px 6px;border-radius:4px;font-size:9px;font-weight:bold">${statusTxt}</span></td>
-    </tr>`;
+  const vendorCards = ws.map((s) => {
+    const badge = statusBadge(s.paymentStatus);
+    const sColor = s.paymentStatus === "full" ? "#065f46" : s.paymentStatus === "partial" ? "#92400e" : "#991b1b";
+    const sBg    = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
+    const commRate = (s.commissionRate ?? 0);
+    const resteColor = (s.remainingAmount ?? 0) > 0 ? "#991b1b" : "inherit";
+    return `<div class="vcard">
+  <div class="vcard-header">
+    <span class="vname">${s.vendorName}</span>
+    <span class="vstatus" style="background:${sBg};color:${sColor}">${badge.text}</span>
+  </div>
+  <table>
+    <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
+    <tr><td>Versé</td><td class="val">${fmtAmount(s.paidAmount ?? 0)} FCFA</td></tr>
+    <tr><td>Reste à verser</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(s.remainingAmount ?? 0)} FCFA</td></tr>
+    <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
+    <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"}</td></tr>
+  </table>
+</div>`;
   }).join("");
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Rapport hebdomadaire vendeurs</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 10px; margin: 0; padding: 6mm; }
-  h2 { margin: 0 0 2px; font-size: 13px; }
-  p  { margin: 0 0 8px; font-size: 9px; color: #555; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-  th, td { border: 1px solid #ccc; padding: 3px 5px; }
-  th { background: #f0f0f0; font-weight: bold; text-align: left; font-size: 9px; }
-  tfoot td { font-weight: bold; background: #e8e8e8; }
-  .right { text-align: right; } .center { text-align: center; }
-  @page { size: A4 landscape; margin: 8mm; }
-  @media print { tr { page-break-inside: avoid; } }
+  h2 { margin: 0 0 3px; font-size: 13px; }
+  .subtitle { margin: 0 0 10px; font-size: 9px; color: #555; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .vcard { border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
+  .vcard-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+  .vname { font-weight: bold; font-size: 10px; color: #111; }
+  .vstatus { font-size: 8px; font-weight: bold; padding: 2px 6px; border-radius: 10px; }
+  .vcard table { width: 100%; border-collapse: collapse; }
+  .vcard td { padding: 3px 8px; border-bottom: 1px solid #f3f4f6; font-size: 9px; }
+  .vcard tr:last-child td { border-bottom: none; }
+  .val { text-align: right; font-weight: 600; color: #1f2937; }
+  .totals { margin-top: 10px; border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
+  .totals-header { padding: 4px 8px; background: #e0e7ff; font-weight: bold; font-size: 10px; color: #3730a3; border-bottom: 1px solid #c7d2fe; }
+  .totals table { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 3px 8px; font-size: 9px; border-bottom: 1px solid #f3f4f6; }
+  .totals tr:last-child td { border-bottom: none; }
+  .tval { text-align: right; font-weight: bold; color: #3730a3; }
+  @page { size: A4; margin: 8mm; }
+  @media print { .vcard, .totals { break-inside: avoid; } }
 </style></head><body>
 <h2>Rapport hebdomadaire — Suivi des vendeurs</h2>
-<p>Semaine : ${weekLabel} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
-<table>
-  <thead>
-    <tr>
-      <th style="width:24px">#</th>
-      <th>Vendeur</th>
-      <th class="center" style="width:60px">Vendu (nb)</th>
-      <th class="right" style="width:90px">Vendu (FCFA)</th>
-      <th class="right" style="width:90px">Versé (FCFA)</th>
-      <th class="right" style="width:90px">Reste (FCFA)</th>
-      <th class="center" style="width:50px">%</th>
-      <th class="right" style="width:90px">Rémunération</th>
-      <th class="center" style="width:110px">Statut</th>
-    </tr>
-  </thead>
-  <tbody>${rows}</tbody>
-  <tfoot>
-    <tr>
-      <td colspan="2" style="text-align:right">TOTAL SEMAINE</td>
-      <td class="center">${totalCount}</td>
-      <td class="right">${fmtAmount(totalAmount)}</td>
-      <td class="right">${fmtAmount(totalPaid)}</td>
-      <td class="right">${fmtAmount(totalReste)}</td>
-      <td></td>
-      <td class="right">${totalComm > 0 ? fmtAmount(totalComm) : "—"}</td>
-      <td></td>
-    </tr>
-  </tfoot>
-</table>
+<p class="subtitle">Semaine : ${weekLabel} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
+<div class="grid">${vendorCards}</div>
+<div class="totals">
+  <div class="totals-header">Totaux de la semaine</div>
+  <table>
+    <tr><td>Montant total vendu</td><td class="tval">${fmtAmount(totalAmount)} FCFA</td></tr>
+    <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} FCFA</td></tr>
+    <tr><td>Total reste</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
+    <tr><td>Total rémunérations</td><td class="tval">${totalComm > 0 ? fmtAmount(totalComm) + " FCFA" : "—"}</td></tr>
+  </table>
+</div>
 <script>window.onload = function() { window.print(); };</script>
 </body></html>`;
 
@@ -295,7 +288,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
   } finally { setSaving(false); }
 }
 
-/* ── Canvas JPEG: weekly ─────────────────────────────────────── */
+/* ── Canvas JPEG: weekly — grille de cartes par vendeur ─────── */
 function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => void) {
   setSaving(true);
   try {
@@ -303,107 +296,130 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
     if (ws.length === 0) { setSaving(false); return; }
 
     const DPR = 2;
-    const W = 820;
-    const PAD = 18;
-    const ROW_H = 30;
-    const HEAD_H = 38;
-    const BAND_H = 26;
-
-    // columns: # | Vendeur | Vendu(nb) | Vendu(FCFA) | Versé | Reste | % | Rémunération | Statut
-    const COL_NUM    = PAD;
-    const COL_VENDOR = PAD + 26;
-    const COL_QTY    = COL_VENDOR + 150;
-    const COL_FCFA   = COL_QTY + 55;
-    const COL_VERSE  = COL_FCFA + 90;
-    const COL_RESTE  = COL_VERSE + 90;
-    const COL_PCT    = COL_RESTE + 80;
-    const COL_REMUN  = COL_PCT + 52;
-    const COL_STATUT = COL_REMUN + 90;
-
-    const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
-    const titleH = 60;
-    const tableGap = 12;
-    const tableH = HEAD_H + BAND_H + ws.length * ROW_H + ROW_H;
-    const totalH = titleH + tableGap + tableH + PAD;
+    const PAD = 16;
+    const COLS = 2;
+    const CARD_GAP = 10;
+    const CARD_W_RAW = 350;
+    const W = PAD * 2 + COLS * CARD_W_RAW + (COLS - 1) * CARD_GAP;
+    const CARD_H = 140; // per card height
+    const ROW_COUNT = Math.ceil(ws.length / COLS);
+    const TITLE_H = 58;
+    const TOTAL_SECTION_H = 90;
+    const totalH = TITLE_H + ROW_COUNT * (CARD_H + CARD_GAP) + CARD_GAP + TOTAL_SECTION_H + PAD;
 
     const canvas = document.createElement("canvas");
     canvas.width = W * DPR; canvas.height = totalH * DPR;
     const ctx = canvas.getContext("2d")!;
     ctx.scale(DPR, DPR);
 
-    const rect = (x: number, y: number, w: number, h: number, fill: string) => { ctx.fillStyle = fill; ctx.fillRect(x, y, w, h); };
-    const line = (x1: number, y1: number, x2: number, y2: number, color = "#e5e7eb") => { ctx.strokeStyle = color; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
-    const txt = (str: string, x: number, y: number, { size = 10, bold = false, color = "#374151", align = "left" as CanvasTextAlign } = {}) => { ctx.font = `${bold ? "600" : "400"} ${size}px Inter,system-ui,sans-serif`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(str, x, y); };
+    const r = (x: number, y: number, w: number, h: number, fill: string, radius = 0) => {
+      ctx.fillStyle = fill;
+      if (radius > 0) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, radius);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x, y, w, h);
+      }
+    };
+    const ln = (x1: number, y1: number, x2: number, y2: number, color = "#e5e7eb", w = 0.5) => {
+      ctx.strokeStyle = color; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    };
+    const t = (str: string, x: number, y: number, { size = 10, bold = false, color = "#374151", align = "left" as CanvasTextAlign } = {}) => {
+      ctx.font = `${bold ? "600" : "400"} ${size}px Inter,system-ui,sans-serif`;
+      ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle";
+      ctx.fillText(str, x, y);
+    };
 
-    rect(0, 0, W, totalH, "#ffffff");
-    txt("Rapport hebdomadaire — Vendeurs", PAD, 18, { size: 13, bold: true, color: "#111827" });
-    txt("Semaine : " + weekLabel, PAD, 36, { size: 9, color: "#6b7280" });
-    txt("Généré le " + new Date().toLocaleString("fr-FR"), W - PAD, 36, { size: 9, color: "#9ca3af", align: "right" });
+    const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
 
-    let y = titleH + tableGap;
-    const right = W - PAD;
+    // Background
+    r(0, 0, W, totalH, "#ffffff");
 
-    rect(PAD, y, W - PAD * 2, HEAD_H, "#f9fafb");
-    line(PAD, y, right, y, "#e5e7eb");
-    txt("#",           COL_NUM + 4,    y + HEAD_H / 2, { size: 9, color: "#6b7280" });
-    txt("Vendeur",     COL_VENDOR,     y + HEAD_H / 2, { size: 9, color: "#6b7280" });
-    txt("Nb",          COL_QTY + 27,   y + HEAD_H / 2, { size: 9, color: "#6b7280", align: "center" });
-    txt("Vendu FCFA",  COL_FCFA + 85,  y + HEAD_H / 2, { size: 9, color: "#6b7280", align: "right" });
-    txt("Versé FCFA",  COL_VERSE + 85, y + HEAD_H / 2, { size: 9, color: "#6b7280", align: "right" });
-    txt("Reste FCFA",  COL_RESTE + 75, y + HEAD_H / 2, { size: 9, color: "#6b7280", align: "right" });
-    txt("%",           COL_PCT + 26,   y + HEAD_H / 2, { size: 9, color: "#6b7280", align: "center" });
-    txt("Rémunér.",    COL_REMUN + 85, y + HEAD_H / 2, { size: 9, color: "#6b7280", align: "right" });
-    txt("Statut",      COL_STATUT + 60,y + HEAD_H / 2, { size: 9, color: "#6b7280", align: "center" });
-    line(PAD, y + HEAD_H, right, y + HEAD_H, "#e5e7eb");
-    y += HEAD_H;
+    // Title
+    t("Rapport hebdomadaire — Vendeurs", PAD, 18, { size: 13, bold: true, color: "#111827" });
+    t("Semaine : " + weekLabel, PAD, 36, { size: 9, color: "#6b7280" });
+    t("Généré le " + new Date().toLocaleString("fr-FR"), W - PAD, 36, { size: 9, color: "#9ca3af", align: "right" });
 
-    rect(PAD, y, W - PAD * 2, BAND_H, "#eef2ff");
-    txt("Semaine : " + weekLabel, COL_NUM + 4, y + BAND_H / 2, { size: 9, bold: true, color: "#4338ca" });
-    y += BAND_H;
+    // Draw vendor cards
+    ws.forEach((s, i) => {
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
+      const cx = PAD + col * (CARD_W_RAW + CARD_GAP);
+      const cy = TITLE_H + row * (CARD_H + CARD_GAP);
+      const cw = CARD_W_RAW;
 
-    for (let i = 0; i < ws.length; i++) {
-      const s = ws[i];
-      const expected = Math.max(0, s.amount - (s.commission ?? 0));
-      const paidPct  = expected > 0 ? Math.round(((s.paidAmount ?? 0) / expected) * 100) + "%" : "—";
-      const bg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
-      rect(PAD, y, W - PAD * 2, ROW_H, bg);
-      txt(String(i + 1),                COL_NUM + 4,    y + ROW_H / 2, { size: 9, color: "#9ca3af" });
-      txt(s.vendorName,                 COL_VENDOR,     y + ROW_H / 2, { size: 9, color: "#1f2937" });
-      txt(String(s.count),              COL_QTY + 27,   y + ROW_H / 2, { size: 9, color: "#374151", align: "center" });
-      txt(fmtAmount(s.amount),          COL_FCFA + 85,  y + ROW_H / 2, { size: 9, bold: true, color: "#1f2937", align: "right" });
-      txt(fmtAmount(s.paidAmount ?? 0), COL_VERSE + 85, y + ROW_H / 2, { size: 9, color: "#374151", align: "right" });
-      txt(fmtAmount(s.remainingAmount ?? 0), COL_RESTE + 75, y + ROW_H / 2, { size: 9, color: s.remainingAmount ? "#b91c1c" : "#374151", align: "right" });
-      txt(paidPct,                      COL_PCT + 26,   y + ROW_H / 2, { size: 9, color: "#374151", align: "center" });
-      txt(s.commission ? fmtAmount(s.commission) : "—", COL_REMUN + 85, y + ROW_H / 2, { size: 9, color: "#374151", align: "right" });
+      const sColor = s.paymentStatus === "full" ? "#065f46" : s.paymentStatus === "partial" ? "#92400e" : "#991b1b";
+      const sBg    = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
+      const sBorder= s.paymentStatus === "full" ? "#6ee7b7" : s.paymentStatus === "partial" ? "#fcd34d" : "#fca5a5";
+      const sTxt   = statusBadge(s.paymentStatus).text;
+      const commRate = (s.commissionRate ?? 0);
 
-      const statusColor = s.paymentStatus === "full" ? "#065f46" : s.paymentStatus === "partial" ? "#92400e" : "#991b1b";
-      const statusBg2   = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
-      const statusTxt   = statusBadge(s.paymentStatus).text;
-      const sW = 100; const sX = COL_STATUT + 10; const sY = y + ROW_H / 2;
-      rect(sX, sY - 9, sW, 18, statusBg2);
-      ctx.strokeStyle = statusColor + "44"; ctx.lineWidth = 0.5; ctx.strokeRect(sX, sY - 9, sW, 18);
-      txt(statusTxt, sX + sW / 2, sY, { size: 8, bold: true, color: statusColor, align: "center" });
+      // Card background + border
+      r(cx, cy, cw, CARD_H, "#ffffff", 6);
+      ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(cx, cy, cw, CARD_H, 6); ctx.stroke();
 
-      line(PAD, y + ROW_H, right, y + ROW_H, "#f3f4f6");
-      y += ROW_H;
-    }
+      // Header bar
+      r(cx, cy, cw, 28, "#f9fafb", 6);
+      r(cx, cy + 14, cw, 14, "#f9fafb"); // flatten bottom of header
+      ln(cx, cy + 28, cx + cw, cy + 28);
+      t(s.vendorName, cx + 8, cy + 14, { size: 10, bold: true, color: "#111827" });
 
-    const totalCount  = ws.reduce((s, r) => s + r.count, 0);
-    const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
-    const totalPaid   = ws.reduce((s, r) => s + (r.paidAmount ?? 0), 0);
-    const totalReste  = ws.reduce((s, r) => s + (r.remainingAmount ?? 0), 0);
-    const totalComm   = ws.reduce((s, r) => s + (r.commission ?? 0), 0);
+      // Status badge
+      const badgeW = ctx.measureText(sTxt).width + 16;
+      r(cx + cw - badgeW - 6, cy + 5, badgeW, 18, sBg, 8);
+      ctx.strokeStyle = sBorder; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.roundRect(cx + cw - badgeW - 6, cy + 5, badgeW, 18, 8); ctx.stroke();
+      t(sTxt, cx + cw - badgeW / 2 - 6, cy + 14, { size: 8, bold: true, color: sColor, align: "center" });
 
-    rect(PAD, y, W - PAD * 2, ROW_H, "#f3f4f6");
-    txt("TOTAL SEMAINE",             COL_VENDOR,     y + ROW_H / 2, { size: 9, bold: true, color: "#6b7280" });
-    txt(String(totalCount),          COL_QTY + 27,   y + ROW_H / 2, { size: 10, bold: true, color: "#4338ca", align: "center" });
-    txt(fmtAmount(totalAmount),      COL_FCFA + 85,  y + ROW_H / 2, { size: 10, bold: true, color: "#4338ca", align: "right" });
-    txt(fmtAmount(totalPaid),        COL_VERSE + 85, y + ROW_H / 2, { size: 10, bold: true, color: "#4338ca", align: "right" });
-    txt(fmtAmount(totalReste),       COL_RESTE + 75, y + ROW_H / 2, { size: 10, bold: true, color: totalReste > 0 ? "#b91c1c" : "#4338ca", align: "right" });
-    txt(totalComm > 0 ? fmtAmount(totalComm) : "—", COL_REMUN + 85, y + ROW_H / 2, { size: 10, bold: true, color: "#4338ca", align: "right" });
+      // Rows
+      const rows: [string, string, string?][] = [
+        ["Montant vendu", fmtAmount(s.amount) + " FCFA"],
+        ["Versé",         fmtAmount(s.paidAmount ?? 0) + " FCFA"],
+        ["Reste à verser", fmtAmount(s.remainingAmount ?? 0) + " FCFA", (s.remainingAmount ?? 0) > 0 ? "#b91c1c" : "#6b7280"],
+        ["Commission",    commRate > 0 ? commRate + "%" : "—"],
+        ["Rémunération",  (s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"],
+      ];
+      const rowH = (CARD_H - 28) / rows.length;
+      rows.forEach(([label, val, valColor], ri) => {
+        const ry = cy + 28 + ri * rowH;
+        const bg = ri % 2 === 0 ? "#ffffff" : "#f9fafb";
+        r(cx, ry, cw, rowH, bg);
+        t(label, cx + 8, ry + rowH / 2, { size: 9, color: "#6b7280" });
+        t(val, cx + cw - 8, ry + rowH / 2, { size: 9, bold: true, color: (valColor as string) ?? "#1f2937", align: "right" });
+        if (ri < rows.length - 1) ln(cx + 8, ry + rowH, cx + cw - 8, ry + rowH, "#f3f4f6");
+      });
+    });
 
-    ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1;
-    ctx.strokeRect(PAD, titleH + tableGap, W - PAD * 2, y + ROW_H - (titleH + tableGap));
+    // Totals section
+    const totalAmount = ws.reduce((s, r2) => s + r2.amount, 0);
+    const totalPaid   = ws.reduce((s, r2) => s + (r2.paidAmount ?? 0), 0);
+    const totalReste  = ws.reduce((s, r2) => s + (r2.remainingAmount ?? 0), 0);
+    const totalComm   = ws.reduce((s, r2) => s + (r2.commission ?? 0), 0);
+    const ty = TITLE_H + ROW_COUNT * (CARD_H + CARD_GAP) + CARD_GAP;
+    const tw = W - PAD * 2;
+
+    r(PAD, ty, tw, 24, "#eef2ff", 6);
+    r(PAD, ty + 12, tw, 12, "#eef2ff");
+    ctx.strokeStyle = "#c7d2fe"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(PAD, ty, tw, TOTAL_SECTION_H - 10, 6); ctx.stroke();
+    t("Totaux de la semaine", PAD + 10, ty + 12, { size: 10, bold: true, color: "#3730a3" });
+    ln(PAD, ty + 24, PAD + tw, ty + 24, "#c7d2fe");
+
+    const totRows: [string, string, string?][] = [
+      ["Montant total vendu", fmtAmount(totalAmount) + " FCFA"],
+      ["Total versé",         fmtAmount(totalPaid) + " FCFA"],
+      ["Total reste",         fmtAmount(totalReste) + " FCFA", totalReste > 0 ? "#b91c1c" : "#3730a3"],
+      ["Total rémunérations", totalComm > 0 ? fmtAmount(totalComm) + " FCFA" : "—"],
+    ];
+    const totRowH = (TOTAL_SECTION_H - 34) / totRows.length;
+    totRows.forEach(([label, val, vc], ri) => {
+      const ry = ty + 24 + ri * totRowH;
+      t(label, PAD + 10, ry + totRowH / 2, { size: 9, color: "#6b7280" });
+      t(val, PAD + tw - 10, ry + totRowH / 2, { size: 9, bold: true, color: (vc as string) ?? "#3730a3", align: "right" });
+    });
 
     const link = document.createElement("a");
     link.download = `rapport-hebdo-${data.weekStart ?? "semaine"}.jpeg`;
@@ -650,70 +666,100 @@ export default function VendorTracking() {
               </div>
             )}
 
-            {/* ── Weekly summary table (semaine de la date filtrée) ── */}
+            {/* ── Weekly summary — cartes par vendeur ── */}
             {!isLoading && weekSummary.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-indigo-100">
-                <table className="w-full text-xs border-collapse min-w-[640px]">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="px-2 py-2 text-left text-gray-500 font-medium w-8">#</th>
-                      <th className="px-2 py-2 text-left text-gray-500 font-medium">Vendeur</th>
-                      <th className="px-2 py-2 text-center text-gray-500 font-medium w-14">Vendu</th>
-                      <th className="px-2 py-2 text-right text-gray-500 font-medium w-24">Montant</th>
-                      <th className="px-2 py-2 text-right text-gray-500 font-medium w-24">Versé</th>
-                      <th className="px-2 py-2 text-right text-gray-500 font-medium w-24">Reste</th>
-                      <th className="px-2 py-2 text-center text-gray-500 font-medium w-12">%</th>
-                      <th className="px-2 py-2 text-right text-gray-500 font-medium w-24">Rémunér.</th>
-                      <th className="px-2 py-2 text-center text-gray-500 font-medium w-32">Statut</th>
-                    </tr>
-                    <tr className="bg-indigo-50 border-b border-indigo-100">
-                      <th colSpan={9} className="px-3 py-1.5 text-left text-indigo-700 font-medium text-xs">
-                        Semaine — {weekLabelFromRange(data?.weekStart, data?.weekEnd)}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {weekSummary.map((s, i) => {
-                      const expected = Math.max(0, s.amount - (s.commission ?? 0));
-                      const badge = statusBadge(s.paymentStatus);
-                      const rowBg = s.paymentStatus === "full" ? "bg-emerald-50/40" : s.paymentStatus === "partial" ? "bg-amber-50/40" : "bg-red-50/30";
-                      return (
-                        <tr key={`week-${s.vendorId ?? "none"}`} className={`border-b border-gray-50 transition-colors ${rowBg}`}>
-                          <td className="px-2 py-2 text-gray-400 tabular-nums">{i + 1}</td>
-                          <td className="px-2 py-2 font-medium text-gray-800">{s.vendorName}</td>
-                          <td className="px-2 py-2 text-center tabular-nums text-gray-700 font-semibold">{s.count}</td>
-                          <td className="px-2 py-2 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums text-gray-700">{fmtAmount(s.paidAmount ?? 0)}</td>
-                          <td className={`px-2 py-2 text-right tabular-nums font-semibold ${(s.remainingAmount ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
-                            {fmtAmount(s.remainingAmount ?? 0)}
-                          </td>
-                          <td className="px-2 py-2 text-center tabular-nums text-gray-600">{pct(s.paidAmount ?? 0, expected)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums text-gray-600">
-                            {(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) : <span className="text-gray-300">—</span>}
-                          </td>
-                          <td className="px-2 py-2 text-center">
-                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${badge.cls}`}>
-                              {badge.icon && <AlertTriangle className="h-3 w-3 flex-shrink-0" />}
-                              {badge.text}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-gray-50 border-t border-gray-200 font-bold">
-                      <td colSpan={2} className="px-2 py-2 text-xs text-gray-500 text-right">Total semaine</td>
-                      <td className="px-2 py-2 text-center text-indigo-700 tabular-nums">{weekTotal_count}</td>
-                      <td className="px-2 py-2 text-right text-indigo-700 tabular-nums">{fmtAmount(weekTotal_amount)}</td>
-                      <td className="px-2 py-2 text-right text-indigo-700 tabular-nums">{fmtAmount(weekTotal_paid)}</td>
-                      <td className={`px-2 py-2 text-right tabular-nums ${weekTotal_reste > 0 ? "text-red-700" : "text-indigo-700"}`}>{fmtAmount(weekTotal_reste)}</td>
-                      <td />
-                      <td className="px-2 py-2 text-right text-indigo-700 tabular-nums">{weekTotal_comm > 0 ? fmtAmount(weekTotal_comm) : "—"}</td>
-                      <td />
-                    </tr>
-                  </tfoot>
-                </table>
+              <div className="space-y-2">
+                {/* Titre section */}
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                    Semaine — {weekLabelFromRange(data?.weekStart, data?.weekEnd)}
+                  </span>
+                  <span className="text-[10px] text-gray-400 tabular-nums">
+                    {fmtAmount(weekTotal_amount)} FCFA total · {fmtAmount(weekTotal_paid)} versé
+                  </span>
+                </div>
+
+                {/* Grille de cartes 2 colonnes */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {weekSummary.map((s) => {
+                    const badge = statusBadge(s.paymentStatus);
+                    const commRate = s.commissionRate ?? 0;
+                    const cardBorder = s.paymentStatus === "full"
+                      ? "border-emerald-200"
+                      : s.paymentStatus === "partial"
+                      ? "border-amber-200"
+                      : "border-red-200";
+
+                    return (
+                      <div key={`week-${s.vendorId ?? "none"}`} className={`rounded-lg border ${cardBorder} overflow-hidden text-xs`}>
+                        {/* Card header */}
+                        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+                          <span className="font-semibold text-gray-800 truncate mr-2">{s.vendorName}</span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold flex-shrink-0 ${badge.cls}`}>
+                            {badge.icon && <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0" />}
+                            {badge.text}
+                          </span>
+                        </div>
+                        {/* Card body */}
+                        <table className="w-full border-collapse">
+                          <tbody>
+                            <tr className="border-b border-gray-50">
+                              <td className="px-3 py-1.5 text-gray-500">Montant vendu</td>
+                              <td className="px-3 py-1.5 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
+                            </tr>
+                            <tr className="border-b border-gray-50 bg-gray-50/50">
+                              <td className="px-3 py-1.5 text-gray-500">Versé</td>
+                              <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(s.paidAmount ?? 0)} FCFA</td>
+                            </tr>
+                            <tr className="border-b border-gray-50">
+                              <td className="px-3 py-1.5 text-gray-500">Reste à verser</td>
+                              <td className={`px-3 py-1.5 text-right font-bold tabular-nums ${(s.remainingAmount ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
+                                {fmtAmount(s.remainingAmount ?? 0)} FCFA
+                              </td>
+                            </tr>
+                            <tr className="border-b border-gray-50 bg-gray-50/50">
+                              <td className="px-3 py-1.5 text-gray-500">Commission</td>
+                              <td className="px-3 py-1.5 text-right font-medium text-gray-600 tabular-nums">
+                                {commRate > 0 ? `${commRate}%` : <span className="text-gray-300">—</span>}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="px-3 py-1.5 text-gray-500">Rémunération</td>
+                              <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">
+                                {(s.commission ?? 0) > 0 ? `${fmtAmount(s.commission!)} FCFA` : <span className="text-gray-300">—</span>}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Totaux de la semaine */}
+                <div className="rounded-lg border border-indigo-100 overflow-hidden text-xs">
+                  <div className="px-3 py-1.5 bg-indigo-50 border-b border-indigo-100 text-indigo-700 font-semibold text-[10px] uppercase tracking-wide">
+                    Totaux de la semaine
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-gray-100">
+                    <div className="px-3 py-2">
+                      <p className="text-gray-400 text-[10px]">Vendu</p>
+                      <p className="font-bold text-gray-800 tabular-nums">{fmtAmount(weekTotal_amount)} <span className="font-normal text-gray-400">FCFA</span></p>
+                    </div>
+                    <div className="px-3 py-2">
+                      <p className="text-gray-400 text-[10px]">Versé</p>
+                      <p className="font-bold text-indigo-700 tabular-nums">{fmtAmount(weekTotal_paid)} <span className="font-normal text-gray-400">FCFA</span></p>
+                    </div>
+                    <div className="px-3 py-2">
+                      <p className="text-gray-400 text-[10px]">Reste</p>
+                      <p className={`font-bold tabular-nums ${weekTotal_reste > 0 ? "text-red-600" : "text-gray-400"}`}>{fmtAmount(weekTotal_reste)} <span className="font-normal text-gray-400">FCFA</span></p>
+                    </div>
+                    <div className="px-3 py-2">
+                      <p className="text-gray-400 text-[10px]">Rémunérations</p>
+                      <p className="font-bold text-gray-700 tabular-nums">{weekTotal_comm > 0 ? fmtAmount(weekTotal_comm) : "—"} {weekTotal_comm > 0 && <span className="font-normal text-gray-400">FCFA</span>}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
