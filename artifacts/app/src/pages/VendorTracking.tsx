@@ -11,6 +11,23 @@ import {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+/* ── Per-vendor color palette (deterministic by vendorId) ─── */
+const VENDOR_PALETTE = [
+  { light: "#eff6ff", border: "#93c5fd", mid: "#dbeafe", dark: "#1d4ed8" }, // blue
+  { light: "#f0fdf4", border: "#86efac", mid: "#dcfce7", dark: "#15803d" }, // green
+  { light: "#fdf4ff", border: "#d8b4fe", mid: "#f3e8ff", dark: "#7e22ce" }, // purple
+  { light: "#fff7ed", border: "#fdba74", mid: "#ffedd5", dark: "#c2410c" }, // orange
+  { light: "#f0fdfa", border: "#5eead4", mid: "#ccfbf1", dark: "#0f766e" }, // teal
+  { light: "#fefce8", border: "#fde047", mid: "#fef9c3", dark: "#a16207" }, // yellow
+  { light: "#fdf2f8", border: "#f9a8d4", mid: "#fce7f3", dark: "#be185d" }, // pink
+  { light: "#ecfeff", border: "#67e8f9", mid: "#cffafe", dark: "#0e7490" }, // cyan
+  { light: "#f5f3ff", border: "#c4b5fd", mid: "#ede9fe", dark: "#6d28d9" }, // violet
+  { light: "#fff1f2", border: "#fda4af", mid: "#ffe4e6", dark: "#be123c" }, // rose
+] as const;
+function vpal(vendorId: number | null) {
+  return VENDOR_PALETTE[(vendorId ?? 0) % VENDOR_PALETTE.length];
+}
+
 const MONTH_NAMES_FR = [
   "Janvier","Février","Mars","Avril","Mai","Juin",
   "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
@@ -142,6 +159,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   for (const list of profileMap.values()) list.sort((a, b) => b.amount - a.amount);
 
   const vendorCards = activeSummary.map((s) => {
+    const pal = vpal(s.vendorId);
     const profiles = profileMap.get(s.vendorId) ?? [];
     const arr = (arrears?.arrears[String(s.vendorId)] ?? []).filter(a => a.remaining > 0);
     const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
@@ -159,15 +177,16 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
     <span>Total dû (vendu + arriéré)</span><span>${fmtAmount(totalDu)} FCFA</span>
   </div>` : "";
     const hasArr = arr.length > 0;
-    return `<div class="vcard${hasArr ? " vcard-arr" : ""}">
-  <div class="vcard-header">
-    <span class="vname">${s.vendorName}</span>
-    <span class="vamount">${fmtAmount(s.amount)} FCFA</span>
+    const borderColor = hasArr ? "#fdba74" : pal.border;
+    return `<div class="vcard" style="border-color:${borderColor}">
+  <div class="vcard-header" style="background:${pal.light};border-color:${pal.border}">
+    <span class="vname" style="color:${pal.dark}">${s.vendorName}</span>
+    <span class="vamount" style="color:${pal.dark}">${fmtAmount(s.amount)} FCFA</span>
   </div>
   <table>
-    <thead><tr><th>Forfait</th><th class="center">Tkt</th><th class="right">Montant (FCFA)</th></tr></thead>
+    <thead><tr style="background:${pal.light}88"><th>Forfait</th><th class="center">Tkt</th><th class="right">Montant (FCFA)</th></tr></thead>
     <tbody>${profileRows}</tbody>
-    <tfoot><tr><td>Total vendu</td><td class="center">${s.count}</td><td class="right">${fmtAmount(s.amount)}</td></tr></tfoot>
+    <tfoot><tr style="background:${pal.mid};color:${pal.dark}"><td>Total vendu</td><td class="center">${s.count}</td><td class="right">${fmtAmount(s.amount)}</td></tr></tfoot>
   </table>${arrearsSection}
 </div>`;
   }).join("");
@@ -371,22 +390,23 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 
     let y = TITLE_H;
     dailySummary.forEach((s) => {
+      const pal = vpal(s.vendorId);
       const profiles = profileMap.get(s.vendorId) ?? [];
       const arr = vendorArrears(s.vendorId);
       const ch = cardH(s.vendorId);
       rf(PAD, y, CW, ch, "#ffffff", 6);
-      ctx.strokeStyle = arr.length > 0 ? "#fca5a5" : "#e2e8f0"; ctx.lineWidth = 1;
+      ctx.strokeStyle = arr.length > 0 ? "#fdba74" : pal.border; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(PAD, y, CW, ch, 6); ctx.stroke();
 
       // Header
-      rf(PAD, y, CW, CARD_HDR_H, "#eff6ff", [6, 6, 0, 0]);
-      t(s.vendorName, PAD + 10, y + CARD_HDR_H / 2, { size: 10, bold: true, color: "#1e40af" });
-      t(fmtAmount(s.amount) + " FCFA", C_AMT, y + CARD_HDR_H / 2, { size: 10, bold: true, color: "#1d4ed8", align: "right" });
-      ln(PAD, y + CARD_HDR_H, PAD + CW, y + CARD_HDR_H, "#dbeafe");
+      rf(PAD, y, CW, CARD_HDR_H, pal.light, [6, 6, 0, 0]);
+      t(s.vendorName, PAD + 10, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark });
+      t(fmtAmount(s.amount) + " FCFA", C_AMT, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark, align: "right" });
+      ln(PAD, y + CARD_HDR_H, PAD + CW, y + CARD_HDR_H, pal.border);
 
       // Column headers
       const hy = y + CARD_HDR_H;
-      rf(PAD, hy, CW, COL_HDR_H, "#f9fafb");
+      rf(PAD, hy, CW, COL_HDR_H, pal.light + "55");
       t("Forfait", C_PROF, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af" });
       t("Tkt", C_TKT, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af", align: "center" });
       t("Montant", C_AMT, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af", align: "right" });
@@ -404,10 +424,10 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
       });
 
       // Total row
-      rf(PAD, ry, CW, TOT_ROW_H, "#eff6ff");
-      t("Total", C_PROF, ry + TOT_ROW_H / 2, { size: 9, bold: true, color: "#1d4ed8" });
-      t(String(s.count), C_TKT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: "#1d4ed8", align: "center" });
-      t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: "#1d4ed8", align: "right" });
+      rf(PAD, ry, CW, TOT_ROW_H, pal.mid);
+      t("Total", C_PROF, ry + TOT_ROW_H / 2, { size: 9, bold: true, color: pal.dark });
+      t(String(s.count), C_TKT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: pal.dark, align: "center" });
+      t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: pal.dark, align: "right" });
       ry += TOT_ROW_H;
 
       // Arriérés rows
@@ -882,22 +902,27 @@ export default function VendorTracking() {
                     const currentArrears = allArrears.filter((a) => a.date >= currentWeekStart);
                     const prevTotal = prevArrears.reduce((sum, a) => sum + a.remaining, 0);
                     const hasArrears = prevTotal > 0 || currentArrears.length > 0;
+                    const pal = vpal(s.vendorId);
                     return (
                       <div
                         key={`day-${s.vendorId ?? "none"}`}
-                        className={`rounded-lg border overflow-hidden text-xs ${hasArrears ? "border-orange-300" : "border-gray-200"}`}
+                        className="rounded-lg border overflow-hidden text-xs"
+                        style={{ borderColor: hasArrears ? "#fdba74" : pal.border }}
                       >
                         {/* Card header */}
-                        <div className={`flex items-center justify-between px-3 py-2 border-b ${hasArrears ? "bg-orange-50 border-orange-200" : "bg-gray-50 border-gray-100"}`}>
-                          <span className="font-semibold text-gray-800 truncate mr-2">{s.vendorName}</span>
-                          <span className="font-bold text-blue-700 tabular-nums flex-shrink-0">
+                        <div
+                          className="flex items-center justify-between px-3 py-2 border-b"
+                          style={{ backgroundColor: pal.light, borderColor: pal.border }}
+                        >
+                          <span className="font-semibold truncate mr-2" style={{ color: pal.dark }}>{s.vendorName}</span>
+                          <span className="font-bold tabular-nums flex-shrink-0" style={{ color: pal.dark }}>
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
                         {/* Profile breakdown */}
                         <table className="w-full border-collapse">
                           <thead>
-                            <tr className="bg-gray-50/60">
+                            <tr style={{ backgroundColor: pal.light + "80" }}>
                               <th className="px-3 py-1 text-left text-[10px] text-gray-400 font-medium">Forfait</th>
                               <th className="px-3 py-1 text-center text-[10px] text-gray-400 font-medium w-14">Tkt</th>
                               <th className="px-3 py-1 text-right text-[10px] text-gray-400 font-medium">Montant</th>
@@ -912,10 +937,10 @@ export default function VendorTracking() {
                               </tr>
                             ))}
                             {/* Total row */}
-                            <tr className="border-t border-blue-100 bg-blue-50/50">
-                              <td className="px-3 py-1.5 font-semibold text-blue-700">Total</td>
-                              <td className="px-3 py-1.5 text-center font-bold text-blue-700 tabular-nums">{s.count}</td>
-                              <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
+                            <tr className="border-t" style={{ borderColor: pal.border, backgroundColor: pal.mid }}>
+                              <td className="px-3 py-1.5 font-semibold" style={{ color: pal.dark }}>Total</td>
+                              <td className="px-3 py-1.5 text-center font-bold tabular-nums" style={{ color: pal.dark }}>{s.count}</td>
+                              <td className="px-3 py-1.5 text-right font-bold tabular-nums" style={{ color: pal.dark }}>{fmtAmount(s.amount)} FCFA</td>
                             </tr>
                             {/* ── Arriérés semaine(s) précédente(s) — ligne agrégée ── */}
                             {prevTotal > 0 && (
