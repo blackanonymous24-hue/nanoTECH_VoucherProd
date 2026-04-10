@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 import {
@@ -495,11 +495,11 @@ export default function Routers() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <div className="flex flex-wrap gap-1 flex-shrink-0 w-[68px] justify-end">
                       {!isSelected && (
                         <Button
                           size="icon"
-                          className="h-8 w-8 bg-blue-600 hover:bg-blue-700 text-white flex-shrink-0"
+                          className="h-8 w-8 bg-blue-600 hover:bg-blue-700 text-white"
                           onClick={() => handleSelect(r.id)}
                           title="Sélectionner"
                         >
@@ -507,14 +507,12 @@ export default function Routers() {
                         </Button>
                       )}
                       <Button
-                        size="sm"
                         variant="outline"
-                        className="gap-1.5 text-blue-600 px-2.5"
+                        className="h-8 w-8 text-blue-600 text-xs font-medium p-0"
                         onClick={() => handleTest(r.id)}
                         disabled={testMutation.isPending}
                       >
-                        <TestTube className="h-3.5 w-3.5" />
-                        <span>Ping</span>
+                        Ping
                       </Button>
                       <Button
                         size="icon"
