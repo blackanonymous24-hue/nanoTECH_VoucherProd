@@ -495,24 +495,35 @@ export default function Routers() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
                       {!isSelected && (
                         <Button
-                          size="sm"
-                          className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                          size="icon"
+                          className="h-8 w-8 bg-blue-600 hover:bg-blue-700 text-white flex-shrink-0"
                           onClick={() => handleSelect(r.id)}
+                          title="Sélectionner"
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Sélectionner
+                          <CheckCircle2 className="h-4 w-4" />
                         </Button>
                       )}
                       <Button
                         size="sm"
                         variant="outline"
-                        className="gap-1.5 text-blue-600"
+                        className="gap-1.5 text-blue-600 px-2.5"
                         onClick={() => handleTest(r.id)}
                         disabled={testMutation.isPending}
                       >
-                        <TestTube className="h-3.5 w-3.5" /> Tester
+                        <TestTube className="h-3.5 w-3.5" />
+                        <span>Ping</span>
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-gray-400 hover:text-gray-700"
+                        onClick={() => openEdit(r)}
+                        title="Modifier"
+                      >
+                        <Edit className="h-4 w-4" />
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -521,9 +532,6 @@ export default function Routers() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="py-1.5 text-sm" onClick={() => openEdit(r)}>
-                            <Edit className="h-3.5 w-3.5 mr-2" /> Modifier
-                          </DropdownMenuItem>
                           <DropdownMenuItem className="py-1.5 text-sm" onClick={() => setProfileMergeRouterId(r.id)}>
                             <Layers className="h-3.5 w-3.5 mr-2" /> Profils en base
                           </DropdownMenuItem>
