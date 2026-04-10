@@ -160,7 +160,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
 /* ── Print helper: weekly report — un bloc par vendeur ──────── */
 function openWeekPrintWindow(data: DailyTrackingResponse) {
   const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
-  const ws = data.weekSummary ?? [];
+  const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
   const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
   const totalPaid   = ws.reduce((s, r) => s + (r.paidAmount ?? 0), 0);
   const totalReste  = ws.reduce((s, r) => s + (r.remainingAmount ?? 0), 0);
@@ -292,7 +292,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => void) {
   setSaving(true);
   try {
-    const ws = data.weekSummary ?? [];
+    const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
     if (ws.length === 0) { setSaving(false); return; }
 
     const DPR = 2;
@@ -681,7 +681,7 @@ export default function VendorTracking() {
 
                 {/* Grille de cartes 2 colonnes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {weekSummary.map((s) => {
+                  {[...weekSummary].sort((a, b) => b.amount - a.amount).map((s) => {
                     const badge = statusBadge(s.paymentStatus);
                     const commRate = s.commissionRate ?? 0;
                     const cardBorder = s.paymentStatus === "full"
