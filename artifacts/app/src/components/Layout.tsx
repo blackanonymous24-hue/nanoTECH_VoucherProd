@@ -461,7 +461,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* ── Desktop sidebar ── */}
       {!isMobile && (
-        <aside className="w-60 bg-[#0d1117] text-white flex-col flex-shrink-0 min-h-0 border-r border-white/[0.06] md:flex">
+        <aside className="w-60 bg-[#0d1117] text-white flex-col flex-shrink-0 border-r border-white/[0.06] md:flex sticky top-0 h-svh self-start">
           <NavContent />
         </aside>
       )}
