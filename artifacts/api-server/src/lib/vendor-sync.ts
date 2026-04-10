@@ -36,16 +36,17 @@ async function syncHistoricalScriptSalesToVendor(
 
     // Fetch existing voucher records for this router
     const existing = await db
-      .select({ username: vouchersTable.username, id: vouchersTable.id, vendorId: vouchersTable.vendorId })
+      .select({ username: vouchersTable.username, id: vouchersTable.id, vendorId: vouchersTable.vendorId, printedAt: vouchersTable.printedAt })
       .from(vouchersTable)
       .where(eq(vouchersTable.routerId, routerId));
 
-    const existingMap = new Map<string, { username: string; id: number; vendorId: number | null }>(
+    const existingMap = new Map<string, { username: string; id: number; vendorId: number | null; printedAt: Date | null }>(
       existing.map((e) => [e.username.toLowerCase(), e]),
     );
 
     const toInsert: (typeof vouchersTable.$inferInsert)[] = [];
     const toReattribute: number[] = [];
+    const toFix: { id: number; printedAt: Date; usedAt: Date; price: string; salePrice: string | null }[] = [];
 
     for (const entry of matched) {
       const key = entry.username.toLowerCase();
@@ -71,6 +72,15 @@ async function syncHistoricalScriptSalesToVendor(
         });
       } else if (found.vendorId !== vendorId) {
         toReattribute.push(found.id);
+      } else if (found.printedAt === null && !isNaN(entry.saleDate.getTime())) {
+        // Ticket exists but has no printedAt — fill it from the script cache
+        toFix.push({
+          id:        found.id,
+          printedAt: entry.saleDate,
+          usedAt:    entry.saleDate,
+          price:     entry.price || "",
+          salePrice: entry.price || null,
+        });
       }
     }
 
@@ -88,6 +98,15 @@ async function syncHistoricalScriptSalesToVendor(
         .set({ vendorId })
         .where(inArray(vouchersTable.id, toReattribute.slice(i, i + 200)));
       reattributed += Math.min(200, toReattribute.length - i);
+    }
+
+    // Repair vouchers that exist but are missing printedAt (previously untracked sales)
+    for (const fix of toFix) {
+      await db
+        .update(vouchersTable)
+        .set({ printedAt: fix.printedAt, usedAt: fix.usedAt, price: fix.price, salePrice: fix.salePrice })
+        .where(eq(vouchersTable.id, fix.id));
+      created++;
     }
 
     logger.info({ vendorId, routerId, matched: matched.length, created, reattributed },
