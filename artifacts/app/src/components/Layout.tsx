@@ -384,28 +384,40 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 const isActive = href === "/" ? location === "/" : location.startsWith(href);
                 const showVoucherBadge = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
                 return (
-                  <Link
-                    key={href}
-                    href={href}
-                    onClick={(e) => handleTabClick(href, e)}
-                    className={cn(
-                      "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
-                      isActive
-                        ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
-                        : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
+                  <div key={href}>
+                    <Link
+                      href={href}
+                      onClick={(e) => handleTabClick(href, e)}
+                      className={cn(
+                        "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                        isActive
+                          ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
+                          : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
+                      )}
+                    >
+                      <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
+                      <span className="flex-1 truncate">{label}</span>
+                      {showVoucherBadge && (
+                        <span className={cn(
+                          "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
+                          isActive ? "bg-blue-500/20 text-blue-300" : "bg-white/8 text-gray-400",
+                        )}>
+                          {voucherCount!.toLocaleString("fr-FR")}
+                        </span>
+                      )}
+                    </Link>
+                    {/* Ajouter un utilisateur hotspot — juste après Générer */}
+                    {href === "/generate" && (isAdmin || isManager) && (
+                      <button
+                        onClick={openAddUserDialog}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100"
+                        title="Ajouter un utilisateur hotspot"
+                      >
+                        <UserPlus className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                        <span className="flex-1 truncate text-left">Ajouter</span>
+                      </button>
                     )}
-                  >
-                    <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
-                    <span className="flex-1 truncate">{label}</span>
-                    {showVoucherBadge && (
-                      <span className={cn(
-                        "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
-                        isActive ? "bg-blue-500/20 text-blue-300" : "bg-white/8 text-gray-400",
-                      )}>
-                        {voucherCount!.toLocaleString("fr-FR")}
-                      </span>
-                    )}
-                  </Link>
+                  </div>
                 );
               })}
             </div>
