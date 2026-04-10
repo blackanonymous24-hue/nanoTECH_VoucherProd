@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, unique } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, unique, index } from "drizzle-orm/pg-core";
 import { routersTable } from "./routers.js";
 
 /**
@@ -26,6 +26,7 @@ export const scriptSalesTable = pgTable("mikrotik_script_sales", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique("uq_script_sales_router_raw").on(t.routerId, t.rawName),
+  index("idx_script_sales_router_date").on(t.routerId, t.saleDate),
 ]);
 
 export type ScriptSale = typeof scriptSalesTable.$inferSelect;

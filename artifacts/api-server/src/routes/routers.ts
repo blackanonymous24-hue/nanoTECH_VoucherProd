@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
-import { db, routersTable, vouchersTable } from "@workspace/db";
+import { db, routersTable, vouchersTable, scriptSalesTable } from "@workspace/db";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, resetHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
@@ -838,39 +838,50 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
 
 /**
  * GET /routers/:id/sales-report
- * Reads MikHMon sales scripts directly — mirrors selling.php filter logic.
+ * Serves MikHMon sales data from the local DB cache (mikrotik_script_sales).
  * Query params:
- *   ?year=2026&month=3       → monthly (owner filter)
- *   ?year=2026&month=3&day=5 → daily (owner + JS day filter)
- *   (none)                   → all history (?comment=mikhmon)
+ *   ?year=2026&month=3       → monthly
+ *   ?year=2026&month=3&day=5 → daily
+ *   (none)                   → all history
  */
 router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
-
-  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-
   const yearRaw  = req.query.year  ? parseInt(req.query.year  as string, 10) : null;
   const monthRaw = req.query.month ? parseInt(req.query.month as string, 10) : null;
   const dayRaw   = req.query.day   ? parseInt(req.query.day   as string, 10) : null;
 
-  let filter: Parameters<typeof fetchScriptSales>[1];
-  if (yearRaw && monthRaw && dayRaw) {
-    filter = { type: "day",   year: yearRaw, month: monthRaw, day: dayRaw };
-  } else if (yearRaw && monthRaw) {
-    filter = { type: "month", year: yearRaw, month: monthRaw };
-  } else {
-    filter = { type: "all" };
-  }
-
   try {
-    const entries = await fetchScriptSales(conn, filter, 60_000);
+    const conditions: ReturnType<typeof eq>[] = [eq(scriptSalesTable.routerId, id) as any];
+    if (yearRaw)  conditions.push(sql`EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yearRaw}` as any);
+    if (monthRaw) conditions.push(sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${monthRaw}` as any);
+    if (dayRaw)   conditions.push(sql`EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dayRaw}` as any);
+
+    const rows = await db
+      .select({
+        date:     sql<string>`to_char(${scriptSalesTable.saleDate} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+        time:     sql<string>`to_char(${scriptSalesTable.saleDate} AT TIME ZONE 'UTC', 'HH24:MI:SS')`,
+        username: scriptSalesTable.username,
+        price:    scriptSalesTable.price,
+        ip:       scriptSalesTable.ip,
+        mac:      scriptSalesTable.mac,
+        validity: scriptSalesTable.validity,
+        label:    scriptSalesTable.label,
+        batch:    scriptSalesTable.batch,
+      })
+      .from(scriptSalesTable)
+      .where(and(...conditions))
+      .orderBy(sql`${scriptSalesTable.saleDate} DESC`);
+
+    const entries = rows.map(({ price, ...rest }) => ({
+      ...rest,
+      price: parseFloat(price) || 0,
+    }));
+
     res.json(entries);
   } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Erreur MikroTik" });
+    res.status(500).json({ error: err?.message ?? "Erreur base de données" });
   }
 });
 
