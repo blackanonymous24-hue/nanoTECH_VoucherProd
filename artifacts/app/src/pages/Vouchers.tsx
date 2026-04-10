@@ -906,8 +906,9 @@ export default function Vouchers() {
                         Activer
                       </Button>
                       {selectedUsernames.size === 1 && (() => {
-                        const selUser = filtered.find((u) => selectedUsernames.has(u.username)) ?? null;
-                        return selUser ? (
+                        const username = [...selectedUsernames][0];
+                        const selUser = filtered.find((u) => u.username === username) ?? ({ username } as HotspotUser);
+                        return (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -918,7 +919,7 @@ export default function Vouchers() {
                             <RotateCcw className="h-3.5 w-3.5" />
                             Réinitialiser
                           </Button>
-                        ) : null;
+                        );
                       })()}
                       <Button
                         size="sm"

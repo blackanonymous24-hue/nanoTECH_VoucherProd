@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, and, ne, count, sql, isNotNull, ilike, inArray, gte, lte } from "drizzle-orm";
+import { eq, desc, and, ne, count, sql, isNotNull, isNull, ilike, inArray, gte, lte } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
@@ -241,7 +241,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
             routerId: vouchersTable.routerId,
           })
           .from(vouchersTable)
-          .where(eq(vouchersTable.vendorId, id));
+          .where(and(eq(vouchersTable.vendorId, id), isNull(vouchersTable.usedAt)));
 
         const byRouter = new Map<number, string[]>();
         for (const v of vouchers) {
