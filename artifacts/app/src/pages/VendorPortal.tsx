@@ -334,7 +334,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
           const byProfile = data.vouchers.reduce((acc, v) => {
             if (!acc[v.profileName]) acc[v.profileName] = { count: 0, revenue: 0 };
             acc[v.profileName].count++;
-            acc[v.profileName].revenue += parseFloat(v.price ?? "0") || 0;
+            acc[v.profileName].revenue += parseFloat(v.salePrice || v.price || "0") || 0;
             return acc;
           }, {} as Record<string, { count: number; revenue: number }>);
           return (
@@ -499,7 +499,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                         <td>{i + 1}</td>
                         <td style={{ fontFamily: "monospace" }}>{v.username}</td>
                         <td>{v.profileName}</td>
-                        <td>{v.price ?? "—"}</td>
+                        <td>{(v.salePrice || v.price) ?? "—"}</td>
                         <td>{v.printedAt ? new Date(v.printedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                       </tr>
                     ))}
@@ -626,7 +626,7 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                   {data.vouchers.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente enregistrée</p>
                   ) : (
-                    <div className="max-h-80 overflow-x-auto overflow-y-auto scroll-card">
+                    <div className="overflow-x-auto">
                       <table className="w-full min-w-[620px] text-xs border-collapse">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200">
@@ -743,7 +743,7 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                       <td>{i + 1}</td>
                       <td style={{ fontFamily: "monospace" }}>{v.username}</td>
                       <td>{v.profileName}</td>
-                      <td>{v.price ?? "—"}</td>
+                      <td>{(v.salePrice || v.price) ?? "—"}</td>
                       <td>{v.printedAt ? new Date(v.printedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                     </tr>
                   ))}
