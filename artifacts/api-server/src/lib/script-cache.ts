@@ -26,9 +26,9 @@ export interface CachedSaleDetail {
 /** In-memory flag: routers whose cache has been fully populated this process lifetime */
 const fullyPopulated = new Set<number>();
 
-/** Timestamp of last SUCCESSFUL full load per router — forces a new full load every 6 h */
+/** Timestamp of last SUCCESSFUL full load per router — forces a new full load every 1 h */
 const lastFullLoadAt = new Map<number, number>();
-const FULL_RELOAD_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const FULL_RELOAD_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 /**
  * Force the next syncScriptCache call for this router to do a full reload
