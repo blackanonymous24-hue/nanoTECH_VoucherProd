@@ -459,6 +459,27 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
   );
 }
 
+/* ── Per-vendor color palette (deterministic by vendorId) ─────────────── */
+const VENDOR_COLORS = [
+  { border: "border-orange-200",  header: "bg-orange-50 hover:bg-orange-100",   icon: "text-orange-500",  sub: "text-orange-600",  amount: "text-orange-700",  divide: "divide-orange-100"  },
+  { border: "border-blue-200",    header: "bg-blue-50 hover:bg-blue-100",       icon: "text-blue-500",    sub: "text-blue-600",    amount: "text-blue-700",    divide: "divide-blue-100"    },
+  { border: "border-violet-200",  header: "bg-violet-50 hover:bg-violet-100",   icon: "text-violet-500",  sub: "text-violet-600",  amount: "text-violet-700",  divide: "divide-violet-100"  },
+  { border: "border-teal-200",    header: "bg-teal-50 hover:bg-teal-100",       icon: "text-teal-500",    sub: "text-teal-600",    amount: "text-teal-700",    divide: "divide-teal-100"    },
+  { border: "border-rose-200",    header: "bg-rose-50 hover:bg-rose-100",       icon: "text-rose-500",    sub: "text-rose-600",    amount: "text-rose-700",    divide: "divide-rose-100"    },
+  { border: "border-amber-200",   header: "bg-amber-50 hover:bg-amber-100",     icon: "text-amber-500",   sub: "text-amber-600",   amount: "text-amber-700",   divide: "divide-amber-100"   },
+  { border: "border-indigo-200",  header: "bg-indigo-50 hover:bg-indigo-100",   icon: "text-indigo-500",  sub: "text-indigo-600",  amount: "text-indigo-700",  divide: "divide-indigo-100"  },
+  { border: "border-sky-200",     header: "bg-sky-50 hover:bg-sky-100",         icon: "text-sky-500",     sub: "text-sky-600",     amount: "text-sky-700",     divide: "divide-sky-100"     },
+  { border: "border-fuchsia-200", header: "bg-fuchsia-50 hover:bg-fuchsia-100", icon: "text-fuchsia-500", sub: "text-fuchsia-600", amount: "text-fuchsia-700", divide: "divide-fuchsia-100" },
+  { border: "border-cyan-200",    header: "bg-cyan-50 hover:bg-cyan-100",       icon: "text-cyan-500",    sub: "text-cyan-600",    amount: "text-cyan-700",    divide: "divide-cyan-100"    },
+  { border: "border-lime-200",    header: "bg-lime-50 hover:bg-lime-100",       icon: "text-lime-600",    sub: "text-lime-700",    amount: "text-lime-800",    divide: "divide-lime-100"    },
+  { border: "border-pink-200",    header: "bg-pink-50 hover:bg-pink-100",       icon: "text-pink-500",    sub: "text-pink-600",    amount: "text-pink-700",    divide: "divide-pink-100"    },
+] as const;
+
+function vendorColor(vendorId: string) {
+  const n = parseInt(vendorId, 10) || 0;
+  return VENDOR_COLORS[n % VENDOR_COLORS.length];
+}
+
 /* ── Daily arrears section ─────────────────────────────────────────── */
 function DailyArrearsSection({ routerId }: { routerId: number }) {
   const queryClient = useQueryClient();
@@ -570,23 +591,24 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
         const vendorName = vendorInfo[vid]?.name ?? `Vendeur ${vid}`;
         const vendorTotal = entries.reduce((s, e) => s + e.remaining, 0);
         const isOpen = expanded.has(vid);
+        const c = vendorColor(vid);
 
         return (
-          <div key={vid} className="border border-orange-200 rounded-lg overflow-hidden">
+          <div key={vid} className={`border ${c.border} rounded-lg overflow-hidden`}>
             {/* Vendor header */}
             <div
-              className="flex items-center justify-between px-3 py-2.5 bg-orange-50 cursor-pointer hover:bg-orange-100 transition-colors"
+              className={`flex items-center justify-between px-3 py-2.5 ${c.header} cursor-pointer transition-colors`}
               onClick={() => toggleExpand(vid)}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <AlertTriangle className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
+                <AlertTriangle className={`h-3.5 w-3.5 ${c.icon} flex-shrink-0`} />
                 <span className="font-semibold text-sm text-gray-800 truncate">{vendorName}</span>
-                <span className="text-[10px] text-orange-600 whitespace-nowrap">
+                <span className={`text-[10px] ${c.sub} whitespace-nowrap`}>
                   {entries.length} jour{entries.length > 1 ? "s" : ""}
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <span className="font-bold text-orange-700 text-sm tabular-nums">{fmtAmount(vendorTotal)} FCFA</span>
+                <span className={`font-bold ${c.amount} text-sm tabular-nums`}>{fmtAmount(vendorTotal)} FCFA</span>
                 <button
                   className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                   disabled={payLoading}
@@ -600,7 +622,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
 
             {/* Day entries */}
             {isOpen && (
-              <div className="divide-y divide-orange-100">
+              <div className={`divide-y ${c.divide}`}>
                 {entries.map((entry) => {
                   const pKey = `${vid}|${entry.date}`;
                   const isPaying = payingKey === pKey;
@@ -618,7 +640,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                           )}
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="text-xs font-bold text-orange-700 tabular-nums">{fmtAmount(entry.remaining)} FCFA</span>
+                          <span className={`text-xs font-bold ${c.amount} tabular-nums`}>{fmtAmount(entry.remaining)} FCFA</span>
                           {!isPaying && (
                             <>
                               <button
