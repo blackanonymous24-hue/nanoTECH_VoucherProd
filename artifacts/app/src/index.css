@@ -328,6 +328,13 @@
 .sidebar-nav::-webkit-scrollbar-thumb:hover { background: #334155; }
 .sidebar-nav { scrollbar-width: thin; scrollbar-color: #1e293b transparent; }
 
+/* ── Sidebar outer scrollbar — slim blue-tinted accent ── */
+.sidebar-scroll::-webkit-scrollbar { width: 4px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: #0d1117; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 999px; }
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #2563eb55; }
+.sidebar-scroll { scrollbar-width: thin; scrollbar-color: #1e3a5f #0d1117; }
+
 /* ── Scrollable card — thin styled scrollbar ── */
 .scroll-card::-webkit-scrollbar { width: 4px; }
 .scroll-card::-webkit-scrollbar-track { background: transparent; }
