@@ -437,9 +437,8 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
 
     const totRows: [string, string, string?][] = [
       ["Montant total vendu", fmtAmount(totalAmount) + " FCFA"],
-      ["Total versé",         fmtAmount(totalPaid) + " FCFA"],
+      ["Total versé",         fmtAmount(totalPaid + totalComm) + " FCFA"],
       ["Total reste",         fmtAmount(totalReste) + " FCFA", totalReste > 0 ? "#b91c1c" : "#3730a3"],
-      ["Total rémunérations", totalComm > 0 ? fmtAmount(totalComm) + " FCFA" : "—"],
     ];
     const totRowH = (TOTAL_SECTION_H - 34) / totRows.length;
     totRows.forEach(([label, val, vc], ri) => {
