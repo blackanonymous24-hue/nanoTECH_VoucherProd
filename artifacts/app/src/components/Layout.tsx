@@ -88,14 +88,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isVouchersPage = location.startsWith("/vouchers");
 
   const handleTabClick = (href: string, e: React.MouseEvent) => {
-    const isCurrentPage = href === "/" ? location === "/" : location.startsWith(href);
-    if (isCurrentPage) {
-      e.preventDefault();
-      window.location.reload();
-      return;
-    }
-    window.dispatchEvent(new CustomEvent("app:route-remount", { detail: { path: href } }));
-    onNavigate?.();
+    e.preventDefault();
+    window.location.href = BASE + href;
   };
 
   /* ── Low-stock alert: per-vendor per-profile granularity ── */
