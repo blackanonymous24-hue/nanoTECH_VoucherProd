@@ -249,28 +249,27 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
   const freshCached = getFreshProfileCache(id);
   const forceRefresh = String(req.query.refresh ?? "") === "1";
+  const staleCached = profileListCache.get(id)?.profiles ?? null;
 
-  if (freshCached && !forceRefresh) {
+  // Always return cached data immediately when available (even if ?refresh=1).
+  // Refresh in background so the caller never has to wait for MikroTik.
+  if (freshCached) {
+    if (forceRefresh) void fetchProfilesWithCache(id, conn).catch(() => undefined);
     res.json(freshCached);
     return;
   }
-
-  const staleCached = profileListCache.get(id)?.profiles ?? null;
-  if (staleCached && !forceRefresh) {
+  if (staleCached) {
     // Stale-while-revalidate: return instantly, refresh in background.
     void fetchProfilesWithCache(id, conn).catch(() => undefined);
     res.json(staleCached);
     return;
   }
 
+  // Cache is empty (first request after server start) — must wait for MikroTik.
   try {
     const fetched = await fetchProfilesWithCache(id, conn);
     res.json(fetched);
   } catch (err) {
-    if (staleCached) {
-      res.json(staleCached);
-      return;
-    }
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
 });
