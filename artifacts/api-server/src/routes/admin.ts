@@ -126,10 +126,4 @@ router.post("/admin/purge-phantoms", async (req, res): Promise<void> => {
   res.json({ results, totalDeleted });
 });
 
-router.get("/admin/setup-status", async (_req, res): Promise<void> => {
-  const admin = await getOrInitAdmin();
-  const isDefault = await verifyPassword("root", admin.passwordHash);
-  res.json({ needsSetup: isDefault });
-});
-
 export default router;

@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, ShieldAlert,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -11,7 +11,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
-import { useSetupStatus } from "@/hooks/use-setup-status";
 
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -453,22 +452,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function SetupWarningBanner() {
-  const { role } = useAuth();
-  const { data: setupStatus } = useSetupStatus();
-  if (role !== "admin" || !setupStatus?.needsSetup) return null;
-
-  return (
-    <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
-      <ShieldAlert className="h-4 w-4 text-amber-600 flex-shrink-0" />
-      <p className="text-xs font-medium text-amber-800 flex-1">
-        Le mot de passe administrateur par défaut (<code className="bg-amber-100 px-1 rounded font-mono">root</code>) n'a pas encore été changé.
-        Changez-le dès que possible pour sécuriser votre instance.
-      </p>
-    </div>
-  );
-}
-
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -536,18 +519,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* Main content */}
-            <main className="flex-1 overflow-y-auto flex flex-col min-h-0">
-              <SetupWarningBanner />
-              <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full flex-1">{children}</div>
+            <main className="flex-1 overflow-y-auto">
+              <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
             </main>
           </div>
         )}
 
         {/* Desktop main content (no drawer) */}
         {!isMobile && (
-          <main className="flex-1 overflow-y-auto flex flex-col min-h-0">
-            <SetupWarningBanner />
-            <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full flex-1">{children}</div>
+          <main className="flex-1 overflow-y-auto">
+            <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
           </main>
         )}
       </div>

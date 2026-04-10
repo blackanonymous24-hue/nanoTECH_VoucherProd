@@ -7,8 +7,6 @@ import { RouterProvider } from "@/contexts/RouterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
-import SetupWizard from "@/components/SetupWizard";
-import { useSetupStatus } from "@/hooks/use-setup-status";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
@@ -76,13 +74,6 @@ function AppRoutes() {
   const [routeReloadToken, setRouteReloadToken] = useState(0);
   const qc = useQueryClient();
   const prevLocationRef = useRef(location);
-  const { data: setupStatus, refetch: refetchSetupStatus } = useSetupStatus();
-  const needsSetup = isAuthenticated && role === "admin" && (setupStatus?.needsSetup ?? false);
-
-  function handleSetupComplete() {
-    void refetchSetupStatus();
-  }
-
   useEffect(() => {
     const onForceRemount = (event: Event) => {
       const customEvent = event as CustomEvent<{ path?: string }>;
@@ -133,7 +124,6 @@ function AppRoutes() {
 
   return (
     <RouterProvider>
-      <SetupWizard open={needsSetup} onComplete={handleSetupComplete} />
       <Layout>
         <Suspense fallback={<PageSkeleton />}>
           <Switch key={`${location}:${routeReloadToken}`}>
