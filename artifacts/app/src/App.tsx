@@ -24,6 +24,7 @@ const TicketTemplate = lazy(() => import("@/pages/TicketTemplate"));
 const Managers = lazy(() => import("@/pages/Managers"));
 const VendorTracking = lazy(() => import("@/pages/VendorTracking"));
 const VendorPayments = lazy(() => import("@/pages/VendorPayments"));
+const DailyPayments  = lazy(() => import("@/pages/DailyPayments"));
 const StockAlerts = lazy(() => import("@/pages/StockAlerts"));
 const Maintenance = lazy(() => import("@/pages/Maintenance"));
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -142,6 +143,7 @@ function AppRoutes() {
             <Route path="/sales/report" component={SellingReport} />
             <Route path="/vendors/tracking" component={VendorTracking} />
             <Route path="/vendors/versements" component={VendorPayments} />
+            <Route path="/vendors/versement-du-jour" component={DailyPayments} />
             <Route path="/ticket-template" component={TicketTemplate} />
             <Route path="/managers" component={Managers} />
             <Route path="/stock-alerts" component={StockAlerts} />
