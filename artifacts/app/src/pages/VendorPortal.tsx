@@ -24,7 +24,7 @@ import {
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
   User, RefreshCw, Clock, ChevronLeft, Search, Banknote, Printer, LogIn,
-  PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X,
+  PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
@@ -76,6 +76,8 @@ type VersementWeek = {
   payments: { id: number; amount: number; paidAt: string; note: string | null }[];
 };
 type VersementData = { weeks: VersementWeek[] };
+type DailyArrearsDay = { date: string; count: number; amount: number; paid: number; remaining: number };
+type DailyArrearsData = { days: DailyArrearsDay[] };
 type PeriodSalesData = {
   period: string;
   label: string;
@@ -762,6 +764,7 @@ function Dashboard({ token, vendor, onLogout }: {
 }) {
   const [data, setData] = useState<PortalData | null>(null);
   const [versData, setVersData] = useState<VersementData | null>(null);
+  const [arrearsData, setArrearsData] = useState<DailyArrearsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
@@ -817,13 +820,15 @@ function Dashboard({ token, vendor, onLogout }: {
     setError("");
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [res, versRes] = await Promise.all([
+      const [res, versRes, arrearsRes] = await Promise.all([
         api("/vendor-portal/me", { headers }),
         api("/vendor-portal/me/payments", { headers }),
+        api("/vendor-portal/me/daily-arrears", { headers }),
       ]);
       if (res.status === 401 || res.status === 403) { onLogout(); return; }
       setData(await res.json());
       if (versRes.ok) setVersData(await versRes.json());
+      if (arrearsRes.ok) setArrearsData(await arrearsRes.json());
     } catch {
       setError("Erreur lors du chargement des données");
     } finally {
@@ -1002,6 +1007,46 @@ function Dashboard({ token, vendor, onLogout }: {
                 </CardContent>
               </Card>
             </div>
+
+            {/* ── Arriérés journaliers ──────────────────────────────── */}
+            {arrearsData && arrearsData.days.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-orange-500" />
+                  <h3 className="text-sm font-semibold text-gray-700">Arriérés du jour correspondant</h3>
+                </div>
+                <Card className="border border-orange-200 bg-orange-50/20">
+                  <CardContent className="p-0">
+                    <div className="divide-y divide-orange-100">
+                      {arrearsData.days.map((d) => {
+                        const dateObj = new Date(d.date + "T00:00:00Z");
+                        const label = dateObj.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+                        return (
+                          <div key={d.date} className="flex items-center justify-between gap-2 px-4 py-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] font-semibold text-orange-600 bg-orange-100 border border-orange-200 rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0">
+                                Non versé
+                              </span>
+                              <span className="text-xs text-gray-600 capitalize truncate">{label}</span>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <span className="text-[10px] text-gray-400 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
+                              <span className="text-sm font-bold text-orange-700 tabular-nums">{fmtFcfa(d.remaining)} FCFA</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="border-t border-orange-200 bg-orange-50 flex items-center justify-between px-4 py-2 rounded-b-lg">
+                      <span className="text-xs font-semibold text-orange-700">Total arriérés</span>
+                      <span className="text-sm font-bold text-orange-700 tabular-nums">
+                        {fmtFcfa(arrearsData.days.reduce((s, d) => s + d.remaining, 0))} FCFA
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             {/* ── Versements ───────────────────────────────────────── */}
             {versData && versData.weeks.some((w) => w.count > 0 || w.payments.length > 0) && (

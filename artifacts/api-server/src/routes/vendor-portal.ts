@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, desc, ne, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
-import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, profilesCacheTable } from "@workspace/db";
+import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -474,6 +474,64 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
   }));
 
   res.json({ weeks: result });
+});
+
+/* ── GET /vendor-portal/me/daily-arrears ────────────────────────────── */
+router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const payload = verifyToken(auth.slice(7));
+  if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
+  if (!vendor || !vendor.isActive || !vendor.routerId) {
+    res.json({ days: [] }); return;
+  }
+
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const since = new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000);
+  const sinceStr = since.toISOString().slice(0, 10);
+
+  const [salesRows, paymentRows] = await Promise.all([
+    db.select({
+      date:   sql<string>`date(${vouchersTable.printedAt} at time zone 'UTC')::text`,
+      count:  sql<number>`count(*)::int`,
+      amount: sql<number>`greatest(coalesce(sum(nullif(${vouchersTable.salePrice},'')::numeric),0), coalesce(sum(nullif(${vouchersTable.price},'')::numeric),0))::int`,
+    })
+    .from(vouchersTable)
+    .where(and(
+      eq(vouchersTable.vendorId, vendor.id),
+      isNotNull(vouchersTable.printedAt),
+      sql`date(${vouchersTable.printedAt} at time zone 'UTC') >= ${sinceStr}::date`,
+      sql`date(${vouchersTable.printedAt} at time zone 'UTC') < ${todayStr}::date`,
+    ))
+    .groupBy(sql`date(${vouchersTable.printedAt} at time zone 'UTC')`)
+    .orderBy(sql`date(${vouchersTable.printedAt} at time zone 'UTC') desc`),
+
+    db.select({
+      date: vendorDailyPaymentsTable.date,
+      paid: sql<number>`sum(${vendorDailyPaymentsTable.amount})::int`,
+    })
+    .from(vendorDailyPaymentsTable)
+    .where(and(
+      eq(vendorDailyPaymentsTable.vendorId, vendor.id),
+      gte(vendorDailyPaymentsTable.date, sinceStr),
+      lt(vendorDailyPaymentsTable.date, todayStr),
+    ))
+    .groupBy(vendorDailyPaymentsTable.date),
+  ]);
+
+  const paidMap = new Map(paymentRows.map((p) => [p.date, Number(p.paid)]));
+
+  const days = salesRows
+    .map((d) => {
+      const paid = paidMap.get(d.date) ?? 0;
+      return { date: d.date, count: d.count, amount: d.amount, paid, remaining: Math.max(0, d.amount - paid) };
+    })
+    .filter((d) => d.remaining > 0);
+
+  res.json({ days });
 });
 
 export default router;

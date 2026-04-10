@@ -12,11 +12,25 @@ const PRINT_CSS = `
   }
 `;
 
-/**
- * Imprime des tickets HTML via un <iframe> invisible injecté dans la page.
- * Évite complètement le bloqueur de popups — aucune autorisation navigateur requise.
- */
-export function printTickets(htmlItems: string[], title: string): void {
+function isMobile(): boolean {
+  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+function buildHtml(htmlItems: string[], title: string, autoprint: boolean): string {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>${PRINT_CSS}</style>
+    ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
+  </head>
+  <body>${htmlItems.join("")}</body>
+</html>`;
+}
+
+function printWithIframe(html: string, title: string): void {
   const iframe = document.createElement("iframe");
   iframe.setAttribute("title", title);
   iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;visibility:hidden;";
@@ -27,16 +41,6 @@ export function printTickets(htmlItems: string[], title: string): void {
     document.body.removeChild(iframe);
     return;
   }
-
-  const html = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>${PRINT_CSS}</style>
-  </head>
-  <body>${htmlItems.join("")}</body>
-</html>`;
 
   doc.open();
   doc.write(html);
@@ -56,4 +60,32 @@ export function printTickets(htmlItems: string[], title: string): void {
       }, 2000);
     }
   }, 400);
+}
+
+function printWithNewWindow(html: string, title: string): void {
+  const win = window.open("", "_blank");
+  if (!win) {
+    printWithIframe(html, title);
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.document.title = title;
+}
+
+/**
+ * Imprime des tickets HTML.
+ * — Mobile : ouvre un nouvel onglet avec auto-print intégré (les iframes ne
+ *   déclenchent pas l'impression sur iOS Safari / Android).
+ * — Desktop : utilise un <iframe> invisible (évite le bloqueur de popups).
+ */
+export function printTickets(htmlItems: string[], title: string): void {
+  if (isMobile()) {
+    const html = buildHtml(htmlItems, title, true);
+    printWithNewWindow(html, title);
+  } else {
+    const html = buildHtml(htmlItems, title, false);
+    printWithIframe(html, title);
+  }
 }
