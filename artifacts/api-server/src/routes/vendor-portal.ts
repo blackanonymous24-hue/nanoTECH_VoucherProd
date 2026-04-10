@@ -523,13 +523,43 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   ]);
 
   const paidMap = new Map(paymentRows.map((p) => [p.date, Number(p.paid)]));
+  const salesMap = new Map(salesRows.map((d) => [d.date, d.amount]));
+
+  // Find the most recently settled week (Mon–Sun where all sale days are fully paid).
+  // Any dates before the start (Monday) of that week are hidden from the vendor.
+  function getMondayOf(dateStr: string): string {
+    const d = new Date(dateStr + "T00:00:00Z");
+    const dow = d.getUTCDay(); // 0=Sun
+    const diff = dow === 0 ? -6 : 1 - dow;
+    return new Date(d.getTime() + diff * 86_400_000).toISOString().slice(0, 10);
+  }
+
+  const weekMondaysSet = new Set<string>();
+  for (const row of salesRows) weekMondaysSet.add(getMondayOf(row.date));
+  const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
+
+  let cutoffDate: string | null = null;
+  for (const monday of weekMondays) {
+    const weekStart = new Date(monday + "T00:00:00Z");
+    let weekSettled = true;
+    let weekHasSales = false;
+    for (let i = 0; i < 7; i++) {
+      const dateStr = new Date(weekStart.getTime() + i * 86_400_000).toISOString().slice(0, 10);
+      const sales = salesMap.get(dateStr) ?? 0;
+      if (sales > 0) {
+        weekHasSales = true;
+        if ((paidMap.get(dateStr) ?? 0) < sales) { weekSettled = false; break; }
+      }
+    }
+    if (weekHasSales && weekSettled) { cutoffDate = monday; break; }
+  }
 
   const days = salesRows
     .map((d) => {
       const paid = paidMap.get(d.date) ?? 0;
       return { date: d.date, count: d.count, amount: d.amount, paid, remaining: Math.max(0, d.amount - paid) };
     })
-    .filter((d) => d.remaining > 0);
+    .filter((d) => d.remaining > 0 && (!cutoffDate || d.date >= cutoffDate));
 
   res.json({ days });
 });

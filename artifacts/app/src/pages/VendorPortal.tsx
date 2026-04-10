@@ -1013,7 +1013,7 @@ function Dashboard({ token, vendor, onLogout }: {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-orange-500" />
-                  <h3 className="text-sm font-semibold text-gray-700">Arriérés du jour correspondant</h3>
+                  <h3 className="text-sm font-semibold text-gray-700">Mes versements non effectués</h3>
                 </div>
                 <Card className="border border-orange-200 bg-orange-50/20">
                   <CardContent className="p-0">
