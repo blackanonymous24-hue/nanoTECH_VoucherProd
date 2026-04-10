@@ -115,7 +115,7 @@ function pct(paid: number, expected: number): string {
 }
 
 /* ── Print helper: daily ─────────────────────────────────────── */
-function openPrintWindow(data: DailyTrackingResponse, search: string) {
+function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: DailyArrearsResponse) {
   const dateFr = fmtDateFr(data.date);
   const vouchers = search.trim()
     ? data.vouchers.filter(
@@ -143,9 +143,19 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
 
   const vendorCards = activeSummary.map((s) => {
     const profiles = profileMap.get(s.vendorId) ?? [];
+    const arr = (arrears?.arrears[String(s.vendorId)] ?? []).filter(a => a.remaining > 0);
+    const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
     const profileRows = profiles.map(p => `
       <tr><td>${p.profileName}</td><td class="center">${p.count}</td><td class="right">${fmtAmount(p.amount)}</td></tr>`).join("");
-    return `<div class="vcard">
+    const arrearsSection = arr.length > 0 ? `
+  <div class="arr-header">
+    <span>Arriérés</span><span>${fmtAmount(arrTotal)} FCFA</span>
+  </div>
+  <table class="arr-table">
+    <tbody>${arr.map(a => `<tr><td>${fmtDateFr(a.date)}</td><td class="right">${fmtAmount(a.remaining)} FCFA</td></tr>`).join("")}</tbody>
+  </table>` : "";
+    const hasArr = arr.length > 0;
+    return `<div class="vcard${hasArr ? " vcard-arr" : ""}">
   <div class="vcard-header">
     <span class="vname">${s.vendorName}</span>
     <span class="vamount">${fmtAmount(s.amount)} FCFA</span>
@@ -154,7 +164,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
     <thead><tr><th>Forfait</th><th class="center">Tkt</th><th class="right">Montant (FCFA)</th></tr></thead>
     <tbody>${profileRows}</tbody>
     <tfoot><tr><td>Total</td><td class="center">${s.count}</td><td class="right">${fmtAmount(s.amount)}</td></tr></tfoot>
-  </table>
+  </table>${arrearsSection}
 </div>`;
   }).join("");
 
@@ -181,6 +191,11 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
   .vcard th { background: #f9fafb; font-weight: 600; color: #6b7280; text-align: left; }
   .vcard tfoot td { background: #eff6ff; font-weight: bold; color: #1d4ed8; border-top: 1px solid #bfdbfe; border-bottom: none; }
   .vcard tr:last-child td { border-bottom: none; }
+  .vcard-arr { border-color: #fca5a5; }
+  .arr-header { display: flex; justify-content: space-between; padding: 3px 6px; background: #fef2f2; border-top: 1px solid #fca5a5; font-size: 8px; font-weight: bold; color: #b91c1c; }
+  .arr-table { width: 100%; border-collapse: collapse; }
+  .arr-table td { padding: 2px 6px; font-size: 8px; color: #ef4444; border-bottom: 1px solid #fee2e2; }
+  .arr-table tr:last-child td { border-bottom: none; }
   .detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
   .detail-table th, .detail-table td { border: 1px solid #d1d5db; padding: 3px 5px; font-size: 9px; }
   .detail-table th { background: #f0f0f0; font-weight: bold; text-align: left; }
@@ -285,12 +300,13 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
 }
 
 /* ── Canvas JPEG: daily ──────────────────────────────────────── */
-function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSaving: (v: boolean) => void) {
+function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSaving: (v: boolean) => void, arrears?: DailyArrearsResponse) {
   setSaving(true);
   try {
     const DPR = 2; const W = 430; const PAD = 16;
     const TITLE_H = 52; const CARD_GAP = 8;
-    const CARD_HDR_H = 28; const COL_HDR_H = 18; const ROW_H = 20; const TOT_ROW_H = 24; const FOOTER_H = 32;
+    const CARD_HDR_H = 28; const COL_HDR_H = 18; const ROW_H = 20; const TOT_ROW_H = 24;
+    const ARR_HDR_H = 20; const ARR_ROW_H = 18; const FOOTER_H = 32;
 
     const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
     const dateFr = fmtDateFr(appliedDate);
@@ -306,9 +322,14 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     }
     for (const list of profileMap.values()) list.sort((a, b) => b.amount - a.amount);
 
+    const vendorArrears = (vendorId: number | null) =>
+      (arrears?.arrears[String(vendorId)] ?? []).filter(a => a.remaining > 0);
+
     const cardH = (vendorId: number | null) => {
       const n = (profileMap.get(vendorId) ?? []).length;
-      return CARD_HDR_H + COL_HDR_H + n * ROW_H + TOT_ROW_H;
+      const arr = vendorArrears(vendorId);
+      const arrH = arr.length > 0 ? ARR_HDR_H + arr.length * ARR_ROW_H : 0;
+      return CARD_HDR_H + COL_HDR_H + n * ROW_H + TOT_ROW_H + arrH;
     };
     const grandCount  = dailySummary.reduce((s, r) => s + r.count, 0);
     const grandAmount = dailySummary.reduce((s, r) => s + r.amount, 0);
@@ -346,9 +367,10 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     let y = TITLE_H;
     dailySummary.forEach((s) => {
       const profiles = profileMap.get(s.vendorId) ?? [];
+      const arr = vendorArrears(s.vendorId);
       const ch = cardH(s.vendorId);
       rf(PAD, y, CW, ch, "#ffffff", 6);
-      ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1;
+      ctx.strokeStyle = arr.length > 0 ? "#fca5a5" : "#e2e8f0"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(PAD, y, CW, ch, 6); ctx.stroke();
 
       // Header
@@ -381,13 +403,31 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
       t("Total", C_PROF, ry + TOT_ROW_H / 2, { size: 9, bold: true, color: "#1d4ed8" });
       t(String(s.count), C_TKT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: "#1d4ed8", align: "center" });
       t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: "#1d4ed8", align: "right" });
+      ry += TOT_ROW_H;
+
+      // Arriérés rows
+      if (arr.length > 0) {
+        const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
+        rf(PAD, ry, CW, ARR_HDR_H, "#fef2f2");
+        ln(PAD, ry, PAD + CW, ry, "#fca5a5");
+        t("Arriérés", C_PROF, ry + ARR_HDR_H / 2, { size: 8, bold: true, color: "#b91c1c" });
+        t(fmtAmount(arrTotal) + " FCFA", C_AMT, ry + ARR_HDR_H / 2, { size: 9, bold: true, color: "#b91c1c", align: "right" });
+        ry += ARR_HDR_H;
+        arr.forEach((a, ai) => {
+          rf(PAD, ry, CW, ARR_ROW_H, ai % 2 === 0 ? "#fff7f7" : "#fef2f2");
+          t(fmtDateFr(a.date), C_PROF, ry + ARR_ROW_H / 2, { size: 8, color: "#ef4444" });
+          t(fmtAmount(a.remaining) + " FCFA", C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: "#b91c1c", align: "right" });
+          ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#fee2e2");
+          ry += ARR_ROW_H;
+        });
+      }
 
       y += ch + CARD_GAP;
     });
 
     // Footer total bar
     rf(PAD, y, CW, FOOTER_H, "#1e3a8a", 6);
-    t("TOTAL JOUR", PAD + 10, y + FOOTER_H / 2, { size: 10, bold: true, color: "#ffffff" });
+    t("TOTAL", PAD + 10, y + FOOTER_H / 2, { size: 10, bold: true, color: "#ffffff" });
     t(String(grandCount) + " ticket" + (grandCount !== 1 ? "s" : ""), W / 2, y + FOOTER_H / 2, { size: 9, bold: true, color: "#93c5fd", align: "center" });
     t(fmtAmount(grandAmount) + " FCFA", C_AMT, y + FOOTER_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
 
@@ -596,8 +636,8 @@ export default function VendorTracking() {
 
   const handleSaveDailyJpeg = useCallback(() => {
     if (!data) return;
-    saveJpegDaily(data, applied, setSaving);
-  }, [applied, data]);
+    saveJpegDaily(data, applied, setSaving, arrearsData);
+  }, [applied, data, arrearsData]);
 
   const handleSaveWeekJpeg = useCallback(() => {
     if (!prevWeekData) return;
@@ -754,7 +794,7 @@ export default function VendorTracking() {
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
               </Button>
               {/* Daily print */}
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!data || grandCount === 0} onClick={() => data && openPrintWindow(data, search)}>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!data || grandCount === 0} onClick={() => data && openPrintWindow(data, search, arrearsData)}>
                 <Printer className="h-3.5 w-3.5" /> Imprimer
               </Button>
               {/* Hebdo JPEG */}
