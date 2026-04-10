@@ -1005,7 +1005,10 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     if (vendorArr.length > 0) arrears[String(vendorId)] = vendorArr;
   }
 
-  res.json({ arrears });
+  const vendorInfoMap: Record<string, { name: string }> = {};
+  for (const v of vendors) vendorInfoMap[String(v.id)] = { name: v.name };
+
+  res.json({ arrears, vendorInfo: vendorInfoMap });
 });
 
 /* ─────────────────────────────────────────────────────────────────────────

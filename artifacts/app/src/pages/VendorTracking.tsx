@@ -84,6 +84,16 @@ interface DailyArrearEntry {
 
 interface DailyArrearsResponse {
   arrears: Record<string, DailyArrearEntry[]>;
+  vendorInfo?: Record<string, { name: string }>;
+}
+
+/** Returns YYYY-MM-DD of Monday of the week containing the given iso date (UTC) */
+function mondayOfDate(iso: string): string {
+  const d = new Date(iso + "T00:00:00Z");
+  const day = d.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
 }
 
 function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
@@ -574,6 +584,28 @@ export default function VendorTracking() {
     }
   }, [selectedRouterId, applied, queryClient]);
 
+  /** Solder en intégralité tous les arriérés passés (avant la semaine en cours) pour un vendeur */
+  const solderPrevArrears = useCallback(async (vendorId: number | null, prevEntries: DailyArrearEntry[]) => {
+    if (!vendorId || !selectedRouterId || prevEntries.length === 0) return;
+    setPayLoading(true);
+    try {
+      await Promise.all(
+        prevEntries
+          .filter((e) => e.remaining > 0)
+          .map((e) =>
+            fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ routerId: selectedRouterId, date: e.date, amount: Math.round(e.remaining) }),
+            })
+          )
+      );
+      await queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, applied] });
+    } finally {
+      setPayLoading(false);
+    }
+  }, [selectedRouterId, applied, queryClient]);
+
   if (!selectedRouterId) {
     return (
       <div className="p-6">
@@ -748,8 +780,13 @@ export default function VendorTracking() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {activeSummary.map((s) => {
                     const profiles = dailyProfileMap.get(s.vendorId) ?? [];
-                    const vendorArrears = arrearsData?.arrears[String(s.vendorId)] ?? [];
-                    const hasArrears = vendorArrears.length > 0;
+                    const allArrears = arrearsData?.arrears[String(s.vendorId)] ?? [];
+                    const currentWeekStart = mondayOfDate(applied);
+                    // Split arriérés: previous weeks vs current week
+                    const prevArrears = allArrears.filter((a) => a.date < currentWeekStart);
+                    const currentArrears = allArrears.filter((a) => a.date >= currentWeekStart);
+                    const prevTotal = prevArrears.reduce((sum, a) => sum + a.remaining, 0);
+                    const hasArrears = prevTotal > 0 || currentArrears.length > 0;
                     return (
                       <div
                         key={`day-${s.vendorId ?? "none"}`}
@@ -785,8 +822,34 @@ export default function VendorTracking() {
                               <td className="px-3 py-1.5 text-center font-bold text-blue-700 tabular-nums">{s.count}</td>
                               <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
                             </tr>
-                            {/* Arriérés */}
-                            {vendorArrears.map((arr) => {
+                            {/* ── Arriérés semaine(s) précédente(s) — ligne agrégée ── */}
+                            {prevTotal > 0 && (
+                              <tr className="border-t-2 border-red-300 bg-red-50">
+                                <td colSpan={3} className="px-3 py-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-red-500" />
+                                      <div className="min-w-0">
+                                        <span className="text-xs font-semibold text-red-700">Arriérés sem. précédente</span>
+                                        <span className="text-[10px] text-red-500 ml-1">({prevArrears.length} jour{prevArrears.length > 1 ? "s" : ""})</span>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                                      <span className="text-xs font-bold text-red-700 tabular-nums">{fmtAmount(prevTotal)} FCFA</span>
+                                      <button
+                                        className="text-[10px] px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                                        disabled={payLoading}
+                                        onClick={() => solderPrevArrears(s.vendorId, prevArrears)}
+                                      >
+                                        {payLoading ? "…" : "Solder tout"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                            {/* ── Arriérés semaine en cours — lignes individuelles ── */}
+                            {currentArrears.map((arr) => {
                               const pKey = `${s.vendorId}|${arr.date}`;
                               const isPaying = payingKey === pKey;
                               return (
