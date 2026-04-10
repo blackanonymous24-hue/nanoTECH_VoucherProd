@@ -88,8 +88,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isVouchersPage = location.startsWith("/vouchers");
 
   const handleTabClick = (href: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    window.location.href = BASE + href;
+    const isCurrentPage = href === "/" ? location === "/" : location.startsWith(href);
+    if (isCurrentPage) {
+      e.preventDefault();
+      window.location.reload();
+      return;
+    }
+    onNavigate?.();
   };
 
   /* ── Low-stock alert: per-vendor per-profile granularity ── */
