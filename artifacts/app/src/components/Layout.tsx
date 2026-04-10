@@ -24,27 +24,29 @@ import { Label } from "@/components/ui/label";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-function RouterSelector({ className }: { className?: string }) {
+function RouterSelector({ className, compact }: { className?: string; compact?: boolean }) {
   const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked } = useRouterContext();
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div className={cn("flex items-center gap-2 min-w-0", className)}>
       {isRouterLocked ? (
-        /* Locked: show router name as read-only badge */
-        <div className="flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-white/5 border border-white/10 text-xs text-gray-200 min-w-0">
+        <div className="flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-white/5 border border-white/10 text-xs text-gray-200 min-w-0 flex-1">
           <Router className="h-3 w-3 text-gray-400 flex-shrink-0" />
           <span className="truncate">{selectedRouter?.name ?? "Routeur assigné"}</span>
           <span className="ml-0.5 text-[9px] text-amber-400 font-medium flex-shrink-0">🔒</span>
         </div>
       ) : routersLoading && routers.length === 0 ? (
-        <div className="h-8 w-32 bg-white/5 rounded-md animate-pulse" />
+        <div className="h-8 w-32 bg-white/5 rounded-md animate-pulse flex-1" />
       ) : (
         <Select
           value={selectedRouterId ? String(selectedRouterId) : ""}
           onValueChange={(v) => setSelectedRouterId(v ? parseInt(v, 10) : null)}
           disabled={routers.length === 0}
         >
-          <SelectTrigger className="h-8 text-xs bg-white/5 border-white/10 text-gray-200 hover:bg-white/10 focus:ring-0 focus:ring-offset-0 disabled:opacity-40 transition-colors">
+          <SelectTrigger className={cn(
+            "h-8 text-xs bg-white/5 border-white/10 text-gray-200 hover:bg-white/10 focus:ring-0 focus:ring-offset-0 disabled:opacity-40 transition-colors min-w-0",
+            compact ? "w-full" : "w-full",
+          )}>
             <SelectValue placeholder="Routeur..." />
           </SelectTrigger>
           <SelectContent className="bg-[#161b27] border-white/10 text-gray-200">
@@ -464,29 +466,31 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* ── Mobile: top bar + custom slide-in drawer ── */}
       <div className="flex flex-col flex-1 min-w-0">
 
-        {/* Mobile top bar */}
+        {/* Mobile top bar — 2 rows to avoid overlap on portrait phones */}
         {isMobile && (
-          <header className="flex items-center gap-2 bg-[#0d1117] text-white px-3 py-2.5 flex-shrink-0 border-b border-white/[0.06] z-30 relative">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8 transition-colors"
-              onClick={() => setMobileOpen((o) => !o)}
-              aria-label={mobileOpen ? "Fermer le menu" : "Ouvrir le menu"}
-            >
-              {mobileOpen
-                ? <X className="h-5 w-5 transition-transform duration-200" />
-                : <Menu className="h-5 w-5 transition-transform duration-200" />}
-            </Button>
-
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
-                <Wifi className="h-3.5 w-3.5 text-blue-400" />
+          <header className="bg-[#0d1117] text-white px-3 pt-2 pb-2.5 flex-shrink-0 border-b border-white/[0.06] z-30 relative">
+            {/* Row 1: hamburger + app name */}
+            <div className="flex items-center gap-2 mb-2">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8 flex-shrink-0 transition-colors"
+                onClick={() => setMobileOpen((o) => !o)}
+                aria-label={mobileOpen ? "Fermer le menu" : "Ouvrir le menu"}
+              >
+                {mobileOpen
+                  ? <X className="h-5 w-5 transition-transform duration-200" />
+                  : <Menu className="h-5 w-5 transition-transform duration-200" />}
+              </Button>
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
+                  <Wifi className="h-3.5 w-3.5 text-blue-400" />
+                </div>
+                <span className="font-bold text-white truncate text-sm leading-none">nanoTECH Vouchers Bills</span>
               </div>
-              <span className="font-bold text-white truncate text-sm">nanoTECH Vouchers Bills</span>
             </div>
-
-            <RouterSelector className="flex-shrink-0" />
+            {/* Row 2: router selector — full width, no crowding */}
+            <RouterSelector compact className="w-full" />
           </header>
         )}
 
