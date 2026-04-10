@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
-import { db, routersTable, vouchersTable, scriptSalesTable } from "@workspace/db";
+import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable } from "@workspace/db";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, resetHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
@@ -251,25 +251,52 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   const forceRefresh = String(req.query.refresh ?? "") === "1";
   const staleCached = profileListCache.get(id)?.profiles ?? null;
 
+  /** Persist a successful fetch to DB so it survives server restarts. */
+  async function saveSnapshot(profiles: typeof freshCached) {
+    if (!profiles) return;
+    try {
+      await db.insert(routerProfilesSnapshotTable)
+        .values({ routerId: id, profilesJson: JSON.stringify(profiles) })
+        .onConflictDoUpdate({
+          target: routerProfilesSnapshotTable.routerId,
+          set: { profilesJson: JSON.stringify(profiles), updatedAt: new Date() },
+        });
+    } catch { /* non-blocking */ }
+  }
+
+  /** Load the last persisted snapshot from DB. */
+  async function loadSnapshot() {
+    try {
+      const [row] = await db.select().from(routerProfilesSnapshotTable)
+        .where(eq(routerProfilesSnapshotTable.routerId, id));
+      if (!row) return null;
+      return JSON.parse(row.profilesJson) as typeof freshCached;
+    } catch { return null; }
+  }
+
   // Always return cached data immediately when available (even if ?refresh=1).
   // Refresh in background so the caller never has to wait for MikroTik.
   if (freshCached) {
-    if (forceRefresh) void fetchProfilesWithCache(id, conn).catch(() => undefined);
+    if (forceRefresh) void fetchProfilesWithCache(id, conn).then(saveSnapshot).catch(() => undefined);
     res.json(freshCached);
     return;
   }
   if (staleCached) {
     // Stale-while-revalidate: return instantly, refresh in background.
-    void fetchProfilesWithCache(id, conn).catch(() => undefined);
+    void fetchProfilesWithCache(id, conn).then(saveSnapshot).catch(() => undefined);
     res.json(staleCached);
     return;
   }
 
-  // Cache is empty (first request after server start) — must wait for MikroTik.
+  // Cache is empty (first request after server start).
+  // Try MikroTik; on failure fall back to DB snapshot so the UI is never blank.
   try {
     const fetched = await fetchProfilesWithCache(id, conn);
+    void saveSnapshot(fetched);
     res.json(fetched);
   } catch (err) {
+    const snapshot = await loadSnapshot();
+    if (snapshot) { res.json(snapshot); return; }
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
 });
