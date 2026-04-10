@@ -1017,13 +1017,59 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     entry.payments.push({ id: p.id, amount: p.amount });
   }
 
-  // Build arrears: per-day, based purely on daily payments
+  // Helper: Monday of a given YYYY-MM-DD string (UTC)
+  function getMondayOf(dateStr: string): string {
+    const d = new Date(dateStr + "T00:00:00Z");
+    const dow = d.getUTCDay();
+    const diff = dow === 0 ? -6 : 1 - dow;
+    return new Date(d.getTime() + diff * 86_400_000).toISOString().slice(0, 10);
+  }
+
+  // Build arrears: per-day, with weekly cutoff (same logic as vendor portal).
+  // A week is "settled" when total paid for that week >= total sales.
+  // Any day before the Monday of the most recent settled week is hidden.
   const arrears: Record<string, { date: string; salesAmount: number; paidAmount: number; remaining: number; payments: { id: number; amount: number }[] }[]> = {};
 
   for (const [vendorId, dayMap] of vendorDayMap) {
-    const vendorArr: typeof arrears[string] = [];
+    // Build per-date paid amounts for this vendor
+    const salesMapV = new Map<string, number>(dayMap);
+    const paidMapV  = new Map<string, number>();
+    for (const [date] of dayMap) {
+      const k = `${vendorId}|${date}`;
+      const p = dailyPaidMap.get(k);
+      if (p) paidMapV.set(date, p.paidAmount);
+    }
+    // Also include payment days not in salesMap (lump-sum payments on no-sale days)
+    for (const [k, p] of dailyPaidMap) {
+      const [vId, date] = k.split("|");
+      if (Number(vId) === vendorId && !paidMapV.has(date)) {
+        paidMapV.set(date, p.paidAmount);
+      }
+    }
 
+    // Collect all unique week-Mondays from sales + payments
+    const weekMondaysSet = new Set<string>();
+    for (const [date] of salesMapV) weekMondaysSet.add(getMondayOf(date));
+    for (const [date] of paidMapV) weekMondaysSet.add(getMondayOf(date));
+    const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
+
+    // Find the most recently settled week
+    let cutoffDate: string | null = null;
+    for (const monday of weekMondays) {
+      const weekStart = new Date(monday + "T00:00:00Z");
+      let weekTotalSales = 0;
+      let weekTotalPaid  = 0;
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(weekStart.getTime() + i * 86_400_000).toISOString().slice(0, 10);
+        weekTotalSales += salesMapV.get(d) ?? 0;
+        weekTotalPaid  += paidMapV.get(d)  ?? 0;
+      }
+      if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) { cutoffDate = monday; break; }
+    }
+
+    const vendorArr: typeof arrears[string] = [];
     for (const [date, salesAmount] of dayMap) {
+      if (cutoffDate && date < cutoffDate) continue; // hidden by cutoff
       const k = `${vendorId}|${date}`;
       const { paidAmount, payments } = dailyPaidMap.get(k) ?? { paidAmount: 0, payments: [] };
       const remaining = Math.max(0, salesAmount - paidAmount);
