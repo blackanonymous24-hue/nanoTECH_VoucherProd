@@ -2,7 +2,7 @@ const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; border:2px solid black; margin:2px; }
   #num { float:right; display:inline-block; }
-  @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
+  @page { size:auto; margin:0; }
   @media print {
     table { page-break-after:auto; }
     tr { page-break-inside:avoid; page-break-after:auto; }

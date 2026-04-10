@@ -200,7 +200,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .detail-table th, .detail-table td { border: 1px solid #d1d5db; padding: 3px 5px; font-size: 9px; }
   .detail-table th { background: #f0f0f0; font-weight: bold; text-align: left; }
   .right { text-align: right; } .center { text-align: center; }
-  @page { size: A4; margin: 10mm 7mm; }
+  @page { size: A4; margin: 0; }
   @media print { .vcard, tr { break-inside: avoid; } thead { display: table-header-group; } }
 </style></head><body>
 <h2>Suivi des ventes par vendeur</h2>
@@ -278,7 +278,7 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   .totals td { padding: 3px 8px; font-size: 9px; border-bottom: 1px solid #f3f4f6; }
   .totals tr:last-child td { border-bottom: none; }
   .tval { text-align: right; font-weight: bold; color: #3730a3; }
-  @page { size: A4; margin: 8mm; }
+  @page { size: A4; margin: 0; }
   @media print { .vcard, .totals { break-inside: avoid; } }
 </style></head><body>
 <h2>Rapport hebdomadaire — Suivi des vendeurs</h2>
