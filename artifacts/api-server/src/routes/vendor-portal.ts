@@ -522,11 +522,17 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     .groupBy(vendorDailyPaymentsTable.date),
   ]);
 
-  const paidMap = new Map(paymentRows.map((p) => [p.date, Number(p.paid)]));
+  // Normalize payment dates to "YYYY-MM-DD" strings (pg may return Date objects).
+  const paidMap = new Map(paymentRows.map((p) => {
+    const key = typeof p.date === "string" ? p.date : (p.date as Date).toISOString().slice(0, 10);
+    return [key, Number(p.paid)] as [string, number];
+  }));
   const salesMap = new Map(salesRows.map((d) => [d.date, d.amount]));
 
-  // Find the most recently settled week (Mon–Sun where all sale days are fully paid).
-  // Any dates before the start (Monday) of that week are hidden from the vendor.
+  // Find the most recently settled week (Mon–Sun).
+  // A week is "settled" when the TOTAL paid for that week >= TOTAL sales for that week.
+  // (A vendor may pay in one lump sum, so we compare weekly totals, not day-by-day.)
+  // Any dates before the Monday of that settled week are hidden from the vendor.
   function getMondayOf(dateStr: string): string {
     const d = new Date(dateStr + "T00:00:00Z");
     const dow = d.getUTCDay(); // 0=Sun
@@ -536,22 +542,24 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
 
   const weekMondaysSet = new Set<string>();
   for (const row of salesRows) weekMondaysSet.add(getMondayOf(row.date));
+  // Also include payment weeks so lump-sum payments on days with no sales are counted.
+  for (const row of paymentRows) {
+    const dateStr = typeof row.date === "string" ? row.date : (row.date as Date).toISOString().slice(0, 10);
+    weekMondaysSet.add(getMondayOf(dateStr));
+  }
   const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
 
   let cutoffDate: string | null = null;
   for (const monday of weekMondays) {
     const weekStart = new Date(monday + "T00:00:00Z");
-    let weekSettled = true;
-    let weekHasSales = false;
+    let weekTotalSales = 0;
+    let weekTotalPaid  = 0;
     for (let i = 0; i < 7; i++) {
       const dateStr = new Date(weekStart.getTime() + i * 86_400_000).toISOString().slice(0, 10);
-      const sales = salesMap.get(dateStr) ?? 0;
-      if (sales > 0) {
-        weekHasSales = true;
-        if ((paidMap.get(dateStr) ?? 0) < sales) { weekSettled = false; break; }
-      }
+      weekTotalSales += salesMap.get(dateStr) ?? 0;
+      weekTotalPaid  += paidMap.get(dateStr)  ?? 0;
     }
-    if (weekHasSales && weekSettled) { cutoffDate = monday; break; }
+    if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) { cutoffDate = monday; break; }
   }
 
   const days = salesRows
