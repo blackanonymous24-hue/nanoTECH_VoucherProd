@@ -7,6 +7,7 @@ import {
   Text,
   Platform,
   StatusBar,
+  BackHandler,
 } from "react-native";
 import { WebView, WebViewNavigation } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,6 +26,7 @@ export default function AppScreen() {
 
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isExplicitReloadRef = useRef(false);
+  const canGoBackRef = useRef(false);
 
   const clearReloadTimer = () => {
     if (reloadTimerRef.current) {
@@ -46,9 +48,22 @@ export default function AppScreen() {
   }, []);
 
   const handleNavigationStateChange = (state: WebViewNavigation) => {
+    canGoBackRef.current = state.canGoBack;
     setCanGoBack(state.canGoBack);
     setCurrentUrl(state.url);
   };
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (canGoBackRef.current) {
+        webViewRef.current?.goBack();
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, []);
 
   const handleLoadEnd = useCallback(() => {
     if (isExplicitReloadRef.current) {
