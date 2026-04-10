@@ -2,7 +2,7 @@ import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable, profilesCacheTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles, type RouterConnection } from "./mikrotik.js";
 import { runUsageSync } from "./usage-sync.js";
-import { syncScriptCache, getCachedSalesByBatch } from "./script-cache.js";
+import { syncScriptCache, getCachedSalesByBatch, clearRouterScriptCache } from "./script-cache.js";
 import { logger } from "./logger.js";
 
 /** Throttle: don't sync the same vendor more than once every 2 minutes */
@@ -520,6 +520,64 @@ export async function purgePhantomVouchers(routerId: number): Promise<{
 
   logger.info({ routerId, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length, deleted }, "purge-phantoms: vouchers fantômes supprimés");
   return { routerId, routerHost: router.host, skipped: false, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length, deleted };
+}
+
+/**
+ * Forces a complete resync for a specific router:
+ *  1. Clears the in-memory script-cache flag → next call does a FULL reload
+ *  2. Fetches ALL scripts fresh from MikroTik (heavy, one-time)
+ *  3. Runs the historical backfill for every active vendor on this router
+ *
+ * Used by the admin "force-sync" endpoint to recover from missed-ticket scenarios
+ * caused by router timeouts or connection gaps.
+ */
+export async function forceRouterFullSync(routerId: number): Promise<{
+  scriptInserted: number;
+  vendorsProcessed: number;
+  vouchersCreated: number;
+}> {
+  const [router] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!router) throw new Error(`Routeur ${routerId} introuvable`);
+
+  const conn: RouterConnection = {
+    host: router.host, port: router.port,
+    username: router.username, password: router.password,
+  };
+
+  // 1. Clear cache flag → forces full reload
+  clearRouterScriptCache(routerId);
+
+  // Also reset vendor throttle for all vendors on this router so they re-sync immediately
+  const vendors = await db
+    .select({
+      id: vendorsTable.id,
+      commentSuffix: vendorsTable.commentSuffix,
+      commentSuffix2: vendorsTable.commentSuffix2,
+      isActive: vendorsTable.isActive,
+    })
+    .from(vendorsTable)
+    .where(eq(vendorsTable.routerId, routerId));
+
+  for (const v of vendors) lastSyncAt.delete(v.id);
+
+  // 2. Full script cache reload (blocking — this is intentional for admin action)
+  const scriptInserted = await syncScriptCache(routerId, conn);
+  logger.info({ routerId, scriptInserted }, "force-sync: script cache refreshed");
+
+  // 3. Historical backfill for every active vendor on this router
+  let vouchersCreated = 0;
+  const activeVendors = vendors.filter((v) => v.isActive);
+  for (const v of activeVendors) {
+    const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
+    if (suffixes.length === 0) continue;
+    const { created } = await syncHistoricalScriptSalesToVendor(v.id, routerId, suffixes);
+    vouchersCreated += created;
+  }
+
+  logger.info({ routerId, vendorsProcessed: activeVendors.length, vouchersCreated },
+    "force-sync: complete");
+
+  return { scriptInserted, vendorsProcessed: activeVendors.length, vouchersCreated };
 }
 
 /**

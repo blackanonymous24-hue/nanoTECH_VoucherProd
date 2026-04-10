@@ -4,7 +4,7 @@ import { db, adminSettingsTable, vendorsTable, managersTable, routersTable } fro
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken } from "../lib/manager-auth.js";
-import { purgePhantomVouchers } from "../lib/vendor-sync.js";
+import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
 
 const router = Router();
 
@@ -124,6 +124,33 @@ router.post("/admin/purge-phantoms", async (req, res): Promise<void> => {
 
   const totalDeleted = results.reduce((sum, r) => sum + r.deleted, 0);
   res.json({ results, totalDeleted });
+});
+
+/**
+ * POST /api/admin/routers/:routerId/force-sync
+ * Forces a complete script-cache reload + historical backfill for a specific router.
+ * Used to recover missed vouchers caused by router timeouts.
+ */
+router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+
+  const routerId = parseInt(req.params.routerId, 10);
+  if (isNaN(routerId)) {
+    res.status(400).json({ error: "routerId invalide" });
+    return;
+  }
+
+  try {
+    const result = await forceRouterFullSync(routerId);
+    res.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
 });
 
 export default router;

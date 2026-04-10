@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 import {
@@ -336,7 +336,7 @@ export default function Routers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { setSelectedRouterId, selectedRouterId } = useRouterContext();
-  const { role } = useAuth();
+  const { role, token } = useAuth();
   const isManager = role === "manager";
   const [, navigate] = useLocation();
 
@@ -346,6 +346,7 @@ export default function Routers() {
   const [form, setForm] = useState<RouterFormData>(emptyForm);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
   const [profileMergeRouterId, setProfileMergeRouterId] = useState<number | null>(null);
+  const [forceSyncingId, setForceSyncingId] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
 
@@ -408,6 +409,26 @@ export default function Routers() {
       const message = err instanceof Error ? err.message : "Erreur de connexion";
       setTestResults((prev) => ({ ...prev, [id]: { success: false, message } }));
       toast({ title: "Connexion échouée", description: message, variant: "destructive" });
+    }
+  };
+
+  const handleForceSync = async (id: number) => {
+    setForceSyncingId(id);
+    try {
+      const res = await fetch(`/api/admin/routers/${id}/force-sync`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erreur");
+      toast({
+        title: "Resync complet terminé",
+        description: `${data.scriptInserted} nouvelles entrées script · ${data.vouchersCreated} ticket(s) récupéré(s)`,
+      });
+    } catch (err) {
+      toast({ title: "Resync échoué", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setForceSyncingId(null);
     }
   };
 
@@ -532,6 +553,15 @@ export default function Routers() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem className="py-1.5 text-sm" onClick={() => setProfileMergeRouterId(r.id)}>
                             <Layers className="h-3.5 w-3.5 mr-2" /> Profils en base
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="py-1.5 text-sm text-blue-600 focus:text-blue-600 focus:bg-blue-50"
+                            onClick={() => handleForceSync(r.id)}
+                            disabled={forceSyncingId === r.id}
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 mr-2 ${forceSyncingId === r.id ? "animate-spin" : ""}`} />
+                            {forceSyncingId === r.id ? "Resync en cours…" : "Resync complet"}
                           </DropdownMenuItem>
                           {!isManager && (
                             <>

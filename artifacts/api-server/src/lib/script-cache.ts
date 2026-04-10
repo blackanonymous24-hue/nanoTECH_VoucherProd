@@ -26,6 +26,19 @@ export interface CachedSaleDetail {
 /** In-memory flag: routers whose cache has been fully populated this process lifetime */
 const fullyPopulated = new Set<number>();
 
+/** Timestamp of last SUCCESSFUL full load per router — forces a new full load every 6 h */
+const lastFullLoadAt = new Map<number, number>();
+const FULL_RELOAD_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+/**
+ * Force the next syncScriptCache call for this router to do a full reload
+ * regardless of whether it was already "fully populated".
+ */
+export function clearRouterScriptCache(routerId: number): void {
+  fullyPopulated.delete(routerId);
+  lastFullLoadAt.delete(routerId);
+}
+
 /**
  * Synchronise the local script cache for a router.
  *
@@ -46,15 +59,19 @@ export async function syncScriptCache(
       .where(eq(scriptSalesTable.routerId, routerId));
 
     const isEmpty = Number(countRow?.n ?? 0) === 0;
-    const needsFullLoad = isEmpty || !fullyPopulated.has(routerId);
+    const lastFull = lastFullLoadAt.get(routerId) ?? 0;
+    const fullLoadStale = Date.now() - lastFull > FULL_RELOAD_INTERVAL_MS;
+    const needsFullLoad = isEmpty || !fullyPopulated.has(routerId) || fullLoadStale;
 
     let entries: Awaited<ReturnType<typeof fetchScriptSales>>;
 
     if (needsFullLoad) {
-      // Full load: all historical scripts — heavy but done only once
-      logger.info({ routerId }, "script cache: full load started (first run)");
+      // Full load: all historical scripts — heavy but done once + every 6 h
+      logger.info({ routerId, reason: isEmpty ? "empty" : fullLoadStale ? "stale(6h)" : "first-run" },
+        "script cache: full load started");
       entries = await fetchScriptSales(conn, { type: "all" }, 120_000);
       fullyPopulated.add(routerId);
+      lastFullLoadAt.set(routerId, Date.now());
     } else {
       // Incremental: fetch this month + last month only
       const now = new Date();
