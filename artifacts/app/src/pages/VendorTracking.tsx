@@ -727,44 +727,6 @@ export default function VendorTracking() {
           {/* ── Capture zone ─────────────────────────────────── */}
           <div ref={summaryRef} className="space-y-3 bg-white rounded-xl p-3">
 
-            {/* Daily summary table */}
-            {!isLoading && activeSummary.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-gray-100">
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="px-3 py-2 text-left text-gray-500 font-medium w-10">#</th>
-                      <th className="px-3 py-2 text-left text-gray-500 font-medium">Vendeur</th>
-                      <th className="px-3 py-2 text-center text-gray-500 font-medium w-28">Tickets vendus</th>
-                      <th className="px-3 py-2 text-right text-gray-500 font-medium w-36">Total (FCFA)</th>
-                    </tr>
-                    <tr className="bg-blue-50 border-b border-blue-100">
-                      <th colSpan={4} className="px-3 py-1.5 text-left text-blue-700 font-medium text-xs">
-                        {activeSummary.length} vendeur{activeSummary.length !== 1 ? "s" : ""} — {dateLabelFr}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeSummary.map((s, i) => (
-                      <tr key={s.vendorId ?? "none"} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                        <td className="px-3 py-2 text-gray-400 tabular-nums">{i + 1}</td>
-                        <td className="px-3 py-2 font-medium text-gray-800">{s.vendorName}</td>
-                        <td className="px-3 py-2 text-center tabular-nums text-gray-700">{s.count}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-gray-50 border-t border-gray-200">
-                      <td colSpan={2} className="px-3 py-2 text-xs text-gray-500 font-medium text-right">Total</td>
-                      <td className="px-3 py-2 text-center text-sm font-bold text-blue-700 tabular-nums">{grandCount}</td>
-                      <td className="px-3 py-2 text-right text-sm font-bold text-blue-700 tabular-nums">{fmtAmount(grandTotal)} FCFA</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
-
             {/* ── Résumé d'hier — cartes par vendeur ── */}
             {!isLoading && activeSummary.length > 0 && (
               <div className="space-y-2">
