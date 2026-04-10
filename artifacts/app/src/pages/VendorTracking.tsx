@@ -130,11 +130,33 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
   const grandCount  = data.summary.reduce((s, r) => s + r.count,  0);
   const activeSummary = data.summary.filter((s) => s.count > 0);
 
-  const summaryRows = activeSummary.map((s, i) => `<tr>
-    <td>${i + 1}</td><td>${s.vendorName}</td>
-    <td style="text-align:center">${s.count}</td>
-    <td style="text-align:right">${fmtAmount(s.amount)}</td>
-  </tr>`).join("");
+  // Build profile map per vendor from vouchers
+  const profileMap = new Map<number | null, { profileName: string; count: number; amount: number }[]>();
+  for (const v of data.vouchers ?? []) {
+    if (!profileMap.has(v.vendorId)) profileMap.set(v.vendorId, []);
+    const list = profileMap.get(v.vendorId)!;
+    const ex = list.find(p => p.profileName === v.profileName);
+    if (ex) { ex.count += 1; ex.amount += v.amount; }
+    else list.push({ profileName: v.profileName, count: 1, amount: v.amount });
+  }
+  for (const list of profileMap.values()) list.sort((a, b) => b.amount - a.amount);
+
+  const vendorCards = activeSummary.map((s) => {
+    const profiles = profileMap.get(s.vendorId) ?? [];
+    const profileRows = profiles.map(p => `
+      <tr><td>${p.profileName}</td><td class="center">${p.count}</td><td class="right">${fmtAmount(p.amount)}</td></tr>`).join("");
+    return `<div class="vcard">
+  <div class="vcard-header">
+    <span class="vname">${s.vendorName}</span>
+    <span class="vamount">${fmtAmount(s.amount)} FCFA</span>
+  </div>
+  <table>
+    <thead><tr><th>Forfait</th><th class="center">Tkt</th><th class="right">Montant (FCFA)</th></tr></thead>
+    <tbody>${profileRows}</tbody>
+    <tfoot><tr><td>Total</td><td class="center">${s.count}</td><td class="right">${fmtAmount(s.amount)}</td></tr></tfoot>
+  </table>
+</div>`;
+  }).join("");
 
   const detailRows = vouchers.map((v, i) => `<tr>
     <td>${i + 1}</td><td>${v.time ?? "—"}</td><td>${v.username}</td>
@@ -147,26 +169,31 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
 <style>
   body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 8mm; }
   h2 { margin: 0 0 2px; font-size: 14px; }
-  h3 { margin: 10px 0 4px; font-size: 12px; border-bottom: 1px solid #000; padding-bottom: 2px; }
+  h3 { margin: 10px 0 4px; font-size: 12px; border-bottom: 1px solid #ccc; padding-bottom: 2px; color: #1e40af; }
   p  { margin: 0 0 8px; font-size: 10px; color: #555; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-  th, td { border: 1px solid #000; padding: 4px 6px; }
-  th { background: #f0f0f0; font-weight: bold; text-align: left; }
-  tfoot td { font-weight: bold; background: #e8e8e8; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .vcard { border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
+  .vcard-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
+  .vname { font-weight: bold; font-size: 10px; color: #1e40af; }
+  .vamount { font-weight: bold; font-size: 10px; color: #1d4ed8; }
+  .vcard table { width: 100%; border-collapse: collapse; }
+  .vcard th, .vcard td { padding: 3px 6px; font-size: 9px; border-bottom: 1px solid #f3f4f6; }
+  .vcard th { background: #f9fafb; font-weight: 600; color: #6b7280; text-align: left; }
+  .vcard tfoot td { background: #eff6ff; font-weight: bold; color: #1d4ed8; border-top: 1px solid #bfdbfe; border-bottom: none; }
+  .vcard tr:last-child td { border-bottom: none; }
+  .detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  .detail-table th, .detail-table td { border: 1px solid #d1d5db; padding: 3px 5px; font-size: 9px; }
+  .detail-table th { background: #f0f0f0; font-weight: bold; text-align: left; }
   .right { text-align: right; } .center { text-align: center; }
   @page { size: A4; margin: 10mm 7mm; }
-  @media print { tr { page-break-inside: avoid; } thead { display: table-header-group; } tfoot { display: table-footer-group; } }
+  @media print { .vcard, tr { break-inside: avoid; } thead { display: table-header-group; } }
 </style></head><body>
 <h2>Suivi des ventes par vendeur</h2>
-<p>Date : ${dateFr} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
+<p>Date : ${dateFr} &nbsp;|&nbsp; ${grandCount} ticket${grandCount !== 1 ? "s" : ""} &nbsp;|&nbsp; ${fmtAmount(grandTotal)} FCFA &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
 <h3>Résumé de la vente du ${dateFr}</h3>
-<table>
-  <thead><tr><th>#</th><th>Vendeur</th><th class="center">Tickets vendus</th><th class="right">Total (FCFA)</th></tr></thead>
-  <tbody>${summaryRows}</tbody>
-  <tfoot><tr><td colspan="2" style="text-align:right">TOTAL JOUR</td><td class="center">${grandCount}</td><td class="right">${fmtAmount(grandTotal)}</td></tr></tfoot>
-</table>
+<div class="grid">${vendorCards}</div>
 <h3>Détail (${vouchers.length} ticket${vouchers.length !== 1 ? "s" : ""})</h3>
-<table>
+<table class="detail-table">
   <thead><tr><th>#</th><th>Heure</th><th>Utilisateur</th><th>Profil</th><th>Vendeur</th><th class="right">Prix (FCFA)</th></tr></thead>
   <tbody>${detailRows}
     <tr><td colspan="4"></td><td style="text-align:right;font-weight:bold">TOTAL</td><td class="right" style="font-weight:bold">${fmtAmount(vouchers.reduce((s, v) => s + v.amount, 0))}</td></tr>
@@ -261,53 +288,109 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
 function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSaving: (v: boolean) => void) {
   setSaving(true);
   try {
-    const DPR = 2; const W = 580; const PAD = 20;
-    const ROW_H = 28; const HEAD_H = 36; const BAND_H = 24;
-    const C0 = PAD; const C1 = PAD + 28; const C2 = W - PAD - 140 - 80; const C3 = W - PAD;
+    const DPR = 2; const W = 430; const PAD = 16;
+    const TITLE_H = 52; const CARD_GAP = 8;
+    const CARD_HDR_H = 28; const COL_HDR_H = 18; const ROW_H = 20; const TOT_ROW_H = 24; const FOOTER_H = 32;
+
     const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
     const dateFr = fmtDateFr(appliedDate);
-    const titleH = 60; const tableGap = 16;
-    const dailyH = HEAD_H + BAND_H + dailySummary.length * ROW_H + ROW_H;
-    const totalH = titleH + tableGap + dailyH + PAD;
+
+    // Build profile map from vouchers
+    const profileMap = new Map<number | null, { profileName: string; count: number; amount: number }[]>();
+    for (const v of data.vouchers ?? []) {
+      if (!profileMap.has(v.vendorId)) profileMap.set(v.vendorId, []);
+      const list = profileMap.get(v.vendorId)!;
+      const ex = list.find(p => p.profileName === v.profileName);
+      if (ex) { ex.count += 1; ex.amount += v.amount; }
+      else list.push({ profileName: v.profileName, count: 1, amount: v.amount });
+    }
+    for (const list of profileMap.values()) list.sort((a, b) => b.amount - a.amount);
+
+    const cardH = (vendorId: number | null) => {
+      const n = (profileMap.get(vendorId) ?? []).length;
+      return CARD_HDR_H + COL_HDR_H + n * ROW_H + TOT_ROW_H;
+    };
+    const grandCount  = dailySummary.reduce((s, r) => s + r.count, 0);
+    const grandAmount = dailySummary.reduce((s, r) => s + r.amount, 0);
+    let totalH = TITLE_H;
+    for (const s of dailySummary) totalH += cardH(s.vendorId) + CARD_GAP;
+    totalH += FOOTER_H + PAD;
+
     const canvas = document.createElement("canvas");
     canvas.width = W * DPR; canvas.height = totalH * DPR;
     const ctx = canvas.getContext("2d")!;
     ctx.scale(DPR, DPR);
-    const rect = (x: number, y: number, w: number, h: number, fill: string) => { ctx.fillStyle = fill; ctx.fillRect(x, y, w, h); };
-    const line = (x1: number, y1: number, x2: number, y2: number, color = "#e5e7eb") => { ctx.strokeStyle = color; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
-    const txt = (str: string, x: number, y: number, { size = 11, bold = false, color = "#374151", align = "left" as CanvasTextAlign } = {}) => { ctx.font = `${bold ? "600" : "400"} ${size}px Inter,system-ui,sans-serif`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(str, x, y); };
-    rect(0, 0, W, totalH, "#ffffff");
-    txt("Suivi des ventes — " + dateFr, PAD, 18, { size: 13, bold: true, color: "#111827" });
-    txt("Généré le " + new Date().toLocaleString("fr-FR"), W - PAD, 30, { size: 9, color: "#9ca3af", align: "right" });
-    const ticketsCenter = C2 + 40;
-    let y = titleH + tableGap;
-    rect(PAD, y, W - PAD * 2, HEAD_H, "#f9fafb");
-    line(PAD, y, W - PAD, y, "#e5e7eb");
-    txt("#", C0 + 4, y + HEAD_H / 2, { size: 10, color: "#6b7280" });
-    txt("Vendeur", C1, y + HEAD_H / 2, { size: 10, color: "#6b7280" });
-    txt("Tickets", ticketsCenter, y + HEAD_H / 2, { size: 10, color: "#6b7280", align: "center" });
-    txt("FCFA", C3, y + HEAD_H / 2, { size: 10, color: "#6b7280", align: "right" });
-    line(PAD, y + HEAD_H, W - PAD, y + HEAD_H, "#e5e7eb");
-    y += HEAD_H;
-    rect(PAD, y, W - PAD * 2, BAND_H, "#eff6ff");
-    txt(`${dailySummary.length} vendeur${dailySummary.length !== 1 ? "s" : ""} — ${dateFr}`, C0 + 4, y + BAND_H / 2, { size: 10, bold: true, color: "#1d4ed8" });
-    y += BAND_H;
-    dailySummary.forEach((r, i) => {
-      rect(PAD, y, W - PAD * 2, ROW_H, i % 2 === 0 ? "#ffffff" : "#f9fafb");
-      txt(String(i + 1), C0 + 4, y + ROW_H / 2, { size: 10, color: "#9ca3af" });
-      txt(r.vendorName, C1, y + ROW_H / 2, { size: 10, color: "#1f2937" });
-      txt(String(r.count), ticketsCenter, y + ROW_H / 2, { size: 10, color: "#374151", align: "center" });
-      txt(fmtAmount(r.amount), C3, y + ROW_H / 2, { size: 10, bold: true, color: "#1f2937", align: "right" });
-      line(PAD, y + ROW_H, W - PAD, y + ROW_H, "#f3f4f6");
-      y += ROW_H;
+
+    const rf = (x: number, y: number, w: number, h: number, fill: string, rad: number | number[] = 0) => {
+      ctx.fillStyle = fill;
+      if (rad) { ctx.beginPath(); ctx.roundRect(x, y, w, h, rad); ctx.fill(); }
+      else ctx.fillRect(x, y, w, h);
+    };
+    const ln = (x1: number, y1: number, x2: number, y2: number, c = "#e5e7eb") => {
+      ctx.strokeStyle = c; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    };
+    const t = (str: string, x: number, y: number, { size = 10, bold = false, color = "#374151", align = "left" as CanvasTextAlign } = {}) => {
+      ctx.font = `${bold ? "600" : "400"} ${size}px Inter,system-ui,sans-serif`;
+      ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(str, x, y);
+    };
+
+    rf(0, 0, W, totalH, "#f8fafc");
+    t("Résumé de la vente du " + dateFr, PAD, 18, { size: 12, bold: true, color: "#111827" });
+    t("Généré le " + new Date().toLocaleString("fr-FR"), W - PAD, 32, { size: 8, color: "#9ca3af", align: "right" });
+
+    const CW = W - PAD * 2;
+    const C_PROF = PAD + 10;
+    const C_TKT  = W - PAD - 110;
+    const C_AMT  = W - PAD - 10;
+
+    let y = TITLE_H;
+    dailySummary.forEach((s) => {
+      const profiles = profileMap.get(s.vendorId) ?? [];
+      const ch = cardH(s.vendorId);
+      rf(PAD, y, CW, ch, "#ffffff", 6);
+      ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(PAD, y, CW, ch, 6); ctx.stroke();
+
+      // Header
+      rf(PAD, y, CW, CARD_HDR_H, "#eff6ff", [6, 6, 0, 0]);
+      t(s.vendorName, PAD + 10, y + CARD_HDR_H / 2, { size: 10, bold: true, color: "#1e40af" });
+      t(fmtAmount(s.amount) + " FCFA", C_AMT, y + CARD_HDR_H / 2, { size: 10, bold: true, color: "#1d4ed8", align: "right" });
+      ln(PAD, y + CARD_HDR_H, PAD + CW, y + CARD_HDR_H, "#dbeafe");
+
+      // Column headers
+      const hy = y + CARD_HDR_H;
+      rf(PAD, hy, CW, COL_HDR_H, "#f9fafb");
+      t("Forfait", C_PROF, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af" });
+      t("Tkt", C_TKT, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af", align: "center" });
+      t("Montant", C_AMT, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af", align: "right" });
+      ln(PAD, hy + COL_HDR_H, PAD + CW, hy + COL_HDR_H, "#f3f4f6");
+
+      // Profile rows
+      let ry = hy + COL_HDR_H;
+      profiles.forEach((p, pi) => {
+        rf(PAD, ry, CW, ROW_H, pi % 2 === 0 ? "#ffffff" : "#f9fafb");
+        t(p.profileName, C_PROF, ry + ROW_H / 2, { size: 9, color: "#374151" });
+        t(String(p.count), C_TKT, ry + ROW_H / 2, { size: 9, color: "#374151", align: "center" });
+        t(fmtAmount(p.amount) + " FCFA", C_AMT, ry + ROW_H / 2, { size: 9, color: "#374151", align: "right" });
+        ln(PAD, ry + ROW_H, PAD + CW, ry + ROW_H, "#f3f4f6");
+        ry += ROW_H;
+      });
+
+      // Total row
+      rf(PAD, ry, CW, TOT_ROW_H, "#eff6ff");
+      t("Total", C_PROF, ry + TOT_ROW_H / 2, { size: 9, bold: true, color: "#1d4ed8" });
+      t(String(s.count), C_TKT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: "#1d4ed8", align: "center" });
+      t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: "#1d4ed8", align: "right" });
+
+      y += ch + CARD_GAP;
     });
-    const grandCount = dailySummary.reduce((s, r) => s + r.count, 0);
-    const grandAmount = dailySummary.reduce((s, r) => s + r.amount, 0);
-    rect(PAD, y, W - PAD * 2, ROW_H, "#f3f4f6");
-    txt("TOTAL JOUR", C1, y + ROW_H / 2, { size: 10, bold: true, color: "#6b7280" });
-    txt(String(grandCount), ticketsCenter, y + ROW_H / 2, { size: 11, bold: true, color: "#1d4ed8", align: "center" });
-    txt(fmtAmount(grandAmount) + " FCFA", C3, y + ROW_H / 2, { size: 11, bold: true, color: "#1d4ed8", align: "right" });
-    ctx.strokeStyle = "#e5e7eb"; ctx.lineWidth = 1; ctx.strokeRect(PAD, titleH + tableGap, W - PAD * 2, y + ROW_H - (titleH + tableGap));
+
+    // Footer total bar
+    rf(PAD, y, CW, FOOTER_H, "#1e3a8a", 6);
+    t("TOTAL JOUR", PAD + 10, y + FOOTER_H / 2, { size: 10, bold: true, color: "#ffffff" });
+    t(String(grandCount) + " ticket" + (grandCount !== 1 ? "s" : ""), W / 2, y + FOOTER_H / 2, { size: 9, bold: true, color: "#93c5fd", align: "center" });
+    t(fmtAmount(grandAmount) + " FCFA", C_AMT, y + FOOTER_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
+
     const link = document.createElement("a");
     link.download = `suivi-vendeurs-${appliedDate}.jpeg`;
     link.href = canvas.toDataURL("image/jpeg", 0.93);
