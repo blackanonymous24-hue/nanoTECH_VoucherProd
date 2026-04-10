@@ -1021,16 +1021,17 @@ function Dashboard({ token, vendor, onLogout }: {
                       {arrearsData.days.map((d) => {
                         const dateObj = new Date(d.date + "T00:00:00Z");
                         const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-                        const weekday = cap(dateObj.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" }));
-                        const dayNum  = dateObj.toLocaleDateString("fr-FR", { day: "2-digit", timeZone: "UTC" });
-                        const month   = cap(dateObj.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
-                        const year    = dateObj.toLocaleDateString("fr-FR", { year: "numeric", timeZone: "UTC" });
-                        const label   = `Arriéré du ${weekday} ${dayNum} ${month} ${year}`;
+                        const weekday  = cap(dateObj.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" }));
+                        const dayNum   = String(dateObj.getUTCDate());
+                        const monthNum = String(dateObj.getUTCMonth() + 1);
+                        const yearNum  = String(dateObj.getUTCFullYear());
+                        const monthLabel = cap(dateObj.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
+                        const label    = `Arriéré du ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum}`;
                         return (
                           <button
                             key={d.date}
                             type="button"
-                            onClick={() => setReportView({ day: dayNum, month, year })}
+                            onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
                             className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer"
                           >
                             <span className="text-[11px] font-semibold text-orange-700 whitespace-nowrap truncate flex-1 min-w-0 flex items-center gap-1.5">
