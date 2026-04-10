@@ -74,6 +74,10 @@ interface DailyTrackingResponse {
   weekEnd?: string;
 }
 
+interface DailyArrearsResponse {
+  arrears: Record<string, { date: string; amount: number }[]>;
+}
+
 function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
   if (!weekStart || !weekEnd) return "Semaine";
   return `${fmtDateFr(weekStart)} – ${fmtDateFr(weekEnd)}`;
@@ -472,6 +476,19 @@ export default function VendorTracking() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: arrearsData } = useQuery<DailyArrearsResponse>({
+    queryKey: ["vendor-daily-arrears", selectedRouterId, applied],
+    queryFn: async ({ signal }) => {
+      if (!selectedRouterId) return { arrears: {} };
+      const params = new URLSearchParams({ date: applied, routerId: String(selectedRouterId) });
+      const res = await fetch(`${BASE}/api/vendors/daily-arrears?${params}`, { signal });
+      if (!res.ok) return { arrears: {} };
+      return res.json();
+    },
+    enabled: !!selectedRouterId,
+    staleTime: 60_000,
+  });
+
   const handleSaveDailyJpeg = useCallback(() => {
     if (!data) return;
     saveJpegDaily(data, applied, setSaving);
@@ -501,6 +518,22 @@ export default function VendorTracking() {
   const grandTotal       = useMemo(() => summary.reduce((s, r) => s + r.amount, 0), [summary]);
   const grandCount       = useMemo(() => summary.reduce((s, r) => s + r.count, 0), [summary]);
   const activeSummary    = useMemo(() => summary.filter((s) => s.count > 0), [summary]);
+
+  // Per-vendor, per-profile breakdown computed from raw vouchers (for daily recap cards)
+  const dailyProfileMap = useMemo(() => {
+    const map = new Map<number | null, { profileName: string; count: number; amount: number }[]>();
+    for (const v of vouchers) {
+      if (!map.has(v.vendorId)) map.set(v.vendorId, []);
+      const list = map.get(v.vendorId)!;
+      const existing = list.find((p) => p.profileName === v.profileName);
+      if (existing) { existing.count += 1; existing.amount += v.amount; }
+      else list.push({ profileName: v.profileName, count: 1, amount: v.amount });
+    }
+    // Sort each vendor's list by amount desc
+    for (const list of map.values()) list.sort((a, b) => b.amount - a.amount);
+    return map;
+  }, [vouchers]);
+
   const weekTotal_amount = useMemo(() => weekSummary.reduce((s, r) => s + r.amount, 0), [weekSummary]);
   const weekTotal_count  = useMemo(() => weekSummary.reduce((s, r) => s + r.count, 0), [weekSummary]);
   const weekTotal_paid   = useMemo(() => weekSummary.reduce((s, r) => s + (r.paidAmount ?? 0), 0), [weekSummary]);
@@ -668,6 +701,77 @@ export default function VendorTracking() {
                     </tr>
                   </tfoot>
                 </table>
+              </div>
+            )}
+
+            {/* ── Résumé du jour — cartes par vendeur ── */}
+            {!isLoading && activeSummary.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">
+                    Résumé du jour — {dateLabelFr}
+                  </span>
+                  <span className="text-[10px] text-gray-400 tabular-nums">
+                    {grandCount} ticket{grandCount !== 1 ? "s" : ""} · {fmtAmount(grandTotal)} FCFA
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {activeSummary.map((s) => {
+                    const profiles = dailyProfileMap.get(s.vendorId) ?? [];
+                    const vendorArrears = arrearsData?.arrears[String(s.vendorId)] ?? [];
+                    const hasArrears = vendorArrears.length > 0;
+                    return (
+                      <div
+                        key={`day-${s.vendorId ?? "none"}`}
+                        className={`rounded-lg border overflow-hidden text-xs ${hasArrears ? "border-orange-300" : "border-gray-200"}`}
+                      >
+                        {/* Card header */}
+                        <div className={`flex items-center justify-between px-3 py-2 border-b ${hasArrears ? "bg-orange-50 border-orange-200" : "bg-gray-50 border-gray-100"}`}>
+                          <span className="font-semibold text-gray-800 truncate mr-2">{s.vendorName}</span>
+                          <span className="font-bold text-blue-700 tabular-nums flex-shrink-0">
+                            {fmtAmount(s.amount)} FCFA
+                          </span>
+                        </div>
+                        {/* Profile breakdown */}
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="bg-gray-50/60">
+                              <th className="px-3 py-1 text-left text-[10px] text-gray-400 font-medium">Forfait</th>
+                              <th className="px-3 py-1 text-center text-[10px] text-gray-400 font-medium w-14">Tkt</th>
+                              <th className="px-3 py-1 text-right text-[10px] text-gray-400 font-medium">Montant</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {profiles.map((p) => (
+                              <tr key={p.profileName} className="border-t border-gray-50">
+                                <td className="px-3 py-1.5 text-gray-600">{p.profileName}</td>
+                                <td className="px-3 py-1.5 text-center text-gray-700 tabular-nums">{p.count}</td>
+                                <td className="px-3 py-1.5 text-right font-medium text-gray-800 tabular-nums">{fmtAmount(p.amount)} FCFA</td>
+                              </tr>
+                            ))}
+                            {/* Total row */}
+                            <tr className="border-t border-blue-100 bg-blue-50/50">
+                              <td className="px-3 py-1.5 font-semibold text-blue-700">Total</td>
+                              <td className="px-3 py-1.5 text-center font-bold text-blue-700 tabular-nums">{s.count}</td>
+                              <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
+                            </tr>
+                            {/* Arriérés */}
+                            {vendorArrears.map((arr) => (
+                              <tr key={arr.date} className="border-t border-orange-200 bg-orange-50">
+                                <td className="px-3 py-1.5 text-orange-700 flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
+                                  <span>Arriéré du {fmtDateFr(arr.date)}</span>
+                                </td>
+                                <td className="px-3 py-1.5" />
+                                <td className="px-3 py-1.5 text-right font-bold text-orange-700 tabular-nums">{fmtAmount(arr.amount)} FCFA</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 

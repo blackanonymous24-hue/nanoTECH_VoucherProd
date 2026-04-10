@@ -842,6 +842,132 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * GET /vendors/daily-arrears?routerId=X&date=YYYY-MM-DD
+ * Returns per-vendor arriérés: past days (< date) with unpaid sales
+ * based on weekly payment status for finished weeks.
+ * ──────────────────────────────────────────────────────────────────────── */
+router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
+  const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
+  if (!routerId || isNaN(routerId)) { res.status(400).json({ error: "routerId requis" }); return; }
+
+  let dateStr = (req.query.date as string) ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) dateStr = new Date().toISOString().slice(0, 10);
+
+  // 30-day window ending the day before the selected date
+  const selectedDay = new Date(dateStr + "T00:00:00.000Z");
+  const windowEnd   = new Date(selectedDay.getTime() - 24 * 60 * 60 * 1000);
+  const windowStart = new Date(selectedDay.getTime() - 31 * 24 * 60 * 60 * 1000);
+  const wStartStr   = windowStart.toISOString().slice(0, 10);
+  const wEndStr     = windowEnd.toISOString().slice(0, 10);
+  if (wStartStr >= wEndStr) { res.json({ arrears: {} }); return; }
+
+  const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!routerRow) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+  const priceMap = getCachedProfilePricesSync(routerId, conn);
+  const priceMapLower = new Map([...priceMap.entries()].map(([k, v]) => [k.toLowerCase(), v]));
+  function resolveUnit(profileName: string): number {
+    const raw = priceMap.get(profileName) ?? priceMapLower.get(profileName.toLowerCase()) ?? "0";
+    return parseFloat(raw.replace(/[^0-9.]/g, "")) || 0;
+  }
+
+  const allVendors = await db.select().from(vendorsTable).where(eq(vendorsTable.routerId, routerId));
+  const demoIds = new Set(allVendors.filter((v) => v.isDemo).map((v) => v.id));
+  const vendors  = allVendors.filter((v) => !v.isDemo);
+  const vendorCommMap = new Map(vendors.map((v) => [v.id, v.commissionRate ?? 0]));
+
+  // Per-vendor, per-date, per-profile aggregation
+  const soldRaw = await db
+    .select({
+      vendorId:     vouchersTable.vendorId,
+      profileName:  vouchersTable.profileName,
+      date:         sql<string>`(${vouchersTable.usedAt})::date::text`,
+      cnt:          sql<number>`count(*)`,
+      salePriceSum: sql<number>`coalesce(sum(nullif(${vouchersTable.salePrice},'')::numeric), 0)`,
+      priceSum:     sql<number>`coalesce(sum(nullif(${vouchersTable.price},'')::numeric), 0)`,
+    })
+    .from(vouchersTable)
+    .where(
+      and(
+        eq(vouchersTable.routerId, routerId),
+        isNotNull(vouchersTable.usedAt),
+        sql`(${vouchersTable.usedAt})::date >= ${wStartStr}::date`,
+        sql`(${vouchersTable.usedAt})::date <= ${wEndStr}::date`,
+      )
+    )
+    .groupBy(vouchersTable.vendorId, vouchersTable.profileName, sql`(${vouchersTable.usedAt})::date`);
+
+  // Aggregate: vendorId → date → amount, vendorId → weekStart → weekTotal
+  const vendorDayMap  = new Map<number, Map<string, number>>();
+  const vendorWeekMap = new Map<number, Map<string, number>>();
+
+  for (const row of soldRaw) {
+    if (!row.vendorId || demoIds.has(row.vendorId)) continue;
+    const cnt  = Number(row.cnt);
+    const raw  = Math.max(Number(row.salePriceSum), Number(row.priceSum));
+    const unit = resolveUnit(row.profileName);
+    const amt  = Math.max(raw, cnt * unit);
+    const date = row.date;
+    const ws   = mondayOf(date);
+
+    if (!vendorDayMap.has(row.vendorId)) vendorDayMap.set(row.vendorId, new Map());
+    const dm = vendorDayMap.get(row.vendorId)!;
+    dm.set(date, (dm.get(date) ?? 0) + amt);
+
+    if (!vendorWeekMap.has(row.vendorId)) vendorWeekMap.set(row.vendorId, new Map());
+    const wm = vendorWeekMap.get(row.vendorId)!;
+    wm.set(ws, (wm.get(ws) ?? 0) + amt);
+  }
+
+  // Fetch weekly payments for all relevant weeks
+  const allWeekStarts = new Set<string>();
+  for (const wm of vendorWeekMap.values()) for (const ws of wm.keys()) allWeekStarts.add(ws);
+
+  const paidByVendorWeek = new Map<string, number>();
+  if (allWeekStarts.size > 0) {
+    const payments = await db
+      .select({ vendorId: vendorPaymentsTable.vendorId, weekStart: vendorPaymentsTable.weekStart, amount: vendorPaymentsTable.amount })
+      .from(vendorPaymentsTable)
+      .where(and(
+        eq(vendorPaymentsTable.routerId, routerId),
+        inArray(vendorPaymentsTable.weekStart, [...allWeekStarts]),
+      ));
+    for (const p of payments) {
+      const k = `${p.vendorId}|${p.weekStart}`;
+      paidByVendorWeek.set(k, (paidByVendorWeek.get(k) ?? 0) + Number(p.amount));
+    }
+  }
+
+  // Build arrears: only finished weeks with remaining balance
+  const arrears: Record<string, { date: string; amount: number }[]> = {};
+
+  for (const [vendorId, dayMap] of vendorDayMap) {
+    const commRate    = vendorCommMap.get(vendorId) ?? 0;
+    const wm          = vendorWeekMap.get(vendorId)!;
+    const vendorArr: { date: string; amount: number }[] = [];
+
+    for (const [date, dayAmt] of dayMap) {
+      const ws          = mondayOf(date);
+      const weekTotal   = wm.get(ws) ?? 0;
+      const commission  = commRate > 0 ? Math.round(weekTotal * commRate) / 100 : 0;
+      const expected    = Math.max(0, weekTotal - commission);
+      const paid        = paidByVendorWeek.get(`${vendorId}|${ws}`) ?? 0;
+      // Week must be fully over to confirm arrears
+      const weekEndTime = new Date(ws + "T00:00:00.000Z").getTime() + 7 * 24 * 60 * 60 * 1000;
+      const weekOver    = weekEndTime <= Date.now();
+      if (weekOver && expected > 0 && paid < expected) {
+        vendorArr.push({ date, amount: dayAmt });
+      }
+    }
+    vendorArr.sort((a, b) => b.date.localeCompare(a.date));
+    if (vendorArr.length > 0) arrears[String(vendorId)] = vendorArr;
+  }
+
+  res.json({ arrears });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  *  VERSEMENTS (vendor payments)
  * ──────────────────────────────────────────────────────────────────────── */
 
