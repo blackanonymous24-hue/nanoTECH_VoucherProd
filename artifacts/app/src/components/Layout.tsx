@@ -218,7 +218,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   ];
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col">
 
       {/* ── Brand ── */}
       <div className="px-5 pt-5 pb-4 flex-shrink-0">
@@ -461,13 +461,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* ── Desktop sidebar ── */}
       {!isMobile && (
-        <aside className="w-60 bg-[#0d1117] text-white flex-col flex-shrink-0 border-r border-white/[0.06] md:flex sticky top-0 h-svh self-start">
+        <aside className="w-60 bg-[#0d1117] text-white flex-col flex-shrink-0 border-r border-white/[0.06] md:flex fixed top-0 left-0 z-10">
           <NavContent />
         </aside>
       )}
 
       {/* ── Mobile: top bar + custom slide-in drawer ── */}
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className={cn("flex flex-col flex-1 min-w-0", !isMobile && "ml-60")}>
 
         {/* Mobile top bar — 2 rows to avoid overlap on portrait phones */}
         {isMobile && (
