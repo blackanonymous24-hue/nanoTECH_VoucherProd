@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, desc, and, ne, count, sql, isNotNull, ilike, inArray } from "drizzle-orm";
-import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, profilesCacheTable } from "@workspace/db";
+import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
 import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -842,6 +842,56 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ *  VERSEMENTS JOURNALIERS — daily vendor payments
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/**
+ * GET /vendors/daily-payments?routerId=X&date=YYYY-MM-DD
+ * Returns all daily payments for all vendors on this router for the given date.
+ */
+router.get("/vendors/daily-payments", async (req, res): Promise<void> => {
+  const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
+  if (!routerId || isNaN(routerId)) { res.status(400).json({ error: "routerId requis" }); return; }
+  const date = (req.query.date as string) ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { res.status(400).json({ error: "date YYYY-MM-DD requis" }); return; }
+  const rows = await db
+    .select()
+    .from(vendorDailyPaymentsTable)
+    .where(and(eq(vendorDailyPaymentsTable.routerId, routerId), eq(vendorDailyPaymentsTable.date, date)))
+    .orderBy(vendorDailyPaymentsTable.paidAt);
+  res.json(rows);
+});
+
+/**
+ * POST /vendors/:id/daily-payments
+ * Body: { routerId, date, amount, note? }
+ * Records a daily payment for the vendor.
+ */
+router.post("/vendors/:id/daily-payments", async (req, res): Promise<void> => {
+  const vendorId = parseInt(req.params.id, 10);
+  if (isNaN(vendorId)) { res.status(400).json({ error: "vendorId invalide" }); return; }
+  const { routerId, date, amount, note } = req.body as { routerId: number; date: string; amount: number; note?: string };
+  if (!routerId || !date || !amount || amount <= 0) { res.status(400).json({ error: "routerId, date et amount requis" }); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { res.status(400).json({ error: "date YYYY-MM-DD invalide" }); return; }
+  const [row] = await db
+    .insert(vendorDailyPaymentsTable)
+    .values({ vendorId, routerId, date, amount: Math.round(amount), note: note ?? null })
+    .returning();
+  res.json(row);
+});
+
+/**
+ * DELETE /vendors/daily-payments/:id
+ * Removes a specific daily payment entry.
+ */
+router.delete("/vendors/daily-payments/:id", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "id invalide" }); return; }
+  await db.delete(vendorDailyPaymentsTable).where(eq(vendorDailyPaymentsTable.id, id));
+  res.json({ ok: true });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * GET /vendors/daily-arrears?routerId=X&date=YYYY-MM-DD
  * Returns per-vendor arriérés: past days (< date) with unpaid sales
  * based on weekly payment status for finished weeks.
@@ -898,9 +948,8 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     )
     .groupBy(vouchersTable.vendorId, vouchersTable.profileName, sql`(${vouchersTable.usedAt})::date`);
 
-  // Aggregate: vendorId → date → amount, vendorId → weekStart → weekTotal
-  const vendorDayMap  = new Map<number, Map<string, number>>();
-  const vendorWeekMap = new Map<number, Map<string, number>>();
+  // Aggregate: vendorId → date → salesAmount
+  const vendorDayMap = new Map<number, Map<string, number>>();
 
   for (const row of soldRaw) {
     if (!row.vendorId || demoIds.has(row.vendorId)) continue;
@@ -908,85 +957,50 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     const raw  = Math.max(Number(row.salePriceSum), Number(row.priceSum));
     const unit = resolveUnit(row.profileName);
     const amt  = Math.max(raw, cnt * unit);
-    const date = row.date;
-    const ws   = mondayOf(date);
 
     if (!vendorDayMap.has(row.vendorId)) vendorDayMap.set(row.vendorId, new Map());
     const dm = vendorDayMap.get(row.vendorId)!;
-    dm.set(date, (dm.get(date) ?? 0) + amt);
-
-    if (!vendorWeekMap.has(row.vendorId)) vendorWeekMap.set(row.vendorId, new Map());
-    const wm = vendorWeekMap.get(row.vendorId)!;
-    wm.set(ws, (wm.get(ws) ?? 0) + amt);
+    dm.set(row.date, (dm.get(row.date) ?? 0) + amt);
   }
 
-  // Fetch weekly payments for all relevant weeks
-  const allWeekStarts = new Set<string>();
-  for (const wm of vendorWeekMap.values()) for (const ws of wm.keys()) allWeekStarts.add(ws);
+  // Fetch per-day payments from vendor_daily_payments for the same date window
+  const dailyPayments = await db
+    .select()
+    .from(vendorDailyPaymentsTable)
+    .where(
+      and(
+        eq(vendorDailyPaymentsTable.routerId, routerId),
+        sql`${vendorDailyPaymentsTable.date} >= ${wStartStr}`,
+        sql`${vendorDailyPaymentsTable.date} <= ${wEndStr}`,
+      )
+    );
 
-  const paidByVendorWeek = new Map<string, number>();
-  if (allWeekStarts.size > 0) {
-    const payments = await db
-      .select({ vendorId: vendorPaymentsTable.vendorId, weekStart: vendorPaymentsTable.weekStart, amount: vendorPaymentsTable.amount })
-      .from(vendorPaymentsTable)
-      .where(and(
-        eq(vendorPaymentsTable.routerId, routerId),
-        inArray(vendorPaymentsTable.weekStart, [...allWeekStarts]),
-      ));
-    for (const p of payments) {
-      const k = `${p.vendorId}|${p.weekStart}`;
-      paidByVendorWeek.set(k, (paidByVendorWeek.get(k) ?? 0) + Number(p.amount));
-    }
+  // Map: "vendorId|date" → { paidAmount, payments[] }
+  const dailyPaidMap = new Map<string, { paidAmount: number; payments: { id: number; amount: number }[] }>();
+  for (const p of dailyPayments) {
+    const k = `${p.vendorId}|${p.date}`;
+    if (!dailyPaidMap.has(k)) dailyPaidMap.set(k, { paidAmount: 0, payments: [] });
+    const entry = dailyPaidMap.get(k)!;
+    entry.paidAmount += p.amount;
+    entry.payments.push({ id: p.id, amount: p.amount });
   }
 
-  // Build arrears: distribute payments oldest-first within each finished week
-  const arrears: Record<string, { date: string; amount: number }[]> = {};
+  // Build arrears: per-day, based purely on daily payments
+  const arrears: Record<string, { date: string; salesAmount: number; paidAmount: number; remaining: number; payments: { id: number; amount: number }[] }[]> = {};
 
   for (const [vendorId, dayMap] of vendorDayMap) {
-    const commRate = vendorCommMap.get(vendorId) ?? 0;
-    const wm       = vendorWeekMap.get(vendorId)!;
+    const vendorArr: typeof arrears[string] = [];
 
-    // Group this vendor's days by week
-    const weekDaysMap = new Map<string, { date: string; amount: number }[]>();
-    for (const [date, amt] of dayMap) {
-      const ws = mondayOf(date);
-      if (!weekDaysMap.has(ws)) weekDaysMap.set(ws, []);
-      weekDaysMap.get(ws)!.push({ date, amount: amt });
-    }
-
-    const vendorArr: { date: string; amount: number }[] = [];
-
-    for (const [ws, days] of weekDaysMap) {
-      // Only finished weeks
-      const weekEndTime = new Date(ws + "T00:00:00.000Z").getTime() + 7 * 24 * 60 * 60 * 1000;
-      if (weekEndTime > Date.now()) continue;
-
-      const weekTotal  = wm.get(ws) ?? 0;
-      const commission = commRate > 0 ? Math.round(weekTotal * commRate) / 100 : 0;
-      const expected   = Math.max(0, weekTotal - commission);
-      if (expected <= 0) continue;
-
-      // Available payment to distribute (capped at expected to avoid over-clearing)
-      let budget = Math.min(paidByVendorWeek.get(`${vendorId}|${ws}`) ?? 0, expected);
-      if (budget >= expected) continue; // fully paid week — no arrears
-
-      // Sort days oldest first and distribute budget
-      days.sort((a, b) => a.date.localeCompare(b.date));
-      for (const day of days) {
-        if (budget <= 0) {
-          vendorArr.push({ date: day.date, amount: day.amount });
-        } else if (budget >= day.amount) {
-          // This day is fully covered — remove from arrears
-          budget -= day.amount;
-        } else {
-          // Partially covered — show only the remaining amount
-          vendorArr.push({ date: day.date, amount: day.amount - budget });
-          budget = 0;
-        }
+    for (const [date, salesAmount] of dayMap) {
+      const k = `${vendorId}|${date}`;
+      const { paidAmount, payments } = dailyPaidMap.get(k) ?? { paidAmount: 0, payments: [] };
+      const remaining = Math.max(0, salesAmount - paidAmount);
+      if (remaining > 0) {
+        vendorArr.push({ date, salesAmount, paidAmount, remaining, payments });
       }
     }
 
-    // Sort oldest first (most urgent at top)
+    // Sort oldest first
     vendorArr.sort((a, b) => a.date.localeCompare(b.date));
     if (vendorArr.length > 0) arrears[String(vendorId)] = vendorArr;
   }

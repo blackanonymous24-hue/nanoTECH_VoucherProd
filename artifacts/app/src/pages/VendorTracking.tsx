@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -74,8 +74,16 @@ interface DailyTrackingResponse {
   weekEnd?: string;
 }
 
+interface DailyArrearEntry {
+  date: string;
+  salesAmount: number;
+  paidAmount: number;
+  remaining: number;
+  payments: { id: number; amount: number }[];
+}
+
 interface DailyArrearsResponse {
-  arrears: Record<string, { date: string; amount: number }[]>;
+  arrears: Record<string, DailyArrearEntry[]>;
 }
 
 function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
@@ -441,11 +449,16 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
 export default function VendorTracking() {
   const { selectedRouterId } = useRouterContext();
 
+  const queryClient = useQueryClient();
+
   const [date, setDate]       = useState<string>(yesterdayLocal());
   const [applied, setApplied] = useState<string>(yesterdayLocal());
   const [search, setSearch]   = useState("");
   const [saving, setSaving]   = useState(false);
   const [savingWeek, setSavingWeek] = useState(false);
+  const [payingKey, setPayingKey]   = useState<string | null>(null); // "vendorId|date"
+  const [payAmount, setPayAmount]   = useState<string>("");
+  const [payLoading, setPayLoading] = useState(false);
 
   const summaryRef = useRef<HTMLDivElement>(null);
 
@@ -543,6 +556,23 @@ export default function VendorTracking() {
   const prevWeekLabel = weekLabelFromRange(prevWeekData?.weekStart, prevWeekData?.weekEnd);
   const prevWeekSummary = prevWeekData?.weekSummary ?? [];
   const hasPrevWeekData = prevWeekSummary.length > 0;
+
+  const submitDailyPayment = useCallback(async (vendorId: number | null, date: string, amount: number) => {
+    if (!vendorId || !selectedRouterId || amount <= 0) return;
+    setPayLoading(true);
+    try {
+      await fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routerId: selectedRouterId, date, amount: Math.round(amount) }),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, applied] });
+      setPayingKey(null);
+      setPayAmount("");
+    } finally {
+      setPayLoading(false);
+    }
+  }, [selectedRouterId, applied, queryClient]);
 
   if (!selectedRouterId) {
     return (
@@ -756,16 +786,67 @@ export default function VendorTracking() {
                               <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
                             </tr>
                             {/* Arriérés */}
-                            {vendorArrears.map((arr) => (
-                              <tr key={arr.date} className="border-t border-orange-200 bg-orange-50">
-                                <td className="px-3 py-1.5 text-orange-700 flex items-center gap-1">
-                                  <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
-                                  <span>Arriéré du {fmtDateFr(arr.date)}</span>
-                                </td>
-                                <td className="px-3 py-1.5" />
-                                <td className="px-3 py-1.5 text-right font-bold text-orange-700 tabular-nums">{fmtAmount(arr.amount)} FCFA</td>
-                              </tr>
-                            ))}
+                            {vendorArrears.map((arr) => {
+                              const pKey = `${s.vendorId}|${arr.date}`;
+                              const isPaying = payingKey === pKey;
+                              return (
+                                <tr key={arr.date} className="border-t border-orange-200 bg-orange-50">
+                                  <td colSpan={3} className="px-3 py-1.5">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="flex flex-col gap-0.5 min-w-0">
+                                        <div className="flex items-center gap-1 text-orange-700">
+                                          <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
+                                          <span className="text-xs font-medium">Arriéré du {fmtDateFr(arr.date)}</span>
+                                        </div>
+                                        {arr.paidAmount > 0 && (
+                                          <span className="text-[10px] text-gray-500 pl-4">
+                                            Ventes: {fmtAmount(arr.salesAmount)} · Versé: {fmtAmount(arr.paidAmount)}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                        <span className="text-xs font-bold text-orange-700 tabular-nums">{fmtAmount(arr.remaining)} FCFA</span>
+                                        {!isPaying && (
+                                          <button
+                                            className="text-[10px] px-2 py-0.5 rounded bg-orange-600 text-white hover:bg-orange-700 transition-colors"
+                                            onClick={() => { setPayingKey(pKey); setPayAmount(String(arr.remaining)); }}
+                                          >
+                                            Verser
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {isPaying && (
+                                      <div className="mt-2 flex items-center gap-1.5 pl-4">
+                                        <Input
+                                          type="number"
+                                          min={1}
+                                          max={arr.remaining}
+                                          className="h-7 w-28 text-xs"
+                                          value={payAmount}
+                                          onChange={(e) => setPayAmount(e.target.value)}
+                                          placeholder="Montant"
+                                        />
+                                        <span className="text-[10px] text-gray-500">FCFA</span>
+                                        <button
+                                          className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                                          disabled={payLoading || !payAmount || Number(payAmount) <= 0}
+                                          onClick={() => submitDailyPayment(s.vendorId, arr.date, Number(payAmount))}
+                                        >
+                                          {payLoading ? "…" : "Confirmer"}
+                                        </button>
+                                        <button
+                                          className="text-[10px] px-2 py-0.5 rounded bg-gray-300 text-gray-700 hover:bg-gray-400 transition-colors"
+                                          onClick={() => { setPayingKey(null); setPayAmount(""); }}
+                                        >
+                                          Annuler
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
