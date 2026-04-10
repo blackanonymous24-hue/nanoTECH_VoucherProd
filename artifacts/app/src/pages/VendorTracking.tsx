@@ -159,7 +159,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string) {
 </style></head><body>
 <h2>Suivi des ventes par vendeur</h2>
 <p>Date : ${dateFr} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
-<h3>Résumé d'hier — ${dateFr}</h3>
+<h3>Résumé de la vente du ${dateFr}</h3>
 <table>
   <thead><tr><th>#</th><th>Vendeur</th><th class="center">Tickets vendus</th><th class="right">Total (FCFA)</th></tr></thead>
   <tbody>${summaryRows}</tbody>
@@ -732,7 +732,7 @@ export default function VendorTracking() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between px-1">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">
-                    Résumé d'hier — {dateLabelFr}
+                    Résumé de la vente du {dateLabelFr}
                   </span>
                   <span className="text-[10px] text-gray-400 tabular-nums">
                     {grandCount} ticket{grandCount !== 1 ? "s" : ""} · {fmtAmount(grandTotal)} FCFA
