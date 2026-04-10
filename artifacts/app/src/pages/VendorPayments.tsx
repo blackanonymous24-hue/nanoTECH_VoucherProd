@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -584,7 +584,6 @@ export default function VendorPayments() {
   const { selectedRouterId } = useRouterContext();
   const qc = useQueryClient();
   const [weekOffset, setWeekOffset] = useState(0); // 0 = last week, 1 = 2 weeks ago, ...
-  const cardRef = useRef<HTMLDivElement>(null);
 
   const curMon  = currentMonday();
   const lastMon = mondayNWeeksAgo(curMon, 1);
@@ -600,17 +599,6 @@ export default function VendorPayments() {
     return `Il y a ${weekOffset + 1} semaines`;
   }, [weekOffset]);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const dx = e.deltaX;
-    const dy = e.deltaY;
-    const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-    if (delta > 0) {
-      setWeekOffset((o) => Math.min(o + 1, MAX_WEEK_OFFSET));
-    } else if (delta < 0) {
-      setWeekOffset((o) => Math.max(o - 1, 0));
-    }
-  }, []);
 
   if (!selectedRouterId) {
     return (
@@ -642,11 +630,7 @@ export default function VendorPayments() {
       />
 
       {/* Semaine(s) précédente(s) — carousel */}
-      <div
-        ref={cardRef}
-        onWheel={handleWheel}
-        style={{ touchAction: "pan-y" }}
-      >
+      <div>
         <WeekCard
           label={carouselLabel}
           weekStart={carouselWeekStart}
