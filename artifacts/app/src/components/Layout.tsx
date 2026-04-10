@@ -603,7 +603,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                     <SelectTrigger className="h-9 text-sm">
                       <SelectValue placeholder={dialogProfiles ? "— Choisir un profil —" : "Chargement…"} />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-56 overflow-y-auto">
                       {(dialogProfiles ?? []).map((p) => (
                         <SelectItem key={p.name} value={p.name}>
                           <span className="font-medium">{p.name}</span>
