@@ -256,7 +256,7 @@ router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
     ))
     .orderBy(desc(vouchersTable.printedAt));
 
-  const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
+  const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.salePrice || v.price || "0") || 0), 0);
 
   res.json({ date: startStr, total: vouchers.length, revenue, vouchers });
 });

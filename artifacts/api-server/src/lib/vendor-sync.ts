@@ -36,17 +36,18 @@ async function syncHistoricalScriptSalesToVendor(
 
     // Fetch existing voucher records for this router
     const existing = await db
-      .select({ username: vouchersTable.username, id: vouchersTable.id, vendorId: vouchersTable.vendorId, printedAt: vouchersTable.printedAt })
+      .select({ username: vouchersTable.username, id: vouchersTable.id, vendorId: vouchersTable.vendorId, printedAt: vouchersTable.printedAt, price: vouchersTable.price })
       .from(vouchersTable)
       .where(eq(vouchersTable.routerId, routerId));
 
-    const existingMap = new Map<string, { username: string; id: number; vendorId: number | null; printedAt: Date | null }>(
+    const existingMap = new Map<string, { username: string; id: number; vendorId: number | null; printedAt: Date | null; price: string | null }>(
       existing.map((e) => [e.username.toLowerCase(), e]),
     );
 
     const toInsert: (typeof vouchersTable.$inferInsert)[] = [];
     const toReattribute: number[] = [];
     const toFix: { id: number; printedAt: Date; usedAt: Date; price: string; salePrice: string | null }[] = [];
+    const toPriceUpdate: { id: number; price: string; salePrice: string | null }[] = [];
 
     for (const entry of matched) {
       const key = entry.username.toLowerCase();
@@ -81,6 +82,13 @@ async function syncHistoricalScriptSalesToVendor(
           price:     entry.price || "",
           salePrice: entry.price || null,
         });
+      } else if (found.printedAt !== null && (!found.price || found.price === "") && entry.price) {
+        // Ticket exists with printedAt but price is missing — fill price from script cache
+        toPriceUpdate.push({
+          id:        found.id,
+          price:     entry.price,
+          salePrice: entry.price,
+        });
       }
     }
 
@@ -109,7 +117,15 @@ async function syncHistoricalScriptSalesToVendor(
       created++;
     }
 
-    logger.info({ vendorId, routerId, matched: matched.length, created, reattributed },
+    // Repair vouchers that have printedAt but are missing price (fill from script cache)
+    for (const fix of toPriceUpdate) {
+      await db
+        .update(vouchersTable)
+        .set({ price: fix.price, salePrice: fix.salePrice })
+        .where(eq(vouchersTable.id, fix.id));
+    }
+
+    logger.info({ vendorId, routerId, matched: matched.length, created, reattributed, priceFixed: toPriceUpdate.length },
       "vendor sync: historical script sales backfill complete");
   } catch (err) {
     logger.warn({ vendorId, routerId, err }, "vendor sync: historical script sales backfill failed (non-blocking)");
