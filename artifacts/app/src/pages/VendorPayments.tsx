@@ -348,6 +348,117 @@ function WeekCard({
   );
 }
 
+/* ── Weekly daily payments (current week) — review & correct ─────────── */
+interface DailyPaymentWithVendor {
+  id: number;
+  vendorId: number;
+  vendorName: string;
+  date: string;
+  amount: number;
+  note: string | null;
+  paidAt: string;
+}
+
+function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const monday = currentMonday();
+  const today  = new Date().toISOString().slice(0, 10);
+  const qk = ["weekly-daily-payments", routerId, monday];
+  const [deleting, setDeleting] = useState<number | null>(null);
+
+  const { data = [], isLoading } = useQuery<DailyPaymentWithVendor[]>({
+    queryKey: qk,
+    queryFn: async ({ signal }) => {
+      const params = new URLSearchParams({ routerId: String(routerId), from: monday, to: today });
+      const res = await fetch(`${BASE}/api/vendors/daily-payments?${params}`, { signal });
+      if (!res.ok) return [];
+      return res.json() as Promise<DailyPaymentWithVendor[]>;
+    },
+    staleTime: 30_000,
+  });
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, DailyPaymentWithVendor[]>();
+    for (const p of data) {
+      if (!map.has(p.date)) map.set(p.date, []);
+      map.get(p.date)!.push(p);
+    }
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [data]);
+
+  const total = useMemo(() => data.reduce((s, p) => s + p.amount, 0), [data]);
+
+  const handleDelete = async (id: number) => {
+    setDeleting(id);
+    try {
+      const res = await fetch(`${BASE}/api/vendors/daily-payments/${id}`, { method: "DELETE" });
+      if (!res.ok) { toast({ title: "Erreur suppression", variant: "destructive" }); return; }
+      await queryClient.invalidateQueries({ queryKey: qk });
+      await queryClient.invalidateQueries({ queryKey: ["daily-arrears-versement", routerId] });
+      toast({ title: "Versement supprimé" });
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center py-6 gap-2 text-gray-400">
+      <Loader2 className="h-4 w-4 animate-spin" />
+      <span className="text-xs">Chargement…</span>
+    </div>
+  );
+
+  if (byDate.length === 0) return (
+    <div className="text-center py-6 text-xs text-gray-400">
+      Aucun versement journalier enregistré cette semaine
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs text-gray-500 px-1">
+        <span>{data.length} versement{data.length > 1 ? "s" : ""}</span>
+        <span className="font-semibold text-emerald-700">{fmtAmount(total)} FCFA total</span>
+      </div>
+      {byDate.map(([date, payments]) => (
+        <div key={date} className="border border-gray-100 rounded-lg overflow-hidden">
+          <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
+            <p className="text-xs font-semibold text-gray-700">{fmtDateFr(date)}</p>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {payments.map((p) => (
+              <div key={p.id} className="flex items-center gap-2 px-3 py-2.5 bg-white">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-800 truncate">{p.vendorName}</p>
+                  <div className="flex flex-wrap gap-x-2 text-[10px] text-gray-400 mt-0.5">
+                    <span>{new Date(p.paidAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                    {p.note && <span className="italic">· {p.note}</span>}
+                  </div>
+                </div>
+                <span className="text-sm font-bold text-emerald-700 tabular-nums flex-shrink-0">
+                  {fmtAmount(p.amount)} FCFA
+                </span>
+                <button
+                  onClick={() => void handleDelete(p.id)}
+                  disabled={deleting === p.id}
+                  className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50 flex-shrink-0"
+                  title="Supprimer ce versement"
+                >
+                  {deleting === p.id
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Trash2 className="h-3.5 w-3.5" />
+                  }
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── Daily arrears section ─────────────────────────────────────────── */
 function DailyArrearsSection({ routerId }: { routerId: number }) {
   const queryClient = useQueryClient();
@@ -653,6 +764,20 @@ export default function VendorPayments() {
           </p>
         )}
       </div>
+
+      {/* Versements journaliers de la semaine en cours */}
+      <Card className="shadow-sm border-emerald-100">
+        <CardHeader className="pb-2 pt-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            Versements journaliers — semaine en cours
+          </CardTitle>
+          <p className="text-xs text-gray-400">Cliquez sur 🗑 pour corriger une erreur de saisie</p>
+        </CardHeader>
+        <CardContent className="pt-1 pb-4">
+          <WeeklyDailyPaymentsSection routerId={selectedRouterId} />
+        </CardContent>
+      </Card>
 
       {/* Arriérés journaliers */}
       <Card className="shadow-sm border-orange-100">

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, and, ne, count, sql, isNotNull, ilike, inArray } from "drizzle-orm";
+import { eq, desc, and, ne, count, sql, isNotNull, ilike, inArray, gte, lte } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
@@ -847,13 +847,45 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
 
 /**
  * GET /vendors/daily-payments?routerId=X&date=YYYY-MM-DD
- * Returns all daily payments for all vendors on this router for the given date.
+ *   Returns payments for a single day (legacy, no vendor name).
+ * GET /vendors/daily-payments?routerId=X&from=YYYY-MM-DD&to=YYYY-MM-DD
+ *   Returns payments for a date range, including vendorName joined from vendors table.
  */
 router.get("/vendors/daily-payments", async (req, res): Promise<void> => {
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
   if (!routerId || isNaN(routerId)) { res.status(400).json({ error: "routerId requis" }); return; }
+
+  const from = (req.query.from as string) ?? "";
+  const to   = (req.query.to   as string) ?? "";
+
+  if (from && to) {
+    // Range query — includes vendor name
+    const rows = await db
+      .select({
+        id:         vendorDailyPaymentsTable.id,
+        vendorId:   vendorDailyPaymentsTable.vendorId,
+        vendorName: vendorsTable.name,
+        routerId:   vendorDailyPaymentsTable.routerId,
+        date:       vendorDailyPaymentsTable.date,
+        amount:     vendorDailyPaymentsTable.amount,
+        note:       vendorDailyPaymentsTable.note,
+        paidAt:     vendorDailyPaymentsTable.paidAt,
+      })
+      .from(vendorDailyPaymentsTable)
+      .innerJoin(vendorsTable, eq(vendorDailyPaymentsTable.vendorId, vendorsTable.id))
+      .where(and(
+        eq(vendorDailyPaymentsTable.routerId, routerId),
+        gte(vendorDailyPaymentsTable.date, from),
+        lte(vendorDailyPaymentsTable.date, to),
+      ))
+      .orderBy(vendorDailyPaymentsTable.date, vendorDailyPaymentsTable.paidAt);
+    res.json(rows);
+    return;
+  }
+
+  // Single day (legacy)
   const date = (req.query.date as string) ?? "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { res.status(400).json({ error: "date YYYY-MM-DD requis" }); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { res.status(400).json({ error: "date ou from/to YYYY-MM-DD requis" }); return; }
   const rows = await db
     .select()
     .from(vendorDailyPaymentsTable)
