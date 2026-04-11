@@ -28,6 +28,17 @@ import {
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
+
+/* ── Module-level dashboard cache ──────────────────────────────────────
+   Survives React re-renders and component unmount/remount within the same
+   browser tab. Enables instant display (no spinner) when the user returns
+   to the portal or the component re-mounts with the same token.          */
+const _dc: {
+  token: string | null;
+  data: PortalData | null;
+  versData: VersementData | null;
+  arrearsData: DailyArrearsData | null;
+} = { token: null, data: null, versData: null, arrearsData: null };
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type VendorInfo = { id: number; name: string; email: string | null; username: string | null };
@@ -764,10 +775,13 @@ function Dashboard({ token, vendor, onLogout }: {
   vendor: VendorInfo;
   onLogout: () => void;
 }) {
-  const [data, setData] = useState<PortalData | null>(null);
-  const [versData, setVersData] = useState<VersementData | null>(null);
-  const [arrearsData, setArrearsData] = useState<DailyArrearsData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // ── Use module-level cache for instant display on mount ─────────────────
+  // hadCacheRef stays stable so fetchData dependency array never changes.
+  const hadCacheRef = useRef(_dc.token === token && _dc.data !== null);
+  const [data, setData] = useState<PortalData | null>(hadCacheRef.current ? _dc.data : null);
+  const [versData, setVersData] = useState<VersementData | null>(hadCacheRef.current ? _dc.versData : null);
+  const [arrearsData, setArrearsData] = useState<DailyArrearsData | null>(hadCacheRef.current ? _dc.arrearsData : null);
+  const [loading, setLoading] = useState(!hadCacheRef.current);
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
   const [recentSearch, setRecentSearch] = useState("");
@@ -818,7 +832,8 @@ function Dashboard({ token, vendor, onLogout }: {
   const periodCacheRef = useRef<Map<string, PeriodSalesData>>(new Map());
 
   const fetchData = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true);
+    // Only show spinner if there was no cached data at mount time
+    if (showLoading && !hadCacheRef.current) setLoading(true);
     setError("");
     try {
       const headers = { Authorization: `Bearer ${token}` };
@@ -828,13 +843,23 @@ function Dashboard({ token, vendor, onLogout }: {
         api("/vendor-portal/me/daily-arrears", { headers }),
       ]);
       if (res.status === 401 || res.status === 403) { onLogout(); return; }
-      setData(await res.json());
-      if (versRes.ok) setVersData(await versRes.json());
-      if (arrearsRes.ok) setArrearsData(await arrearsRes.json());
+      const [d, v, a] = await Promise.all([
+        res.json() as Promise<PortalData>,
+        versRes.ok  ? (versRes.json()    as Promise<VersementData>)    : Promise.resolve(null),
+        arrearsRes.ok ? (arrearsRes.json() as Promise<DailyArrearsData>) : Promise.resolve(null),
+      ]);
+      setData(d);
+      if (v !== null) setVersData(v);
+      if (a !== null) setArrearsData(a);
+      // ── Populate module-level cache ───────────────────────────────────
+      _dc.token = token;
+      _dc.data  = d;
+      if (v !== null) _dc.versData    = v;
+      if (a !== null) _dc.arrearsData = a;
     } catch {
       setError("Erreur lors du chargement des données");
     } finally {
-      if (showLoading) setLoading(false);
+      setLoading(false);
     }
   }, [token, onLogout]);
 

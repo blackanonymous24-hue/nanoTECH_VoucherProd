@@ -8,19 +8,19 @@ import { type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
-/* ── In-memory TTL cache for period-sales ────────────────────── */
-// yesterday/week (last week) are immutable → 1h; today → 45s; month → 2 min
-const _pscache = new Map<string, { data: unknown; exp: number }>();
+/* ── Generic in-memory TTL cache ────────────────────────────── */
+const _cache = new Map<string, { data: unknown; exp: number }>();
+function cGet(k: string) { const e = _cache.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
+function cSet(k: string, ttl: number, d: unknown) { _cache.set(k, { data: d, exp: Date.now() + ttl }); }
+
+/* period-sales TTLs: yesterday/week are immutable → 1h; today → 45s; month → 2 min */
 const PSC_TTL: Record<string, number> = {
-  today: 45_000,
-  yesterday: 3_600_000,
-  week: 3_600_000,
-  month: 120_000,
+  today: 45_000, yesterday: 3_600_000, week: 3_600_000, month: 120_000,
 };
-function pscGet(k: string) { const e = _pscache.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
-function pscSet(k: string, period: string, d: unknown) {
-  _pscache.set(k, { data: d, exp: Date.now() + (PSC_TTL[period] ?? 45_000) });
-}
+/* dashboard TTLs */
+const DASH_TTL     = 20_000;   // /vendor-portal/me  (15s refresh cycle + buffer)
+const PAYMENTS_TTL = 30_000;   // /vendor-portal/me/payments
+const ARREARS_TTL  = 45_000;   // /vendor-portal/me/daily-arrears
 
 function buildTotals(vendorId: number) {
   return db.select({
@@ -109,6 +109,11 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
 
   const id = payload.vendorId;
 
+  // ── Cache check ──────────────────────────────────────────────────────
+  const dashKey = `dash:${id}`;
+  const dashHit = cGet(dashKey);
+  if (dashHit) { res.json(dashHit); return; }
+
   const [vendor] = await db
     .select()
     .from(vendorsTable)
@@ -119,12 +124,8 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     return;
   }
 
-  const routerRow = vendor.routerId
-    ? await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
-    : null;
-
-  // Sync MikroTik users before building response so counts are accurate.
-  // Throttled by SYNC_TTL (2 min) so most calls return instantly.
+  // Sync MikroTik users — throttled (2 min TTL) so typically instant.
+  // Run BEFORE the DB queries to ensure counts are accurate.
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
     await syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
@@ -145,39 +146,45 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
   );
 
-  const [totalsRows, byProfileRaw, [periodStatsRow], recentSales, availableVouchers, validProfileRows] = await Promise.all([
-    buildTotals(id),
-    db
-      .select({
-        profileName:    vouchersTable.profileName,
-        total:          count(),
-        printed:        sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
-        used:           sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
-        soldToday:      sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfDay}) as int)`,
-        soldThisMonth:  sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfMonth}) as int)`,
-      })
-      .from(vouchersTable)
-      .where(byProfileConditions)
-      .groupBy(vouchersTable.profileName)
-      .orderBy(desc(count())),
-    buildPortalPeriodStats(id),
-    db
-      .select()
-      .from(vouchersTable)
-      .where(and(eq(vouchersTable.vendorId, id), isNotNull(vouchersTable.usedAt)))
-      .orderBy(desc(vouchersTable.usedAt))
-      .limit(30),
-    db
-      .select()
-      .from(vouchersTable)
-      .where(eq(vouchersTable.vendorId, id))
-      .orderBy(desc(vouchersTable.createdAt)),
-    // Fetch currently valid profiles from the local cache (reflects live MikroTik state)
-    vendor.routerId != null
-      ? db.select({ profileName: profilesCacheTable.profileName })
-          .from(profilesCacheTable)
-          .where(eq(profilesCacheTable.routerId, vendor.routerId))
-      : Promise.resolve([] as { profileName: string }[]),
+  // ── Parallelize router fetch + all 6 DB queries ───────────────────────
+  const [routerRow, [totalsRows, byProfileRaw, [periodStatsRow], recentSales, availableVouchers, validProfileRows]] = await Promise.all([
+    vendor.routerId
+      ? db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
+      : Promise.resolve(null as typeof routersTable.$inferSelect | null),
+    Promise.all([
+      buildTotals(id),
+      db
+        .select({
+          profileName:    vouchersTable.profileName,
+          total:          count(),
+          printed:        sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
+          used:           sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
+          soldToday:      sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfDay}) as int)`,
+          soldThisMonth:  sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfMonth}) as int)`,
+        })
+        .from(vouchersTable)
+        .where(byProfileConditions)
+        .groupBy(vouchersTable.profileName)
+        .orderBy(desc(count())),
+      buildPortalPeriodStats(id),
+      db
+        .select()
+        .from(vouchersTable)
+        .where(and(eq(vouchersTable.vendorId, id), isNotNull(vouchersTable.usedAt)))
+        .orderBy(desc(vouchersTable.usedAt))
+        .limit(30),
+      db
+        .select()
+        .from(vouchersTable)
+        .where(eq(vouchersTable.vendorId, id))
+        .orderBy(desc(vouchersTable.createdAt)),
+      // Fetch currently valid profiles from the local cache (reflects live MikroTik state)
+      vendor.routerId != null
+        ? db.select({ profileName: profilesCacheTable.profileName })
+            .from(profilesCacheTable)
+            .where(eq(profilesCacheTable.routerId, vendor.routerId))
+        : Promise.resolve([] as { profileName: string }[]),
+    ]),
   ]);
 
   // Build a set of profiles that still exist in MikroTik
@@ -214,7 +221,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     lastMonthAmount: Number(periodStatsRow?.lastMonthAmount  ?? 0),
   };
 
-  res.json({
+  const dashPayload = {
     vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
     hotspotName: routerRow?.hotspotName ?? null,
     totalVouchers:  totals?.total        ?? 0,
@@ -229,7 +236,9 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
       price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
     })),
     availableVouchers: availableVouchers.filter((v) => v.usedAt === null),
-  });
+  };
+  cSet(dashKey, DASH_TTL, dashPayload);
+  res.json(dashPayload);
 });
 
 router.get("/vendor-portal/me/report", async (req, res): Promise<void> => {
@@ -280,8 +289,8 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     res.status(400).json({ error: "Période invalide" }); return;
   }
 
-  const cacheKey = `${payload.vendorId}:${period}`;
-  const hit = pscGet(cacheKey);
+  const cacheKey = `ps:${payload.vendorId}:${period}`;
+  const hit = cGet(cacheKey);
   if (hit) { res.json(hit); return; }
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
@@ -350,7 +359,7 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.salePrice || v.price || "0") || 0), 0);
 
   const result = { period, label: labels[period!], total: vouchers.length, revenue, byProfile, vouchers };
-  pscSet(cacheKey, period!, result);
+  cSet(cacheKey, PSC_TTL[period!] ?? 45_000, result);
   res.json(result);
 });
 
@@ -387,6 +396,10 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
   if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
   const payload = verifyToken(auth.slice(7));
   if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const paymentsKey = `payments:${payload.vendorId}`;
+  const paymentsHit = cGet(paymentsKey);
+  if (paymentsHit) { res.json(paymentsHit); return; }
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
   if (!vendor || !vendor.isActive || !vendor.routerId) {
@@ -475,7 +488,9 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     };
   }));
 
-  res.json({ weeks: result });
+  const paymentsPayload = { weeks: result };
+  cSet(paymentsKey, PAYMENTS_TTL, paymentsPayload);
+  res.json(paymentsPayload);
 });
 
 /* ── GET /vendor-portal/me/daily-arrears ────────────────────────────── */
@@ -484,6 +499,10 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
   const payload = verifyToken(auth.slice(7));
   if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const arrearsKey = `arrears:${payload.vendorId}`;
+  const arrearsHit = cGet(arrearsKey);
+  if (arrearsHit) { res.json(arrearsHit); return; }
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
   if (!vendor || !vendor.isActive || !vendor.routerId) {
@@ -571,7 +590,9 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     })
     .filter((d) => d.remaining > 0 && (!cutoffDate || d.date >= cutoffDate));
 
-  res.json({ days });
+  const arrearsPayload = { days };
+  cSet(arrearsKey, ARREARS_TTL, arrearsPayload);
+  res.json(arrearsPayload);
 });
 
 export default router;
