@@ -47,6 +47,33 @@ async function fetchProfilesWithCache(routerId: number, conn: RouterConnection) 
   return task;
 }
 
+/* ── Generic in-memory TTL cache for MikroTik live-data endpoints ───────
+ *
+ * Key format: "<type>:<routerId>"  or  "<type>:<routerId>:<extra>"
+ * TTLs are chosen so the UI feels instant while data stays acceptably fresh.
+ *
+ *   ping        30 s  — status probe, polled often by dashboard
+ *   info        60 s  — uptime/resources, 1 min staleness acceptable
+ *   pools        5 min — address pools rarely change
+ *   sessions    15 s  — active hotspot sessions
+ *   interfaces   5 min — interface list rarely changes
+ *   traffic      8 s  — live bandwidth; cache prevents burst calls
+ *   logs        10 s  — system log tail
+ */
+const _mik = new Map<string, { data: unknown; exp: number }>();
+function mGet(k: string) { const e = _mik.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
+function mSet(k: string, ttl: number, d: unknown) { _mik.set(k, { data: d, exp: Date.now() + ttl }); }
+
+const MIK_TTL = {
+  ping:       30_000,
+  info:       60_000,
+  pools:     300_000,
+  sessions:   15_000,
+  interfaces:300_000,
+  traffic:     8_000,
+  logs:       10_000,
+} as const;
+
 router.get("/routers", async (_req, res): Promise<void> => {
   const routers = await db
     .select({
@@ -215,11 +242,17 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `ping:${id}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   const online = await pingRouter({ host: r.host, port: r.port, username: r.username, password: r.password });
-  res.json({ success: online });
+  const payload = { success: online };
+  mSet(ck, MIK_TTL.ping, payload);
+  res.json(payload);
 });
 
 router.get("/routers/:id/info", async (req, res): Promise<void> => {
@@ -227,11 +260,16 @@ router.get("/routers/:id/info", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `info:${id}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
     const info = await getRouterInfo({ host: r.host, port: r.port, username: r.username, password: r.password });
+    mSet(ck, MIK_TTL.info, info);
     res.json(info);
   } catch (err) {
     res.status(503).json({ error: err instanceof Error ? err.message : "Erreur" });
@@ -470,11 +508,16 @@ router.get("/routers/:id/pools", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `pools:${id}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
     const pools = await listAddressPools({ host: r.host, port: r.port, username: r.username, password: r.password });
+    mSet(ck, MIK_TTL.pools, pools);
     res.json(pools);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -486,11 +529,16 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `sessions:${id}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
     const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+    mSet(ck, MIK_TTL.sessions, sessions);
     res.json(sessions);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -951,12 +999,17 @@ router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `interfaces:${id}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     const ifaces = await listInterfaces(conn);
+    mSet(ck, MIK_TTL.interfaces, ifaces);
     res.json(ifaces);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -967,14 +1020,18 @@ router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : "";
+  const ck = `traffic:${id}:${ifaceName}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : undefined;
-
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const traffic = await fetchInterfaceTraffic(conn, ifaceName);
+    const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
+    mSet(ck, MIK_TTL.traffic, traffic);
     res.json(traffic);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -986,15 +1043,19 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+  const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : 50;
+  const topics = (req.query.topics as string | undefined) ?? "";
+  const ck = `logs:${id}:${topics}:${limit}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const topics = req.query.topics as string | undefined;
-    const logs = await listLogs(conn, limit, topics);
+    const logs = await listLogs(conn, limit, topics || undefined);
+    mSet(ck, MIK_TTL.logs, logs);
     res.json(logs);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
