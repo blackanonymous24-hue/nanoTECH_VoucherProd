@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useListRouterSessions,
   useDisconnectRouterSession,
@@ -29,6 +29,11 @@ import {
 import { Activity, RefreshCw, Wifi, Users, Search, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+// Module-level cache — persists across component unmount/remount (navigating away and back).
+// Provides instant display via initialData so the session list never shows a loading skeleton on re-visit.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _sessionsCache: Record<number, { sessions?: any[]; ts?: number }> = {};
+
 function formatBytes(bytes: string | null | undefined): string {
   if (!bytes) return "—";
   const n = parseInt(bytes, 10);
@@ -52,9 +57,21 @@ export default function Sessions() {
       query: {
         enabled: !!selectedRouterId,
         refetchInterval: 30_000,
+        staleTime: 14_000,       // juste sous le TTL serveur (15s) → pas de double-fetch inutile
+        gcTime: 30 * 60_000,     // garde les données 30 min en mémoire React Query
+        initialData: selectedRouterId != null ? _sessionsCache[selectedRouterId]?.sessions : undefined,
+        initialDataUpdatedAt: selectedRouterId != null ? _sessionsCache[selectedRouterId]?.ts : undefined,
       },
     },
   );
+
+  // Met à jour le cache module-level à chaque réponse réussie
+  // (isLoading=false garantit qu'on a de vraies données, pas le [] par défaut)
+  useEffect(() => {
+    if (selectedRouterId != null && !isLoading && !error) {
+      _sessionsCache[selectedRouterId] = { sessions, ts: Date.now() };
+    }
+  }, [sessions, selectedRouterId, isLoading, error]);
 
   const disconnectMutation = useDisconnectRouterSession();
 
