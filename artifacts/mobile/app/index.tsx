@@ -8,10 +8,12 @@ import {
   Platform,
   StatusBar,
   BackHandler,
+  Alert,
 } from "react-native";
-import { WebView, WebViewNavigation } from "react-native-webview";
+import { WebView, WebViewNavigation, WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import * as Print from "expo-print";
 
 const PROD_URL = "https://nanotech-voucher.replit.app";
 const RELOAD_SPINNER_TIMEOUT = 8000;
@@ -92,6 +94,17 @@ export default function AppScreen() {
     webViewRef.current?.injectJavaScript(`window.location.href = '${PROD_URL}';`);
   };
 
+  const handleMessage = useCallback(async (event: WebViewMessageEvent) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === "print" && typeof data.html === "string") {
+        await Print.printAsync({ html: data.html });
+      }
+    } catch {
+      Alert.alert("Impression", "Impossible de lancer l'impression.");
+    }
+  }, []);
+
   const isVendorPortal = currentUrl.includes("/vendeur") || currentUrl.includes("/vendor-portal");
 
   return (
@@ -145,6 +158,7 @@ export default function AppScreen() {
           style={styles.webview}
           onNavigationStateChange={handleNavigationStateChange}
           onLoadEnd={handleLoadEnd}
+          onMessage={handleMessage}
           onError={() => { setHasError(true); setIsLoading(false); clearReloadTimer(); isExplicitReloadRef.current = false; }}
           onHttpError={() => { setIsLoading(false); clearReloadTimer(); isExplicitReloadRef.current = false; }}
           allowsBackForwardNavigationGestures={Platform.OS === "ios"}

@@ -39,6 +39,16 @@ const REPORT_CSS = `
   }
 `;
 
+declare global {
+  interface Window {
+    ReactNativeWebView?: { postMessage(data: string): void };
+  }
+}
+
+function isNativeWebView(): boolean {
+  return typeof window !== "undefined" && !!window.ReactNativeWebView;
+}
+
 function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
@@ -116,12 +126,27 @@ function printWithNewWindow(html: string, title: string): void {
 }
 
 /**
+ * Envoie le HTML au pont natif React Native WebView pour impression via
+ * le dialogue Android/iOS natif (expo-print).
+ */
+function printWithNativeBridge(html: string, title: string): void {
+  window.ReactNativeWebView!.postMessage(
+    JSON.stringify({ type: "print", html, title })
+  );
+}
+
+/**
  * Imprime des tickets HTML.
- * — Mobile : ouvre un nouvel onglet avec auto-print intégré (les iframes ne
- *   déclenchent pas l'impression sur iOS Safari / Android).
- * — Desktop : utilise un <iframe> invisible (évite le bloqueur de popups).
+ * — APK WebView : pont natif via postMessage → expo-print.
+ * — Mobile web  : ouvre un nouvel onglet avec auto-print.
+ * — Desktop     : utilise un <iframe> invisible.
  */
 export function printTickets(htmlItems: string[], title: string): void {
+  if (isNativeWebView()) {
+    const html = buildHtml(htmlItems, title, false);
+    printWithNativeBridge(html, title);
+    return;
+  }
   if (isMobile()) {
     const html = buildHtml(htmlItems, title, true);
     printWithNewWindow(html, title);
@@ -133,15 +158,9 @@ export function printTickets(htmlItems: string[], title: string): void {
 
 /**
  * Imprime un rapport de ventes depuis le portail vendeur.
- *
- * Extrait le contenu `.print-only` de `#report-print-section`, supprime les
- * éléments `.no-print`, puis ouvre une nouvelle fenêtre/onglet avec auto-print.
- * Fonctionne dans les WebView Android (APK) où `window.print()` est ignoré.
- *
- * — Mobile / WebView : ouvre un nouvel onglet avec auto-print.
- * — Desktop          : utilise un <iframe> invisible.
- * — Fallback         : si `window.open` est bloqué, tente l'iframe puis
- *                      repasse à `window.print()` natif en dernier recours.
+ * — APK WebView : pont natif via postMessage → expo-print.
+ * — Mobile web  : ouvre un nouvel onglet avec auto-print.
+ * — Desktop     : utilise un <iframe> invisible.
  */
 export function printReport(title: string): void {
   const section = document.getElementById("report-print-section");
@@ -152,8 +171,6 @@ export function printReport(title: string): void {
   }
 
   const clone = section.cloneNode(true) as HTMLElement;
-
-  // Remove interactive UI elements; keep only the print-only content.
   clone.querySelectorAll<HTMLElement>(".no-print").forEach((el) => el.remove());
   clone.querySelectorAll<HTMLElement>(".print-only").forEach((el) => {
     el.style.display = "block";
@@ -161,6 +178,10 @@ export function printReport(title: string): void {
 
   const html = buildReportHtml(clone.innerHTML, title);
 
+  if (isNativeWebView()) {
+    printWithNativeBridge(html, title);
+    return;
+  }
   if (isMobile()) {
     printWithNewWindow(html, title);
   } else {
