@@ -2,6 +2,7 @@ import { Router } from "express";
 import { eq, and, isNotNull, isNull, desc, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
+import { invalidateUserCache } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 
 /**
@@ -182,6 +183,7 @@ router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
       usernames,
       enable ?? false,
     );
+    invalidateUserCache(routerId);
     res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -219,6 +221,7 @@ router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
       usernames,
       enable ?? false,
     );
+    invalidateUserCache(routerId);
     res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

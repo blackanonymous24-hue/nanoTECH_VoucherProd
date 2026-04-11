@@ -584,6 +584,11 @@ async function getCachedUsers(id: number, conn: Parameters<typeof listHotspotUse
   return users;
 }
 
+/** Call this after any action that modifies hotspot users (disable/enable/reset/delete/rename). */
+export function invalidateUserCache(routerId: number) {
+  userCache.delete(routerId);
+}
+
 router.get("/routers/:id/users", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
