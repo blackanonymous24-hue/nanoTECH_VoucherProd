@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -280,7 +280,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       label: "Vouchers",
       items: [
         { href: "/generate",     label: "Générer",         icon: Zap },
-        { href: "/vouchers",     label: "Vouchers",        icon: Ticket },
+        { href: "/vouchers",        label: "Vouchers",             icon: Ticket },
+        { href: "/ticket-lookup",   label: "Vérifier un ticket",  icon: SearchCheck },
         { href: "/vendors",                   label: "Vendeurs",            icon: Users },
         { href: "/vendors/tracking",          label: "Suivi par vendeur",   icon: ListOrdered },
         { href: "/vendors/versement-du-jour", label: "Versement du jour",   icon: CreditCard },

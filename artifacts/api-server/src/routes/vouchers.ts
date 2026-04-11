@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, isNotNull, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, desc, sql, or, ilike } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
 import { invalidateUserCache } from "./routers.js";
@@ -73,6 +73,50 @@ router.get("/vouchers", async (req, res): Promise<void> => {
   ]);
 
   res.json({ vouchers, total });
+});
+
+/* ── Sold-ticket lookup (admin/manager/collab) ─────────────────────────── */
+router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
+  const { routerId, q } = req.query as { routerId?: string; q?: string };
+  if (!routerId) { res.status(400).json({ error: "routerId requis" }); return; }
+
+  const rid = parseInt(routerId, 10);
+  const term = (q ?? "").trim();
+
+  const baseConditions = [
+    eq(vouchersTable.routerId, rid),
+    isNotNull(vouchersTable.printedAt),
+  ];
+
+  const searchConditions = term.length >= 1
+    ? [or(
+        ilike(vouchersTable.username, `%${term}%`),
+        ilike(vouchersTable.macAddress, `%${term}%`),
+        ilike(vouchersTable.saleIp, `%${term}%`),
+      )]
+    : [];
+
+  const rows = await db
+    .select({
+      id:          vouchersTable.id,
+      username:    vouchersTable.username,
+      profileName: vouchersTable.profileName,
+      price:       vouchersTable.price,
+      salePrice:   vouchersTable.salePrice,
+      macAddress:  vouchersTable.macAddress,
+      saleIp:      vouchersTable.saleIp,
+      printedAt:   vouchersTable.printedAt,
+      usedAt:      vouchersTable.usedAt,
+      vendorId:    vouchersTable.vendorId,
+      vendorName:  vendorsTable.name,
+    })
+    .from(vouchersTable)
+    .leftJoin(vendorsTable, eq(vouchersTable.vendorId, vendorsTable.id))
+    .where(and(...baseConditions, ...searchConditions))
+    .orderBy(desc(vouchersTable.printedAt))
+    .limit(200);
+
+  res.json({ tickets: rows, total: rows.length });
 });
 
 router.post("/vouchers/generate", async (req, res): Promise<void> => {
