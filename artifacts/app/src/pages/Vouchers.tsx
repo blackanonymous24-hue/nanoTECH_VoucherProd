@@ -154,7 +154,10 @@ export default function Vouchers() {
       return result;
     },
     enabled: !!activeRouterId,
-    staleTime: 120_000,
+    // staleTime:0 → background-refetch déclenché à chaque montage ; comme /lots utilise
+    // getCachedUsers (MikroTik, TTL 5 min serveur), un lot supprimé disparaît dès que le
+    // cache serveur expire, ou immédiatement après invalidateUserCache (delete/disable).
+    staleTime: 0,
     gcTime: 30 * 60_000,
     initialData: activeRouterId != null ? _vouchersCache[activeRouterId]?.lots : undefined,
     initialDataUpdatedAt: activeRouterId != null ? _vouchersCache[activeRouterId]?.lotsTs : undefined,
