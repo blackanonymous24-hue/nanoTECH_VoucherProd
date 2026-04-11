@@ -275,7 +275,9 @@ export default function GenerateVouchers() {
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
     const profilePrice = selectedProfile?.price ?? "";
     const profileValidity = selectedProfile?.validity ?? "";
-    const BATCH_SIZE = total >= 600 ? 200 : total >= 250 ? 120 : 80;
+    // 50 per batch: matches the server's internal parallel batch size,
+    // giving a progress update every ~1-2 s regardless of total quantity.
+    const BATCH_SIZE = 50;
     const allVouchers: Voucher[] = [];
     let done = 0;
 
@@ -731,19 +733,34 @@ export default function GenerateVouchers() {
                   {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
                 </Button>
                 {progress && (
-                  <div className="flex items-center justify-end gap-2 mt-1.5">
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="mt-2 space-y-1.5">
+                    <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+                      {/* Filled portion */}
                       <div
-                        className="h-full bg-orange-500 rounded-full transition-all duration-300"
+                        className="absolute inset-y-0 left-0 bg-orange-500 rounded-full transition-all duration-500"
                         style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
                       />
+                      {/* Animated shimmer overlay — shows activity even while a batch is in-flight */}
+                      <div
+                        className="absolute inset-0 animate-shimmer"
+                        style={{
+                          background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
+                          backgroundSize: "200% 100%",
+                        }}
+                      />
                     </div>
-                    <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">
-                      {progress.done} / {progress.total}
-                    </span>
-                    <span className="text-xs text-gray-400 tabular-nums whitespace-nowrap">
-                      Restants: {Math.max(0, progress.total - progress.done)}
-                    </span>
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin text-orange-500" />
+                        Envoi vers MikroTik…
+                      </span>
+                      <span className="tabular-nums font-medium">
+                        {progress.done} / {progress.total}
+                        <span className="text-gray-400 font-normal ml-1">
+                          ({Math.round((progress.done / progress.total) * 100)}%)
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
