@@ -545,6 +545,33 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   }
 });
 
+// GET /routers/:id/sessions/count — lightweight: returns {count,cachedAt} using the sessions cache.
+// Never triggers a fresh MikroTik call if the full sessions list is already cached.
+router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  // Try to serve from the shared sessions cache first (avoids any MikroTik roundtrip)
+  const ck = `sessions:${id}`;
+  const hit = mGet(ck) as unknown[] | null;
+  if (hit) {
+    res.json({ count: hit.length, cached: true });
+    return;
+  }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+    mSet(ck, MIK_TTL.sessions, sessions);
+    res.json({ count: sessions.length, cached: false });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
 interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expiresAt: number; }
 const userCache = new Map<number, UserCache>();
 const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expires first

@@ -10,6 +10,13 @@ import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOu
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// Module-level cache: persists across React unmount/remount (navigating away and back to the Dashboard).
+// Provides instant display by acting as initialData for React Query — bypasses the staleTime/gcTime window.
+const _liveCache: Record<number, {
+  sessions?: number; sessionTs?: number;
+  users?: number; usersTs?: number;
+}> = {};
+
 type LogEntry = { id: string; time: string; topics: string; message: string };
 
 interface RouterInfo {
@@ -300,17 +307,24 @@ export default function Dashboard() {
     dataUpdatedAt: sessionsUpdatedAt,
     refetch: refetchSessions,
   } = useQuery({
-    queryKey: ["router-sessions", selectedRouterId],
+    queryKey: ["router-sessions-count", selectedRouterId],
     queryFn: async ({ signal }): Promise<number> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions`, { signal });
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions/count`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: unknown = await res.json();
-      return Array.isArray(data) ? data.length : 0;
+      const d = await res.json() as { count: number };
+      const count = d.count ?? 0;
+      if (selectedRouterId) {
+        _liveCache[selectedRouterId] = { ..._liveCache[selectedRouterId], sessions: count, sessionTs: Date.now() };
+      }
+      return count;
     },
     enabled: !!selectedRouterId,
     refetchInterval: 10_000,
     refetchIntervalInBackground: false,
     staleTime: 9_000,
+    gcTime: 30 * 60_000, // keep in React Query cache for 30 min
+    initialData: selectedRouterId != null ? _liveCache[selectedRouterId]?.sessions : undefined,
+    initialDataUpdatedAt: selectedRouterId != null ? _liveCache[selectedRouterId]?.sessionTs : undefined,
     throwOnError: false,
     retry: false,
   });
@@ -325,18 +339,25 @@ export default function Dashboard() {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`, { signal });
       if (!res.ok) return 0;
       const data: unknown = await res.json();
-      if (Array.isArray(data)) return data.length;
-      if (data && typeof data === "object") {
+      let count = 0;
+      if (Array.isArray(data)) count = data.length;
+      else if (data && typeof data === "object") {
         const d = data as Record<string, unknown>;
-        if (typeof d.total === "number") return d.total;
-        if (Array.isArray(d.users)) return d.users.length;
+        if (typeof d.total === "number") count = d.total;
+        else if (Array.isArray(d.users)) count = d.users.length;
       }
-      return 0;
+      if (selectedRouterId) {
+        _liveCache[selectedRouterId] = { ..._liveCache[selectedRouterId], users: count, usersTs: Date.now() };
+      }
+      return count;
     },
     enabled: !!selectedRouterId,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000, // users change rarely — was 10s, now 30s
     refetchIntervalInBackground: false,
-    staleTime: 9_000,
+    staleTime: 25_000,      // matches the 30s interval
+    gcTime: 30 * 60_000,
+    initialData: selectedRouterId != null ? _liveCache[selectedRouterId]?.users : undefined,
+    initialDataUpdatedAt: selectedRouterId != null ? _liveCache[selectedRouterId]?.usersTs : undefined,
     throwOnError: false,
   });
 
