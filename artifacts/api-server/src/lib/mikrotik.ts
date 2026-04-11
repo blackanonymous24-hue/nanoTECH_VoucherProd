@@ -1021,7 +1021,7 @@ export async function enableDisableHotspotUsers(
     const found = new Set<string>();
 
     for (const u of all) {
-      const name = ((u["name"] as string) ?? "").toLowerCase();
+      const name = fixEncoding((u["name"] as string) ?? "").toLowerCase();
       const id   = (u[".id"]  as string) ?? "";
       if (!name || !id) continue;
       if (target.has(name)) {
@@ -1057,7 +1057,7 @@ export async function deleteHotspotUsersByComment(
     const all = await api.write("/ip/hotspot/user/print");
     const toDelete: string[] = [];
     for (const u of all) {
-      if ((u["comment"] as string ?? "") === comment) {
+      if (fixEncoding((u["comment"] as string) ?? "") === comment) {
         const id = u[".id"] as string | undefined;
         if (id) toDelete.push(id);
       }
@@ -1082,7 +1082,7 @@ export async function deleteHotspotUsersByNames(
     const all = await api.write("/ip/hotspot/user/print");
     const toDelete: string[] = [];
     for (const u of all) {
-      const name = (u["name"] as string ?? "").toLowerCase();
+      const name = fixEncoding((u["name"] as string) ?? "").toLowerCase();
       const id = u[".id"] as string | undefined;
       if (name && id && target.has(name)) toDelete.push(id);
     }
@@ -1104,7 +1104,7 @@ export async function renameHotspotUser(
 ): Promise<boolean> {
   return withRouter(conn, async (api) => {
     const all = await api.write("/ip/hotspot/user/print");
-    const user = all.find((u) => (u["name"] as string ?? "").toLowerCase() === oldUsername.toLowerCase());
+    const user = all.find((u) => fixEncoding((u["name"] as string) ?? "").toLowerCase() === oldUsername.toLowerCase());
     if (!user) return false;
     const id = user[".id"] as string | undefined;
     if (!id) return false;
@@ -1144,7 +1144,7 @@ export async function resetHotspotUser(
   return withRouter(conn, async (api) => {
     // 1. Find user and capture all relevant fields
     const all = await api.write("/ip/hotspot/user/print");
-    const user = all.find((u) => (u["name"] as string ?? "").toLowerCase() === username.toLowerCase());
+    const user = all.find((u) => fixEncoding((u["name"] as string) ?? "").toLowerCase() === username.toLowerCase());
     if (!user) return { found: false, sessionKicked: 0 };
 
     const id = user[".id"] as string | undefined;
