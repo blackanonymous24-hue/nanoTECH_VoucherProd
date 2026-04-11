@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, isNotNull, isNull, desc, sql, or, ilike } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, desc, sql, or, ilike, gte } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
 import { invalidateUserCache } from "./routers.js";
@@ -83,9 +83,14 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
   const rid = parseInt(routerId, 10);
   const term = (q ?? "").trim();
 
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+  cutoff.setHours(0, 0, 0, 0);
+
   const baseConditions = [
     eq(vouchersTable.routerId, rid),
     isNotNull(vouchersTable.printedAt),
+    gte(vouchersTable.printedAt, cutoff),
   ];
 
   const searchConditions = term.length >= 1

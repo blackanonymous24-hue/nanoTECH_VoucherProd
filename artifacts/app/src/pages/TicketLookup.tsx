@@ -75,7 +75,7 @@ export default function TicketLookup() {
             Vérifier un ticket vendu
           </h1>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Recherche tous vendeurs confondus · par nom d'utilisateur, adresse MAC ou IP
+            90 derniers jours · tous vendeurs confondus · par nom d'utilisateur, adresse MAC ou IP
           </p>
         </div>
       </div>
