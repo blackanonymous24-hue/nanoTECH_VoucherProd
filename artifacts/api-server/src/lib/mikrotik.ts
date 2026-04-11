@@ -1,5 +1,26 @@
 import { RouterOSAPI } from "node-routeros";
 import net from "net";
+import iconv from "iconv-lite";
+
+/**
+ * Convert a UTF-8 string to its Windows-1252 byte sequence, then back to a
+ * JS string where each character has the correct byte value (≤ 0xFF).
+ * This is what node-routeros does internally before writing to the socket, so
+ * we need to pre-encode any string that contains accented characters before
+ * passing it to api.write() — otherwise the UTF-8 multi-byte sequences arrive
+ * at RouterOS, get stored as raw bytes, and WinBox displays them as garbled
+ * latin characters (è → NadÃ¨ge).
+ */
+function toWin1252(str: string): string {
+  try {
+    const buf = iconv.encode(str, "win1252");
+    // Build a JS string whose char codes are the raw bytes — iconv.encode
+    // returns a Buffer with the correct Windows-1252 byte values.
+    return Array.from(buf as Uint8Array).map((b) => String.fromCharCode(b)).join("");
+  } catch {
+    return str;
+  }
+}
 
 export function tcpPing(host: string, port: number, timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -447,11 +468,11 @@ export interface AddHotspotUserOpts {
 export async function addHotspotUser(conn: RouterConnection, opts: AddHotspotUserOpts): Promise<void> {
   return withRouter(conn, async (api) => {
     const params: string[] = [
-      `=name=${opts.name}`,
-      `=password=${opts.password}`,
-      `=profile=${opts.profile}`,
+      `=name=${toWin1252(opts.name)}`,
+      `=password=${toWin1252(opts.password)}`,
+      `=profile=${toWin1252(opts.profile)}`,
     ];
-    if (opts.comment)         params.push(`=comment=${opts.comment}`);
+    if (opts.comment)         params.push(`=comment=${toWin1252(opts.comment)}`);
     if (opts.server)          params.push(`=server=${opts.server}`);
     if (opts.limitUptime)     params.push(`=limit-uptime=${opts.limitUptime}`);
     if (opts.limitBytesTotal) params.push(`=limit-bytes-total=${opts.limitBytesTotal}`);
@@ -1089,7 +1110,7 @@ export async function renameHotspotUser(
     if (!id) return false;
     await api.write("/ip/hotspot/user/set", [
       `=.id=${id}`,
-      `=name=${newUsername}`,
+      `=name=${toWin1252(newUsername)}`,
     ]);
     return true;
   }, 15_000);
@@ -1243,14 +1264,20 @@ export async function generateVouchers(
     const length = Math.min(Math.max(opts.userLength ?? (opts.prefix ? 5 : 8), 3), 8);
     const charType: CharType = opts.charType ?? "mix";
 
+    // Pre-encode text fields that may contain accented characters so MikroTik /
+    // WinBox sees Windows-1252 bytes, matching node-routeros's internal encoding.
+    const encodedPrefix  = opts.prefix  ? toWin1252(opts.prefix)  : opts.prefix;
+    const encodedComment = opts.comment ? toWin1252(opts.comment) : opts.comment;
+    const encodedProfile = toWin1252(opts.profile);
+
     for (let i = 0; i < opts.qty; i++) {
-      const { username, password } = generateCode(length, opts.prefix, opts.passwordMode ?? "same", charType);
+      const { username, password } = generateCode(length, encodedPrefix, opts.passwordMode ?? "same", charType);
       const addParams: string[] = [
         `=name=${username}`,
         `=password=${password}`,
-        `=profile=${opts.profile}`,
+        `=profile=${encodedProfile}`,
       ];
-      if (opts.comment)   addParams.push(`=comment=${opts.comment}`);
+      if (encodedComment) addParams.push(`=comment=${encodedComment}`);
       if (opts.server)    addParams.push(`=server=${opts.server}`);
       if (opts.timelimit) addParams.push(`=limit-uptime=${opts.timelimit}`);
       if (opts.datalimit) addParams.push(`=limit-bytes-total=${opts.datalimit}`);

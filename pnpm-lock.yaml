@@ -181,6 +181,9 @@ importers:
       http-proxy-middleware:
         specifier: ^3.0.5
         version: 3.0.5
+      iconv-lite:
+        specifier: ^0.7.2
+        version: 0.7.2
       node-routeros:
         specifier: ^1.2.8
         version: 1.6.9
