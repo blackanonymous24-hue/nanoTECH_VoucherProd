@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -299,6 +299,7 @@ function VendorTodayReport({ vendorId, vendorName, onBack }: { vendorId: number;
 export default function SalesRanking({ period }: { period: "daily" | "monthly" }) {
   const { selectedRouterId } = useRouterContext();
   const [selectedVendor, setSelectedVendor] = useState<{ id: number; name: string } | null>(null);
+  const queryClient = useQueryClient();
 
   const isDaily = period === "daily";
   const title = isDaily ? "Ventes journalières" : "Ventes mensuelles";
@@ -320,6 +321,24 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
     refetchIntervalInBackground: false,
     staleTime: 25_000,
   });
+
+  /* Pre-fetch each vendor's today report as soon as the list is loaded,
+     so clicking a vendor is instant instead of waiting for the API. */
+  useEffect(() => {
+    if (!isDaily || !data) return;
+    for (const entry of data) {
+      const vendorId = entry.vendor.id;
+      queryClient.prefetchQuery({
+        queryKey: ["vendor-period-sales", vendorId, "today"],
+        queryFn: async ({ signal }) => {
+          const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=today`, { signal });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json() as Promise<PeriodSalesData>;
+        },
+        staleTime: 30_000,
+      });
+    }
+  }, [data, isDaily, queryClient]);
 
   if (selectedVendor && isDaily) {
     return (

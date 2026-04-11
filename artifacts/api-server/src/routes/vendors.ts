@@ -3,7 +3,7 @@ import { eq, desc, and, ne, count, sql, isNotNull, isNull, ilike, inArray, gte, 
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
-import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
+import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
 import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
@@ -488,7 +488,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
   let priceMap = new Map<string, string>();
   if (router) {
     const conn: RouterConnection = { host: router.host, port: router.port, username: router.username, password: router.password };
-    priceMap = await getCachedProfilePrices(vendor.routerId!, conn);
+    priceMap = getCachedProfilePricesSync(vendor.routerId!, conn);
   }
   // Merge week sales per profile so the frontend gauge can show current-week activity.
   // Filter out profiles that no longer exist in MikroTik (only when cache is populated).
@@ -589,7 +589,7 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
     if (routerRow) {
       const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
-      priceMap = await getCachedProfilePrices(vendor.routerId, conn);
+      priceMap = getCachedProfilePricesSync(vendor.routerId, conn);
     }
   }
 
