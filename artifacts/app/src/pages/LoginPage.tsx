@@ -16,6 +16,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
   const { login } = useAuth();
   const navigate = useAppNavigate();
   const [form, setForm] = useState({ login: "", password: "" });
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -104,6 +105,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
         data.vendor ?? undefined,
         data.manager?.routerId ?? null,
         data.collaborateur?.routerIds ?? undefined,
+        remember,
       );
       if (data.role === "vendor") {
         navigate("/vendor-portal");
@@ -118,6 +120,9 @@ export default function LoginPage({ mode }: LoginPageProps) {
       setLoading(false);
     }
   };
+
+  const accentClass  = isAdmin ? "text-blue-400"   : "text-emerald-400";
+  const checkboxRing = isAdmin ? "accent-blue-500"  : "accent-emerald-500";
 
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
@@ -145,7 +150,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
             </button>
             <h2 className="text-base font-semibold text-white">Connexion</h2>
           </div>
-          <p className={`text-xs font-medium mb-5 ${isAdmin ? "text-blue-400" : "text-emerald-400"}`}>
+          <p className={`text-xs font-medium mb-5 ${accentClass}`}>
             {isAdmin ? "Espace Administrateurs / Gérant de zone / Collaborateur" : "Espace Vendeurs / Revendeurs"}
           </p>
 
@@ -174,6 +179,19 @@ export default function LoginPage({ mode }: LoginPageProps) {
                 required
               />
             </div>
+
+            {/* Se souvenir de moi */}
+            <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className={`w-4 h-4 rounded border-gray-600 bg-gray-800 cursor-pointer ${checkboxRing}`}
+              />
+              <span className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">
+                Se souvenir de moi
+              </span>
+            </label>
 
             {error && (
               <div className="bg-red-900/40 border border-red-700 rounded-lg px-3 py-2 text-sm text-red-300">

@@ -8,6 +8,25 @@ const ROUTER_KEY          = "vouchernet_router_id";
 const MGR_ROUTER_KEY      = "vouchernet_manager_router_id";
 const COLLAB_ROUTER_IDS   = "vouchernet_collab_router_ids";
 
+function readKey(key: string): string | null {
+  return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+}
+
+function writeKey(key: string, value: string, remember: boolean) {
+  if (remember) {
+    localStorage.setItem(key, value);
+    sessionStorage.removeItem(key);
+  } else {
+    sessionStorage.setItem(key, value);
+    localStorage.removeItem(key);
+  }
+}
+
+function removeKey(key: string) {
+  localStorage.removeItem(key);
+  sessionStorage.removeItem(key);
+}
+
 export type UserRole = "admin" | "manager" | "vendor" | "collaborateur";
 export type VendorInfo = { id: number; name: string; email: string | null; username: string };
 
@@ -18,7 +37,7 @@ interface AuthContextValue {
   managerRouterId: number | null;
   collaborateurRouterIds: number[];
   isAuthenticated: boolean;
-  login: (token: string, role: UserRole, vendorInfo?: VendorInfo, managerRouterId?: number | null, collaborateurRouterIds?: number[]) => void;
+  login: (token: string, role: UserRole, vendorInfo?: VendorInfo, managerRouterId?: number | null, collaborateurRouterIds?: number[], remember?: boolean) => void;
   logout: () => void;
 }
 
@@ -34,18 +53,18 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token,                  setToken]                  = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
-  const [role,                   setRole]                   = useState<UserRole | null>(() => (localStorage.getItem(ROLE_KEY) as UserRole | null));
+  const [token,                  setToken]                  = useState<string | null>(() => readKey(TOKEN_KEY));
+  const [role,                   setRole]                   = useState<UserRole | null>(() => (readKey(ROLE_KEY) as UserRole | null));
   const [vendorInfo,             setVendorInfo]             = useState<VendorInfo | null>(() => {
-    try { const v = localStorage.getItem(VENDOR_KEY); return v ? JSON.parse(v) : null; }
+    try { const v = readKey(VENDOR_KEY); return v ? JSON.parse(v) : null; }
     catch { return null; }
   });
   const [managerRouterId,        setManagerRouterId]        = useState<number | null>(() => {
-    const v = localStorage.getItem(MGR_ROUTER_KEY);
+    const v = readKey(MGR_ROUTER_KEY);
     return v ? parseInt(v, 10) : null;
   });
   const [collaborateurRouterIds, setCollaborateurRouterIds] = useState<number[]>(() => {
-    try { const v = localStorage.getItem(COLLAB_ROUTER_IDS); return v ? JSON.parse(v) : []; }
+    try { const v = readKey(COLLAB_ROUTER_IDS); return v ? JSON.parse(v) : []; }
     catch { return []; }
   });
 
@@ -55,24 +74,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     vi?: VendorInfo,
     mgrRouterId?: number | null,
     collabRouterIds?: number[],
+    remember = true,
   ) => {
-    localStorage.setItem(TOKEN_KEY, t);
-    localStorage.setItem(ROLE_KEY, r);
-    if (vi) localStorage.setItem(VENDOR_KEY, JSON.stringify(vi));
-    else     localStorage.removeItem(VENDOR_KEY);
+    writeKey(TOKEN_KEY, t, remember);
+    writeKey(ROLE_KEY, r, remember);
+    if (vi) writeKey(VENDOR_KEY, JSON.stringify(vi), remember);
+    else     removeKey(VENDOR_KEY);
 
     if (r === "manager" && mgrRouterId != null) {
-      localStorage.setItem(MGR_ROUTER_KEY, String(mgrRouterId));
-      localStorage.setItem(ROUTER_KEY, String(mgrRouterId));
+      writeKey(MGR_ROUTER_KEY, String(mgrRouterId), remember);
+      writeKey(ROUTER_KEY, String(mgrRouterId), remember);
     } else {
-      localStorage.removeItem(MGR_ROUTER_KEY);
-      if (r !== "manager") localStorage.removeItem(ROUTER_KEY);
+      removeKey(MGR_ROUTER_KEY);
+      if (r !== "manager") removeKey(ROUTER_KEY);
     }
 
     if (r === "collaborateur" && collabRouterIds && collabRouterIds.length > 0) {
-      localStorage.setItem(COLLAB_ROUTER_IDS, JSON.stringify(collabRouterIds));
+      writeKey(COLLAB_ROUTER_IDS, JSON.stringify(collabRouterIds), remember);
     } else {
-      localStorage.removeItem(COLLAB_ROUTER_IDS);
+      removeKey(COLLAB_ROUTER_IDS);
     }
 
     setToken(t);
@@ -86,12 +106,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void queryClient.cancelQueries();
     queryClient.clear();
 
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(ROLE_KEY);
-    localStorage.removeItem(VENDOR_KEY);
-    localStorage.removeItem(ROUTER_KEY);
-    localStorage.removeItem(MGR_ROUTER_KEY);
-    localStorage.removeItem(COLLAB_ROUTER_IDS);
+    removeKey(TOKEN_KEY);
+    removeKey(ROLE_KEY);
+    removeKey(VENDOR_KEY);
+    removeKey(ROUTER_KEY);
+    removeKey(MGR_ROUTER_KEY);
+    removeKey(COLLAB_ROUTER_IDS);
     setToken(null);
     setRole(null);
     setVendorInfo(null);
