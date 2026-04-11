@@ -526,9 +526,11 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    // If we already have data from the prefetch cache, show it instantly.
+    // A background refresh will happen on the next prefetch cycle (every 15 s).
+    if (initialData) return;
     let cancelled = false;
-    const hasInitial = !!initialData;
-    if (!hasInitial) setLoading(true);
+    setLoading(true);
     setError("");
     api(`/vendor-portal/me/period-sales?period=${period}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -538,10 +540,10 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
         return res.json();
       })
       .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled && !hasInitial) setError(e.message); })
-      .finally(() => { if (!cancelled && !hasInitial) setLoading(false); });
+      .catch((e) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token, period]);
+  }, [token, period, initialData]);
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -8,11 +8,19 @@ import { type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
 
-/* ── In-memory TTL cache for period-sales (30s) ─────────────── */
+/* ── In-memory TTL cache for period-sales ────────────────────── */
+// yesterday/week (last week) are immutable → 1h; today → 45s; month → 2 min
 const _pscache = new Map<string, { data: unknown; exp: number }>();
-const PSC_TTL = 30_000;
+const PSC_TTL: Record<string, number> = {
+  today: 45_000,
+  yesterday: 3_600_000,
+  week: 3_600_000,
+  month: 120_000,
+};
 function pscGet(k: string) { const e = _pscache.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
-function pscSet(k: string, d: unknown) { _pscache.set(k, { data: d, exp: Date.now() + PSC_TTL }); }
+function pscSet(k: string, period: string, d: unknown) {
+  _pscache.set(k, { data: d, exp: Date.now() + (PSC_TTL[period] ?? 45_000) });
+}
 
 function buildTotals(vendorId: number) {
   return db.select({
@@ -297,7 +305,8 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     month: "Mois en cours",
   };
 
-  const [vouchers, byProfileRaw] = await Promise.all([
+  // Run vouchers, byProfile, router details and profilesCache all in parallel
+  const [vouchers, byProfileRaw, routerRow, cachedPeriodProfiles] = await Promise.all([
     db
       .select()
       .from(vouchersTable)
@@ -313,29 +322,22 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
       .where(and(eq(vouchersTable.vendorId, id), periodFilter))
       .groupBy(vouchersTable.profileName)
       .orderBy(desc(count())),
+    vendor.routerId
+      ? db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then(r => r[0] ?? null)
+      : Promise.resolve(null),
+    vendor.routerId
+      ? db.select({ profileName: profilesCacheTable.profileName }).from(profilesCacheTable).where(eq(profilesCacheTable.routerId, vendor.routerId))
+      : Promise.resolve([] as { profileName: string }[]),
   ]);
 
-  // Enrich byProfile with real prices from MikroTik profiles + filter deleted/renamed profiles
+  // Enrich byProfile with real prices — getCachedProfilePrices is in-memory cached so near-instant
   let periodPriceMap = new Map<string, string>();
-  if (vendor.routerId) {
-    const [routerForPeriod] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
-    if (routerForPeriod) {
-      const conn: RouterConnection = { host: routerForPeriod.host, port: routerForPeriod.port, username: routerForPeriod.username, password: routerForPeriod.password };
-      periodPriceMap = await getCachedProfilePrices(vendor.routerId, conn);
-    }
+  if (routerRow) {
+    const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+    periodPriceMap = await getCachedProfilePrices(vendor.routerId!, conn);
   }
 
-  // Filter: only show profiles that still exist in MikroTik (from profilesCache)
-  // This ensures renamed profiles show the new name and deleted profiles are hidden.
-  // When cache is empty (first boot), all non-empty profiles are shown as fallback.
-  let validPeriodProfileNames = new Set<string>();
-  if (vendor.routerId) {
-    const cachedPeriodProfiles = await db
-      .select({ profileName: profilesCacheTable.profileName })
-      .from(profilesCacheTable)
-      .where(eq(profilesCacheTable.routerId, vendor.routerId));
-    validPeriodProfileNames = new Set(cachedPeriodProfiles.map((c) => c.profileName));
-  }
+  const validPeriodProfileNames = new Set(cachedPeriodProfiles.map((c) => c.profileName));
 
   const filteredByProfileRaw = byProfileRaw.filter(
     (row) =>
@@ -348,7 +350,7 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
   const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.salePrice || v.price || "0") || 0), 0);
 
   const result = { period, label: labels[period!], total: vouchers.length, revenue, byProfile, vouchers };
-  pscSet(cacheKey, result);
+  pscSet(cacheKey, period!, result);
   res.json(result);
 });
 
