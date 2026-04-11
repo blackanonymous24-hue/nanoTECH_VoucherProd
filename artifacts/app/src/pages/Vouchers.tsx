@@ -4,7 +4,8 @@ import {
   useListRouterUsers,
   useListRouterProfiles,
 } from "@workspace/api-client-react";
-import type { HotspotUser } from "@workspace/api-client-react";
+import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
+import { queryClient } from "@/lib/queryClient";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,24 @@ const _vouchersCache: Record<number, {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   users?: any; usersTs?: number;
 }> = {};
+
+// ── Optimistic update helpers ──────────────────────────────────────────────────
+// Instantly flip the `disabled` field for a set of usernames in ALL React Query
+// caches for this router, returning a snapshot for rollback on error.
+function optimisticSetDisabled(routerId: number, usernames: Set<string>, disabled: boolean) {
+  const snapshot = queryClient.getQueriesData<HotspotUserListResponse>({
+    queryKey: [`/routers/${routerId}/users`],
+    exact: false,
+  });
+  queryClient.setQueriesData<HotspotUserListResponse>(
+    { queryKey: [`/routers/${routerId}/users`], exact: false },
+    (old) => {
+      if (!old) return old;
+      return { ...old, users: old.users.map((u) => usernames.has(u.username) ? { ...u, disabled } : u) };
+    },
+  );
+  return snapshot;
+}
 
 // Extract vendor name from lot name: "vc-991-04.08.26-3JEZECHIEL" → "EZECHIEL"
 // Format after date: -{digits}{profile_letter(s)}{VENDOR_NAME}
@@ -272,6 +291,15 @@ export default function Vouchers() {
   // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
   const handleDisableLot = async (comment: string, enable: boolean) => {
     if (!activeRouterId) return;
+
+    // Optimistic update — flip users matching this lot comment in the cache
+    const usersInLot = new Set(
+      (allUsersData?.users ?? []).filter((u) => u.comment === comment).map((u) => u.username),
+    );
+    const snapshot = usersInLot.size > 0
+      ? optimisticSetDisabled(activeRouterId, usersInLot, !enable)
+      : [];
+
     setIsDisabling(true);
     try {
       const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
@@ -287,8 +315,10 @@ export default function Vouchers() {
           : `${data.done} voucher(s) désactivé(s)`,
         description: `Lot : ${comment}`,
       });
-      refetch();
+      void refetchLots();
+      void refetchUsers();
     } catch {
+      for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
     } finally {
       setIsDisabling(false);
@@ -318,25 +348,32 @@ export default function Vouchers() {
 
   // ── Toggle (enable/disable) selected usernames ───────────────────────────────
   const handleToggleSelected = async (enable: boolean) => {
-    if (!activeRouterId || selectedUsernames.size === 0) return;
+    if (!activeRouterId || selectedUsernames.size === 0 || isTogglingSelected) return;
+    const usernamesArr = [...selectedUsernames];
+    const count = usernamesArr.length;
+
+    // 1. Optimistic update — instant visual feedback
+    const snapshot = optimisticSetDisabled(activeRouterId, selectedUsernames, !enable);
+
+    // 2. Close dialog + clear selection + toast immediately (0ms delay)
+    setConfirmToggleSelected(null);
+    setSelectedUsernames(new Set());
+    toast({ title: enable ? `${count} voucher(s) réactivé(s)` : `${count} voucher(s) désactivé(s)` });
+
+    // 3. API call + silent background sync
     setIsTogglingSelected(true);
     try {
       const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routerId: activeRouterId, usernames: [...selectedUsernames], enable }),
+        body: JSON.stringify({ routerId: activeRouterId, usernames: usernamesArr, enable }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { done: number };
-      toast({
-        title: enable
-          ? `${data.done} voucher(s) réactivé(s)`
-          : `${data.done} voucher(s) désactivé(s)`,
-      });
-      setSelectedUsernames(new Set());
-      setConfirmToggleSelected(null);
-      refetch();
+      void refetchLots();
+      void refetchUsers();
     } catch (err) {
+      // Rollback optimistic update
+      for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       toast({ title: "Erreur", description: String(err), variant: "destructive" });
     } finally {
       setIsTogglingSelected(false);
@@ -549,11 +586,18 @@ export default function Vouchers() {
   };
 
   const handleResetUser = async () => {
-    if (!activeRouterId || !confirmResetUser) return;
+    if (!activeRouterId || !confirmResetUser || isResetting) return;
+    const user = confirmResetUser;
+
+    // 1. Close dialog + toast immediately
+    setConfirmResetUser(null);
+    toast({ title: "Réinitialisation…", description: `${user.username} — compteurs remis à zéro` });
+
+    // 2. API in background
     setIsResetting(true);
     try {
       const res = await fetch(
-        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(confirmResetUser.username)}/reset`,
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}/reset`,
         { method: "POST", headers: { "Content-Type": "application/json" } },
       );
       if (!res.ok) {
@@ -561,12 +605,10 @@ export default function Vouchers() {
         throw new Error(err.error ?? `HTTP ${res.status}`);
       }
       const data = await res.json() as { sessionKicked: number };
-      toast({
-        title: "Utilisateur réinitialisé",
-        description: `${confirmResetUser.username} — compteurs remis à zéro${data.sessionKicked > 0 ? ", session déconnectée" : ""}`,
-      });
-      setConfirmResetUser(null);
-      refetch();
+      if (data.sessionKicked > 0) {
+        toast({ title: "Session déconnectée", description: `${user.username} — session coupée` });
+      }
+      void refetchUsers();
     } catch (err) {
       toast({ title: "Erreur de réinitialisation", description: String(err), variant: "destructive" });
     } finally {
