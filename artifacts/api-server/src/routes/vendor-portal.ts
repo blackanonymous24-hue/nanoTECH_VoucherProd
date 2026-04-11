@@ -170,9 +170,12 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
       db
         .select()
         .from(vouchersTable)
-        .where(and(eq(vouchersTable.vendorId, id), isNotNull(vouchersTable.usedAt)))
-        .orderBy(desc(vouchersTable.usedAt))
-        .limit(30),
+        .where(and(
+          eq(vouchersTable.vendorId, id),
+          isNotNull(vouchersTable.printedAt),
+          gte(vouchersTable.printedAt, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
+        ))
+        .orderBy(desc(vouchersTable.printedAt)),
       db
         .select()
         .from(vouchersTable)

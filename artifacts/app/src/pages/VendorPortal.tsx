@@ -1370,7 +1370,7 @@ function Dashboard({ token, vendor, onLogout }: {
             <Card className="flex flex-col overflow-hidden">
               <CardHeader className="pb-2 flex-shrink-0">
                 <div className="flex items-center justify-between mb-2">
-                  <CardTitle className="text-base">Ventes récentes</CardTitle>
+                  <CardTitle className="text-base">Ventes récentes <span className="text-[10px] font-normal text-gray-400">(90 jours)</span></CardTitle>
                   {data.recentSales.length > 0 && (
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full tabular-nums">
                       {recentSearch.trim()
@@ -1427,8 +1427,8 @@ function Dashboard({ token, vendor, onLogout }: {
                       <tbody>
                         {filtered.map((v, i) => {
                           const displayPrice = v.salePrice || v.price || "";
-                          const dateStr = v.usedAt ? (() => {
-                            const d = new Date(v.usedAt);
+                          const dateStr = v.printedAt ? (() => {
+                            const d = new Date(v.printedAt);
                             const day = String(d.getDate()).padStart(2, "0");
                             const month = MONTHS[d.getMonth()];
                             const hh = String(d.getHours()).padStart(2, "0");
@@ -1475,9 +1475,15 @@ function Dashboard({ token, vendor, onLogout }: {
                               </td>
                               {/* État */}
                               <td className="px-3 py-2 text-center">
-                                <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-950/50 text-red-500 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800/50 whitespace-nowrap">
-                                  Vendu
-                                </span>
+                                {v.usedAt ? (
+                                  <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800/50 whitespace-nowrap">
+                                    Utilisé
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 ring-1 ring-amber-200 dark:ring-amber-800/50 whitespace-nowrap">
+                                    Vendu
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           );
