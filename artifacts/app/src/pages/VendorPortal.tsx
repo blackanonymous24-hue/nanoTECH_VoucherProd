@@ -300,10 +300,12 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [vSearch, setVSearch] = useState("");
 
   useEffect(() => {
     setLoading(true);
     setError("");
+    setVSearch("");
     api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -379,17 +381,47 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                 </div>
                 <Card>
                   <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-2">
                       <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
                       {data.vouchers.length > 0 && (
-                        <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">{data.vouchers.length}</span>
+                        <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">
+                          {vSearch.trim()
+                            ? `${data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase())).length}/${data.vouchers.length}`
+                            : data.vouchers.length}
+                        </span>
                       )}
                     </div>
+                    {data.vouchers.length > 0 && (
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Rechercher user, MAC ou IP…"
+                          value={vSearch}
+                          onChange={(e) => setVSearch(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-400"
+                        />
+                        {vSearch && (
+                          <button
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            onClick={() => setVSearch("")}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </CardHeader>
                   <CardContent className="p-0">
                     {data.vouchers.length === 0 ? (
                       <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente ce jour</p>
-                    ) : (
+                    ) : (() => {
+                      const vFiltered = vSearch.trim()
+                        ? data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase()))
+                        : data.vouchers;
+                      return vFiltered.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-6 px-4">Aucun résultat pour « {vSearch} »</p>
+                      ) : (
                       <div className="max-h-80 overflow-x-auto overflow-y-auto scroll-card">
                         <table className="w-full min-w-[620px] text-xs border-collapse">
                           <thead>
@@ -403,16 +435,16 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                             </tr>
                           </thead>
                           <tbody>
-                            {data.vouchers.map((v, i) => {
+                            {vFiltered.map((v, i) => {
                               const displayPrice = v.salePrice || v.price || "";
                               const dateObj = (() => {
                                 const raw = v.usedAt || v.printedAt;
                                 if (!raw) return null;
                                 const d = new Date(raw);
-                                const day = String(d.getDate()).padStart(2, "0");
+                                const dy = String(d.getDate()).padStart(2, "0");
                                 const hh = String(d.getHours()).padStart(2, "0");
                                 const mn = String(d.getMinutes()).padStart(2, "0");
-                                return { date: `${day} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
+                                return { date: `${dy} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
                               })();
                               return (
                                 <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
@@ -448,7 +480,8 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                           </tbody>
                         </table>
                       </div>
-                    )}
+                      );
+                    })()}
                   </CardContent>
                 </Card>
               </div>
@@ -536,6 +569,11 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
   const [data, setData] = useState<PeriodSalesData | null>(initialData ?? null);
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState("");
+  const [vSearch, setVSearch] = useState("");
+
+  useEffect(() => {
+    setVSearch("");
+  }, [period]);
 
   useEffect(() => {
     // If we already have data from the prefetch cache, show it instantly.
@@ -629,17 +667,47 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-2">
                     <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
                     {data.vouchers.length > 0 && (
-                      <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">{data.vouchers.length}</span>
+                      <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">
+                        {vSearch.trim()
+                          ? `${data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase())).length}/${data.vouchers.length}`
+                          : data.vouchers.length}
+                      </span>
                     )}
                   </div>
+                  {data.vouchers.length > 0 && (
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Rechercher user, MAC ou IP…"
+                        value={vSearch}
+                        onChange={(e) => setVSearch(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-400"
+                      />
+                      {vSearch && (
+                        <button
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          onClick={() => setVSearch("")}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent className="p-0">
                   {data.vouchers.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente enregistrée</p>
-                  ) : (
+                  ) : (() => {
+                    const vFiltered = vSearch.trim()
+                      ? data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase()))
+                      : data.vouchers;
+                    return vFiltered.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-6 px-4">Aucun résultat pour « {vSearch} »</p>
+                    ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[620px] text-xs border-collapse">
                         <thead>
@@ -653,16 +721,16 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                           </tr>
                         </thead>
                         <tbody>
-                          {data.vouchers.map((v, i) => {
+                          {vFiltered.map((v, i) => {
                             const displayPrice = v.salePrice || v.price || "";
                             const dateObj = (() => {
                               const raw = v.usedAt || v.printedAt;
                               if (!raw) return null;
-                              const d = new Date(raw);
-                              const day = String(d.getDate()).padStart(2, "0");
-                              const hh = String(d.getHours()).padStart(2, "0");
-                              const mn = String(d.getMinutes()).padStart(2, "0");
-                              return { date: `${day} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
+                              const dt = new Date(raw);
+                              const dy = String(dt.getDate()).padStart(2, "0");
+                              const hh = String(dt.getHours()).padStart(2, "0");
+                              const mn = String(dt.getMinutes()).padStart(2, "0");
+                              return { date: `${dy} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`, time: `${hh}:${mn}` };
                             })();
                             return (
                               <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
@@ -698,7 +766,8 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                         </tbody>
                       </table>
                     </div>
-                  )}
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </div>
