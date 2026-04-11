@@ -1286,7 +1286,6 @@ export async function generateVouchers(
   },
 ): Promise<GeneratedVoucher[]> {
   return withRouter(conn, async (api) => {
-    const generated: GeneratedVoucher[] = [];
     const length = Math.min(Math.max(opts.userLength ?? (opts.prefix ? 5 : 8), 3), 8);
     const charType: CharType = opts.charType ?? "mix";
 
@@ -1296,8 +1295,15 @@ export async function generateVouchers(
     const encodedComment = opts.comment ? toWin1252(opts.comment) : opts.comment;
     const encodedProfile = toWin1252(opts.profile);
 
-    for (let i = 0; i < opts.qty; i++) {
+    // Step 1 – Generate all username/password pairs locally (pure JS, instant).
+    // Ensure uniqueness within this batch by tracking already-generated codes.
+    const seen = new Set<string>();
+    const vouchers: Array<{ username: string; password: string; addParams: string[] }> = [];
+    while (vouchers.length < opts.qty) {
       const { username, password } = generateCode(length, encodedPrefix, opts.passwordMode ?? "same", charType);
+      if (seen.has(username)) continue;
+      seen.add(username);
+
       const addParams: string[] = [
         `=name=${username}`,
         `=password=${password}`,
@@ -1308,18 +1314,25 @@ export async function generateVouchers(
       if (opts.timelimit) addParams.push(`=limit-uptime=${opts.timelimit}`);
       if (opts.datalimit) addParams.push(`=limit-bytes-total=${opts.datalimit}`);
 
-      await api.write("/ip/hotspot/user/add", addParams);
-
-      generated.push({
-        username,
-        password,
-        profile: opts.profile,
-        price: opts.price,
-        validity: opts.validity,
-        comment: opts.comment ?? "",
-      });
+      vouchers.push({ username, password, addParams });
     }
 
-    return generated;
+    // Step 2 – Send writes in parallel batches.
+    // node-routeros opens a separate tagged channel per api.write() call, so
+    // concurrent calls are fully safe over a single connection.
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < vouchers.length; i += BATCH_SIZE) {
+      const batch = vouchers.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(({ addParams }) => api.write("/ip/hotspot/user/add", addParams)));
+    }
+
+    return vouchers.map(({ username, password }) => ({
+      username,
+      password,
+      profile: opts.profile,
+      price: opts.price,
+      validity: opts.validity,
+      comment: opts.comment ?? "",
+    }));
   }, 120_000);
 }
