@@ -1374,7 +1374,7 @@ function Dashboard({ token, vendor, onLogout }: {
                   {data.recentSales.length > 0 && (
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full tabular-nums">
                       {recentSearch.trim()
-                        ? `${data.recentSales.filter(v => `${v.username} ${v.profileName}`.toLowerCase().includes(recentSearch.toLowerCase())).length}/${data.recentSales.length}`
+                        ? `${data.recentSales.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(recentSearch.toLowerCase())).length}/${data.recentSales.length}`
                         : data.recentSales.length}
                     </span>
                   )}
@@ -1384,7 +1384,7 @@ function Dashboard({ token, vendor, onLogout }: {
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="Rechercher par utilisateur ou forfait…"
+                      placeholder="Rechercher user, MAC ou IP…"
                       value={recentSearch}
                       onChange={(e) => setRecentSearch(e.target.value)}
                       className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-400"
@@ -1406,7 +1406,7 @@ function Dashboard({ token, vendor, onLogout }: {
                 ) : (() => {
                   const filtered = recentSearch.trim()
                     ? data.recentSales.filter(v =>
-                        `${v.username} ${v.profileName}`.toLowerCase().includes(recentSearch.toLowerCase())
+                        `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(recentSearch.toLowerCase())
                       )
                     : data.recentSales;
                   return filtered.length === 0 ? (
