@@ -302,7 +302,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   ];
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col h-full">
 
       {/* ── Brand ── */}
       <div className="px-5 pt-5 pb-4 flex-shrink-0">
