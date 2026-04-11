@@ -3,7 +3,7 @@ import { eq, desc, ne, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
-import { getCachedProfilePrices, getCachedProfilePricesSync } from "../lib/profile-cache.js";
+import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
@@ -342,11 +342,12 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
       : Promise.resolve([] as { profileName: string }[]),
   ]);
 
-  // Enrich byProfile with real prices — getCachedProfilePrices is in-memory cached so near-instant
+  // Enrich byProfile with real prices — Sync version: returns instantly from
+  // in-memory cache and triggers a background MikroTik refresh if stale.
   let periodPriceMap = new Map<string, string>();
   if (routerRow) {
     const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
-    periodPriceMap = await getCachedProfilePrices(vendor.routerId!, conn);
+    periodPriceMap = getCachedProfilePricesSync(vendor.routerId!, conn);
   }
 
   const validPeriodProfileNames = new Set(cachedPeriodProfiles.map((c) => c.profileName));
