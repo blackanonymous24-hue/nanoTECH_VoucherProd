@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { printReport } from "@/lib/print";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
@@ -331,7 +332,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
         {data && (
-          <Button size="sm" variant="outline" onClick={() => window.print()} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => printReport("Rapport de ventes")} className="gap-1.5">
             <Printer className="h-4 w-4" /> Imprimer
           </Button>
         )}
@@ -568,7 +569,7 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
         {data && (
-          <Button size="sm" variant="outline" onClick={() => window.print()} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => printReport("Rapport de ventes")} className="gap-1.5">
             <Printer className="h-4 w-4" /> Imprimer
           </Button>
         )}
