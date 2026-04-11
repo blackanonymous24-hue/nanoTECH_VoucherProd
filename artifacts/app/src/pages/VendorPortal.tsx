@@ -1475,15 +1475,9 @@ function Dashboard({ token, vendor, onLogout }: {
                               </td>
                               {/* État */}
                               <td className="px-3 py-2 text-center">
-                                {v.usedAt ? (
-                                  <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800/50 whitespace-nowrap">
-                                    Utilisé
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 ring-1 ring-amber-200 dark:ring-amber-800/50 whitespace-nowrap">
-                                    Vendu
-                                  </span>
-                                )}
+                                <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-950/50 text-red-500 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800/50 whitespace-nowrap">
+                                  Vendu
+                                </span>
                               </td>
                             </tr>
                           );
