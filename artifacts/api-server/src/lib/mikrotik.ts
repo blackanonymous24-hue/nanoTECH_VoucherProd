@@ -1132,30 +1132,36 @@ export async function disconnectSession(conn: RouterConnection, username: string
 }
 
 /**
- * Reset a hotspot user's usage stats (uptime, bytes-in, bytes-out → 0)
- * and kick any active session. Returns false if the user is not found.
+ * Reset a hotspot user — Mikhmon-style: kick session, delete user, recreate
+ * with identical credentials (name, password, profile, comment, server,
+ * mac-address, limit-uptime, limit-bytes-total).  This is the only reliable
+ * way to zero all counters AND restore the full remaining quota on RouterOS.
  */
 export async function resetHotspotUser(
   conn: RouterConnection,
   username: string,
 ): Promise<{ found: boolean; sessionKicked: number }> {
   return withRouter(conn, async (api) => {
+    // 1. Find user and capture all relevant fields
     const all = await api.write("/ip/hotspot/user/print");
     const user = all.find((u) => (u["name"] as string ?? "").toLowerCase() === username.toLowerCase());
     if (!user) return { found: false, sessionKicked: 0 };
 
     const id = user[".id"] as string | undefined;
-    if (id) {
-      await api.write("/ip/hotspot/user/set", [
-        `=.id=${id}`,
-        `=uptime=0s`,
-        `=bytes-in=0`,
-        `=bytes-out=0`,
-      ]);
-    }
 
-    // Kick active session(s)
-    const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);
+    // Snapshot fields we need to recreate the user
+    const name           = (user["name"]              as string) ?? username;
+    const password       = (user["password"]          as string) ?? "";
+    const profile        = (user["profile"]           as string) ?? "default";
+    const comment        = (user["comment"]           as string) ?? "";
+    const server         = (user["server"]            as string) ?? "";
+    const macAddress     = (user["mac-address"]       as string) ?? "";
+    const limitUptime    = (user["limit-uptime"]      as string) ?? "";
+    const limitBytesTotal = (user["limit-bytes-total"] as string) ?? "";
+    const disabled       = (user["disabled"]          as string) === "true";
+
+    // 2. Kick active session(s) first
+    const sessions = await api.write("/ip/hotspot/active/print", [`?user=${name}`]);
     let sessionKicked = 0;
     for (const s of sessions) {
       const sid = s[".id"] as string | undefined;
@@ -1164,6 +1170,26 @@ export async function resetHotspotUser(
         sessionKicked++;
       }
     }
+
+    // 3. Delete the user
+    if (id) {
+      await api.write("/ip/hotspot/user/remove", [`=.id=${id}`]);
+    }
+
+    // 4. Recreate with the same credentials — counters start at zero
+    const addParams: string[] = [
+      `=name=${toWin1252(name)}`,
+      `=password=${toWin1252(password)}`,
+      `=profile=${toWin1252(profile)}`,
+    ];
+    if (comment)          addParams.push(`=comment=${toWin1252(comment)}`);
+    if (server)           addParams.push(`=server=${server}`);
+    if (macAddress)       addParams.push(`=mac-address=${macAddress}`);
+    if (limitUptime)      addParams.push(`=limit-uptime=${limitUptime}`);
+    if (limitBytesTotal)  addParams.push(`=limit-bytes-total=${limitBytesTotal}`);
+    if (disabled)         addParams.push(`=disabled=yes`);
+
+    await api.write("/ip/hotspot/user/add", addParams);
 
     return { found: true, sessionKicked };
   }, 20_000);
