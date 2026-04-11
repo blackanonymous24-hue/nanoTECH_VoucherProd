@@ -230,7 +230,10 @@ export default function Vouchers() {
     {
       query: {
         enabled: !!activeRouterId && view === "list",
-        staleTime: 120_000,
+        // staleTime:0 → React Query déclenche TOUJOURS un background-refetch au montage,
+        // même si initialData est présent. Un utilisateur supprimé de MikroTik disparaît
+        // dès que le refetch revient (< 1s avec cache serveur), sans jamais rester visible.
+        staleTime: 0,
         gcTime: 30 * 60_000,
         initialData: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.users : undefined,
         initialDataUpdatedAt: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.usersTs : undefined,
