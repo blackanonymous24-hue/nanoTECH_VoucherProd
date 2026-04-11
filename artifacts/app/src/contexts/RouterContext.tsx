@@ -34,43 +34,65 @@ const RouterContext = createContext<RouterContextValue>({
 const STORAGE_KEY = "vouchernet_router_id";
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const { managerRouterId, role } = useAuth();
-  const isRouterLocked = role === "manager" && managerRouterId != null;
+  const { managerRouterId, role, collaborateurRouterIds } = useAuth();
+  const isManagerLocked = role === "manager" && managerRouterId != null;
+  // A collaborateur is "locked" to their assigned routers (cannot see others).
+  // The selector is NOT locked (they can switch between their assigned routers),
+  // but the router list is filtered.
+  const isRouterLocked = isManagerLocked;
 
   const { data: freshRouters, isLoading: routersLoading } = useListRouters({
     query: { staleTime: 30_000, gcTime: 5 * 60_000 },
   });
 
-  const [routers, setRouters] = useState<Router[]>([]);
+  const [allRouters, setAllRouters] = useState<Router[]>([]);
   const initializedRef = useRef(false);
 
   useEffect(() => {
     if (freshRouters && freshRouters.length > 0) {
-      setRouters(freshRouters);
+      setAllRouters(freshRouters);
       initializedRef.current = true;
     }
   }, [freshRouters]);
 
+  // For collaborateurs: filter to only their assigned routers
+  const routers: Router[] = (role === "collaborateur" && collaborateurRouterIds.length > 0)
+    ? allRouters.filter((r) => collaborateurRouterIds.includes(r.id))
+    : allRouters;
+
   const [selectedRouterId, setSelectedRouterIdState] = useState<number | null>(() => {
-    if (isRouterLocked) return managerRouterId;
+    if (isManagerLocked) return managerRouterId;
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? parseInt(stored, 10) : null;
+    const storedId = stored ? parseInt(stored, 10) : null;
+    // If collaborateur, ensure stored router is in their list (may not be loaded yet — will sync in effect)
+    return storedId;
   });
 
   // When a manager's assigned router changes (e.g. they re-login), sync the selection
   useEffect(() => {
-    if (isRouterLocked && managerRouterId != null) {
+    if (isManagerLocked && managerRouterId != null) {
       setSelectedRouterIdState(managerRouterId);
       localStorage.setItem(STORAGE_KEY, String(managerRouterId));
     }
-  }, [isRouterLocked, managerRouterId]);
+  }, [isManagerLocked, managerRouterId]);
+
+  // For collaborateurs: if the currently selected router is not in their list, auto-select the first one
+  useEffect(() => {
+    if (role === "collaborateur" && routers.length > 0) {
+      if (selectedRouterId === null || !routers.find((r) => r.id === selectedRouterId)) {
+        const firstId = routers[0].id;
+        setSelectedRouterIdState(firstId);
+        localStorage.setItem(STORAGE_KEY, String(firstId));
+      }
+    }
+  }, [role, routers, selectedRouterId]);
 
   const [pingTrigger, setPingTrigger] = useState(0);
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
   const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
-    if (isRouterLocked) return; // Locked: ignore changes
+    if (isRouterLocked) return; // Hard-locked: ignore changes
     setSelectedRouterIdState(id);
     if (id === null) {
       localStorage.removeItem(STORAGE_KEY);

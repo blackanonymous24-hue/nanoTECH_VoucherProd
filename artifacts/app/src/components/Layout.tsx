@@ -84,6 +84,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   };
   const isAdmin = role === "admin";
   const isManager = role === "manager";
+  const isCollaborateur = role === "collaborateur";
   const isStockAlertsPage = location.startsWith("/stock-alerts");
   const isVouchersPage = location.startsWith("/vouchers");
 
@@ -220,8 +221,11 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       setPwdError("Les nouveaux mots de passe ne correspondent pas."); return;
     }
     setPwdLoading(true);
+    const pwdEndpoint = isCollaborateur
+      ? `${BASE}/api/collaborateurs/me/password`
+      : `${BASE}/api/managers/me/password`;
     try {
-      const res = await fetch(`${BASE}/api/managers/me/password`, {
+      const res = await fetch(pwdEndpoint, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -267,7 +271,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       label: "Réseau",
       items: [
         { href: "/",         label: "Tableau de bord", icon: LayoutDashboard },
-        ...(!isManager ? [{ href: "/routers", label: "Routeurs", icon: Router }] : []),
+        ...(!isManager && !isCollaborateur ? [{ href: "/routers", label: "Routeurs", icon: Router }] : []),
         { href: "/forfaits", label: "Forfaits",          icon: PackageOpen },
         { href: "/sessions", label: "Clients actifs",   icon: Activity },
       ],
@@ -290,6 +294,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode },
         ...(isAdmin ? [{ href: "/managers", label: "Gérants de zone", icon: UserCog }] : []),
+        ...(isAdmin ? [{ href: "/collaborateurs", label: "Collaborateurs", icon: Users }] : []),
         ...(isAdmin ? [{ href: "/maintenance", label: "Maintenance", icon: Wrench }] : []),
       ],
     },
@@ -407,7 +412,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                       )}
                     </Link>
                     {/* Ajouter un utilisateur hotspot — juste après Générer */}
-                    {href === "/generate" && (isAdmin || isManager) && (
+                    {href === "/generate" && (isAdmin || isManager || isCollaborateur) && (
                       <button
                         onClick={openAddUserDialog}
                         className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100"
@@ -436,6 +441,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-400/80 bg-amber-400/10 px-2 py-0.5 rounded-full ring-1 ring-amber-400/20">
               Gérant de zone
             </span>
+          ) : isCollaborateur ? (
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-purple-400/80 bg-purple-400/10 px-2 py-0.5 rounded-full ring-1 ring-purple-400/20">
+              Collaborateur
+            </span>
           ) : isAdmin ? (
             <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20">
               Admin
@@ -445,8 +454,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           )}
 
           <div className="flex items-center gap-1">
-            {/* Modify password — managers only */}
-            {isManager && (
+            {/* Modify password — managers and collaborateurs */}
+            {(isManager || isCollaborateur) && (
               <button
                 onClick={openPwdDialog}
                 className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-amber-300 transition-colors px-2 py-1 rounded-lg hover:bg-amber-500/10 whitespace-nowrap"

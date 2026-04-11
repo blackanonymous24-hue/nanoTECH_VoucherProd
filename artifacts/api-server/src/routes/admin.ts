@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
-import { db, adminSettingsTable, vendorsTable, managersTable, routersTable } from "@workspace/db";
+import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken } from "../lib/manager-auth.js";
+import { verifyPassword as verifyCollabPassword, createToken as createCollabToken } from "../lib/collaborateur-auth.js";
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
 
 const router = Router();
@@ -65,6 +66,28 @@ router.post("/login", async (req, res): Promise<void> => {
         role: "vendor",
         token: createVendorToken(vendor.id),
         vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
+      });
+      return;
+    }
+  }
+
+  const [collab] = await db
+    .select()
+    .from(collaborateursTable)
+    .where(eq(collaborateursTable.username, loginTrimmed));
+
+  if (collab?.passwordHash && collab.isActive) {
+    const valid = await verifyCollabPassword(password, collab.passwordHash);
+    if (valid) {
+      const routerRows = await db
+        .select({ routerId: collaborateurRoutersTable.routerId })
+        .from(collaborateurRoutersTable)
+        .where(eq(collaborateurRoutersTable.collaborateurId, collab.id));
+      const routerIds = routerRows.map((r) => r.routerId);
+      res.json({
+        role: "collaborateur",
+        token: createCollabToken(collab.id, routerIds),
+        collaborateur: { id: collab.id, name: collab.name, username: collab.username, routerIds },
       });
       return;
     }

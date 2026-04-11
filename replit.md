@@ -25,27 +25,35 @@ Monorepo pnpm avec les packages suivants :
 - **Rapports** — Stats de ventes par vendeur et par période
 - **Gérants de zone** — Sous-admins avec accès complet sauf création/suppression de ressources
 
-## Système d'authentification — 3 rôles
+## Système d'authentification — 4 rôles
 
 ### Rôles
 | Rôle | Accès |
 |------|-------|
 | `admin` | Accès complet. Login: `admin` / `root` par défaut |
-| `manager` | Accès complet sauf : créer/supprimer routeurs, vendeurs, forfaits, templates |
+| `manager` | Accès complet sauf : créer/supprimer routeurs, vendeurs, forfaits, templates. Peut être verrouillé sur 1 routeur. |
+| `collaborateur` | Accès admin complet mais **uniquement sur les routeurs qui lui sont assignés** (many-to-many). Badge violet. |
 | `vendor` | Portail vendeur uniquement (vente de vouchers) |
 
 ### Endpoint unifié
-`POST /api/login { login, password }` — Essaie admin → manager → vendor dans l'ordre.
+`POST /api/login { login, password }` — Essaie admin → manager → collaborateur → vendor dans l'ordre.  
+Réponse collaborateur : `{ role: "collaborateur", token, collaborateur: { id, name, username, routerIds[] } }`
 
 ### Auth libs
 - `artifacts/api-server/src/lib/admin-auth.ts` — token admin (stateless JWT-like)
 - `artifacts/api-server/src/lib/manager-auth.ts` — token manager (JWT-like avec managerId)
+- `artifacts/api-server/src/lib/collaborateur-auth.ts` — token collaborateur (JWT-like avec collaborateurId + routerIds[])
 - `artifacts/api-server/src/lib/vendor-auth.ts` — token vendor (JWT-like avec vendorId)
 
+### DB Schema Collaborateur
+- `collaborateurs` table — id, name, username, passwordHash, isActive
+- `collaborateur_routers` table — junction many-to-many (collaborateurId, routerId)
+
 ### Frontend
-- `AuthContext.tsx` — stocke `{ token, role, vendorInfo }` en localStorage
-- `LoginPage.tsx` — page unifiée, redirige vers /routers (admin/manager) ou /vendor-portal (vendor)
-- `RouterContext.tsx` — pas d'auto-sélection de routeur au démarrage
+- `AuthContext.tsx` — stocke `{ token, role, vendorInfo, collaborateurRouterIds }` en localStorage
+- `LoginPage.tsx` — page unifiée, redirige vers / (manager/collaborateur) ou /vendor-portal (vendor)
+- `RouterContext.tsx` — filtre la liste des routeurs pour les collaborateurs (seuls les routeurs assignés sont visibles)
+- `Collaborateurs.tsx` — page CRUD admin-only avec sélection multi-routeurs (checkboxes)
 
 ## Configuration importante
 - Le frontend (`/api/*`) est proxifié vers `http://localhost:3001` via Vite proxy

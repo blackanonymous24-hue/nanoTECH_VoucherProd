@@ -49,7 +49,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
               </div>
               <div>
                 <p className="text-sm font-semibold text-white">Je suis administrateur</p>
-                <p className="text-xs text-blue-400 mt-0.5">Admin / Gérant de zone</p>
+                <p className="text-xs text-blue-400 mt-0.5">Admin / Gérant de zone / Collaborateur</p>
               </div>
             </button>
 
@@ -93,15 +93,21 @@ export default function LoginPage({ mode }: LoginPageProps) {
         setError("Ce compte est un compte vendeur. Veuillez utiliser l'espace Vendeurs/Revendeurs.");
         return;
       }
-      if (!isAdmin && (data.role === "admin" || data.role === "manager")) {
+      if (!isAdmin && (data.role === "admin" || data.role === "manager" || data.role === "collaborateur")) {
         setError("Ce compte est un compte administrateur. Veuillez utiliser l'espace Administrateurs/Gérant de zone.");
         return;
       }
 
-      login(data.token, data.role, data.vendor ?? undefined, data.manager?.routerId ?? null);
+      login(
+        data.token,
+        data.role,
+        data.vendor ?? undefined,
+        data.manager?.routerId ?? null,
+        data.collaborateur?.routerIds ?? undefined,
+      );
       if (data.role === "vendor") {
         navigate("/vendor-portal");
-      } else if (data.role === "manager") {
+      } else if (data.role === "manager" || data.role === "collaborateur") {
         navigate("/");
       } else {
         navigate("/routers");
@@ -140,7 +146,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
             <h2 className="text-base font-semibold text-white">Connexion</h2>
           </div>
           <p className={`text-xs font-medium mb-5 ${isAdmin ? "text-blue-400" : "text-emerald-400"}`}>
-            {isAdmin ? "Espace Administrateurs / Gérant de zone" : "Espace Vendeurs / Revendeurs"}
+            {isAdmin ? "Espace Administrateurs / Gérant de zone / Collaborateur" : "Espace Vendeurs / Revendeurs"}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -148,7 +154,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
               <Label className="text-gray-300 text-sm">Identifiant</Label>
               <Input
                 className="mt-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500 focus:border-blue-500"
-                placeholder={isAdmin ? "admin ou gérant" : "nom du vendeur"}
+                placeholder={isAdmin ? "admin, gérant ou collaborateur" : "nom du vendeur"}
                 value={form.login}
                 onChange={(e) => setForm({ ...form, login: e.target.value })}
                 autoFocus

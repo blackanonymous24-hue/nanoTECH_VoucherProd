@@ -8,3 +8,4 @@ export * from "./vendor-payments.js";
 export * from "./vendor-daily-payments.js";
 export * from "./profiles-cache.js";
 export * from "./router-profiles-snapshot.js";
+export * from "./collaborateurs.js";
