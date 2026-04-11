@@ -1046,7 +1046,7 @@ function Dashboard({ token, vendor, onLogout }: {
                 <Card className="border border-orange-200 bg-orange-50/20">
                   <CardContent className="p-0">
                     <div className="divide-y divide-orange-100">
-                      {arrearsData.days.map((d) => {
+                      {arrearsData.days.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => {
                         const dateObj = new Date(d.date + "T00:00:00Z");
                         const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
                         const weekday  = cap(dateObj.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" }));
