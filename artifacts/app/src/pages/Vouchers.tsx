@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   useListRouterUsers,
@@ -66,6 +66,14 @@ type LotSummary = { name: string; count: number; profile: string | null; preview
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// Module-level cache — persists across component unmount/remount (tab navigation).
+// Provides instant display on re-visit without waiting for React Query to refetch.
+const _vouchersCache: Record<number, {
+  lots?: { lots: LotSummary[]; total: number }; lotsTs?: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  users?: any; usersTs?: number;
+}> = {};
 
 // Extract vendor name from lot name: "vc-991-04.08.26-3JEZECHIEL" → "EZECHIEL"
 // Format after date: -{digits}{profile_letter(s)}{VENDOR_NAME}
@@ -139,10 +147,17 @@ export default function Vouchers() {
     queryFn: async ({ signal }) => {
       const r = await fetch(`${BASE}/api/routers/${activeRouterId}/lots`, { signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json() as Promise<{ lots: LotSummary[]; total: number }>;
+      const result = await r.json() as { lots: LotSummary[]; total: number };
+      if (activeRouterId) {
+        _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], lots: result, lotsTs: Date.now() };
+      }
+      return result;
     },
     enabled: !!activeRouterId,
     staleTime: 120_000,
+    gcTime: 30 * 60_000,
+    initialData: activeRouterId != null ? _vouchersCache[activeRouterId]?.lots : undefined,
+    initialDataUpdatedAt: activeRouterId != null ? _vouchersCache[activeRouterId]?.lotsTs : undefined,
   });
 
   const lots: LotSummary[] = lotsData?.lots ?? [];
@@ -196,6 +211,8 @@ export default function Vouchers() {
   }, [lots, lotsFilterProfile, lotsFilterVendor, debouncedLotsSearch]);
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
+  // For the default (unfiltered) case, use module-level cache so list shows instantly on re-visit.
+  const isDefaultFilter = !debouncedSearch && filterProfile === "all" && filterComment === "all";
   const {
     data: allUsersData,
     isLoading: usersLoading,
@@ -214,9 +231,19 @@ export default function Vouchers() {
       query: {
         enabled: !!activeRouterId && view === "list",
         staleTime: 120_000,
+        gcTime: 30 * 60_000,
+        initialData: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.users : undefined,
+        initialDataUpdatedAt: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.usersTs : undefined,
       },
     },
   );
+
+  // Update module cache when unfiltered users data arrives
+  useEffect(() => {
+    if (isDefaultFilter && activeRouterId && allUsersData) {
+      _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], users: allUsersData, usersTs: Date.now() };
+    }
+  }, [allUsersData, activeRouterId, isDefaultFilter]);
 
   const isLoading = view === "lots" ? lotsLoading : usersLoading;
   const refetch = () => { void refetchLots(); void refetchUsers(); };

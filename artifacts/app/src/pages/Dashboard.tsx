@@ -17,6 +17,11 @@ const _liveCache: Record<number, {
   users?: number; usersTs?: number;
 }> = {};
 
+// Dashboard-level (router-agnostic) cache — stores last successful dashboard API response.
+// Used as fallback display value while data refetches in background.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _dashboardCache: { data?: any; ts?: number } = {};
+
 type LogEntry = { id: string; time: string; topics: string; message: string };
 
 interface RouterInfo {
@@ -293,9 +298,23 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
 }
 
 export default function Dashboard() {
-  const { data, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
-    query: { refetchInterval: 10_000, staleTime: 9_000, refetchIntervalInBackground: false },
+  const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
+    query: {
+      refetchInterval: 10_000,
+      staleTime: 9_000,
+      gcTime: 30 * 60_000,
+      refetchIntervalInBackground: false,
+    },
   });
+
+  // Update module cache whenever fresh data arrives
+  useEffect(() => {
+    if (_freshData) { _dashboardCache.data = _freshData; _dashboardCache.ts = Date.now(); }
+  }, [_freshData]);
+
+  // Display data: fresh from React Query OR last cached value — never undefined after first load
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = _freshData ?? _dashboardCache.data;
   const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity } = useRouterContext();
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
