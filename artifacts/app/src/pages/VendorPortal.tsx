@@ -1343,7 +1343,7 @@ function Dashboard({ token, vendor, onLogout }: {
             {data.byProfile.length > 0 && (
               <Card>
                 <CardHeader className="pb-2 border-b border-gray-100">
-                  <CardTitle className="text-base">Par forfait — ce mois</CardTitle>
+                  <CardTitle className="text-base">Vendus par forfait (ce mois)</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-3">
                   <div className="space-y-2">
