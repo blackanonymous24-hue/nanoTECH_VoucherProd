@@ -11,6 +11,12 @@ const lastSyncAt = new Map<number, number>();
 let realtimeTimer: ReturnType<typeof setInterval> | null = null;
 let realtimeRunning = false;
 
+/** Optional callback fired after each vendor sync completes (e.g. to invalidate caches). */
+let _onVendorSyncComplete: ((vendorId: number) => void) | null = null;
+export function setOnVendorSyncComplete(cb: (vendorId: number) => void): void {
+  _onVendorSyncComplete = cb;
+}
+
 /**
  * Step 3 of vendor sync — reads historical sales from the LOCAL SCRIPT CACHE
  * (no MikroTik call) and creates DB records for vouchers that:
@@ -656,10 +662,12 @@ export function startRealtimeVendorSync(): void {
       // ── Phase 2: per-vendor sync (hotspot users, history, usage) ───────
       const active = vendors.filter((v) => v.isActive && v.routerId);
       await Promise.allSettled(
-        active.map((v) => {
+        active.map(async (v) => {
           const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
-          if (suffixes.length === 0) return Promise.resolve();
-          return syncMikrotikUsersToVendor(v.id, v.routerId!, suffixes, true);
+          if (suffixes.length === 0) return;
+          await syncMikrotikUsersToVendor(v.id, v.routerId!, suffixes, true);
+          // Notify listeners so they can invalidate stale caches (e.g. vendor portal)
+          try { _onVendorSyncComplete?.(v.id); } catch (_) { /* ignore */ }
         }),
       );
     } catch (err) {

@@ -1245,12 +1245,17 @@ setImmediate(async () => {
       .where(eq(routersTable.isActive, true));
     await Promise.all(
       activeRouters.map(async (r) => {
+        const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+        // Warm the /info cache
         const ck = `info:${r.id}`;
-        if (mGet(ck)) return;
-        try {
-          const info = await getRouterInfo({ host: r.host, port: r.port, username: r.username, password: r.password });
-          mSet(ck, MIK_TTL.info, info);
-        } catch { /* ignore individual router failures */ }
+        if (!mGet(ck)) {
+          try {
+            const info = await getRouterInfo(conn);
+            mSet(ck, MIK_TTL.info, info);
+          } catch { /* ignore individual router failures */ }
+        }
+        // Auto-start usage sync so per-vendor stats are fresh from the first request
+        ensureUsageSyncScheduled(r.id, conn);
       }),
     );
   } catch { /* ignore DB errors at startup */ }

@@ -11,7 +11,15 @@ const router = Router();
 /* ── Generic in-memory TTL cache ────────────────────────────── */
 const _cache = new Map<string, { data: unknown; exp: number }>();
 function cGet(k: string) { const e = _cache.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
+/** Returns cached data even if expired — for stale-while-revalidate. */
+function cGetStale(k: string) { return _cache.get(k)?.data ?? null; }
 function cSet(k: string, ttl: number, d: unknown) { _cache.set(k, { data: d, exp: Date.now() + ttl }); }
+
+/** Called by the realtime background sync after each vendor is updated.
+ *  Drops the stale dashboard snapshot so the next request re-reads the DB. */
+export function invalidateVendorPortalCache(vendorId: number): void {
+  _cache.delete(`dash:${vendorId}`);
+}
 
 /* period-sales TTLs: yesterday/week are immutable → 1h; today → 45s; month → 2 min */
 const PSC_TTL: Record<string, number> = {
@@ -51,6 +59,99 @@ function buildPortalPeriodStats(vendorId: number) {
   })
   .from(vouchersTable)
   .where(eq(vouchersTable.vendorId, vendorId));
+}
+
+/* ── computeAndCacheVendorDash ───────────────────────────────────────────
+ * Runs all DB queries for /vendor-portal/me and stores the result in the
+ * TTL cache.  Called both by the route handler and by the background
+ * stale-while-revalidate path so the logic is never duplicated.
+ */
+type VendorRow = typeof vendorsTable.$inferSelect;
+
+async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
+  const id = vendor.id;
+  const dashKey = `dash:${id}`;
+
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
+
+  const byProfileConditions = and(
+    eq(vouchersTable.vendorId, id),
+    isNotNull(vouchersTable.profileName),
+    ne(vouchersTable.profileName, ""),
+    ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
+  );
+
+  const [routerRow, [totalsRows, byProfileRaw, [periodStatsRow], recentSales, availableVouchers, validProfileRows]] = await Promise.all([
+    vendor.routerId
+      ? db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
+      : Promise.resolve(null as typeof routersTable.$inferSelect | null),
+    Promise.all([
+      buildTotals(id),
+      db.select({
+        profileName:   vouchersTable.profileName,
+        total:         count(),
+        printed:       sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
+        used:          sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
+        soldToday:     sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfDay}) as int)`,
+        soldThisMonth: sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfMonth}) as int)`,
+      })
+      .from(vouchersTable).where(byProfileConditions).groupBy(vouchersTable.profileName).orderBy(desc(count())),
+      buildPortalPeriodStats(id),
+      db.select().from(vouchersTable).where(and(
+        eq(vouchersTable.vendorId, id),
+        isNotNull(vouchersTable.printedAt),
+        gte(vouchersTable.printedAt, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
+      )).orderBy(desc(vouchersTable.printedAt)),
+      db.select().from(vouchersTable).where(eq(vouchersTable.vendorId, id)).orderBy(desc(vouchersTable.createdAt)),
+      vendor.routerId != null
+        ? db.select({ profileName: profilesCacheTable.profileName }).from(profilesCacheTable).where(eq(profilesCacheTable.routerId, vendor.routerId))
+        : Promise.resolve([] as { profileName: string }[]),
+    ]),
+  ]);
+
+  const validProfileNames = new Set(validProfileRows.map((r) => r.profileName));
+  let priceMap = new Map<string, string>();
+  if (routerRow && vendor.routerId) {
+    const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+    priceMap = getCachedProfilePricesSync(vendor.routerId, conn);
+  }
+
+  const byProfile = byProfileRaw
+    .filter((row) => validProfileNames.size === 0 || validProfileNames.has(row.profileName))
+    .map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
+
+  const totals = totalsRows[0];
+  const totalAvailable = byProfile.reduce((sum, p) => sum + (Number(p.total) - Number(p.used ?? 0)), 0);
+
+  const salesStats = {
+    todaySold:       Number(periodStatsRow?.todaySold       ?? 0),
+    todayAmount:     Number(periodStatsRow?.todayAmount      ?? 0),
+    yesterdaySold:   Number(periodStatsRow?.yesterdaySold    ?? 0),
+    yesterdayAmount: Number(periodStatsRow?.yesterdayAmount  ?? 0),
+    weekSold:        Number(periodStatsRow?.weekSold         ?? 0),
+    weekAmount:      Number(periodStatsRow?.weekAmount       ?? 0),
+    lastMonthSold:   Number(periodStatsRow?.lastMonthSold    ?? 0),
+    lastMonthAmount: Number(periodStatsRow?.lastMonthAmount  ?? 0),
+  };
+
+  const dashPayload = {
+    vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
+    hotspotName: routerRow?.hotspotName ?? null,
+    totalVouchers:  totals?.total        ?? 0,
+    totalAvailable,
+    totalPrinted:   Number(totals?.printed ?? 0),
+    totalUsed:      Number(totals?.used    ?? 0),
+    salesStats,
+    byProfile,
+    recentSales: recentSales.map((v) => ({
+      ...v,
+      price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
+    })),
+    availableVouchers: availableVouchers.filter((v) => v.usedAt === null),
+  };
+  cSet(dashKey, DASH_TTL, dashPayload);
+  return dashPayload;
 }
 
 router.post("/vendor-portal/login", async (req, res): Promise<void> => {
@@ -109,10 +210,27 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
 
   const id = payload.vendorId;
 
-  // ── Cache check ──────────────────────────────────────────────────────
+  // ── Cache check (stale-while-revalidate) ─────────────────────────────
+  // Fresh hit → instant response.
+  // Stale hit → return immediately + recompute in background (next request gets fresh data).
+  // Miss → blocking DB query (no MikroTik call — background sync keeps DB fresh every 30 s).
   const dashKey = `dash:${id}`;
-  const dashHit = cGet(dashKey);
-  if (dashHit) { res.json(dashHit); return; }
+  const dashFresh = cGet(dashKey);
+  if (dashFresh) { res.json(dashFresh); return; }
+
+  const dashStale = cGetStale(dashKey);
+  if (dashStale) {
+    res.json(dashStale);
+    // Recompute in background so the very next request is fresh.
+    setImmediate(async () => {
+      try {
+        const [v] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
+        if (!v || !v.isActive) return;
+        await computeAndCacheVendorDash(v);
+      } catch { /* ignore */ }
+    });
+    return;
+  }
 
   const [vendor] = await db
     .select()
@@ -124,123 +242,16 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
     return;
   }
 
-  // Sync MikroTik users — throttled (2 min TTL) so typically instant.
-  // Run BEFORE the DB queries to ensure counts are accurate.
+  // Fire MikroTik sync in background — non-blocking.
+  // The realtime background sync already keeps the DB fresh every 30 s;
+  // this on-demand call is just a safety net for the very first request.
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
-    await syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
+    void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
   }
 
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const startOfMonth = new Date();
-  startOfMonth.setDate(1);
-  startOfMonth.setHours(0, 0, 0, 0);
-
-  // Only show vouchers from the vendor's current router with a non-blank profileName
-  const byProfileConditions = and(
-    eq(vouchersTable.vendorId, id),
-    isNotNull(vouchersTable.profileName),
-    ne(vouchersTable.profileName, ""),
-    ...(vendor.routerId != null ? [eq(vouchersTable.routerId, vendor.routerId)] : []),
-  );
-
-  // ── Parallelize router fetch + all 6 DB queries ───────────────────────
-  const [routerRow, [totalsRows, byProfileRaw, [periodStatsRow], recentSales, availableVouchers, validProfileRows]] = await Promise.all([
-    vendor.routerId
-      ? db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null)
-      : Promise.resolve(null as typeof routersTable.$inferSelect | null),
-    Promise.all([
-      buildTotals(id),
-      db
-        .select({
-          profileName:    vouchersTable.profileName,
-          total:          count(),
-          printed:        sql<number>`count(*) filter (where ${vouchersTable.printedAt} is not null)`,
-          used:           sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
-          soldToday:      sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfDay}) as int)`,
-          soldThisMonth:  sql<number>`cast(count(*) filter (where ${vouchersTable.usedAt} >= ${startOfMonth}) as int)`,
-        })
-        .from(vouchersTable)
-        .where(byProfileConditions)
-        .groupBy(vouchersTable.profileName)
-        .orderBy(desc(count())),
-      buildPortalPeriodStats(id),
-      db
-        .select()
-        .from(vouchersTable)
-        .where(and(
-          eq(vouchersTable.vendorId, id),
-          isNotNull(vouchersTable.printedAt),
-          gte(vouchersTable.printedAt, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
-        ))
-        .orderBy(desc(vouchersTable.printedAt)),
-      db
-        .select()
-        .from(vouchersTable)
-        .where(eq(vouchersTable.vendorId, id))
-        .orderBy(desc(vouchersTable.createdAt)),
-      // Fetch currently valid profiles from the local cache (reflects live MikroTik state)
-      vendor.routerId != null
-        ? db.select({ profileName: profilesCacheTable.profileName })
-            .from(profilesCacheTable)
-            .where(eq(profilesCacheTable.routerId, vendor.routerId))
-        : Promise.resolve([] as { profileName: string }[]),
-    ]),
-  ]);
-
-  // Build a set of profiles that still exist in MikroTik
-  const validProfileNames = new Set(validProfileRows.map((r) => r.profileName));
-
-  // Profile price cache (still used to enrich byProfile and recentSales display)
-  let priceMap = new Map<string, string>();
-  if (routerRow && vendor.routerId) {
-    const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
-    priceMap = getCachedProfilePricesSync(vendor.routerId, conn);
-  }
-
-  // Filter out profiles that no longer exist in MikroTik (only when cache is populated)
-  const byProfile = byProfileRaw
-    .filter((row) => validProfileNames.size === 0 || validProfileNames.has(row.profileName))
-    .map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
-
-  const totals = totalsRows[0];
-  // Compute totalAvailable from byProfile (already filtered by routerId + valid profileName)
-  // so Home card matches the per-profile breakdown exactly.
-  const totalAvailable = byProfile.reduce(
-    (sum, p) => sum + (Number(p.total) - Number(p.used ?? 0)),
-    0,
-  );
-
-  const salesStats = {
-    todaySold:       Number(periodStatsRow?.todaySold       ?? 0),
-    todayAmount:     Number(periodStatsRow?.todayAmount      ?? 0),
-    yesterdaySold:   Number(periodStatsRow?.yesterdaySold    ?? 0),
-    yesterdayAmount: Number(periodStatsRow?.yesterdayAmount  ?? 0),
-    weekSold:        Number(periodStatsRow?.weekSold         ?? 0),
-    weekAmount:      Number(periodStatsRow?.weekAmount       ?? 0),
-    lastMonthSold:   Number(periodStatsRow?.lastMonthSold    ?? 0),
-    lastMonthAmount: Number(periodStatsRow?.lastMonthAmount  ?? 0),
-  };
-
-  const dashPayload = {
-    vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
-    hotspotName: routerRow?.hotspotName ?? null,
-    totalVouchers:  totals?.total        ?? 0,
-    totalAvailable,
-    totalPrinted:   Number(totals?.printed ?? 0),
-    totalUsed:      Number(totals?.used    ?? 0),
-    salesStats,
-    byProfile,
-    recentSales: recentSales.map((v) => ({
-      ...v,
-      // Enrich: use salePrice (from sync), else price (from generation), else profile cache
-      price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
-    })),
-    availableVouchers: availableVouchers.filter((v) => v.usedAt === null),
-  };
-  cSet(dashKey, DASH_TTL, dashPayload);
+  // Compute dashboard data (all DB queries, no MikroTik calls) and cache it
+  const dashPayload = await computeAndCacheVendorDash(vendor);
   res.json(dashPayload);
 });
 
