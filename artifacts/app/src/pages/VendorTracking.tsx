@@ -729,7 +729,11 @@ export default function VendorTracking() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ routerId: selectedRouterId, date, amount: Math.round(amount) }),
       });
-      await queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, applied] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, applied] }),
+        queryClient.invalidateQueries({ queryKey: ["vendor-tracking", selectedRouterId, applied] }),
+        queryClient.invalidateQueries({ queryKey: ["vendor-tracking-prevweek", selectedRouterId] }),
+      ]);
       setPayingKey(null);
       setPayAmount("");
     } finally {
@@ -753,7 +757,11 @@ export default function VendorTracking() {
             })
           )
       );
-      await queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, applied] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, applied] }),
+        queryClient.invalidateQueries({ queryKey: ["vendor-tracking", selectedRouterId, applied] }),
+        queryClient.invalidateQueries({ queryKey: ["vendor-tracking-prevweek", selectedRouterId] }),
+      ]);
     } finally {
       setPayLoading(false);
     }

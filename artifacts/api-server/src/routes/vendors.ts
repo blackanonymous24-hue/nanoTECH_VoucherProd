@@ -803,15 +803,23 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     )
     .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
 
-  const weekPayments = await db
-    .select()
-    .from(vendorPaymentsTable)
-    .where(
+  // Weekly lump-sum payments (vendorPaymentsTable) + daily payments (vendorDailyPaymentsTable)
+  // for the same week — both contribute to paidByVendor so the report stays accurate.
+  const [weekPayments, weekDailyPayments] = await Promise.all([
+    db.select().from(vendorPaymentsTable).where(
       and(
         eq(vendorPaymentsTable.routerId, routerId),
         eq(vendorPaymentsTable.weekStart, weekStart),
       ),
-    );
+    ),
+    db.select().from(vendorDailyPaymentsTable).where(
+      and(
+        eq(vendorDailyPaymentsTable.routerId, routerId),
+        gte(vendorDailyPaymentsTable.date, weekStart),
+        lte(vendorDailyPaymentsTable.date, weekEnd),
+      ),
+    ),
+  ]);
 
   // Aggregate week rows per vendor — same max(sqlSum, count×price) approach
   const weekMap = new Map<number | null, { vendorId: number | null; vendorName: string; count: number; amount: number; commissionRate: number }>();
@@ -836,6 +844,9 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
   }
   const paidByVendor = new Map<number, number>();
   for (const p of weekPayments) {
+    paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) ?? 0) + p.amount);
+  }
+  for (const p of weekDailyPayments) {
     paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) ?? 0) + p.amount);
   }
 
@@ -1167,16 +1178,24 @@ router.get("/vendors/weekly-summary", async (req, res) => {
       )
       .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
 
-    const payments = await db
-      .select()
-      .from(vendorPaymentsTable)
-      .where(
+    const weekEnd = new Date(wEnd.getTime() - 1).toISOString().slice(0, 10);
+
+    // Both weekly lump-sum payments and daily payments count toward paidAmount
+    const [payments, dailyPayments] = await Promise.all([
+      db.select().from(vendorPaymentsTable).where(
         and(
           eq(vendorPaymentsTable.routerId, routerId),
           eq(vendorPaymentsTable.weekStart, weekStart),
         ),
-      )
-      .orderBy(vendorPaymentsTable.paidAt);
+      ).orderBy(vendorPaymentsTable.paidAt),
+      db.select().from(vendorDailyPaymentsTable).where(
+        and(
+          eq(vendorDailyPaymentsTable.routerId, routerId),
+          gte(vendorDailyPaymentsTable.date, weekStart),
+          lte(vendorDailyPaymentsTable.date, weekEnd),
+        ),
+      ).orderBy(vendorDailyPaymentsTable.paidAt),
+    ]);
 
     const priceMap = getCachedProfilePricesSync(routerId);
     const lower    = new Map<string, number>();
@@ -1199,6 +1218,11 @@ router.get("/vendors/weekly-summary", async (req, res) => {
 
     const paymentsMap = new Map<number, { id: number; amount: number; paidAt: Date; note: string | null }[]>();
     for (const p of payments) {
+      if (!paymentsMap.has(p.vendorId)) paymentsMap.set(p.vendorId, []);
+      paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note });
+    }
+    // Merge daily payments into the same map (synthetic entries without id exposed for deletion)
+    for (const p of dailyPayments) {
       if (!paymentsMap.has(p.vendorId)) paymentsMap.set(p.vendorId, []);
       paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note });
     }
