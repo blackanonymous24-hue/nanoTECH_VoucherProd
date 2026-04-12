@@ -7,6 +7,7 @@ import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
 import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
+import { invalidateVendorPortalCache } from "./vendor-portal.js";
 
 const router = Router();
 
@@ -946,6 +947,7 @@ router.post("/vendors/:id/daily-payments", async (req, res): Promise<void> => {
     .insert(vendorDailyPaymentsTable)
     .values({ vendorId, routerId, date, amount: Math.round(amount), note: note ?? null })
     .returning();
+  invalidateVendorPortalCache(vendorId);
   res.json(row);
 });
 
@@ -956,7 +958,11 @@ router.post("/vendors/:id/daily-payments", async (req, res): Promise<void> => {
 router.delete("/vendors/daily-payments/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "id invalide" }); return; }
-  await db.delete(vendorDailyPaymentsTable).where(eq(vendorDailyPaymentsTable.id, id));
+  const [deleted] = await db
+    .delete(vendorDailyPaymentsTable)
+    .where(eq(vendorDailyPaymentsTable.id, id))
+    .returning({ vendorId: vendorDailyPaymentsTable.vendorId });
+  if (deleted) invalidateVendorPortalCache(deleted.vendorId);
   res.json({ ok: true });
 });
 
@@ -1274,6 +1280,7 @@ router.post("/vendors/payments", async (req, res) => {
       .insert(vendorPaymentsTable)
       .values({ vendorId: +vendorId, routerId: +routerId, weekStart: ws, amount: +amount, note: note || null })
       .returning();
+    invalidateVendorPortalCache(+vendorId);
     res.json(payment);
   } catch (err) {
     logger.error({ err }, "create payment error");
@@ -1286,7 +1293,11 @@ router.delete("/vendors/payments/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: "invalid id" });
-    await db.delete(vendorPaymentsTable).where(eq(vendorPaymentsTable.id, id));
+    const [deleted] = await db
+      .delete(vendorPaymentsTable)
+      .where(eq(vendorPaymentsTable.id, id))
+      .returning({ vendorId: vendorPaymentsTable.vendorId });
+    if (deleted) invalidateVendorPortalCache(deleted.vendorId);
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err }, "delete payment error");

@@ -15,10 +15,12 @@ function cGet(k: string) { const e = _cache.get(k); return (e && Date.now() < e.
 function cGetStale(k: string) { return _cache.get(k)?.data ?? null; }
 function cSet(k: string, ttl: number, d: unknown) { _cache.set(k, { data: d, exp: Date.now() + ttl }); }
 
-/** Called by the realtime background sync after each vendor is updated.
- *  Drops the stale dashboard snapshot so the next request re-reads the DB. */
+/** Called after any payment change or background sync for a vendor.
+ *  Drops all cached data so the next portal request re-reads the DB. */
 export function invalidateVendorPortalCache(vendorId: number): void {
   _cache.delete(`dash:${vendorId}`);
+  _cache.delete(`payments:${vendorId}`);
+  _cache.delete(`arrears:${vendorId}`);
 }
 
 /* period-sales TTLs: yesterday/week are immutable → 1h; today → 45s; month → 2 min */
