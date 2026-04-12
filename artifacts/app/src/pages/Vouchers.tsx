@@ -589,13 +589,13 @@ export default function Vouchers() {
     if (!activeRouterId || !confirmResetUser || isResetting) return;
     const user = confirmResetUser;
 
-    // 1. Close dialog + toast immediately
+    // 1. Close dialog + loading state
     setConfirmResetUser(null);
-    toast({ title: "Réinitialisation…", description: `${user.username} — compteurs remis à zéro` });
-
-    // 2. API in background
     setIsResetting(true);
+    toast({ title: "Réinitialisation…", description: `${user.username} — en cours…` });
+
     try {
+      // 2. Reset on MikroTik
       const res = await fetch(
         `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}/reset`,
         { method: "POST", headers: { "Content-Type": "application/json" } },
@@ -605,10 +605,17 @@ export default function Vouchers() {
         throw new Error(err.error ?? `HTTP ${res.status}`);
       }
       const data = await res.json() as { sessionKicked: number };
-      if (data.sessionKicked > 0) {
-        toast({ title: "Session déconnectée", description: `${user.username} — session coupée` });
-      }
-      void refetchUsers();
+
+      // 3. Laisser MikroTik traiter le reset avant de relire
+      await new Promise((r) => setTimeout(r, 600));
+
+      // 4. Rechargement complet — users + lots (usedAt effacé en DB)
+      await Promise.all([refetchUsers(), refetchLots()]);
+
+      toast({
+        title: "Réinitialisation réussie",
+        description: `${user.username} — compteurs remis à zéro${data.sessionKicked > 0 ? ", session déconnectée" : ""}`,
+      });
     } catch (err) {
       toast({ title: "Erreur de réinitialisation", description: String(err), variant: "destructive" });
     } finally {
