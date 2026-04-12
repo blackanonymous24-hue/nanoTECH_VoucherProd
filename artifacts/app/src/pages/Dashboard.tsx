@@ -475,7 +475,9 @@ export default function Dashboard() {
       return res.json() as Promise<RouterInfo>;
     },
     enabled: !!selectedRouterId,
-    staleTime: 60_000,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
+    staleTime: 9_000,
     retry: false,
     throwOnError: false,
   });

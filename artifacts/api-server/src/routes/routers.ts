@@ -69,7 +69,7 @@ function mSet(k: string, ttl: number, d: unknown) { _mik.set(k, { data: d, exp: 
 
 const MIK_TTL = {
   ping:       30_000,
-  info:       60_000,
+  info:        8_000,
   pools:     300_000,
   sessions:   15_000,
   interfaces:300_000,
