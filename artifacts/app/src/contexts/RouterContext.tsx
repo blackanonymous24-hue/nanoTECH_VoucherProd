@@ -101,10 +101,13 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     } else {
       localStorage.setItem(STORAGE_KEY, String(id));
       setRouterOnline(null);
-      setRouterIdentity(null);
+      // Pre-seed identity from DB data so the sidebar is never empty while
+      // the MikroTik /info call is in-flight. The real identity replaces it.
+      const dbRouter = allRouters.find((r) => r.id === id);
+      setRouterIdentity(dbRouter?.name ?? null);
       setPingTrigger((n) => n + 1);
     }
-  }, [isRouterLocked]);
+  }, [isRouterLocked, allRouters]);
 
   // On initial load, if a router is already stored, trigger a fetch immediately
   const didInitialTrigger = useRef(false);
@@ -114,6 +117,19 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       setPingTrigger((n) => n + 1);
     }
   }, [selectedRouterId]);
+
+  // When the router list arrives from the DB, immediately seed routerIdentity
+  // from the stored name so the sidebar never shows a blank/generic label.
+  const didSeedIdentity = useRef(false);
+  useEffect(() => {
+    if (didSeedIdentity.current) return;
+    if (!selectedRouterId || allRouters.length === 0) return;
+    const dbRouter = allRouters.find((r) => r.id === selectedRouterId);
+    if (dbRouter) {
+      didSeedIdentity.current = true;
+      setRouterIdentity((prev) => prev ?? dbRouter.name ?? null);
+    }
+  }, [allRouters, selectedRouterId]);
 
   const selectedRouter = routers.find((r) => r.id === selectedRouterId);
   const isFirstLoad = routersLoading && !initializedRef.current;

@@ -62,6 +62,8 @@ async function fetchProfilesWithCache(routerId: number, conn: RouterConnection) 
  */
 const _mik = new Map<string, { data: unknown; exp: number }>();
 function mGet(k: string) { const e = _mik.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
+/** Returns cached data even if expired (stale-while-revalidate pattern). */
+function mGetStale(k: string) { return _mik.get(k)?.data ?? null; }
 function mSet(k: string, ttl: number, d: unknown) { _mik.set(k, { data: d, exp: Date.now() + ttl }); }
 
 const MIK_TTL = {
@@ -261,12 +263,28 @@ router.get("/routers/:id/info", async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const ck = `info:${id}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
+
+  // Fresh hit — return immediately
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
+  // Stale hit — return immediately, refresh in background (stale-while-revalidate)
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    setImmediate(async () => {
+      try {
+        const info = await getRouterInfo({ host: r.host, port: r.port, username: r.username, password: r.password });
+        mSet(ck, MIK_TTL.info, info);
+      } catch { /* ignore */ }
+    });
+    return;
+  }
+
+  // No cache at all — blocking call (first request only)
   try {
     const info = await getRouterInfo({ host: r.host, port: r.port, username: r.username, password: r.password });
     mSet(ck, MIK_TTL.info, info);
@@ -1212,6 +1230,30 @@ router.post("/routers/:id/sync-usage", async (req, res): Promise<void> => {
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
+});
+
+/* ── Startup cache warm-up ──────────────────────────────────────────────
+ * Proactively fetch /info for all active routers right after the server
+ * boots so the very first dashboard request is served from cache.
+ * Failures are silently ignored — the endpoint falls back to a live call.
+ */
+setImmediate(async () => {
+  try {
+    const activeRouters = await db
+      .select()
+      .from(routersTable)
+      .where(eq(routersTable.isActive, true));
+    await Promise.all(
+      activeRouters.map(async (r) => {
+        const ck = `info:${r.id}`;
+        if (mGet(ck)) return;
+        try {
+          const info = await getRouterInfo({ host: r.host, port: r.port, username: r.username, password: r.password });
+          mSet(ck, MIK_TTL.info, info);
+        } catch { /* ignore individual router failures */ }
+      }),
+    );
+  } catch { /* ignore DB errors at startup */ }
 });
 
 export default router;
