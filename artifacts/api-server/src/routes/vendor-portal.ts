@@ -513,10 +513,7 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       commissionRate: effectiveCommissionRate,
       totalPaid,
       remaining: Math.max(0, amount - commission - totalPaid),
-      payments: [
-        ...payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
-        ...dailyPayments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
-      ].sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()),
+      payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
     };
   }));
 
