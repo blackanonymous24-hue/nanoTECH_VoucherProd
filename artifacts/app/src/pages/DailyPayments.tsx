@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { CalendarDays, Loader2, CreditCard, CheckCircle2, ChevronDown, ChevronUp, Users, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -218,8 +219,8 @@ export default function DailyPayments() {
   });
 
   const refresh = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["vendor-daily-arrears", selectedRouterId, queryDate] });
-  }, [queryClient, selectedRouterId, queryDate]);
+    void invalidateAllPaymentQueries(queryClient, selectedRouterId);
+  }, [queryClient, selectedRouterId]);
 
   /* Build sorted vendor rows */
   const rows: VendorRow[] = [];

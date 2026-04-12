@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -271,7 +272,7 @@ function WeekCard({
     staleTime: 30_000,
   });
 
-  const onMutated = () => queryClient.invalidateQueries({ queryKey: qk });
+  const onMutated = () => void invalidateAllPaymentQueries(queryClient, routerId);
 
   const grandSales      = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.amount, 0), [data]);
   const grandCommission = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.commission, 0), [data]);
@@ -394,8 +395,7 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
     try {
       const res = await fetch(`${BASE}/api/vendors/daily-payments/${id}`, { method: "DELETE" });
       if (!res.ok) { toast({ title: "Erreur suppression", variant: "destructive" }); return; }
-      await queryClient.invalidateQueries({ queryKey: qk });
-      await queryClient.invalidateQueries({ queryKey: ["daily-arrears-versement", routerId] });
+      await invalidateAllPaymentQueries(queryClient, routerId);
       toast({ title: "Versement supprimé" });
     } finally {
       setDeleting(null);
@@ -525,14 +525,14 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
         body: JSON.stringify({ routerId, date, amount: Math.round(amount) }),
       });
       if (!res.ok) { toast({ title: "Erreur", description: await res.text(), variant: "destructive" }); return; }
-      await queryClient.invalidateQueries({ queryKey: qk });
+      await invalidateAllPaymentQueries(queryClient, routerId);
       setPayingKey(null);
       setPayAmount("");
       toast({ title: "Versement enregistré", description: `${fmtAmount(Math.round(amount))} FCFA · ${fmtDateShort(date)}` });
     } finally {
       setPayLoading(false);
     }
-  }, [routerId, queryClient, toast, qk]);
+  }, [routerId, queryClient, toast]);
 
   const solderVendorAll = useCallback(async (vendorId: string, entries: DailyArrearEntry[]) => {
     const toSolder = entries.filter((e) => e.remaining > 0);
@@ -548,12 +548,12 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
           })
         )
       );
-      await queryClient.invalidateQueries({ queryKey: qk });
+      await invalidateAllPaymentQueries(queryClient, routerId);
       toast({ title: "Vendeur soldé", description: vendorInfo[vendorId]?.name ?? `Vendeur ${vendorId}` });
     } finally {
       setPayLoading(false);
     }
-  }, [routerId, queryClient, toast, vendorInfo, qk]);
+  }, [routerId, queryClient, toast, vendorInfo]);
 
   const toggleExpand = (vid: string) => {
     setExpanded((prev) => {
