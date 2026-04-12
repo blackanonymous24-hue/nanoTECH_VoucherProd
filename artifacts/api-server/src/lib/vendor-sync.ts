@@ -628,7 +628,7 @@ export async function forceRouterFullSync(routerId: number): Promise<{
 export function startRealtimeVendorSync(): void {
   if (realtimeTimer) return;
 
-  const intervalMs = Math.max(10_000, parseInt(process.env.VENDOR_SYNC_INTERVAL_MS ?? "30000", 10) || 30000);
+  const intervalMs = Math.max(5_000, parseInt(process.env.VENDOR_SYNC_INTERVAL_MS ?? "10000", 10) || 10000);
 
   const tick = async () => {
     if (realtimeRunning) return;
