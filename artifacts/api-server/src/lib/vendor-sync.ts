@@ -4,6 +4,7 @@ import { listHotspotUsers, listProfiles, type RouterConnection } from "./mikroti
 import { runUsageSync } from "./usage-sync.js";
 import { syncScriptCache, getCachedSalesByBatch, clearRouterScriptCache } from "./script-cache.js";
 import { logger } from "./logger.js";
+import { isRouterLocked } from "./router-lock.js";
 
 /** Throttle: don't sync the same vendor more than once every 2 minutes */
 const SYNC_TTL = 2 * 60_000;
@@ -647,12 +648,13 @@ export function startRealtimeVendorSync(): void {
 
       // ── Phase 1: sync profile renames once per router ──────────────────
       // Must run before per-vendor syncs so vendor stats already reflect new names.
+      // Skip routers that are locked by an active user operation (e.g. generation).
       const activeRouterIds = new Set(
         vendors.filter((v) => v.isActive && v.routerId).map((v) => v.routerId!),
       );
       await Promise.allSettled(
         routers
-          .filter((r) => activeRouterIds.has(r.id))
+          .filter((r) => activeRouterIds.has(r.id) && !isRouterLocked(r.id))
           .map((r) => {
             const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
             return syncProfileRenames(r.id, conn);
@@ -675,6 +677,8 @@ export function startRealtimeVendorSync(): void {
       await Promise.allSettled(
         Array.from(byRouter.values()).map(async (group) => {
           for (const v of group) {
+            // Skip if an active user operation (e.g. voucher generation) has locked this router
+            if (isRouterLocked(v.routerId!)) continue;
             const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
             if (suffixes.length === 0) continue;
             try {

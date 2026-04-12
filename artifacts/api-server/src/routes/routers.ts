@@ -5,6 +5,7 @@ import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile,
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
+import { withRouterLock, isRouterLocked } from "../lib/router-lock.js";
 
 const router = Router();
 
@@ -670,7 +671,7 @@ router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
-    await addHotspotUser(conn, {
+    await withRouterLock(id, () => addHotspotUser(conn, {
       name: name.trim(),
       password: password.trim(),
       profile: profile.trim(),
@@ -679,7 +680,7 @@ router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
       limitUptime: limitUptime?.trim() || undefined,
       limitBytesTotal: limitBytesTotal?.trim() || undefined,
       macAddress: macAddress?.trim() || undefined,
-    });
+    }));
     res.status(201).json({ success: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erreur MikroTik";
@@ -776,16 +777,15 @@ router.delete("/routers/:id/users", async (req, res): Promise<void> => {
   const { comment: commentFilter } = req.query as { comment?: string };
   const { usernames } = (req.body ?? {}) as { usernames?: string[] };
 
+  if (!commentFilter && !(Array.isArray(usernames) && usernames.length > 0)) {
+    res.status(400).json({ error: "Fournir comment ou usernames" });
+    return;
+  }
   try {
-    let deleted = 0;
-    if (commentFilter) {
-      deleted = await deleteHotspotUsersByComment(conn, commentFilter);
-    } else if (Array.isArray(usernames) && usernames.length > 0) {
-      deleted = await deleteHotspotUsersByNames(conn, usernames);
-    } else {
-      res.status(400).json({ error: "Fournir comment ou usernames" });
-      return;
-    }
+    const deleted = await withRouterLock(id, async () => {
+      if (commentFilter) return deleteHotspotUsersByComment(conn, commentFilter);
+      return deleteHotspotUsersByNames(conn, usernames!);
+    });
     // Invalidate cache so subsequent requests get fresh data
     userCache.delete(id);
     res.json({ deleted });
@@ -888,6 +888,13 @@ const USAGE_SYNC_INTERVAL = 30_000; // 30 seconds
 /** Background auto-sync — self-reschedules every USAGE_SYNC_INTERVAL */
 async function scheduleUsageSync(routerId: number, conn: RouterConnection) {
   if (usageSyncActive.has(routerId)) return;
+  // If a user-initiated operation has locked this router, skip this cycle
+  // and come back next interval rather than fighting for a connection.
+  if (isRouterLocked(routerId)) {
+    const timer = setTimeout(() => scheduleUsageSync(routerId, conn), USAGE_SYNC_INTERVAL);
+    usageSyncTimer.set(routerId, timer);
+    return;
+  }
   usageSyncActive.add(routerId);
   try {
     // Refresh the script cache first (incremental — only current + last month),

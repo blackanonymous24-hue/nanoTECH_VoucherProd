@@ -4,6 +4,7 @@ import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
 import { invalidateUserCache } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
+import { withRouterLock } from "../lib/router-lock.js";
 
 /**
  * After inserting vouchers, attribute any with vendorId=null to the matching
@@ -181,26 +182,29 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
   }
 
   try {
-    const generated = await generateVouchers(
-      conn,
-      { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "same", charType, userLength, timelimit: timelimit || undefined, datalimit: datalimit || undefined },
-    );
-
-    const inserted = await db
-      .insert(vouchersTable)
-      .values(
-        generated.map((v) => ({
-          routerId,
-          vendorId: vendorId ?? null,
-          username: v.username,
-          password: v.password,
-          profileName: v.profile,
-          price: v.price,
-          validity: v.validity,
-          comment: v.comment || null,
-        })),
-      )
-      .returning();
+    // Lock this router for the duration of generation so background syncs
+    // don't open concurrent MikroTik connections and saturate the API limit.
+    const inserted = await withRouterLock(routerId, async () => {
+      const generated = await generateVouchers(
+        conn,
+        { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "same", charType, userLength, timelimit: timelimit || undefined, datalimit: datalimit || undefined },
+      );
+      return db
+        .insert(vouchersTable)
+        .values(
+          generated.map((v) => ({
+            routerId,
+            vendorId: vendorId ?? null,
+            username: v.username,
+            password: v.password,
+            profileName: v.profile,
+            price: v.price,
+            validity: v.validity,
+            comment: v.comment || null,
+          })),
+        )
+        .returning();
+    });
 
     res.status(201).json(inserted);
 
@@ -227,10 +231,12 @@ router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
-    const result = await enableDisableHotspotUsers(
-      { host: r.host, port: r.port, username: r.username, password: r.password },
-      usernames,
-      enable ?? false,
+    const result = await withRouterLock(routerId, () =>
+      enableDisableHotspotUsers(
+        { host: r.host, port: r.port, username: r.username, password: r.password },
+        usernames,
+        enable ?? false,
+      ),
     );
     invalidateUserCache(routerId);
     res.json(result);
@@ -265,10 +271,12 @@ router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
 
   try {
     const usernames = vouchers.map((v) => v.username);
-    const result = await enableDisableHotspotUsers(
-      { host: r.host, port: r.port, username: r.username, password: r.password },
-      usernames,
-      enable ?? false,
+    const result = await withRouterLock(routerId, () =>
+      enableDisableHotspotUsers(
+        { host: r.host, port: r.port, username: r.username, password: r.password },
+        usernames,
+        enable ?? false,
+      ),
     );
     invalidateUserCache(routerId);
     res.json(result);
