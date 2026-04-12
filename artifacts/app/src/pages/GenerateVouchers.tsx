@@ -20,7 +20,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2 } from "lucide-react";
+import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
@@ -91,6 +91,30 @@ const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
 
 const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2"];
 
+/** Détecte si l'erreur correspond à un routeur inaccessible (502 ou réseau). */
+function isRouterUnreachable(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as Record<string, unknown>;
+  const response = e.response as Record<string, unknown> | undefined;
+  if (response?.status === 502) return true;
+  const msg = String(e.message ?? "").toLowerCase();
+  return msg.includes("502") || msg.includes("contacter") || msg.includes("unreachable") || msg.includes("network error");
+}
+
+/** Attend que le routeur soit à nouveau accessible (ping toutes les 4s). */
+async function waitForRouter(routerId: number, base: string): Promise<void> {
+  for (;;) {
+    await new Promise<void>((r) => setTimeout(r, 4000));
+    try {
+      const res = await fetch(`${base}/api/routers/${routerId}/ping?force=1`);
+      if (res.ok) {
+        const data = await res.json() as { success: boolean };
+        if (data.success) return;
+      }
+    } catch { /* réseau encore indisponible, on réessaie */ }
+  }
+}
+
 function makeBatchId(mode: "vc" | "up" = "vc"): string {
   const now = new Date();
   const M = String(now.getMonth() + 1).padStart(2, "0");
@@ -120,6 +144,7 @@ export default function GenerateVouchers() {
   const [loadingLastLot, setLoadingLastLot] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [genPaused, setGenPaused] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
@@ -271,39 +296,60 @@ export default function GenerateVouchers() {
 
     const total = parseInt(qty, 10);
     setProgress({ done: 0, total });
+    setGenPaused(false);
 
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
     const profilePrice = selectedProfile?.price ?? "";
     const profileValidity = selectedProfile?.validity ?? "";
-    // 50 per batch: matches the server's internal parallel batch size,
-    // giving a progress update every ~1-2 s regardless of total quantity.
     const BATCH_SIZE = 50;
     const allVouchers: Voucher[] = [];
     let done = 0;
 
+    // Verrouille le routeur pour toute la session : la sync background
+    // (vendor + usage) saute automatiquement les routeurs verrouillés.
+    await fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "POST" });
+
     try {
       while (done < total) {
         const qtyBatch = Math.min(BATCH_SIZE, total - done);
-        const generated = await generateMutation.mutateAsync({
-          data: {
-            routerId: selectedRouterId,
-            profile,
-            qty: qtyBatch,
-            prefix: prefix || null,
-            comment: effectiveComment || null,
-            vendorId: vendorId ? parseInt(vendorId, 10) : null,
-            passwordMode,
-            charType,
-            userLength: parseInt(userLength, 10),
-            timelimit: timelimit || undefined,
-            datalimit: dlBytes,
-            profilePrice,
-            profileValidity,
-          },
-        });
-        allVouchers.push(...generated);
-        done += generated.length;
-        setProgress({ done, total });
+
+        // Retry automatique si le routeur est temporairement inaccessible.
+        let batchOk = false;
+        while (!batchOk) {
+          try {
+            const generated = await generateMutation.mutateAsync({
+              data: {
+                routerId: selectedRouterId,
+                profile,
+                qty: qtyBatch,
+                prefix: prefix || null,
+                comment: effectiveComment || null,
+                vendorId: vendorId ? parseInt(vendorId, 10) : null,
+                passwordMode,
+                charType,
+                userLength: parseInt(userLength, 10),
+                timelimit: timelimit || undefined,
+                datalimit: dlBytes,
+                profilePrice,
+                profileValidity,
+              },
+            });
+            allVouchers.push(...generated);
+            done += generated.length;
+            setProgress({ done, total });
+            batchOk = true;
+          } catch (err) {
+            if (isRouterUnreachable(err)) {
+              // Routeur inaccessible : on met en pause et on attend le retour.
+              setGenPaused(true);
+              await waitForRouter(selectedRouterId, BASE);
+              setGenPaused(false);
+              // Le même batch sera retenté.
+            } else {
+              throw err; // Erreur non-retriable → on sort.
+            }
+          }
+        }
       }
 
       const lot: LastLot = {
@@ -330,7 +376,10 @@ export default function GenerateVouchers() {
       setDatalimit("");
       setVendorId("");
     } finally {
+      // Toujours relâcher le verrou — même en cas d'erreur.
+      void fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "DELETE" });
       setProgress(null);
+      setGenPaused(false);
     }
   };
 
@@ -735,25 +784,32 @@ export default function GenerateVouchers() {
                 {progress && (
                   <div className="mt-2 space-y-1.5">
                     <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
-                      {/* Filled portion */}
                       <div
-                        className="absolute inset-y-0 left-0 bg-orange-500 rounded-full transition-all duration-500"
+                        className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${genPaused ? "bg-amber-400" : "bg-orange-500"}`}
                         style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
                       />
-                      {/* Animated shimmer overlay — shows activity even while a batch is in-flight */}
-                      <div
-                        className="absolute inset-0 animate-shimmer"
-                        style={{
-                          background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
-                          backgroundSize: "200% 100%",
-                        }}
-                      />
+                      {!genPaused && (
+                        <div
+                          className="absolute inset-0 animate-shimmer"
+                          style={{
+                            background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
+                            backgroundSize: "200% 100%",
+                          }}
+                        />
+                      )}
                     </div>
                     <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <Loader2 className="h-3 w-3 animate-spin text-orange-500" />
-                        Envoi vers MikroTik…
-                      </span>
+                      {genPaused ? (
+                        <span className="flex items-center gap-1 text-amber-600 font-medium">
+                          <WifiOff className="h-3 w-3" />
+                          Routeur inaccessible — reprise automatique…
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin text-orange-500" />
+                          Envoi vers MikroTik…
+                        </span>
+                      )}
                       <span className="tabular-nums font-medium">
                         {progress.done} / {progress.total}
                         <span className="text-gray-400 font-normal ml-1">

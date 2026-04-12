@@ -5,7 +5,7 @@ import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile,
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
-import { withRouterLock, isRouterLocked } from "../lib/router-lock.js";
+import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 
 const router = Router();
 
@@ -246,8 +246,11 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const ck = `ping:${id}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
+  const force = req.query.force === "1";
+  if (!force) {
+    const hit = mGet(ck);
+    if (hit) { res.json(hit); return; }
+  }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
@@ -256,6 +259,34 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
   const payload = { success: online };
   mSet(ck, MIK_TTL.ping, payload);
   res.json(payload);
+});
+
+/* ── Generation session lock ──────────────────────────────────────────────
+ * Holds the router lock for the entire generation session (all batches).
+ * Background sync (vendor/usage) skips locked routers automatically.
+ * Auto-releases after 30 min as a safety net against client disconnects. */
+const _genLockTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
+
+router.post("/routers/:id/generation-lock", (req, res): void => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  lockRouter(id);
+  const existing = _genLockTimeouts.get(id);
+  if (existing) clearTimeout(existing);
+  _genLockTimeouts.set(id, setTimeout(() => {
+    unlockRouter(id);
+    _genLockTimeouts.delete(id);
+  }, 30 * 60_000));
+  res.json({ ok: true });
+});
+
+router.delete("/routers/:id/generation-lock", (req, res): void => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  unlockRouter(id);
+  const t = _genLockTimeouts.get(id);
+  if (t) { clearTimeout(t); _genLockTimeouts.delete(id); }
+  res.json({ ok: true });
 });
 
 router.get("/routers/:id/info", async (req, res): Promise<void> => {
