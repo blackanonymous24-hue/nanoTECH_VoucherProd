@@ -628,7 +628,7 @@ export async function forceRouterFullSync(routerId: number): Promise<{
 export function startRealtimeVendorSync(): void {
   if (realtimeTimer) return;
 
-  const intervalMs = Math.max(5_000, parseInt(process.env.VENDOR_SYNC_INTERVAL_MS ?? "10000", 10) || 10000);
+  const intervalMs = Math.max(10_000, parseInt(process.env.VENDOR_SYNC_INTERVAL_MS ?? "20000", 10) || 20000);
 
   const tick = async () => {
     if (realtimeRunning) return;
@@ -660,14 +660,29 @@ export function startRealtimeVendorSync(): void {
       );
 
       // ── Phase 2: per-vendor sync (hotspot users, history, usage) ───────
+      // Group vendors by routerId so vendors sharing the same router are processed
+      // sequentially — avoids opening multiple API connections to the same MikroTik
+      // router simultaneously (which saturates the connection limit and blocks
+      // concurrent operations like voucher generation).
+      // Vendors on *different* routers still run in parallel.
       const active = vendors.filter((v) => v.isActive && v.routerId);
+      const byRouter = new Map<number, typeof active>();
+      for (const v of active) {
+        const rid = v.routerId!;
+        if (!byRouter.has(rid)) byRouter.set(rid, []);
+        byRouter.get(rid)!.push(v);
+      }
       await Promise.allSettled(
-        active.map(async (v) => {
-          const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
-          if (suffixes.length === 0) return;
-          await syncMikrotikUsersToVendor(v.id, v.routerId!, suffixes, true);
-          // Notify listeners so they can invalidate stale caches (e.g. vendor portal)
-          try { _onVendorSyncComplete?.(v.id); } catch (_) { /* ignore */ }
+        Array.from(byRouter.values()).map(async (group) => {
+          for (const v of group) {
+            const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
+            if (suffixes.length === 0) continue;
+            try {
+              await syncMikrotikUsersToVendor(v.id, v.routerId!, suffixes, true);
+              // Notify listeners so they can invalidate stale caches (e.g. vendor portal)
+              try { _onVendorSyncComplete?.(v.id); } catch (_) { /* ignore */ }
+            } catch { /* keep going for next vendor in this router group */ }
+          }
         }),
       );
     } catch (err) {
