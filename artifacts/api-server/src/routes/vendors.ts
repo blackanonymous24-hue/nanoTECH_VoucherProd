@@ -322,29 +322,55 @@ const LOW_STOCK_THRESHOLD = 100;
 router.get("/vendors/stock-alerts", async (req, res): Promise<void> => {
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
 
-  // Aggregate available tickets per vendor per profile
+  // Aggregate available tickets per vendor per profile — also pull routerId so
+  // we can cross-check against the profiles cache and exclude ghost profiles.
   const rows = await db
     .select({
-      vendorId:    vouchersTable.vendorId,
-      profileName: vouchersTable.profileName,
-      total:       count(),
-      used:        sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
+      vendorId:        vouchersTable.vendorId,
+      profileName:     vouchersTable.profileName,
+      vendorRouterId:  vendorsTable.routerId,
+      total:           count(),
+      used:            sql<number>`count(*) filter (where ${vouchersTable.usedAt} is not null)`,
     })
     .from(vouchersTable)
     .innerJoin(vendorsTable, eq(vouchersTable.vendorId, vendorsTable.id))
     .where(
       and(
         isNotNull(vouchersTable.vendorId),
+        isNotNull(vouchersTable.profileName),
+        ne(vouchersTable.profileName, ""),
         routerId ? eq(vendorsTable.routerId, routerId) : undefined,
       )
     )
-    .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
+    .groupBy(vouchersTable.vendorId, vouchersTable.profileName, vendorsTable.routerId);
 
-  // Keep only profiles below threshold (but with at least 1 voucher assigned)
+  // Build a profile allowlist from the cache so renamed/deleted profiles are
+  // treated as ghost profiles and excluded from alerts.
+  // If no cache exists for a router (cache not yet populated), we keep everything
+  // for that router as a fail-safe.
+  const uniqueRouterIds = [...new Set(rows.map((r) => r.vendorRouterId).filter(Boolean))] as number[];
+  const cacheRows = uniqueRouterIds.length
+    ? await db
+        .select({ routerId: profilesCacheTable.routerId, profileName: profilesCacheTable.profileName })
+        .from(profilesCacheTable)
+        .where(inArray(profilesCacheTable.routerId, uniqueRouterIds))
+    : [];
+
+  // "routerId:profileName" pairs that are confirmed alive in MikroTik
+  const validSet = new Set(cacheRows.map((c) => `${c.routerId}:${c.profileName}`));
+  // Routers that have at least one cache entry (avoid filtering when cache is empty)
+  const routersWithCache = new Set(cacheRows.map((c) => c.routerId));
+
+  // Keep only profiles below threshold that are still alive (not ghost)
   const alerts = rows
     .filter((r) => {
       const available = Number(r.total) - Number(r.used);
-      return Number(r.total) > 0 && available < LOW_STOCK_THRESHOLD;
+      if (Number(r.total) === 0 || available >= LOW_STOCK_THRESHOLD) return false;
+      // If the router has cache data, exclude ghost profiles (renamed/deleted)
+      if (r.vendorRouterId && routersWithCache.has(r.vendorRouterId)) {
+        return validSet.has(`${r.vendorRouterId}:${r.profileName}`);
+      }
+      return true; // No cache for this router — fail-safe: show all
     })
     .map((r) => ({
       vendorId:    r.vendorId,
