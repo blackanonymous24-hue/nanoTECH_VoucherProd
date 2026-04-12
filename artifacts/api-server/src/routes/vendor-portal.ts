@@ -446,7 +446,9 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     const wStart = new Date(weekStart + "T00:00:00Z");
     const wEnd   = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    const [salesRaw, payments] = await Promise.all([
+    const weekEndStr = wEnd.toISOString().slice(0, 10);
+
+    const [salesRaw, payments, dailyPayments] = await Promise.all([
       db.select({
         profileName:  vouchersTable.profileName,
         cnt:          sql<number>`count(*)`,
@@ -462,11 +464,20 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       ))
       .groupBy(vouchersTable.profileName),
 
+      // Versements hebdo (sommes forfaitaires)
       db.select().from(vendorPaymentsTable).where(and(
         eq(vendorPaymentsTable.vendorId, vendor.id),
         eq(vendorPaymentsTable.routerId, routerId),
         eq(vendorPaymentsTable.weekStart, weekStart),
       )).orderBy(vendorPaymentsTable.paidAt),
+
+      // Versements journaliers pour la même semaine
+      db.select().from(vendorDailyPaymentsTable).where(and(
+        eq(vendorDailyPaymentsTable.vendorId, vendor.id),
+        eq(vendorDailyPaymentsTable.routerId, routerId),
+        gte(vendorDailyPaymentsTable.date, weekStart),
+        lt(vendorDailyPaymentsTable.date, weekEndStr),
+      )).orderBy(vendorDailyPaymentsTable.paidAt),
     ]);
 
     let count = 0;
@@ -479,7 +490,8 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       amount += amt;
     }
 
-    const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+    const totalPaid = payments.reduce((s, p) => s + p.amount, 0)
+                    + dailyPayments.reduce((s, p) => s + p.amount, 0);
 
     // Week label: "dd Mmm – dd Mmm yyyy"
     const MONTHS_FR = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
@@ -501,7 +513,10 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       commissionRate: effectiveCommissionRate,
       totalPaid,
       remaining: Math.max(0, amount - commission - totalPaid),
-      payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
+      payments: [
+        ...payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
+        ...dailyPayments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
+      ].sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()),
     };
   }));
 
