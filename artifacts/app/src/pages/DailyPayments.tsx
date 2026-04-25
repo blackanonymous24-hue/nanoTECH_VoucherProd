@@ -1,10 +1,11 @@
 import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
-import { CalendarDays, Loader2, CreditCard, CheckCircle2, ChevronDown, ChevronUp, Users, AlertTriangle } from "lucide-react";
+import { CalendarDays, Loader2, CreditCard, CheckCircle2, ChevronDown, ChevronUp, Users, AlertTriangle, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -65,6 +66,8 @@ function ArrearRow({
   const [amount, setAmount]   = useState(String(entry.remaining));
   const [loading, setLoading] = useState(false);
   const [done, setDone]       = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const { toast } = useToast();
 
   const pay = useCallback(async (amt: number) => {
     if (amt <= 0 || loading) return;
@@ -81,57 +84,105 @@ function ArrearRow({
     }
   }, [vendorId, routerId, entry.date, loading, onDone]);
 
+  const deletePayment = useCallback(async (paymentId: number, paymentAmount: number) => {
+    if (deletingId !== null) return;
+    if (!window.confirm(`Annuler le versement de ${fmtAmount(paymentAmount)} FCFA du ${fmtDateFr(entry.date)} ?`)) return;
+    setDeletingId(paymentId);
+    try {
+      const res = await fetch(`${BASE}/api/vendors/daily-payments/${paymentId}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast({ title: "Erreur lors de la suppression", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Versement supprimé" });
+      // Re-active la ligne si on l'avait marquée "soldée" puis qu'on retire un paiement.
+      setDone(false);
+      onDone();
+    } finally {
+      setDeletingId(null);
+    }
+  }, [deletingId, entry.date, onDone, toast]);
+
   const handleSolder = () => void pay(entry.remaining);
   const handlePay    = () => void pay(Number(amount));
 
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 border-t border-orange-100 text-xs ${done ? "opacity-50" : ""}`}>
-      {/* Date + montant */}
-      <div className="flex-1 min-w-0">
-        <span className="font-medium text-gray-700">{fmtDateFr(entry.date)}</span>
-        {entry.paidAmount > 0 && (
-          <span className="ml-2 text-gray-400 tabular-nums">
-            versé {fmtAmount(entry.paidAmount)} / {fmtAmount(entry.salesAmount)} FCFA
-          </span>
+    <div className={`px-3 py-2 border-t border-orange-100 text-xs ${done ? "opacity-50" : ""}`}>
+      <div className="flex items-center gap-2">
+        {/* Date + montant */}
+        <div className="flex-1 min-w-0">
+          <span className="font-medium text-gray-700">{fmtDateFr(entry.date)}</span>
+          {entry.paidAmount > 0 && (
+            <span className="ml-2 text-gray-400 tabular-nums">
+              versé {fmtAmount(entry.paidAmount)} / {fmtAmount(entry.salesAmount)} FCFA
+            </span>
+          )}
+        </div>
+
+        {/* Reste */}
+        <span className="font-bold text-orange-700 tabular-nums flex-shrink-0">
+          {fmtAmount(entry.remaining)} FCFA
+        </span>
+
+        {done ? (
+          <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+        ) : (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {/* Custom amount input */}
+            <Input
+              type="number"
+              min={1}
+              max={entry.remaining}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="h-7 w-24 text-xs px-2 text-right tabular-nums"
+              disabled={loading}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs px-2"
+              disabled={loading || Number(amount) <= 0}
+              onClick={handlePay}
+            >
+              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Payer"}
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 text-xs px-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={loading}
+              onClick={handleSolder}
+            >
+              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Solder"}
+            </Button>
+          </div>
         )}
       </div>
 
-      {/* Reste */}
-      <span className="font-bold text-orange-700 tabular-nums flex-shrink-0">
-        {fmtAmount(entry.remaining)} FCFA
-      </span>
-
-      {done ? (
-        <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-      ) : (
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Custom amount input */}
-          <Input
-            type="number"
-            min={1}
-            max={entry.remaining}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="h-7 w-24 text-xs px-2 text-right tabular-nums"
-            disabled={loading}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs px-2"
-            disabled={loading || Number(amount) <= 0}
-            onClick={handlePay}
-          >
-            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Payer"}
-          </Button>
-          <Button
-            size="sm"
-            className="h-7 text-xs px-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-            disabled={loading}
-            onClick={handleSolder}
-          >
-            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Solder"}
-          </Button>
+      {/* Versements déjà enregistrés pour cet arriéré (annulables) */}
+      {entry.payments.length > 0 && (
+        <div className="mt-1.5 flex items-center gap-1 flex-wrap pl-2">
+          <span className="text-[10px] text-gray-400 mr-1">Versements :</span>
+          {entry.payments.map((p) => (
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 pl-2 pr-1 py-0.5 text-[10px] text-emerald-700"
+            >
+              <span className="font-semibold tabular-nums">{fmtAmount(p.amount)}</span>
+              <button
+                type="button"
+                onClick={() => void deletePayment(p.id, p.amount)}
+                disabled={deletingId === p.id}
+                className="ml-0.5 rounded-full p-0.5 hover:bg-emerald-100 hover:text-red-600 disabled:opacity-50"
+                title="Annuler ce versement"
+                aria-label={`Annuler le versement de ${p.amount} FCFA`}
+              >
+                {deletingId === p.id
+                  ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  : <X className="h-2.5 w-2.5" />}
+              </button>
+            </span>
+          ))}
         </div>
       )}
     </div>
