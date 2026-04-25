@@ -678,24 +678,50 @@ export default function Dashboard() {
           ) : (
             <div
               ref={listRef}
-              className="divide-y divide-gray-50 max-h-[210px] overflow-y-auto"
+              className="max-h-[260px] overflow-auto"
             >
-              {logs.map((entry, i) => {
-                const { icon, rowClass, timeClass } = classifyLog(entry);
-                const isNew = entry.id ? newIds.has(entry.id) : false;
-                return (
-                  <div
-                    key={entry.id || i}
-                    className={`flex items-start gap-2.5 px-4 py-2 font-mono text-xs transition-colors duration-500 ${rowClass} ${isNew ? "bg-blue-50/60" : ""}`}
-                  >
-                    {icon}
-                    <span className={`whitespace-nowrap flex-shrink-0 w-24 ${timeClass}`}>
-                      {entry.time}
-                    </span>
-                    <span className="text-gray-700 break-all leading-5">{entry.message}</span>
-                  </div>
-                );
-              })}
+              <table className="w-full table-fixed font-mono text-xs">
+                <colgroup>
+                  <col style={{ width: 26 }} />
+                  <col style={{ width: 92 }} />
+                  <col style={{ width: 110 }} />
+                  <col />
+                </colgroup>
+                <thead className="sticky top-0 z-10 bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
+                  <tr className="border-b border-gray-200">
+                    <th className="px-2 py-1.5 text-center font-semibold"></th>
+                    <th className="px-2 py-1.5 text-left font-semibold">Heure</th>
+                    <th className="px-2 py-1.5 text-left font-semibold">Topics</th>
+                    <th className="px-2 py-1.5 text-left font-semibold">Message</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {logs.map((entry, i) => {
+                    const { icon, rowClass, timeClass } = classifyLog(entry);
+                    const isNew = entry.id ? newIds.has(entry.id) : false;
+                    return (
+                      <tr
+                        key={entry.id || i}
+                        className={`transition-colors duration-500 ${rowClass} ${isNew ? "bg-blue-50/60" : ""}`}
+                        title={`${entry.time}  [${entry.topics}]  ${entry.message}`}
+                      >
+                        <td className="px-2 py-1 align-middle">
+                          <div className="flex items-center justify-center">{icon}</div>
+                        </td>
+                        <td className={`px-2 py-1 align-middle whitespace-nowrap ${timeClass}`}>
+                          {entry.time}
+                        </td>
+                        <td className="px-2 py-1 align-middle whitespace-nowrap text-gray-500 truncate">
+                          {entry.topics}
+                        </td>
+                        <td className="px-2 py-1 align-middle whitespace-nowrap text-gray-700 truncate">
+                          {entry.message}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>
