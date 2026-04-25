@@ -69,16 +69,33 @@ function formatAmount(amount: number): string {
 
 /**
  * Parse a MikroTik hotspot log message into its semantic parts.
- * Typical formats:
+ * Typical raw formats:
  *   "->: 1mfih2id (172.16.3.126): logged in"
  *   "1mfih2id (172.16.3.126): trying to log in by mac-cookie"
  *   "1sm6k76j (172.16.0.15): logged out: keepalive timeout"
+ *   "1sm6k76j (172.16.0.15): login failed: invalid username or password"
  */
 function parseHotspotMessage(raw: string): { user: string | null; ip: string | null; action: string } {
   const stripped = raw.replace(/^->:\s*/, "").trim();
   const m = stripped.match(/^([^\s(<>:]+)\s*\(([^)]+)\):\s*(.*)$/);
-  if (m) return { user: m[1], ip: m[2], action: m[3] || stripped };
-  return { user: null, ip: null, action: stripped };
+  if (m) return { user: m[1], ip: m[2], action: normalizeAction(m[3] || stripped) };
+  return { user: null, ip: null, action: normalizeAction(stripped) };
+}
+
+/**
+ * Normalise an action substring to the MikHmon-style wording the user expects:
+ *   "trying to log in by mac-cookie" → "log in by mac-cookie"
+ *   "logged in"                       → "log in"
+ *   "logged out: keepalive timeout"   → "logged out keepalive timeout"
+ *   "login failed: invalid username..."→ "login failed invalid username..."
+ */
+function normalizeAction(action: string): string {
+  let a = action.trim();
+  a = a.replace(/^trying to log in by\s+/i, "log in by ");
+  a = a.replace(/^logged out:\s*/i, "logged out ");
+  a = a.replace(/^login failed:\s*/i, "login failed ");
+  if (/^logged in$/i.test(a)) a = "log in";
+  return a;
 }
 
 function classifyLog(entry: LogEntry): {
@@ -709,13 +726,37 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {(() => {
-                    // Dedupe consecutive duplicates (MikroTik logs each event twice — with and without `->:` prefix).
-                    const dedup: typeof logs = [];
-                    let lastKey = "";
+                    // MikroTik émet chaque évènement plusieurs fois :
+                    //   1× avec préfixe "->:" + 1× sans (les deux directions du log)
+                    //   "trying to log in by mac-cookie" suivi de "logged in" pour la même session
+                    // On dédoublonne par (heure + user + ip), en préférant l'action la plus informative
+                    // ("log in by X" > "log in", "logged out X" > "logged out").
+                    const score = (a: string) => {
+                      if (/^log in by /i.test(a)) return 3;
+                      if (/^logged out .+/i.test(a)) return 3;
+                      if (/^login failed /i.test(a)) return 3;
+                      if (/^log in$/i.test(a)) return 1;
+                      return 2;
+                    };
+                    const groups = new Map<string, LogEntry>();
                     for (const e of logs) {
-                      const stripped = (e.message ?? "").replace(/^->:\s*/, "").trim();
-                      const key = `${e.time}|${stripped}`;
-                      if (key !== lastKey) { dedup.push(e); lastKey = key; }
+                      const p = parseHotspotMessage(e.message);
+                      const key = `${e.time}|${p.user ?? ""}|${p.ip ?? ""}`;
+                      const prev = groups.get(key);
+                      if (!prev) { groups.set(key, e); continue; }
+                      const prevAction = parseHotspotMessage(prev.message).action;
+                      if (score(p.action) > score(prevAction)) groups.set(key, e);
+                    }
+                    // Conserver l'ordre d'apparition d'origine
+                    const seen = new Set<string>();
+                    const dedup: LogEntry[] = [];
+                    for (const e of logs) {
+                      const p = parseHotspotMessage(e.message);
+                      const key = `${e.time}|${p.user ?? ""}|${p.ip ?? ""}`;
+                      if (seen.has(key)) continue;
+                      seen.add(key);
+                      const winner = groups.get(key);
+                      if (winner) dedup.push(winner);
                     }
                     return dedup.map((entry, i) => {
                       const { icon, rowClass, timeClass } = classifyLog(entry);
