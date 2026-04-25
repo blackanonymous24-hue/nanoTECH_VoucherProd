@@ -960,15 +960,9 @@ export default function VendorTracking() {
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
-                        {/* Vendor totals + arrears (forfait breakdown removed) */}
+                        {/* Arrears only (forfait breakdown + total row removed) */}
                         <table className="w-full border-collapse">
                           <tbody>
-                            {/* Total row */}
-                            <tr style={{ backgroundColor: pal.mid }}>
-                              <td className="px-3 py-1.5 font-semibold" style={{ color: pal.dark }}>Total</td>
-                              <td className="px-3 py-1.5 text-center font-bold tabular-nums w-14" style={{ color: pal.dark }}>{s.count}</td>
-                              <td className="px-3 py-1.5 text-right font-bold tabular-nums" style={{ color: pal.dark }}>{fmtAmount(s.amount)} FCFA</td>
-                            </tr>
                             {/* ── Arriérés semaine(s) précédente(s) — ligne agrégée ── */}
                             {prevTotal > 0 && (
                               <tr className="border-t-2 border-red-300 bg-red-50">
