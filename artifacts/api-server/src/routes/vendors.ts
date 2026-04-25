@@ -843,12 +843,15 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     w.count  += cnt;
     w.amount += amt;
   }
-  const paidByVendor = new Map<number, number>();
+  // Track weekly lump-sum vs daily payments separately so the frontend can
+  // show "weekly expected after daily deductions".
+  const weeklyPaidByVendor = new Map<number, number>();
+  const dailyPaidByVendor  = new Map<number, number>();
   for (const p of weekPayments) {
-    paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) ?? 0) + p.amount);
+    weeklyPaidByVendor.set(p.vendorId, (weeklyPaidByVendor.get(p.vendorId) ?? 0) + p.amount);
   }
   for (const p of weekDailyPayments) {
-    paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) ?? 0) + p.amount);
+    dailyPaidByVendor.set(p.vendorId, (dailyPaidByVendor.get(p.vendorId) ?? 0) + p.amount);
   }
 
   // Commission only applies once the week is fully over
@@ -856,12 +859,16 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
 
   const weekSummary = [...weekMap.values()]
     .map((w) => {
-      const paidAmount   = w.vendorId ? (paidByVendor.get(w.vendorId) ?? 0) : 0;
-      const commission   = (weekEndedForSummary && w.commissionRate > 0)
+      const weeklyPaid = w.vendorId ? (weeklyPaidByVendor.get(w.vendorId) ?? 0) : 0;
+      const dailyPaid  = w.vendorId ? (dailyPaidByVendor.get(w.vendorId) ?? 0) : 0;
+      const paidAmount = weeklyPaid + dailyPaid;
+      const commission = (weekEndedForSummary && w.commissionRate > 0)
         ? Math.round(w.amount * w.commissionRate) / 100
         : 0;
-      // What the vendor actually owes = sales - commission
-      const expected     = Math.max(0, w.amount - commission);
+      // What the vendor owes total = sales - commission
+      const expected   = Math.max(0, w.amount - commission);
+      // What still must be paid via WEEKLY mechanism (after deducting daily payments)
+      const weeklyExpected  = Math.max(0, expected - dailyPaid);
       const remainingAmount = Math.max(0, expected - paidAmount);
       const paymentStatus =
         expected <= 0
@@ -871,7 +878,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
             : paidAmount > 0
               ? "partial"
               : "none";
-      return { ...w, paidAmount, commission, remainingAmount, paymentStatus };
+      return { ...w, weeklyPaid, dailyPaid, paidAmount, commission, weeklyExpected, remainingAmount, paymentStatus };
     })
     .filter((w) => w.count > 0 || w.paidAmount > 0)
     .sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr"));
@@ -1222,15 +1229,21 @@ router.get("/vendors/weekly-summary", async (req, res) => {
       s.amount += amt;
     }
 
+    // Track weekly lump-sum and daily payments separately so the frontend can
+    // show "weekly expected after daily deductions".
+    const weeklyPaidMap = new Map<number, number>();
+    const dailyPaidMap  = new Map<number, number>();
     const paymentsMap = new Map<number, { id: number; amount: number; paidAt: Date; note: string | null }[]>();
     for (const p of payments) {
       if (!paymentsMap.has(p.vendorId)) paymentsMap.set(p.vendorId, []);
       paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note });
+      weeklyPaidMap.set(p.vendorId, (weeklyPaidMap.get(p.vendorId) ?? 0) + p.amount);
     }
     // Merge daily payments into the same map (synthetic entries without id exposed for deletion)
     for (const p of dailyPayments) {
       if (!paymentsMap.has(p.vendorId)) paymentsMap.set(p.vendorId, []);
       paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note });
+      dailyPaidMap.set(p.vendorId, (dailyPaidMap.get(p.vendorId) ?? 0) + p.amount);
     }
 
     // Commission only applies to completed weeks
@@ -1240,7 +1253,9 @@ router.get("/vendors/weekly-summary", async (req, res) => {
       .map((v) => {
         const sales    = salesMap.get(v.id) ?? { count: 0, amount: 0 };
         const paid     = paymentsMap.get(v.id) ?? [];
-        const totalPaid = paid.reduce((s, p) => s + p.amount, 0);
+        const weeklyPaid = weeklyPaidMap.get(v.id) ?? 0;
+        const dailyPaid  = dailyPaidMap.get(v.id) ?? 0;
+        const totalPaid  = weeklyPaid + dailyPaid;
         const commission = (weekEnded && v.commissionRate > 0)
           ? Math.round(sales.amount * v.commissionRate) / 100
           : 0;
@@ -1251,7 +1266,10 @@ router.get("/vendors/weekly-summary", async (req, res) => {
           amount:      sales.amount,
           commission,
           commissionRate: weekEnded ? v.commissionRate : 0,
+          weeklyPaid,
+          dailyPaid,
           totalPaid,
+          weeklyExpected: Math.max(0, sales.amount - commission - dailyPaid),
           remaining:   Math.max(0, sales.amount - commission - totalPaid),
           payments:    paid,
         };

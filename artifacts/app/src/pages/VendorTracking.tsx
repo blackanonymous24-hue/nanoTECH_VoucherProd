@@ -76,7 +76,10 @@ interface VendorSummaryEntry {
   vendorName: string;
   count: number;
   amount: number;
-  paidAmount?: number;
+  paidAmount?: number;        // total paid (weekly + daily)
+  weeklyPaid?: number;        // lump-sum weekly payments only
+  dailyPaid?: number;         // daily payments only
+  weeklyExpected?: number;    // amount - commission - dailyPaid
   remainingAmount?: number;
   commission?: number;
   commissionRate?: number;
@@ -103,6 +106,21 @@ interface DailyArrearEntry {
 interface DailyArrearsResponse {
   arrears: Record<string, DailyArrearEntry[]>;
   vendorInfo?: Record<string, { name: string }>;
+}
+
+/** Consolidated arrears: when ≥3 daily arrears, merge into one line dated the most recent unpaid day. */
+type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrearEntry[] };
+function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
+  if (entries.length < 3) return entries;
+  const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
+  return [{
+    date: sorted[0].date,
+    salesAmount: entries.reduce((s, e) => s + e.salesAmount, 0),
+    paidAmount:  entries.reduce((s, e) => s + e.paidAmount,  0),
+    remaining:   entries.reduce((s, e) => s + e.remaining,   0),
+    payments:    entries.flatMap((e) => e.payments),
+    __underlying: entries,
+  }];
 }
 
 /** Returns YYYY-MM-DD of Monday of the week containing the given iso date (UTC) */
@@ -721,16 +739,50 @@ export default function VendorTracking() {
   const prevWeekSummary = prevWeekData?.weekSummary ?? [];
   const hasPrevWeekData = prevWeekSummary.length > 0;
 
-  const submitDailyPayment = useCallback(async (vendorId: number | null, date: string, amount: number) => {
+  const submitDailyPayment = useCallback(async (vendorId: number | null, date: string, amount: number, underlying?: DailyArrearEntry[]) => {
     if (!vendorId || !selectedRouterId || amount <= 0) return;
     setPayLoading(true);
     try {
-      await fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routerId: selectedRouterId, date, amount: Math.round(amount) }),
-      });
-      await invalidateAllPaymentQueries(queryClient, selectedRouterId);
+      // If consolidated entry: distribute payment across underlying days, oldest first
+      if (underlying && underlying.length > 0) {
+        const ordered = [...underlying].filter((e) => e.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
+        let left = Math.round(amount);
+        let applied = 0;
+        let failure: string | null = null;
+        for (const e of ordered) {
+          if (left <= 0) break;
+          const pay = Math.min(left, e.remaining);
+          if (pay > 0) {
+            const r = await fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ routerId: selectedRouterId, date: e.date, amount: pay }),
+            });
+            if (!r.ok) { failure = await r.text().catch(() => "Échec inconnu"); break; }
+            applied += pay;
+            left -= pay;
+          }
+        }
+        // Always invalidate if any sub-write succeeded so UI reflects partial application
+        if (applied > 0) await invalidateAllPaymentQueries(queryClient, selectedRouterId);
+        if (failure) {
+          window.alert(applied > 0
+            ? `Versement partiellement appliqué : ${applied} FCFA enregistré, ${Math.round(amount) - applied} FCFA non appliqué (${failure})`
+            : `Erreur : ${failure}`);
+          return;
+        }
+      } else {
+        const r = await fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ routerId: selectedRouterId, date, amount: Math.round(amount) }),
+        });
+        if (!r.ok) {
+          window.alert(`Erreur : ${await r.text().catch(() => "Échec inconnu")}`);
+          return;
+        }
+        await invalidateAllPaymentQueries(queryClient, selectedRouterId);
+      }
       setPayingKey(null);
       setPayAmount("");
     } finally {
@@ -969,10 +1021,11 @@ export default function VendorTracking() {
                                 </td>
                               </tr>
                             )}
-                            {/* ── Arriérés semaine en cours — lignes individuelles ── */}
-                            {currentArrears.map((arr) => {
+                            {/* ── Arriérés semaine en cours — lignes individuelles (regroupées si ≥3) ── */}
+                            {consolidateArrears(currentArrears).map((arr) => {
                               const pKey = `${s.vendorId}|${arr.date}`;
                               const isPaying = payingKey === pKey;
+                              const underlying = arr.__underlying;
                               return (
                                 <tr key={arr.date} className="border-t border-orange-200 bg-orange-50">
                                   <td colSpan={3} className="px-3 py-1.5">
@@ -980,7 +1033,11 @@ export default function VendorTracking() {
                                       <div className="flex flex-col gap-0.5 min-w-0">
                                         <div className="flex items-center gap-1 text-orange-700">
                                           <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
-                                          <span className="text-xs font-medium">Arriéré du {fmtDateFr(arr.date)}</span>
+                                          <span className="text-xs font-medium">
+                                            {underlying
+                                              ? `Arriérés cumulés (${underlying.length} jours, dernier : ${fmtDateFr(arr.date)})`
+                                              : `Arriéré du ${fmtDateFr(arr.date)}`}
+                                          </span>
                                         </div>
                                         {arr.paidAmount > 0 && (
                                           <span className="text-[10px] text-gray-500 pl-4">
@@ -1015,7 +1072,7 @@ export default function VendorTracking() {
                                         <button
                                           className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
                                           disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                          onClick={() => submitDailyPayment(s.vendorId, arr.date, Number(payAmount))}
+                                          onClick={() => submitDailyPayment(s.vendorId, arr.date, Number(payAmount), underlying)}
                                         >
                                           {payLoading ? "…" : "Confirmer"}
                                         </button>
@@ -1093,10 +1150,30 @@ export default function VendorTracking() {
                               <td className="px-3 py-1.5 text-gray-500">Montant vendu</td>
                               <td className="px-3 py-1.5 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
                             </tr>
-                            <tr className="border-b border-gray-50 bg-gray-50/50">
-                              <td className="px-3 py-1.5 text-gray-500">Versé</td>
-                              <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(s.paidAmount ?? 0)} FCFA</td>
-                            </tr>
+                            {(s.dailyPaid ?? 0) > 0 && (
+                              <tr className="border-b border-gray-50 bg-sky-50/40">
+                                <td className="px-3 py-1.5 text-sky-700">Versé en journalier</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-sky-700 tabular-nums">{fmtAmount(s.dailyPaid!)} FCFA</td>
+                              </tr>
+                            )}
+                            {(s.weeklyPaid ?? 0) > 0 && (
+                              <tr className="border-b border-gray-50 bg-emerald-50/40">
+                                <td className="px-3 py-1.5 text-emerald-700">Versé en hebdomadaire</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-700 tabular-nums">{fmtAmount(s.weeklyPaid!)} FCFA</td>
+                              </tr>
+                            )}
+                            {s.dailyPaid === undefined && (s.paidAmount ?? 0) > 0 && (
+                              <tr className="border-b border-gray-50 bg-gray-50/50">
+                                <td className="px-3 py-1.5 text-gray-500">Versé</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(s.paidAmount ?? 0)} FCFA</td>
+                              </tr>
+                            )}
+                            {(s.dailyPaid ?? 0) > 0 && (s.weeklyExpected ?? 0) > 0 && (
+                              <tr className="border-b border-gray-50 bg-blue-50/40">
+                                <td className="px-3 py-1.5 text-blue-700">Hebdo. à régler</td>
+                                <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.weeklyExpected!)} FCFA</td>
+                              </tr>
+                            )}
                             <tr className="border-b border-gray-50">
                               <td className="px-3 py-1.5 text-gray-500">Reste à verser</td>
                               <td className={`px-3 py-1.5 text-right font-bold tabular-nums ${(s.remainingAmount ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>

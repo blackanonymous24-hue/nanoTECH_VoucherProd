@@ -490,8 +490,9 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       amount += amt;
     }
 
-    const totalPaid = payments.reduce((s, p) => s + p.amount, 0)
-                    + dailyPayments.reduce((s, p) => s + p.amount, 0);
+    const weeklyPaid = payments.reduce((s, p) => s + p.amount, 0);
+    const dailyPaid  = dailyPayments.reduce((s, p) => s + p.amount, 0);
+    const totalPaid  = weeklyPaid + dailyPaid;
 
     // Week label: "dd Mmm – dd Mmm yyyy"
     const MONTHS_FR = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
@@ -511,7 +512,11 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       amount,
       commission,
       commissionRate: effectiveCommissionRate,
+      weeklyPaid,
+      dailyPaid,
       totalPaid,
+      // Weekly amount still expected after deducting daily payments already recorded
+      weeklyExpected: Math.max(0, amount - commission - dailyPaid),
       remaining: Math.max(0, amount - commission - totalPaid),
       payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
     };

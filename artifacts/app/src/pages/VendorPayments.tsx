@@ -78,6 +78,9 @@ interface VendorWeekEntry {
   amount: number;
   commission: number;
   commissionRate: number;
+  weeklyPaid?: number;       // lump-sum weekly payments only
+  dailyPaid?: number;        // daily payments only
+  weeklyExpected?: number;   // amount - commission - dailyPaid (what still must be paid weekly)
   totalPaid: number;
   remaining: number;
   payments: PaymentEntry[];
@@ -99,6 +102,21 @@ interface DailyArrearEntry {
 interface DailyArrearsResponse {
   arrears: Record<string, DailyArrearEntry[]>;
   vendorInfo?: Record<string, { name: string }>;
+}
+
+/** Consolidated arrears entry: when ≥3 daily arrears, merge into one line dated the most recent unpaid day. */
+type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrearEntry[] };
+function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
+  if (entries.length < 3) return entries;
+  const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
+  return [{
+    date: sorted[0].date,
+    salesAmount: entries.reduce((s, e) => s + e.salesAmount, 0),
+    paidAmount:  entries.reduce((s, e) => s + e.paidAmount,  0),
+    remaining:   entries.reduce((s, e) => s + e.remaining,   0),
+    payments:    entries.flatMap((e) => e.payments),
+    __underlying: entries,
+  }];
 }
 
 /* ── Single vendor row with payment form ─────────────────────────────── */
@@ -160,8 +178,17 @@ function VendorRow({
             {vendor.commission > 0 && (
               <span className="whitespace-nowrap">Commission : <span className="font-medium text-violet-600">−{fmtAmount(vendor.commission)} FCFA ({vendor.commissionRate}%)</span></span>
             )}
-            {vendor.totalPaid > 0 && (
+            {(vendor.dailyPaid ?? 0) > 0 && (
+              <span className="whitespace-nowrap">Versé jour : <span className="font-medium text-sky-700">{fmtAmount(vendor.dailyPaid!)} FCFA</span></span>
+            )}
+            {(vendor.weeklyPaid ?? 0) > 0 && (
+              <span className="whitespace-nowrap">Versé sem. : <span className="font-medium text-emerald-700">{fmtAmount(vendor.weeklyPaid!)} FCFA</span></span>
+            )}
+            {vendor.dailyPaid === undefined && vendor.totalPaid > 0 && (
               <span className="whitespace-nowrap">Versé : <span className="font-medium text-emerald-700">{fmtAmount(vendor.totalPaid)} FCFA</span></span>
+            )}
+            {(vendor.dailyPaid ?? 0) > 0 && (vendor.weeklyExpected ?? 0) > 0 && (
+              <span className="whitespace-nowrap">Hebdo. à régler : <span className="font-semibold text-blue-700">{fmtAmount(vendor.weeklyExpected!)} FCFA</span></span>
             )}
             {vendor.remaining > 0 && (
               <span className="whitespace-nowrap">Reste : <span className="font-semibold text-orange-600">{fmtAmount(vendor.remaining)} FCFA</span></span>
@@ -515,10 +542,50 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
     [arrears]
   );
 
-  const submitPayment = useCallback(async (vendorId: string, date: string, amount: number) => {
+  const submitPayment = useCallback(async (vendorId: string, date: string, amount: number, underlying?: DailyArrearEntry[]) => {
     if (!amount || amount <= 0) return;
     setPayLoading(true);
     try {
+      // If consolidated entry: distribute payment across underlying days, oldest first
+      if (underlying && underlying.length > 0) {
+        const ordered = [...underlying].filter((e) => e.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
+        let left = Math.round(amount);
+        let applied = 0;
+        let appliedDays = 0;
+        let failure: string | null = null;
+        for (const e of ordered) {
+          if (left <= 0) break;
+          const pay = Math.min(left, e.remaining);
+          if (pay > 0) {
+            const r = await fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ routerId, date: e.date, amount: pay }),
+            });
+            if (!r.ok) { failure = await r.text(); break; }
+            applied += pay;
+            appliedDays += 1;
+            left -= pay;
+          }
+        }
+        // Always invalidate if any sub-write succeeded so UI reflects partial application
+        if (applied > 0) await invalidateAllPaymentQueries(queryClient, routerId);
+        if (failure) {
+          toast({
+            title: applied > 0 ? "Versement partiellement appliqué" : "Erreur",
+            description: applied > 0
+              ? `${fmtAmount(applied)} FCFA appliqué · ${fmtAmount(Math.round(amount) - applied)} FCFA non appliqué : ${failure}`
+              : failure,
+            variant: "destructive",
+          });
+          return;
+        }
+        setPayingKey(null);
+        setPayAmount("");
+        toast({ title: "Versement enregistré", description: `${fmtAmount(applied)} FCFA réparti sur ${appliedDays} jour${appliedDays > 1 ? "s" : ""}` });
+        return;
+      }
+      // Single-day payment
       const res = await fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -588,6 +655,8 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
 
       {vendorIds.map((vid) => {
         const entries = arrears[vid] ?? [];
+        const displayEntries = consolidateArrears(entries);
+        const isConsolidated = entries.length >= 3;
         const vendorName = vendorInfo[vid]?.name ?? `Vendeur ${vid}`;
         const vendorTotal = entries.reduce((s, e) => s + e.remaining, 0);
         const isOpen = expanded.has(vid);
@@ -604,7 +673,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                 <AlertTriangle className={`h-3.5 w-3.5 ${c.icon} flex-shrink-0`} />
                 <span className="font-semibold text-sm text-gray-800 truncate">{vendorName}</span>
                 <span className={`text-[10px] ${c.sub} whitespace-nowrap`}>
-                  {entries.length} jour{entries.length > 1 ? "s" : ""}
+                  {entries.length} jour{entries.length > 1 ? "s" : ""}{isConsolidated ? " (regroupés)" : ""}
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -623,14 +692,17 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
             {/* Day entries */}
             {isOpen && (
               <div className={`divide-y ${c.divide}`}>
-                {entries.map((entry) => {
+                {displayEntries.map((entry) => {
                   const pKey = `${vid}|${entry.date}`;
                   const isPaying = payingKey === pKey;
+                  const underlying = entry.__underlying;
                   return (
                     <div key={entry.date} className="px-3 py-2 bg-white">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="text-xs font-medium text-gray-700">{fmtDateFr(entry.date)}</p>
+                          <p className="text-xs font-medium text-gray-700">
+                            {underlying ? `Arriérés cumulés (${underlying.length} jours, dernier : ${fmtDateFr(entry.date)})` : fmtDateFr(entry.date)}
+                          </p>
                           {entry.paidAmount > 0 ? (
                             <p className="text-[10px] text-gray-400">
                               Ventes: {fmtAmount(entry.salesAmount)} · Versé: {fmtAmount(entry.paidAmount)} FCFA
@@ -652,7 +724,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                               <button
                                 className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                                 disabled={payLoading}
-                                onClick={() => submitPayment(vid, entry.date, entry.remaining)}
+                                onClick={() => submitPayment(vid, entry.date, entry.remaining, underlying)}
                               >
                                 Solder
                               </button>
@@ -674,7 +746,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                           <button
                             className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
                             disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                            onClick={() => submitPayment(vid, entry.date, Number(payAmount))}
+                            onClick={() => submitPayment(vid, entry.date, Number(payAmount), underlying)}
                           >
                             {payLoading ? "…" : "Confirmer"}
                           </button>

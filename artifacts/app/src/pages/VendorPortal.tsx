@@ -83,6 +83,9 @@ type VersementWeek = {
   amount: number;
   commission: number;
   commissionRate: number;
+  weeklyPaid?: number;       // lump-sum weekly payments only
+  dailyPaid?: number;        // daily payments only
+  weeklyExpected?: number;   // amount - commission - dailyPaid
   totalPaid: number;
   remaining: number;
   payments: { id: number; amount: number; paidAt: string; note: string | null }[];
@@ -90,6 +93,21 @@ type VersementWeek = {
 type VersementData = { weeks: VersementWeek[] };
 type DailyArrearsDay = { date: string; count: number; amount: number; paid: number; remaining: number };
 type DailyArrearsData = { days: DailyArrearsDay[] };
+
+/** Consolidated arrears: when ≥3 daily arrears, merge into one line dated the most recent unpaid day. */
+type ConsolidatableDailyArrearsDay = DailyArrearsDay & { __underlyingCount?: number };
+function consolidateDailyArrears(days: DailyArrearsDay[]): ConsolidatableDailyArrearsDay[] {
+  if (days.length < 3) return days;
+  const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date));
+  return [{
+    date: sorted[0].date,
+    count:     days.reduce((s, d) => s + d.count, 0),
+    amount:    days.reduce((s, d) => s + d.amount, 0),
+    paid:      days.reduce((s, d) => s + d.paid, 0),
+    remaining: days.reduce((s, d) => s + d.remaining, 0),
+    __underlyingCount: days.length,
+  }];
+}
 type PeriodSalesData = {
   period: string;
   label: string;
@@ -1115,7 +1133,7 @@ function Dashboard({ token, vendor, onLogout }: {
                 <Card className="border border-orange-200 bg-orange-50/20">
                   <CardContent className="p-0">
                     <div className="divide-y divide-orange-100">
-                      {arrearsData.days.slice().sort((a, b) => a.date.localeCompare(b.date)).map((d) => {
+                      {consolidateDailyArrears(arrearsData.days.slice().sort((a, b) => a.date.localeCompare(b.date))).map((d) => {
                         const dateObj = new Date(d.date + "T00:00:00Z");
                         const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
                         const weekday  = cap(dateObj.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" }));
@@ -1123,7 +1141,9 @@ function Dashboard({ token, vendor, onLogout }: {
                         const monthNum = String(dateObj.getUTCMonth() + 1);
                         const yearNum  = String(dateObj.getUTCFullYear());
                         const monthLabel = cap(dateObj.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
-                        const label    = `Arriéré du ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum}`;
+                        const label    = d.__underlyingCount
+                          ? `Arriérés cumulés (${d.__underlyingCount} jours, dernier : ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum})`
+                          : `Arriéré du ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum}`;
                         return (
                           <button
                             key={d.date}
@@ -1205,6 +1225,32 @@ function Dashboard({ token, vendor, onLogout }: {
                               <p className="text-[9px] text-gray-400">Reste</p>
                             </div>
                           </div>
+
+                          {/* Versements détaillés (journalier vs hebdomadaire) */}
+                          {((w.dailyPaid ?? 0) > 0 || (w.weeklyPaid ?? 0) > 0) && (
+                            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                              {(w.dailyPaid ?? 0) > 0 && (
+                                <div className="rounded bg-sky-50 border border-sky-100 px-2 py-1 flex items-center justify-between">
+                                  <span className="text-sky-600">Journalier</span>
+                                  <span className="font-bold text-sky-700 tabular-nums">{fmtFcfa(w.dailyPaid!)}</span>
+                                </div>
+                              )}
+                              {(w.weeklyPaid ?? 0) > 0 && (
+                                <div className="rounded bg-emerald-50 border border-emerald-100 px-2 py-1 flex items-center justify-between">
+                                  <span className="text-emerald-600">Hebdo.</span>
+                                  <span className="font-bold text-emerald-700 tabular-nums">{fmtFcfa(w.weeklyPaid!)}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Hebdomadaire à régler après déduction des journaliers */}
+                          {(w.dailyPaid ?? 0) > 0 && (w.weeklyExpected ?? 0) > 0 && (
+                            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-blue-700">Hebdo. à régler</span>
+                              <span className="text-sm font-bold text-blue-700 tabular-nums">{fmtFcfa(w.weeklyExpected!)} FCFA</span>
+                            </div>
+                          )}
 
                           {/* Commission row — only if rate is configured */}
                           {w.commissionRate > 0 && (
