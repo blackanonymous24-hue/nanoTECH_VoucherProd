@@ -77,8 +77,12 @@ function formatAmount(amount: number): string {
  */
 function parseHotspotMessage(raw: string): { user: string | null; ip: string | null; action: string } {
   const stripped = raw.replace(/^->:\s*/, "").trim();
-  const m = stripped.match(/^([^\s(<>:]+)\s*\(([^)]+)\):\s*(.*)$/);
-  if (m) return { user: m[1], ip: m[2], action: normalizeAction(m[3] || stripped) };
+  // Allow ANY characters (incl. spaces and accents) for the username, then a
+  // strict IPv4 in parens, then ":" + action. Examples that must parse:
+  //   "1mfih2id (172.16.3.126): logged in"
+  //   "Famille Koné (172.16.4.163): logged out: keepalive timeout"
+  const m = stripped.match(/^(.+?)\s*\(((?:\d{1,3}\.){3}\d{1,3})\):\s*(.*)$/);
+  if (m) return { user: m[1].trim(), ip: m[2], action: normalizeAction(m[3] || stripped) };
   return { user: null, ip: null, action: normalizeAction(stripped) };
 }
 
