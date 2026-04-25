@@ -181,12 +181,20 @@ router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<voi
 
 /**
  * POST /api/admin/purge-old-sales-scripts
- * Deletes MikHmon sales scripts on every router whose date is older than the
- * previous calendar month (i.e. keeps current month + previous month).
- * Also purges the corresponding rows from the local script-sales cache.
  *
- * Body (optional):
- *   { routerId?: number }   // restrict to a single router
+ * Deletes (in batches) MikHmon sales scripts on a single router whose date is
+ * older than the previous calendar month (keeps current + previous month).
+ *
+ * Batched: each call processes at most `batchSize` scripts (oldest first) and
+ * returns `scanned` (= total candidates remaining at the start of this call).
+ * The client repeats until `scanned === 0` (or no progress made).
+ *
+ * On the *final* batch (no more candidates left after this one), the local
+ * script-sales cache rows are also purged and the in-memory script cache is
+ * cleared so the next sync rebuilds cleanly.
+ *
+ * Body:
+ *   { routerId: number, batchSize?: number }   // batchSize default 50
  */
 router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -195,7 +203,13 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
     return;
   }
 
-  const { routerId } = (req.body ?? {}) as { routerId?: number };
+  const body = (req.body ?? {}) as { routerId?: number; batchSize?: number };
+  const routerId = Number(body.routerId);
+  if (!routerId || Number.isNaN(routerId)) {
+    res.status(400).json({ error: "routerId requis" });
+    return;
+  }
+  const batchSize = Math.max(1, Math.min(500, Number(body.batchSize) || 50));
 
   // Cutoff = first day of previous month. Anything strictly before is removed.
   const now = new Date();
@@ -203,34 +217,29 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
   const cutoffMonth = now.getMonth() === 0 ? 12 : now.getMonth(); // 1-12, = previous month
   const cutoffDate  = new Date(cutoffYear, cutoffMonth - 1, 1, 0, 0, 0);
 
-  const routerRows = routerId
-    ? await db.select().from(routersTable).where(eq(routersTable.id, routerId))
-    : await db.select().from(routersTable);
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!r) {
+    res.status(404).json({ error: "Routeur introuvable" });
+    return;
+  }
 
-  type RouterResult = {
-    routerId: number;
-    routerName: string;
-    routerHost: string;
-    skipped: boolean;
-    reason?: string;
-    removed: number;
-    failed: number;
-    cacheRowsDeleted: number;
-    byMonth: Array<{ yearMonth: string; count: number }>;
-  };
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
-  const results: RouterResult[] = [];
+  try {
+    const { purge, cacheRowsDeleted, done } = await withRouterLock(r.id, async () => {
+      const purgeRes = await purgeOldMikhmonScripts(conn, cutoffYear, cutoffMonth, { limit: batchSize });
 
-  for (const r of routerRows) {
-    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    try {
-      // Hold the router lock for the entire transaction so background sync
-      // cannot start mid-way and re-insert rows we are about to delete.
-      const { purge, deletedRows } = await withRouterLock(r.id, async () => {
-        const purgeRes = await purgeOldMikhmonScripts(conn, cutoffYear, cutoffMonth);
+      // Strict completion: nothing left to delete AND no failures in this batch.
+      // We deliberately do NOT count `failed` as "processed", because the
+      // failed scripts are still on the router and would be re-fetched on the
+      // next sync. Cache cleanup must only happen on a truly clean finish.
+      const remainingAfter = Math.max(0, purgeRes.scanned - purgeRes.removed);
+      const isDone = remainingAfter === 0 && purgeRes.failed === 0;
 
-        // Purge corresponding rows from the local cache so the next sync
-        // does not re-attempt to use them.
+      let cacheDeleted = 0;
+      if (isDone) {
+        // Last batch and clean: purge corresponding rows from the local cache
+        // so the next sync does not re-attempt to use them.
         const rows = await db
           .delete(scriptSalesTable)
           .where(and(
@@ -238,49 +247,40 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
             sql`${scriptSalesTable.saleDate} < ${cutoffDate.toISOString()}`,
           ))
           .returning({ id: scriptSalesTable.id });
+        cacheDeleted = rows.length;
 
         // Force the next syncScriptCache call to do a full reload so its
         // internal "fully populated" flag aligns with the new state.
         clearRouterScriptCache(r.id);
+      }
 
-        return { purge: purgeRes, deletedRows: rows };
-      });
+      return { purge: purgeRes, cacheRowsDeleted: cacheDeleted, done: isDone };
+    });
 
-      results.push({
+    // remaining = candidates still on the router after this batch (failures
+    // are still candidates because they were not removed).
+    const remaining = Math.max(0, purge.scanned - purge.removed);
+
+    res.json({
+      cutoff: `${cutoffYear}-${String(cutoffMonth).padStart(2, "0")}-01`,
+      keptMonths: "Mois courant + mois précédent",
+      router: {
         routerId: r.id,
         routerName: r.name ?? r.host,
         routerHost: r.host,
-        skipped: false,
-        removed: purge.removed,
-        failed: purge.failed,
-        cacheRowsDeleted: deletedRows.length,
-        byMonth: purge.byMonth,
-      });
-    } catch (err) {
-      results.push({
-        routerId: r.id,
-        routerName: r.name ?? r.host,
-        routerHost: r.host,
-        skipped: true,
-        reason: err instanceof Error ? err.message : "Erreur routeur",
-        removed: 0,
-        failed: 0,
-        cacheRowsDeleted: 0,
-        byMonth: [],
-      });
-    }
+      },
+      batchSize,
+      done,
+      removed: purge.removed,
+      failed: purge.failed,
+      scanned: purge.scanned,        // total candidates at start of this batch
+      remaining,                     // candidates still pending after this batch
+      byMonth: purge.byMonth,        // breakdown of what was removed in this batch
+      cacheRowsDeleted,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Erreur routeur" });
   }
-
-  const totalRemoved = results.reduce((s, r) => s + r.removed, 0);
-  const totalFailed  = results.reduce((s, r) => s + r.failed,  0);
-
-  res.json({
-    cutoff: `${cutoffYear}-${String(cutoffMonth).padStart(2, "0")}-01`,
-    keptMonths: "Mois courant + mois précédent",
-    results,
-    totalRemoved,
-    totalFailed,
-  });
 });
 
 export default router;

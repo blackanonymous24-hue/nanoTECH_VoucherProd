@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Ghost, Trash2, CheckCircle, AlertTriangle, Loader2, ShieldCheck, Router, History } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRouterContext } from "@/contexts/RouterContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const SCRIPT_PURGE_BATCH_SIZE = 50;
 
 type PurgeResult = {
   routerId: number;
@@ -27,24 +29,31 @@ type PurgeResponse = {
   totalDeleted: number;
 };
 
-type ScriptPurgeResult = {
-  routerId: number;
-  routerName: string;
-  routerHost: string;
-  skipped: boolean;
-  reason?: string;
-  removed: number;
-  failed: number;
-  cacheRowsDeleted: number;
-  byMonth: Array<{ yearMonth: string; count: number }>;
-};
-
-type ScriptPurgeResponse = {
+type ScriptPurgeBatchResponse = {
   cutoff: string;
   keptMonths: string;
-  results: ScriptPurgeResult[];
+  router: { routerId: number; routerName: string; routerHost: string };
+  batchSize: number;
+  done: boolean;
+  removed: number;
+  failed: number;
+  scanned: number;       // total candidates remaining at start of this batch
+  remaining: number;     // candidates still to process after this batch
+  byMonth: Array<{ yearMonth: string; count: number }>;
+  cacheRowsDeleted: number;
+};
+
+type ScriptPurgeSummary = {
+  routerName: string;
+  routerHost: string;
   totalRemoved: number;
   totalFailed: number;
+  cacheRowsDeleted: number;
+  byMonth: Array<{ yearMonth: string; count: number }>;
+  /** "clean": all candidates removed, cache purged.
+   *  "partial": stopped with failures or no-progress; cache NOT purged. */
+  status: "clean" | "partial";
+  remaining: number;
 };
 
 const MONTH_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
@@ -56,15 +65,17 @@ function fmtYearMonth(ym: string): string {
 
 export default function Maintenance() {
   const { role, token } = useAuth();
+  const { selectedRouterId, selectedRouter } = useRouterContext();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<PurgeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Old sales scripts purge state
-  const [scriptLoading, setScriptLoading] = useState(false);
-  const [scriptData, setScriptData] = useState<ScriptPurgeResponse | null>(null);
-  const [scriptError, setScriptError] = useState<string | null>(null);
-  const [confirmScript, setConfirmScript] = useState(false);
+  // Old sales scripts purge — batched with progress
+  const [scriptRunning,  setScriptRunning]  = useState(false);
+  const [scriptProgress, setScriptProgress] = useState<{ done: number; total: number } | null>(null);
+  const [scriptSummary,  setScriptSummary]  = useState<ScriptPurgeSummary | null>(null);
+  const [scriptError,    setScriptError]    = useState<string | null>(null);
+  const [confirmScript,  setConfirmScript]  = useState(false);
 
   if (role !== "admin") {
     return (
@@ -101,36 +112,96 @@ export default function Maintenance() {
   }
 
   async function runScriptPurge() {
-    setScriptLoading(true);
-    setScriptData(null);
+    if (!selectedRouterId) {
+      setScriptError("Aucun routeur sélectionné");
+      return;
+    }
+    setScriptRunning(true);
+    setScriptSummary(null);
     setScriptError(null);
+    setScriptProgress(null);
+
+    let totalRemoved = 0;
+    let totalFailed = 0;
+    let cacheRowsDeleted = 0;
+    let total = 0;
+    let lastRemaining = 0;
+    let cleanFinish = false;
+    let routerName = selectedRouter?.name ?? "";
+    let routerHost = selectedRouter?.host ?? "";
+    const byMonthMap = new Map<string, number>();
+
     try {
-      const res = await fetch(`${BASE}/api/admin/purge-old-sales-scripts`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Erreur ${res.status}`);
+      // Loop until backend reports done. Each call deletes at most BATCH scripts.
+      // Defensive cap to avoid an infinite loop if something is wrong.
+      for (let i = 0; i < 10_000; i++) {
+        const res = await fetch(`${BASE}/api/admin/purge-old-sales-scripts`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            routerId: selectedRouterId,
+            batchSize: SCRIPT_PURGE_BATCH_SIZE,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `Erreur ${res.status}`);
+        }
+        const batch: ScriptPurgeBatchResponse = await res.json();
+
+        // First successful response sets the total target (= scanned of batch 1)
+        if (i === 0) total = batch.scanned;
+        routerName = batch.router.routerName;
+        routerHost = batch.router.routerHost;
+
+        totalRemoved    += batch.removed;
+        totalFailed     += batch.failed;
+        cacheRowsDeleted = batch.cacheRowsDeleted; // only set on final clean batch
+        lastRemaining    = batch.remaining;
+        for (const m of batch.byMonth) byMonthMap.set(m.yearMonth, (byMonthMap.get(m.yearMonth) ?? 0) + m.count);
+
+        // Progress bar = removed-only (real progress); cap at total.
+        setScriptProgress({
+          done:  Math.min(totalRemoved, Math.max(total, totalRemoved)),
+          total: Math.max(total, totalRemoved),
+        });
+
+        if (batch.done) {
+          cleanFinish = true;
+          break;
+        }
+        // Safety: if no script was actually removed in this batch, stop —
+        // either failures are blocking deletion, or there is nothing left
+        // to remove. Either way, looping further would not make progress.
+        if (batch.removed === 0) break;
       }
-      const json: ScriptPurgeResponse = await res.json();
-      setScriptData(json);
+
+      const byMonth = Array.from(byMonthMap.entries())
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([yearMonth, count]) => ({ yearMonth, count }));
+
+      setScriptSummary({
+        routerName,
+        routerHost,
+        totalRemoved,
+        totalFailed,
+        cacheRowsDeleted,
+        byMonth,
+        status: cleanFinish ? "clean" : "partial",
+        remaining: lastRemaining,
+      });
     } catch (err: unknown) {
       setScriptError(err instanceof Error ? err.message : "Erreur inconnue");
     } finally {
-      setScriptLoading(false);
+      setScriptRunning(false);
     }
   }
 
   const totalDeleted = data?.totalDeleted ?? 0;
   const hasResults = !!data;
-  const totalScriptRemoved = scriptData?.totalRemoved ?? 0;
-  const totalScriptFailed  = scriptData?.totalFailed  ?? 0;
-  const hasScriptResults   = !!scriptData;
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -256,28 +327,43 @@ export default function Maintenance() {
             Anciens scripts de ventes
           </CardTitle>
           <CardDescription className="text-gray-400 text-sm">
-            Supprime sur chaque routeur les scripts MikHmon de ventes les plus anciens, en
-            commençant par les plus vieux.{" "}
+            Supprime sur le <span className="text-white font-medium">routeur sélectionné</span>{" "}
+            les scripts MikHmon de ventes les plus anciens, par lots de{" "}
+            {SCRIPT_PURGE_BATCH_SIZE}, en commençant par les plus vieux.{" "}
             <span className="text-green-400 font-medium">Conservés :</span> mois en cours
             et mois précédent.
             <br />
-            Les entrées correspondantes du cache local sont également purgées.
+            Les entrées correspondantes du cache local sont également purgées en fin
+            d'opération.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button
-            onClick={() => setConfirmScript(true)}
-            disabled={scriptLoading}
-            variant="destructive"
-            className="gap-2"
-          >
-            {scriptLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              onClick={() => setConfirmScript(true)}
+              disabled={scriptRunning || !selectedRouterId}
+              variant="destructive"
+              className="gap-2"
+            >
+              {scriptRunning ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              {scriptRunning ? "Suppression en cours…" : "Supprimer les anciens scripts"}
+            </Button>
+            {selectedRouter ? (
+              <span className="text-xs text-gray-400 inline-flex items-center gap-1.5">
+                <Router className="h-3.5 w-3.5 text-gray-500" />
+                <span className="text-white">{selectedRouter.name ?? selectedRouter.host}</span>
+                <span className="text-gray-500">{selectedRouter.host}</span>
+              </span>
             ) : (
-              <Trash2 className="h-4 w-4" />
+              <span className="text-xs text-yellow-400/80">
+                Sélectionnez un routeur dans la barre latérale.
+              </span>
             )}
-            {scriptLoading ? "Suppression en cours…" : "Supprimer les anciens scripts"}
-          </Button>
+          </div>
 
           {scriptError && (
             <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
@@ -286,89 +372,105 @@ export default function Maintenance() {
             </div>
           )}
 
-          {hasScriptResults && (
-            <div className="space-y-3">
-              <div
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border ${
-                  totalScriptRemoved > 0
-                    ? "bg-red-500/10 border-red-500/20 text-red-300"
-                    : "bg-green-500/10 border-green-500/20 text-green-300"
-                }`}
-              >
-                {totalScriptRemoved > 0 ? (
-                  <Trash2 className="h-4 w-4 shrink-0" />
-                ) : (
-                  <CheckCircle className="h-4 w-4 shrink-0" />
-                )}
-                {totalScriptRemoved > 0
-                  ? `${totalScriptRemoved} script${totalScriptRemoved > 1 ? "s" : ""} supprimé${totalScriptRemoved > 1 ? "s" : ""}`
-                  : "Aucun script à supprimer — rien antérieur au mois précédent"}
-                {totalScriptFailed > 0 && (
-                  <span className="ml-2 text-yellow-300">
-                    ({totalScriptFailed} échec{totalScriptFailed > 1 ? "s" : ""})
-                  </span>
-                )}
+          {scriptProgress && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-400">
+                  {scriptRunning ? "Suppression en cours…" : "Terminé"}
+                </span>
+                <span className="text-gray-300 font-mono">
+                  {scriptProgress.done} / {scriptProgress.total}
+                  {scriptProgress.total > 0 && (
+                    <span className="text-gray-500 ml-2">
+                      ({Math.round((scriptProgress.done / scriptProgress.total) * 100)}%)
+                    </span>
+                  )}
+                </span>
               </div>
-
-              <div className="space-y-2">
-                {scriptData?.results.map((r) => (
-                  <div
-                    key={r.routerId}
-                    className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
-                  >
-                    <Router className="h-4 w-4 mt-0.5 text-gray-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-white">{r.routerName}</span>
-                        <span className="text-xs text-gray-500">{r.routerHost}</span>
-                        {r.skipped && (
-                          <Badge variant="outline" className="text-yellow-400 border-yellow-500/30 text-[10px]">
-                            Ignoré
-                          </Badge>
-                        )}
-                        {!r.skipped && r.removed > 0 && (
-                          <Badge variant="outline" className="text-red-400 border-red-500/30 text-[10px]">
-                            −{r.removed} script{r.removed > 1 ? "s" : ""}
-                          </Badge>
-                        )}
-                        {!r.skipped && r.removed === 0 && (
-                          <Badge variant="outline" className="text-green-400 border-green-500/30 text-[10px]">
-                            Rien à purger
-                          </Badge>
-                        )}
-                        {!r.skipped && r.failed > 0 && (
-                          <Badge variant="outline" className="text-yellow-400 border-yellow-500/30 text-[10px]">
-                            {r.failed} échec{r.failed > 1 ? "s" : ""}
-                          </Badge>
-                        )}
-                      </div>
-                      {r.skipped ? (
-                        <p className="text-xs text-yellow-400/70 mt-0.5">{r.reason}</p>
-                      ) : (
-                        <>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {r.cacheRowsDeleted} ligne{r.cacheRowsDeleted > 1 ? "s" : ""} purgée{r.cacheRowsDeleted > 1 ? "s" : ""} du cache local
-                          </p>
-                          {r.byMonth.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1.5">
-                              {r.byMonth.map((m) => (
-                                <span
-                                  key={m.yearMonth}
-                                  className="text-[10px] bg-white/[0.04] text-gray-400 border border-white/[0.06] rounded px-1.5 py-0.5"
-                                >
-                                  {fmtYearMonth(m.yearMonth)} : {m.count}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    scriptRunning ? "bg-purple-500" : "bg-green-500"
+                  }`}
+                  style={{
+                    width: `${
+                      scriptProgress.total > 0
+                        ? Math.min(100, Math.round((scriptProgress.done / scriptProgress.total) * 100))
+                        : 0
+                    }%`,
+                  }}
+                />
               </div>
             </div>
           )}
+
+          {scriptSummary && !scriptRunning && (() => {
+            const partial = scriptSummary.status === "partial";
+            const banner = partial
+              ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-300"
+              : scriptSummary.totalRemoved > 0
+                ? "bg-red-500/10 border-red-500/20 text-red-300"
+                : "bg-green-500/10 border-green-500/20 text-green-300";
+            return (
+            <div className="space-y-3">
+              <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-sm font-medium border ${banner}`}>
+                {partial ? (
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                ) : scriptSummary.totalRemoved > 0 ? (
+                  <Trash2 className="h-4 w-4 shrink-0 mt-0.5" />
+                ) : (
+                  <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1">
+                  <div>
+                    {scriptSummary.totalRemoved > 0
+                      ? `${scriptSummary.totalRemoved} script${scriptSummary.totalRemoved > 1 ? "s" : ""} supprimé${scriptSummary.totalRemoved > 1 ? "s" : ""}`
+                      : "Aucun script supprimé"}
+                    {scriptSummary.totalFailed > 0 && (
+                      <span className="ml-2">
+                        — {scriptSummary.totalFailed} échec{scriptSummary.totalFailed > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                  {partial && (
+                    <div className="text-xs font-normal mt-1 text-yellow-200/80">
+                      Suppression incomplète : {scriptSummary.remaining} script
+                      {scriptSummary.remaining > 1 ? "s" : ""} restant
+                      {scriptSummary.remaining > 1 ? "s" : ""} sur le routeur. Le cache local
+                      n'a pas été purgé. Réessayez après vérification (router accessible,
+                      droits, etc.).
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                <Router className="h-4 w-4 mt-0.5 text-gray-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-white">{scriptSummary.routerName}</span>
+                    <span className="text-xs text-gray-500">{scriptSummary.routerHost}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {scriptSummary.cacheRowsDeleted} ligne{scriptSummary.cacheRowsDeleted > 1 ? "s" : ""} purgée{scriptSummary.cacheRowsDeleted > 1 ? "s" : ""} du cache local
+                  </p>
+                  {scriptSummary.byMonth.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {scriptSummary.byMonth.map((m) => (
+                        <span
+                          key={m.yearMonth}
+                          className="text-[10px] bg-white/[0.04] text-gray-400 border border-white/[0.06] rounded px-1.5 py-0.5"
+                        >
+                          {fmtYearMonth(m.yearMonth)} : {m.count}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            );
+          })()}
         </CardContent>
       </Card>
 

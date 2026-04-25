@@ -1230,10 +1230,11 @@ export async function purgeOldMikhmonScripts(
   conn: RouterConnection,
   cutoffYear: number,
   cutoffMonth: number, // 1-12
+  options: { limit?: number } = {},
 ): Promise<{
   removed: number;
   failed: number;
-  scanned: number;
+  scanned: number;   // total candidates found *before* deletion (to compute progress)
   byMonth: Array<{ yearMonth: string; count: number }>;
 }> {
   return withRouter(conn, async (api) => {
@@ -1258,11 +1259,16 @@ export async function purgeOldMikhmonScripts(
     // Oldest first
     candidates.sort((a, b) => a.date.getTime() - b.date.getTime());
 
+    const total = candidates.length;
+    const batch = options.limit && options.limit > 0
+      ? candidates.slice(0, options.limit)
+      : candidates;
+
     let removed = 0;
     let failed = 0;
     const byMonthMap = new Map<string, number>();
 
-    for (const c of candidates) {
+    for (const c of batch) {
       try {
         await api.write("/system/script/remove", [`=.id=${c.id}`]);
         removed++;
@@ -1276,7 +1282,7 @@ export async function purgeOldMikhmonScripts(
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([yearMonth, count]) => ({ yearMonth, count }));
 
-    return { removed, failed, scanned: candidates.length, byMonth };
+    return { removed, failed, scanned: total, byMonth };
   }, 120_000);
 }
 
