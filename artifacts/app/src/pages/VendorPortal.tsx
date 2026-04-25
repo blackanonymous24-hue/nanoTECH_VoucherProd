@@ -94,19 +94,23 @@ type VersementData = { weeks: VersementWeek[] };
 type DailyArrearsDay = { date: string; count: number; amount: number; paid: number; remaining: number };
 type DailyArrearsData = { days: DailyArrearsDay[] };
 
-/** Consolidated arrears: when ≥3 daily arrears, merge into one line dated the most recent unpaid day. */
+/** Consolidated arrears: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
 type ConsolidatableDailyArrearsDay = DailyArrearsDay & { __underlyingCount?: number };
 function consolidateDailyArrears(days: DailyArrearsDay[]): ConsolidatableDailyArrearsDay[] {
   if (days.length <= 3) return days;
-  const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date));
-  return [{
-    date: sorted[0].date,
-    count:     days.reduce((s, d) => s + d.count, 0),
-    amount:    days.reduce((s, d) => s + d.amount, 0),
-    paid:      days.reduce((s, d) => s + d.paid, 0),
-    remaining: days.reduce((s, d) => s + d.remaining, 0),
-    __underlyingCount: days.length,
-  }];
+  const desc = [...days].sort((a, b) => b.date.localeCompare(a.date));
+  const recent = desc.slice(0, 2);
+  const older = desc.slice(2);
+  const merged: ConsolidatableDailyArrearsDay = {
+    date: older[0].date,
+    count:     older.reduce((s, d) => s + d.count, 0),
+    amount:    older.reduce((s, d) => s + d.amount, 0),
+    paid:      older.reduce((s, d) => s + d.paid, 0),
+    remaining: older.reduce((s, d) => s + d.remaining, 0),
+    __underlyingCount: older.length,
+  };
+  // Caller sorts ascending; return ascending (oldest merged first, then 2 most recent ascending)
+  return [merged, ...recent.slice().reverse()];
 }
 type PeriodSalesData = {
   period: string;

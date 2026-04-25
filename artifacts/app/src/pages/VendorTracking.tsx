@@ -108,19 +108,22 @@ interface DailyArrearsResponse {
   vendorInfo?: Record<string, { name: string }>;
 }
 
-/** Consolidated arrears: when ≥3 daily arrears, merge into one line dated the most recent unpaid day. */
+/** Consolidated arrears: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
 type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrearEntry[] };
 function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
   if (entries.length <= 3) return entries;
-  const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
-  return [{
-    date: sorted[0].date,
-    salesAmount: entries.reduce((s, e) => s + e.salesAmount, 0),
-    paidAmount:  entries.reduce((s, e) => s + e.paidAmount,  0),
-    remaining:   entries.reduce((s, e) => s + e.remaining,   0),
-    payments:    entries.flatMap((e) => e.payments),
-    __underlying: entries,
-  }];
+  const desc = [...entries].sort((a, b) => b.date.localeCompare(a.date));
+  const recent = desc.slice(0, 2);
+  const older = desc.slice(2);
+  const merged: ConsolidatableArrearEntry = {
+    date: older[0].date,
+    salesAmount: older.reduce((s, e) => s + e.salesAmount, 0),
+    paidAmount:  older.reduce((s, e) => s + e.paidAmount,  0),
+    remaining:   older.reduce((s, e) => s + e.remaining,   0),
+    payments:    older.flatMap((e) => e.payments),
+    __underlying: older,
+  };
+  return [merged, ...recent];
 }
 
 /** Returns YYYY-MM-DD of Monday of the week containing the given iso date (UTC) */
