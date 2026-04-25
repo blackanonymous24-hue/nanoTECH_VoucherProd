@@ -643,6 +643,62 @@ export function invalidateUserCache(routerId: number) {
   userCache.delete(routerId);
 }
 
+/**
+ * GET /routers/:id/users/count
+ * Lightweight: returns just `{ total, available, used, disabled, cachedAt }`.
+ * Uses the same in-memory user cache as /users so it's instant on warm cache.
+ * - "available" = vouchers not yet sold (no MAC, not disabled, not in DB used set, excludes trial/system)
+ * - "used"      = vouchers tracked as sold in the local DB
+ * - "total"     = all hotspot users on the MikroTik (raw count)
+ */
+router.get("/routers/:id/users/count", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const cached = userCache.get(id);
+    const wasCached = !!cached && Date.now() < cached.expiresAt;
+    const users = await getCachedUsers(id, conn);
+    const cachedAt = userCache.get(id)?.expiresAt
+      ? userCache.get(id)!.expiresAt - USER_CACHE_TTL
+      : Date.now();
+
+    // Cross-reference with vouchers table to get accurate "available" count.
+    const usedRows = await db
+      .select({ username: vouchersTable.username })
+      .from(vouchersTable)
+      .where(and(eq(vouchersTable.routerId, id), isNotNull(vouchersTable.usedAt)));
+    const usedSet = new Set(usedRows.map((v) => v.username.toLowerCase()));
+
+    let available = 0;
+    let disabled  = 0;
+    for (const u of users) {
+      if (u.disabled) { disabled++; continue; }
+      const prof = (u.profile ?? "").toLowerCase();
+      if (prof === "trial" || prof === "default-trial") continue;
+      if (u.macAddress) continue;
+      if (usedSet.has(u.username.toLowerCase())) continue;
+      available++;
+    }
+
+    res.json({
+      total: users.length,
+      available,
+      used: usedSet.size,
+      disabled,
+      cachedAt,
+      cached: wasCached,
+    });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
 router.get("/routers/:id/users", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);

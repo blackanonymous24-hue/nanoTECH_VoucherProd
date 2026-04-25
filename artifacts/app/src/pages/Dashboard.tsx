@@ -14,7 +14,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 // Provides instant display by acting as initialData for React Query — bypasses the staleTime/gcTime window.
 const _liveCache: Record<number, {
   sessions?: number; sessionTs?: number;
-  users?: number; usersTs?: number;
+  users?: { total: number; available: number; used: number }; usersTs?: number;
 }> = {};
 
 // Dashboard-level (router-agnostic) cache — stores last successful dashboard API response.
@@ -349,36 +349,36 @@ export default function Dashboard() {
   });
 
   const {
-    data: hotspotUserCount,
+    data: usersStats,
     isFetching: usersFetching,
     refetch: refetchUsers,
   } = useQuery({
     queryKey: ["router-users-count", selectedRouterId],
-    queryFn: async ({ signal }): Promise<number> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`, { signal });
-      if (!res.ok) return 0;
-      const data: unknown = await res.json();
-      let count = 0;
-      if (Array.isArray(data)) count = data.length;
-      else if (data && typeof data === "object") {
-        const d = data as Record<string, unknown>;
-        if (typeof d.total === "number") count = d.total;
-        else if (Array.isArray(d.users)) count = d.users.length;
-      }
+    queryFn: async ({ signal }): Promise<{ total: number; available: number; used: number }> => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users/count`, { signal });
+      if (!res.ok) return { total: 0, available: 0, used: 0 };
+      const d = await res.json() as { total?: number; available?: number; used?: number };
+      const stats = {
+        total:     d.total     ?? 0,
+        available: d.available ?? 0,
+        used:      d.used      ?? 0,
+      };
       if (selectedRouterId) {
-        _liveCache[selectedRouterId] = { ..._liveCache[selectedRouterId], users: count, usersTs: Date.now() };
+        _liveCache[selectedRouterId] = { ..._liveCache[selectedRouterId], users: stats, usersTs: Date.now() };
       }
-      return count;
+      return stats;
     },
     enabled: !!selectedRouterId,
-    refetchInterval: 30_000, // users change rarely — was 10s, now 30s
+    refetchInterval: 20_000,
     refetchIntervalInBackground: false,
-    staleTime: 25_000,      // matches the 30s interval
+    staleTime: 15_000,
     gcTime: 30 * 60_000,
     initialData: selectedRouterId != null ? _liveCache[selectedRouterId]?.users : undefined,
     initialDataUpdatedAt: selectedRouterId != null ? _liveCache[selectedRouterId]?.usersTs : undefined,
     throwOnError: false,
+    retry: false,
   });
+  const hotspotUserCount = usersStats?.available ?? usersStats?.total;
 
   const {
     data: sales,
@@ -395,6 +395,11 @@ export default function Dashboard() {
       },
     },
   );
+  // Server returns zeros + `_cachedAt: null` when its in-memory cache is cold and the
+  // background MikroTik fetch hasn't returned yet. Treat that as "still loading" so
+  // the user never sees a misleading "0 FCFA" before real data arrives.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const salesFresh = !!sales && (sales as any)._cachedAt != null;
 
   const {
     data: logs = [],
@@ -601,27 +606,28 @@ export default function Dashboard() {
         />
         <StatCard
           title="Vente journalière"
-          label={sales ? formatAmount(sales.dailyAmount) : undefined}
-          sub={sales ? `${sales.dailyCount.toLocaleString()} tickets vendus` : undefined}
+          label={salesFresh ? formatAmount(sales!.dailyAmount) : undefined}
+          sub={salesFresh ? `${sales!.dailyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
-          loading={!sales && !!selectedRouterId}
+          loading={!!selectedRouterId && !salesFresh}
           href="/sales/daily"
         />
         <StatCard
           title="Vente mensuelle"
-          label={sales ? formatAmount(sales.monthlyAmount) : undefined}
-          sub={sales ? `${sales.monthlyCount.toLocaleString()} tickets vendus` : undefined}
+          label={salesFresh ? formatAmount(sales!.monthlyAmount) : undefined}
+          sub={salesFresh ? `${sales!.monthlyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
-          loading={!sales && !!selectedRouterId}
+          loading={!!selectedRouterId && !salesFresh}
           href="/sales/monthly"
         />
         <StatCard
           title="Total Vouchers"
           value={selectedRouterId ? (hotspotUserCount ?? 0) : (data?.totalVouchers ?? 0)}
+          sub={selectedRouterId && usersStats ? `${usersStats.used.toLocaleString()} vendus / ${usersStats.total.toLocaleString()} total` : undefined}
           live={!!selectedRouterId}
           fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
