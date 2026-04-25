@@ -170,25 +170,11 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   const grandCount  = data.summary.reduce((s, r) => s + r.count,  0);
   const activeSummary = data.summary.filter((s) => s.count > 0);
 
-  // Build profile map per vendor from vouchers
-  const profileMap = new Map<number | null, { profileName: string; count: number; amount: number }[]>();
-  for (const v of data.vouchers ?? []) {
-    if (!profileMap.has(v.vendorId)) profileMap.set(v.vendorId, []);
-    const list = profileMap.get(v.vendorId)!;
-    const ex = list.find(p => p.profileName === v.profileName);
-    if (ex) { ex.count += 1; ex.amount += v.amount; }
-    else list.push({ profileName: v.profileName, count: 1, amount: v.amount });
-  }
-  for (const list of profileMap.values()) list.sort((a, b) => b.amount - a.amount);
-
   const vendorCards = activeSummary.map((s) => {
     const pal = vpal(s.vendorId);
-    const profiles = profileMap.get(s.vendorId) ?? [];
     const arr = (arrears?.arrears[String(s.vendorId)] ?? []).filter(a => a.remaining > 0);
     const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
     const totalDu = s.amount + arrTotal;
-    const profileRows = profiles.map(p => `
-      <tr><td>${p.profileName}</td><td class="center">${p.count}</td><td class="right">${fmtAmount(p.amount)}</td></tr>`).join("");
     const arrearsSection = arr.length > 0 ? `
   <div class="arr-header">
     <span>Arriérés</span><span>${fmtAmount(arrTotal)} FCFA</span>
@@ -205,12 +191,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   <div class="vcard-header" style="background:${pal.light};border-color:${pal.border}">
     <span class="vname" style="color:${pal.dark}">${s.vendorName}</span>
     <span class="vamount" style="color:${pal.dark}">${fmtAmount(s.amount)} FCFA</span>
-  </div>
-  <table>
-    <thead><tr style="background:${pal.light}88"><th>Forfait</th><th class="center">Tkt</th><th class="right">Montant (FCFA)</th></tr></thead>
-    <tbody>${profileRows}</tbody>
-    <tfoot><tr style="background:${pal.mid};color:${pal.dark}"><td>Total vendu</td><td class="center">${s.count}</td><td class="right">${fmtAmount(s.amount)}</td></tr></tfoot>
-  </table>${arrearsSection}
+  </div>${arrearsSection}
 </div>`;
   }).join("");
 
@@ -352,31 +333,19 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
   try {
     const DPR = 2; const W = 430; const PAD = 16;
     const TITLE_H = 52; const CARD_GAP = 8;
-    const CARD_HDR_H = 28; const COL_HDR_H = 18; const ROW_H = 20; const TOT_ROW_H = 24;
+    const CARD_HDR_H = 28;
     const ARR_HDR_H = 20; const ARR_ROW_H = 18; const GRAND_ROW_H = 26; const FOOTER_H = 32;
 
     const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
     const dateFr = fmtDateFr(appliedDate);
 
-    // Build profile map from vouchers
-    const profileMap = new Map<number | null, { profileName: string; count: number; amount: number }[]>();
-    for (const v of data.vouchers ?? []) {
-      if (!profileMap.has(v.vendorId)) profileMap.set(v.vendorId, []);
-      const list = profileMap.get(v.vendorId)!;
-      const ex = list.find(p => p.profileName === v.profileName);
-      if (ex) { ex.count += 1; ex.amount += v.amount; }
-      else list.push({ profileName: v.profileName, count: 1, amount: v.amount });
-    }
-    for (const list of profileMap.values()) list.sort((a, b) => b.amount - a.amount);
-
     const vendorArrears = (vendorId: number | null) =>
       (arrears?.arrears[String(vendorId)] ?? []).filter(a => a.remaining > 0);
 
     const cardH = (vendorId: number | null) => {
-      const n = (profileMap.get(vendorId) ?? []).length;
       const arr = vendorArrears(vendorId);
       const arrH = arr.length > 0 ? ARR_HDR_H + arr.length * ARR_ROW_H + GRAND_ROW_H : 0;
-      return CARD_HDR_H + COL_HDR_H + n * ROW_H + TOT_ROW_H + arrH;
+      return CARD_HDR_H + arrH;
     };
     const grandCount  = dailySummary.reduce((s, r) => s + r.count, 0);
     const grandAmount = dailySummary.reduce((s, r) => s + r.amount, 0);
@@ -414,44 +383,19 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     let y = TITLE_H;
     dailySummary.forEach((s) => {
       const pal = vpal(s.vendorId);
-      const profiles = profileMap.get(s.vendorId) ?? [];
       const arr = vendorArrears(s.vendorId);
       const ch = cardH(s.vendorId);
       rf(PAD, y, CW, ch, "#ffffff", 6);
       ctx.strokeStyle = arr.length > 0 ? "#fdba74" : pal.border; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(PAD, y, CW, ch, 6); ctx.stroke();
 
-      // Header
+      // Header (vendor name + total amount only)
       rf(PAD, y, CW, CARD_HDR_H, pal.light, [6, 6, 0, 0]);
       t(s.vendorName, PAD + 10, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark });
       t(fmtAmount(s.amount) + " FCFA", C_AMT, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark, align: "right" });
       ln(PAD, y + CARD_HDR_H, PAD + CW, y + CARD_HDR_H, pal.border);
 
-      // Column headers
-      const hy = y + CARD_HDR_H;
-      rf(PAD, hy, CW, COL_HDR_H, pal.light + "55");
-      t("Forfait", C_PROF, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af" });
-      t("Tkt", C_TKT, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af", align: "center" });
-      t("Montant", C_AMT, hy + COL_HDR_H / 2, { size: 8, color: "#9ca3af", align: "right" });
-      ln(PAD, hy + COL_HDR_H, PAD + CW, hy + COL_HDR_H, "#f3f4f6");
-
-      // Profile rows
-      let ry = hy + COL_HDR_H;
-      profiles.forEach((p, pi) => {
-        rf(PAD, ry, CW, ROW_H, pi % 2 === 0 ? "#ffffff" : "#f9fafb");
-        t(p.profileName, C_PROF, ry + ROW_H / 2, { size: 9, color: "#374151" });
-        t(String(p.count), C_TKT, ry + ROW_H / 2, { size: 9, color: "#374151", align: "center" });
-        t(fmtAmount(p.amount) + " FCFA", C_AMT, ry + ROW_H / 2, { size: 9, color: "#374151", align: "right" });
-        ln(PAD, ry + ROW_H, PAD + CW, ry + ROW_H, "#f3f4f6");
-        ry += ROW_H;
-      });
-
-      // Total row
-      rf(PAD, ry, CW, TOT_ROW_H, pal.mid);
-      t("Total", C_PROF, ry + TOT_ROW_H / 2, { size: 9, bold: true, color: pal.dark });
-      t(String(s.count), C_TKT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: pal.dark, align: "center" });
-      t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + TOT_ROW_H / 2, { size: 10, bold: true, color: pal.dark, align: "right" });
-      ry += TOT_ROW_H;
+      let ry = y + CARD_HDR_H;
 
       // Arriérés rows
       if (arr.length > 0) {
