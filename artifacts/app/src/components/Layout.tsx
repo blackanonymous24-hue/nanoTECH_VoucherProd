@@ -277,10 +277,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       ],
     },
     {
-      label: "Vouchers",
+      label: "Tickets",
       items: [
         { href: "/generate",     label: "Générer",         icon: Zap },
-        { href: "/vouchers",        label: "Vouchers",             icon: Ticket },
+        { href: "/vouchers",        label: "Mes Tickets",          icon: Ticket },
         { href: "/ticket-lookup",   label: "Vérifier un ticket",  icon: SearchCheck },
         { href: "/vendors",                   label: "Vendeurs",            icon: Users },
         { href: "/vendors/tracking",          label: "Suivi par vendeur",   icon: ListOrdered },

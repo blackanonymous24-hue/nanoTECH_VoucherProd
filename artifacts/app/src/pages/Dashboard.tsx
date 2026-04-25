@@ -625,9 +625,8 @@ export default function Dashboard() {
           href="/sales/monthly"
         />
         <StatCard
-          title="Total Vouchers"
+          title="Tickets disponibles"
           value={selectedRouterId ? (hotspotUserCount ?? 0) : (data?.totalVouchers ?? 0)}
-          sub={selectedRouterId && usersStats ? `${usersStats.used.toLocaleString()} vendus / ${usersStats.total.toLocaleString()} total` : undefined}
           live={!!selectedRouterId}
           fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
