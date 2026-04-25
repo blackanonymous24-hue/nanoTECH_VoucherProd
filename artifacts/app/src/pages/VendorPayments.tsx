@@ -107,7 +107,7 @@ interface DailyArrearsResponse {
 /** Consolidated arrears entry: when ≥3 daily arrears, merge into one line dated the most recent unpaid day. */
 type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrearEntry[] };
 function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
-  if (entries.length < 3) return entries;
+  if (entries.length <= 3) return entries;
   const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
   return [{
     date: sorted[0].date,

@@ -97,7 +97,7 @@ type DailyArrearsData = { days: DailyArrearsDay[] };
 /** Consolidated arrears: when ≥3 daily arrears, merge into one line dated the most recent unpaid day. */
 type ConsolidatableDailyArrearsDay = DailyArrearsDay & { __underlyingCount?: number };
 function consolidateDailyArrears(days: DailyArrearsDay[]): ConsolidatableDailyArrearsDay[] {
-  if (days.length < 3) return days;
+  if (days.length <= 3) return days;
   const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date));
   return [{
     date: sorted[0].date,
