@@ -157,11 +157,29 @@ function VendorRow({
     toast({ title: "Versement enregistré", description: `${fmtAmount(amt)} FCFA pour ${vendor.vendorName}` });
   };
 
-  const deletePayment = async (id: number) => {
-    const res = await fetch(`${BASE}/api/vendors/payments/${id}`, { method: "DELETE" });
-    if (!res.ok) { toast({ title: "Erreur", variant: "destructive" }); return; }
-    onMutated();
-    toast({ title: "Versement annulé" });
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const deletePayment = async (id: number, amt: number) => {
+    if (deletingId !== null) return;
+    if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} FCFA ?`)) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`${BASE}/api/vendors/payments/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        toast({ title: "Erreur", description: txt || `HTTP ${res.status}`, variant: "destructive" });
+        return;
+      }
+      onMutated();
+      toast({ title: "Versement annulé" });
+    } catch (err) {
+      toast({
+        title: "Erreur réseau",
+        description: err instanceof Error ? err.message : "Impossible de joindre le serveur",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -255,8 +273,16 @@ function VendorRow({
                   <span className="font-semibold text-gray-800 tabular-nums">{fmtAmount(p.amount)} FCFA</span>
                   <span className="text-gray-400">{new Date(p.paidAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</span>
                   {p.note && <span className="text-gray-500 italic truncate flex-1">— {p.note}</span>}
-                  <button className="ml-auto text-gray-300 hover:text-red-500 transition-colors flex-shrink-0" onClick={() => deletePayment(p.id)} title="Annuler ce versement">
-                    <Trash2 className="h-3.5 w-3.5" />
+                  <button
+                    type="button"
+                    className="ml-auto p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0 disabled:opacity-50"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); void deletePayment(p.id, p.amount); }}
+                    disabled={deletingId === p.id}
+                    title="Annuler ce versement"
+                  >
+                    {deletingId === p.id
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
                 </div>
               ))}
@@ -421,13 +447,25 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
 
   const total = useMemo(() => data.reduce((s, p) => s + p.amount, 0), [data]);
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: number, amt: number) => {
+    if (deleting !== null) return;
+    if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} FCFA ?`)) return;
     setDeleting(id);
     try {
       const res = await fetch(`${BASE}/api/vendors/daily-payments/${id}`, { method: "DELETE" });
-      if (!res.ok) { toast({ title: "Erreur suppression", variant: "destructive" }); return; }
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        toast({ title: "Erreur suppression", description: txt || `HTTP ${res.status}`, variant: "destructive" });
+        return;
+      }
       await invalidateAllPaymentQueries(queryClient, routerId);
       toast({ title: "Versement supprimé" });
+    } catch (err) {
+      toast({
+        title: "Erreur réseau",
+        description: err instanceof Error ? err.message : "Impossible de joindre le serveur",
+        variant: "destructive",
+      });
     } finally {
       setDeleting(null);
     }
@@ -471,7 +509,8 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
                   {fmtAmount(p.amount)} FCFA
                 </span>
                 <button
-                  onClick={() => void handleDelete(p.id)}
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleDelete(p.id, p.amount); }}
                   disabled={deleting === p.id}
                   className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50 flex-shrink-0"
                   title="Supprimer ce versement"
