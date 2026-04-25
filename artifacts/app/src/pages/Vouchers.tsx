@@ -466,13 +466,60 @@ export default function Vouchers() {
     });
     setIsPrinting(true);
     try {
-      const resp = await fetch(`${BASE}/api/render-tickets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ php, vouchers }),
-      });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error);
+      let resp: Response;
+      try {
+        resp = await fetch(`${BASE}/api/render-tickets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ php, vouchers }),
+        });
+      } catch (netErr) {
+        // Réseau coupé / serveur inaccessible
+        // eslint-disable-next-line no-console
+        console.error("[print] network error:", netErr);
+        toast({
+          title: "Connexion au serveur perdue",
+          description: "Vérifiez votre connexion Internet puis réessayez.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Lecture sécurisée — l'API peut renvoyer du HTML (504, 502…) au lieu de JSON
+      const rawText = await resp.text();
+      let data: { html?: string[]; error?: string } = {};
+      try { data = rawText ? JSON.parse(rawText) : {}; } catch {
+        // eslint-disable-next-line no-console
+        console.error("[print] non-JSON response:", resp.status, rawText.slice(0, 300));
+        toast({
+          title: "Réponse serveur invalide",
+          description: `HTTP ${resp.status} — réessayez dans quelques secondes.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!resp.ok || data.error) {
+        const msg = data.error ?? `HTTP ${resp.status}`;
+        // eslint-disable-next-line no-console
+        console.error("[print] server error:", msg);
+        toast({
+          title: "Erreur d'impression",
+          description: msg.length > 220 ? msg.slice(0, 220) + "…" : msg,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!Array.isArray(data.html) || data.html.length === 0) {
+        toast({
+          title: "Aucun ticket généré",
+          description: "Le modèle PHP n'a rien retourné. Vérifiez votre template.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const toFileValidity = (v: string) => {
         const s = v.trim();
@@ -491,9 +538,18 @@ export default function Vouchers() {
       const hotspotName = (activeRouter as any)?.hotspotName || activeRouter?.name || "";
       const profileSlug = printProfile.trim().split(/\s+/)[0] ?? printProfile;
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment, profileSlug].filter(Boolean);
-      printTickets(data.html as string[], printParts.join("-"));
-    } catch (err: unknown) {
-      toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
+
+      try {
+        printTickets(data.html, printParts.join("-"));
+      } catch (printErr) {
+        // eslint-disable-next-line no-console
+        console.error("[print] printTickets threw:", printErr);
+        toast({
+          title: "Impression bloquée",
+          description: "Si une fenêtre popup a été bloquée, autorisez-la pour ce site puis réessayez.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsPrinting(false);
     }

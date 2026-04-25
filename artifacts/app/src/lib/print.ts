@@ -89,8 +89,8 @@ function printWithIframe(html: string, title: string): void {
 
   const doc = iframe.contentDocument;
   if (!doc) {
-    document.body.removeChild(iframe);
-    return;
+    try { document.body.removeChild(iframe); } catch (_) {}
+    throw new Error("iframe document indisponible");
   }
 
   doc.open();
@@ -98,23 +98,38 @@ function printWithIframe(html: string, title: string): void {
   doc.close();
   doc.title = title;
 
+  // Attendre que les images (QR codes en data URI) soient effectivement décodées,
+  // sinon Chrome imprime parfois des cases vides. On retire l'iframe APRÈS la
+  // boîte de dialogue (afterprint) plutôt qu'avec un timeout fixe.
+  const cleanup = () => {
+    try { document.body.removeChild(iframe); } catch (_) {}
+  };
+  iframe.contentWindow?.addEventListener("afterprint", cleanup, { once: true });
+  // Filet de sécurité au cas où afterprint ne se déclencherait pas (mobile)
+  const safetyTimeout = window.setTimeout(cleanup, 60_000);
+
   setTimeout(() => {
     const prevTitle = document.title;
     document.title = title;
     try {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
-    } finally {
-      setTimeout(() => {
-        document.title = prevTitle;
-        try { document.body.removeChild(iframe); } catch (_) {}
-      }, 2000);
+    } catch (_) {
+      window.clearTimeout(safetyTimeout);
+      cleanup();
+      document.title = prevTitle;
+      throw _;
     }
-  }, 400);
+    document.title = prevTitle;
+  }, 600);
 }
 
 function printWithNewWindow(html: string, title: string): void {
-  const win = window.open("", "_blank");
+  // window.open après un await fetch → fréquemment bloqué par les navigateurs
+  // (perte du "user gesture"). On retombe sur l'iframe transparent qui marche
+  // dans tous les contextes mobile/desktop.
+  let win: Window | null = null;
+  try { win = window.open("", "_blank"); } catch (_) { win = null; }
   if (!win) {
     printWithIframe(html, title);
     return;
