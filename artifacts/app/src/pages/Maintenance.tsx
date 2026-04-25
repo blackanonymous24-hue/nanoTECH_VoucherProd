@@ -86,6 +86,10 @@ export default function Maintenance() {
   }
 
   async function runPurge() {
+    if (!selectedRouterId) {
+      setError("Aucun routeur sélectionné");
+      return;
+    }
     setLoading(true);
     setData(null);
     setError(null);
@@ -96,7 +100,7 @@ export default function Maintenance() {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ routerId: selectedRouterId }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -223,29 +227,42 @@ export default function Maintenance() {
             Vouchers fantômes
           </CardTitle>
           <CardDescription className="text-gray-400 text-sm">
-            Supprime les vouchers en base de données marqués comme non vendus mais absents de
-            MikroTik. Seuls les vouchers sans <code className="text-xs bg-white/10 px-1 rounded">usedAt</code> sont traités.
+            Supprime sur le <span className="text-white font-medium">routeur sélectionné</span>{" "}
+            les vouchers en base de données marqués comme non vendus mais absents de MikroTik.
+            Seuls les vouchers sans{" "}
+            <code className="text-xs bg-white/10 px-1 rounded">usedAt</code> sont traités.
             <br />
-            <span className="text-yellow-400 font-medium">
-              Garde de sécurité :
-            </span>{" "}
+            <span className="text-yellow-400 font-medium">Garde de sécurité :</span>{" "}
             si MikroTik retourne 0 utilisateurs (routeur injoignable), le routeur est ignoré.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button
-            onClick={runPurge}
-            disabled={loading}
-            variant="destructive"
-            className="gap-2"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              onClick={runPurge}
+              disabled={loading || !selectedRouterId}
+              variant="destructive"
+              className="gap-2"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              {loading ? "Purge en cours…" : "Lancer la purge des fantômes"}
+            </Button>
+            {selectedRouter ? (
+              <span className="text-xs text-gray-400 inline-flex items-center gap-1.5">
+                <Router className="h-3.5 w-3.5 text-gray-500" />
+                <span className="text-white">{selectedRouter.name ?? selectedRouter.host}</span>
+                <span className="text-gray-500">{selectedRouter.host}</span>
+              </span>
             ) : (
-              <Trash2 className="h-4 w-4" />
+              <span className="text-xs text-yellow-400/80">
+                Sélectionnez un routeur dans la barre latérale.
+              </span>
             )}
-            {loading ? "Purge en cours…" : "Lancer la purge des fantômes"}
-          </Button>
+          </div>
 
           {error && (
             <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
