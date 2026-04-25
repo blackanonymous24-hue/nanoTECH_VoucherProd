@@ -176,9 +176,6 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
     const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
     const totalDu = s.amount + arrTotal;
     const arrearsSection = arr.length > 0 ? `
-  <div class="arr-header">
-    <span>Arriérés</span><span>${fmtAmount(arrTotal)} FCFA</span>
-  </div>
   <table class="arr-table">
     <tbody>${arr.map(a => `<tr><td>${fmtDateFr(a.date)}</td><td class="right">${fmtAmount(a.remaining)} FCFA</td></tr>`).join("")}</tbody>
   </table>
@@ -344,7 +341,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 
     const cardH = (vendorId: number | null) => {
       const arr = vendorArrears(vendorId);
-      const arrH = arr.length > 0 ? ARR_HDR_H + arr.length * ARR_ROW_H + GRAND_ROW_H : 0;
+      const arrH = arr.length > 0 ? arr.length * ARR_ROW_H + GRAND_ROW_H : 0;
       return CARD_HDR_H + arrH;
     };
     const grandCount  = dailySummary.reduce((s, r) => s + r.count, 0);
@@ -397,15 +394,11 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 
       let ry = y + CARD_HDR_H;
 
-      // Arriérés rows
+      // Arriérés rows (sum line removed)
       if (arr.length > 0) {
         const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
         const totalDu = s.amount + arrTotal;
-        rf(PAD, ry, CW, ARR_HDR_H, "#fef2f2");
         ln(PAD, ry, PAD + CW, ry, "#fca5a5");
-        t("Arriérés", C_PROF, ry + ARR_HDR_H / 2, { size: 8, bold: true, color: "#b91c1c" });
-        t(fmtAmount(arrTotal) + " FCFA", C_AMT, ry + ARR_HDR_H / 2, { size: 9, bold: true, color: "#b91c1c", align: "right" });
-        ry += ARR_HDR_H;
         arr.forEach((a, ai) => {
           rf(PAD, ry, CW, ARR_ROW_H, ai % 2 === 0 ? "#fff7f7" : "#fef2f2");
           t(fmtDateFr(a.date), C_PROF, ry + ARR_ROW_H / 2, { size: 8, color: "#ef4444" });
