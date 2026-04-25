@@ -1218,6 +1218,68 @@ export async function resetHotspotUser(
   }, 30_000);
 }
 
+/**
+ * Delete MikHmon sales scripts older than the cutoff (year, month).
+ * Scripts whose parsed date is strictly before the first day of the cutoff
+ * month are removed. Scripts whose date cannot be parsed are skipped.
+ *
+ * Returns counts of removed/failed scripts and a per-month breakdown of
+ * what was removed (oldest first).
+ */
+export async function purgeOldMikhmonScripts(
+  conn: RouterConnection,
+  cutoffYear: number,
+  cutoffMonth: number, // 1-12
+): Promise<{
+  removed: number;
+  failed: number;
+  scanned: number;
+  byMonth: Array<{ yearMonth: string; count: number }>;
+}> {
+  return withRouter(conn, async (api) => {
+    const cutoff = new Date(cutoffYear, cutoffMonth - 1, 1, 0, 0, 0);
+    const all = await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []);
+
+    type Candidate = { id: string; date: Date; ym: string };
+    const candidates: Candidate[] = [];
+    for (const s of all) {
+      const sname = (s["name"] as string) ?? "";
+      const sid   = s[".id"] as string | undefined;
+      if (!sid) continue;
+      const parts = sname.split("-|-");
+      if (parts.length < 3) continue;
+      const dt = parseMikhmonDate(parts[0], parts[1]);
+      if (!dt) continue;
+      if (dt.getTime() >= cutoff.getTime()) continue;
+      const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      candidates.push({ id: sid, date: dt, ym });
+    }
+
+    // Oldest first
+    candidates.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    let removed = 0;
+    let failed = 0;
+    const byMonthMap = new Map<string, number>();
+
+    for (const c of candidates) {
+      try {
+        await api.write("/system/script/remove", [`=.id=${c.id}`]);
+        removed++;
+        byMonthMap.set(c.ym, (byMonthMap.get(c.ym) ?? 0) + 1);
+      } catch {
+        failed++;
+      }
+    }
+
+    const byMonth = Array.from(byMonthMap.entries())
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([yearMonth, count]) => ({ yearMonth, count }));
+
+    return { removed, failed, scanned: candidates.length, byMonth };
+  }, 120_000);
+}
+
 // ─── Character sets (MikHMon-compatible) ─────────────────────────────────────
 export type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
 

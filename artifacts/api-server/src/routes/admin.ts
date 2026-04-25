@@ -1,11 +1,14 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
-import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
+import { eq, and, sql } from "drizzle-orm";
+import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken } from "../lib/manager-auth.js";
 import { verifyPassword as verifyCollabPassword, createToken as createCollabToken } from "../lib/collaborateur-auth.js";
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
+import { purgeOldMikhmonScripts } from "../lib/mikrotik.js";
+import { withRouterLock } from "../lib/router-lock.js";
+import { clearRouterScriptCache } from "../lib/script-cache.js";
 
 const router = Router();
 
@@ -174,6 +177,110 @@ router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<voi
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
   }
+});
+
+/**
+ * POST /api/admin/purge-old-sales-scripts
+ * Deletes MikHmon sales scripts on every router whose date is older than the
+ * previous calendar month (i.e. keeps current month + previous month).
+ * Also purges the corresponding rows from the local script-sales cache.
+ *
+ * Body (optional):
+ *   { routerId?: number }   // restrict to a single router
+ */
+router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+
+  const { routerId } = (req.body ?? {}) as { routerId?: number };
+
+  // Cutoff = first day of previous month. Anything strictly before is removed.
+  const now = new Date();
+  const cutoffYear  = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+  const cutoffMonth = now.getMonth() === 0 ? 12 : now.getMonth(); // 1-12, = previous month
+  const cutoffDate  = new Date(cutoffYear, cutoffMonth - 1, 1, 0, 0, 0);
+
+  const routerRows = routerId
+    ? await db.select().from(routersTable).where(eq(routersTable.id, routerId))
+    : await db.select().from(routersTable);
+
+  type RouterResult = {
+    routerId: number;
+    routerName: string;
+    routerHost: string;
+    skipped: boolean;
+    reason?: string;
+    removed: number;
+    failed: number;
+    cacheRowsDeleted: number;
+    byMonth: Array<{ yearMonth: string; count: number }>;
+  };
+
+  const results: RouterResult[] = [];
+
+  for (const r of routerRows) {
+    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+    try {
+      // Hold the router lock for the entire transaction so background sync
+      // cannot start mid-way and re-insert rows we are about to delete.
+      const { purge, deletedRows } = await withRouterLock(r.id, async () => {
+        const purgeRes = await purgeOldMikhmonScripts(conn, cutoffYear, cutoffMonth);
+
+        // Purge corresponding rows from the local cache so the next sync
+        // does not re-attempt to use them.
+        const rows = await db
+          .delete(scriptSalesTable)
+          .where(and(
+            eq(scriptSalesTable.routerId, r.id),
+            sql`${scriptSalesTable.saleDate} < ${cutoffDate.toISOString()}`,
+          ))
+          .returning({ id: scriptSalesTable.id });
+
+        // Force the next syncScriptCache call to do a full reload so its
+        // internal "fully populated" flag aligns with the new state.
+        clearRouterScriptCache(r.id);
+
+        return { purge: purgeRes, deletedRows: rows };
+      });
+
+      results.push({
+        routerId: r.id,
+        routerName: r.name ?? r.host,
+        routerHost: r.host,
+        skipped: false,
+        removed: purge.removed,
+        failed: purge.failed,
+        cacheRowsDeleted: deletedRows.length,
+        byMonth: purge.byMonth,
+      });
+    } catch (err) {
+      results.push({
+        routerId: r.id,
+        routerName: r.name ?? r.host,
+        routerHost: r.host,
+        skipped: true,
+        reason: err instanceof Error ? err.message : "Erreur routeur",
+        removed: 0,
+        failed: 0,
+        cacheRowsDeleted: 0,
+        byMonth: [],
+      });
+    }
+  }
+
+  const totalRemoved = results.reduce((s, r) => s + r.removed, 0);
+  const totalFailed  = results.reduce((s, r) => s + r.failed,  0);
+
+  res.json({
+    cutoff: `${cutoffYear}-${String(cutoffMonth).padStart(2, "0")}-01`,
+    keptMonths: "Mois courant + mois précédent",
+    results,
+    totalRemoved,
+    totalFailed,
+  });
 });
 
 export default router;
