@@ -874,6 +874,7 @@ function Dashboard({ token, vendor, onLogout }: {
   const [versData, setVersData] = useState<VersementData | null>(hadCacheRef.current ? _dc.versData : null);
   const [arrearsData, setArrearsData] = useState<DailyArrearsData | null>(hadCacheRef.current ? _dc.arrearsData : null);
   const [loading, setLoading] = useState(!hadCacheRef.current);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
   const [recentSearch, setRecentSearch] = useState("");
@@ -924,34 +925,57 @@ function Dashboard({ token, vendor, onLogout }: {
   const periodCacheRef = useRef<Map<string, PeriodSalesData>>(new Map());
 
   const fetchData = useCallback(async (showLoading = true) => {
-    // Only show spinner if there was no cached data at mount time
+    // Spinner skeleton uniquement si on n'a aucune donnée à afficher
     if (showLoading && !hadCacheRef.current) setLoading(true);
     setError("");
+    setIsRefreshing(true);
+    const headers = { Authorization: `Bearer ${token}` };
+    let logoutTriggered = false;
+
+    // Les 3 endpoints partent en parallèle. Chacun met à jour son propre
+    // morceau d'état dès qu'il revient — le tableau de bord se peint au
+    // fur et à mesure au lieu d'attendre le plus lent.
+    const dashPromise = api("/vendor-portal/me", { headers })
+      .then(async (res) => {
+        if (res.status === 401 || res.status === 403) {
+          if (!logoutTriggered) { logoutTriggered = true; onLogout(); }
+          return;
+        }
+        if (!res.ok) throw new Error("dashboard");
+        const d = await res.json() as PortalData;
+        setData(d);
+        _dc.token = token;
+        _dc.data  = d;
+        // Dès que le coeur du dashboard arrive, on cache la skeleton
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!hadCacheRef.current) setError("Erreur lors du chargement des données");
+      });
+
+    const paymentsPromise = api("/vendor-portal/me/payments", { headers })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const v = await res.json() as VersementData;
+        setVersData(v);
+        _dc.versData = v;
+      })
+      .catch(() => { /* non-bloquant */ });
+
+    const arrearsPromise = api("/vendor-portal/me/daily-arrears", { headers })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const a = await res.json() as DailyArrearsData;
+        setArrearsData(a);
+        _dc.arrearsData = a;
+      })
+      .catch(() => { /* non-bloquant */ });
+
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [res, versRes, arrearsRes] = await Promise.all([
-        api("/vendor-portal/me", { headers }),
-        api("/vendor-portal/me/payments", { headers }),
-        api("/vendor-portal/me/daily-arrears", { headers }),
-      ]);
-      if (res.status === 401 || res.status === 403) { onLogout(); return; }
-      const [d, v, a] = await Promise.all([
-        res.json() as Promise<PortalData>,
-        versRes.ok  ? (versRes.json()    as Promise<VersementData>)    : Promise.resolve(null),
-        arrearsRes.ok ? (arrearsRes.json() as Promise<DailyArrearsData>) : Promise.resolve(null),
-      ]);
-      setData(d);
-      if (v !== null) setVersData(v);
-      if (a !== null) setArrearsData(a);
-      // ── Populate module-level cache ───────────────────────────────────
-      _dc.token = token;
-      _dc.data  = d;
-      if (v !== null) _dc.versData    = v;
-      if (a !== null) _dc.arrearsData = a;
-    } catch {
-      setError("Erreur lors du chargement des données");
+      await Promise.allSettled([dashPromise, paymentsPromise, arrearsPromise]);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   }, [token, onLogout]);
 
@@ -969,9 +993,13 @@ function Dashboard({ token, vendor, onLogout }: {
 
   useEffect(() => {
     fetchData(true).then(() => { prefetchPeriods(); });
-    // Silent background refresh every 15s — no loading spinner shown
-    const id = setInterval(() => { fetchData(false); prefetchPeriods(); }, 15_000);
-    return () => clearInterval(id);
+    // Refresh discret toutes les 8 s pour un ressenti temps réel.
+    // Côté serveur, le cache TTL=20 s + stale-while-revalidate font que la
+    // plupart des requêtes sont servies instantanément (pure mémoire).
+    const id = setInterval(() => { fetchData(false); }, 8_000);
+    // Le prefetch des rapports périodes reste à 30 s (plus lourd, change peu).
+    const idPeriod = setInterval(() => { prefetchPeriods(); }, 30_000);
+    return () => { clearInterval(id); clearInterval(idPeriod); };
   }, [fetchData, prefetchPeriods]);
 
   // Demander la permission de notification au montage
@@ -1044,8 +1072,14 @@ function Dashboard({ token, vendor, onLogout }: {
             <User className="h-4 w-4" />
             {vendor.name}
           </div>
-          <Button size="sm" variant="ghost" onClick={() => fetchData(true)} title="Actualiser">
-            <RefreshCw className="h-4 w-4" />
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => fetchData(true)}
+            disabled={isRefreshing}
+            title={isRefreshing ? "Synchronisation en cours…" : "Actualiser"}
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-blue-600" : ""}`} />
           </Button>
           <Button
             size="sm"
@@ -1070,8 +1104,23 @@ function Dashboard({ token, vendor, onLogout }: {
           <p className="text-sm text-gray-500">Bienvenue, {vendor.name}</p>
         </div>
 
-        {loading && !data && <div className="text-center py-12 text-gray-400">Chargement...</div>}
-        {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
+        {loading && !data && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 animate-pulse" aria-label="Chargement du tableau de bord">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i}>
+                <CardContent className="p-3 flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-xl bg-gray-200 flex-shrink-0" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="h-5 bg-gray-200 rounded w-2/3" />
+                    <div className="h-2.5 bg-gray-100 rounded w-1/2" />
+                    <div className="h-2.5 bg-gray-100 rounded w-3/4" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+        {error && !data && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
         {data && (
           <>
