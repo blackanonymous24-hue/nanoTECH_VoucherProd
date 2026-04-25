@@ -1140,12 +1140,12 @@ export async function disconnectSession(conn: RouterConnection, username: string
 export async function resetHotspotUser(
   conn: RouterConnection,
   username: string,
-): Promise<{ found: boolean; sessionKicked: number }> {
+): Promise<{ found: boolean; sessionKicked: number; salesScriptsRemoved: number; salesScriptsFailed: number }> {
   return withRouter(conn, async (api) => {
     // 1. Find user and capture all relevant fields
     const all = await api.write("/ip/hotspot/user/print");
     const user = all.find((u) => fixEncoding((u["name"] as string) ?? "").toLowerCase() === username.toLowerCase());
-    if (!user) return { found: false, sessionKicked: 0 };
+    if (!user) return { found: false, sessionKicked: 0, salesScriptsRemoved: 0, salesScriptsFailed: 0 };
 
     const id = user[".id"] as string | undefined;
 
@@ -1176,7 +1176,30 @@ export async function resetHotspotUser(
       await api.write("/ip/hotspot/user/remove", [`=.id=${id}`]);
     }
 
-    // 4. Recreate with the same credentials — counters start at zero
+    // 4. Remove MikHmon sales scripts for this username so the background
+    //    usage-sync does not re-mark the voucher as used. Script names follow
+    //    the pattern "date-|-time-|-username-|-..." with comment "mikhmon".
+    let salesScriptsRemoved = 0;
+    let salesScriptsFailed = 0;
+    const usernameLower = username.toLowerCase();
+    const mikhmonScripts = await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []);
+    for (const s of mikhmonScripts) {
+      const sname = (s["name"] as string) ?? "";
+      const parts = sname.split("-|-");
+      if (parts.length >= 3 && parts[2].trim().toLowerCase() === usernameLower) {
+        const sid = s[".id"] as string | undefined;
+        if (sid) {
+          try {
+            await api.write("/system/script/remove", [`=.id=${sid}`]);
+            salesScriptsRemoved++;
+          } catch {
+            salesScriptsFailed++;
+          }
+        }
+      }
+    }
+
+    // 5. Recreate with the same credentials — counters start at zero
     const addParams: string[] = [
       `=name=${toWin1252(name)}`,
       `=password=${toWin1252(password)}`,
@@ -1191,8 +1214,8 @@ export async function resetHotspotUser(
 
     await api.write("/ip/hotspot/user/add", addParams);
 
-    return { found: true, sessionKicked };
-  }, 20_000);
+    return { found: true, sessionKicked, salesScriptsRemoved, salesScriptsFailed };
+  }, 30_000);
 }
 
 // ─── Character sets (MikHMon-compatible) ─────────────────────────────────────

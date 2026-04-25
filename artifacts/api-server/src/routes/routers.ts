@@ -869,20 +869,46 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
 
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
-    const result = await resetHotspotUser(conn, username);
+    const result = await withRouterLock(id, async () => {
+      const r2 = await resetHotspotUser(conn, username);
+      if (!r2.found) return r2;
+
+      // Clear usedAt + sale fields in DB so the voucher is marked unsold again.
+      // Username column is case-insensitive matched (lower) to align with the
+      // sync logic which compares with toLowerCase().
+      await db
+        .update(vouchersTable)
+        .set({ usedAt: null, salePrice: null, macAddress: null, saleIp: null })
+        .where(and(
+          eq(vouchersTable.routerId, id),
+          sql`lower(${vouchersTable.username}) = lower(${username})`,
+        ));
+
+      // Purge local script-sales cache rows (case-insensitive) so the
+      // background usage-sync does not immediately re-mark the voucher as used.
+      await db
+        .delete(scriptSalesTable)
+        .where(and(
+          eq(scriptSalesTable.routerId, id),
+          sql`lower(${scriptSalesTable.username}) = lower(${username})`,
+        ));
+
+      return r2;
+    });
+
     if (!result.found) {
       res.status(404).json({ error: "Utilisateur introuvable sur le routeur" });
       return;
     }
 
-    // Clear usedAt in DB so the voucher is marked unsold again
-    await db
-      .update(vouchersTable)
-      .set({ usedAt: null })
-      .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.username, username)));
-
     userCache.delete(id);
-    res.json({ ok: true, username, sessionKicked: result.sessionKicked });
+    res.json({
+      ok: true,
+      username,
+      sessionKicked: result.sessionKicked,
+      salesScriptsRemoved: result.salesScriptsRemoved,
+      salesScriptsFailed: result.salesScriptsFailed,
+    });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
