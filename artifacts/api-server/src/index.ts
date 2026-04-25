@@ -4,6 +4,7 @@ import { logger } from "./lib/logger.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
+import { startMaintenanceScheduler } from "./lib/maintenance-scheduler.js";
 
 const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
@@ -24,4 +25,7 @@ app.listen(port, "0.0.0.0", () => {
   // Pre-warm profile snapshots in background — ensures fast response even
   // after a restart and provides a DB fallback for offline routers.
   void warmProfileSnapshots();
+  // Maintenance automatique : purge des vouchers fantômes toutes les heures
+  // et suppression des anciens scripts MikHmon le 1er de chaque mois.
+  startMaintenanceScheduler();
 });
