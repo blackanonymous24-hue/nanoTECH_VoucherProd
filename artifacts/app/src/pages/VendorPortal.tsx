@@ -1279,21 +1279,14 @@ function Dashboard({ token, vendor, onLogout }: {
                             </div>
                           </div>
 
-                          {/* Versements détaillés (journalier vs hebdomadaire) */}
-                          {((w.dailyPaid ?? 0) > 0 || (w.weeklyPaid ?? 0) > 0) && (
-                            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-                              {(w.dailyPaid ?? 0) > 0 && (
-                                <div className="rounded bg-sky-50 border border-sky-100 px-2 py-1 flex items-center justify-between">
-                                  <span className="text-sky-600">Journalier</span>
-                                  <span className="font-bold text-sky-700 tabular-nums">{fmtFcfa(w.dailyPaid!)}</span>
-                                </div>
-                              )}
-                              {(w.weeklyPaid ?? 0) > 0 && (
-                                <div className="rounded bg-emerald-50 border border-emerald-100 px-2 py-1 flex items-center justify-between">
-                                  <span className="text-emerald-600">Hebdo.</span>
-                                  <span className="font-bold text-emerald-700 tabular-nums">{fmtFcfa(w.weeklyPaid!)}</span>
-                                </div>
-                              )}
+                          {/* Versements détaillés — uniquement la part hebdomadaire.
+                              Le détail "Journalier" n'est jamais affiché. */}
+                          {(w.weeklyPaid ?? 0) > 0 && (
+                            <div className="grid grid-cols-1 gap-1.5 text-[10px]">
+                              <div className="rounded bg-emerald-50 border border-emerald-100 px-2 py-1 flex items-center justify-between">
+                                <span className="text-emerald-600">Hebdo.</span>
+                                <span className="font-bold text-emerald-700 tabular-nums">{fmtFcfa(w.weeklyPaid!)}</span>
+                              </div>
                             </div>
                           )}
 
