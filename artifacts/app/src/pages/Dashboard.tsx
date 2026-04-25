@@ -730,11 +730,12 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {(() => {
-                    // MikroTik émet chaque évènement plusieurs fois :
-                    //   1× avec préfixe "->:" + 1× sans (les deux directions du log)
-                    //   "trying to log in by mac-cookie" suivi de "logged in" pour la même session
-                    // On dédoublonne par (heure + user + ip), en préférant l'action la plus informative
-                    // ("log in by X" > "log in", "logged out X" > "logged out").
+                    // MikroTik émet chaque évènement plusieurs fois pour la même session :
+                    //   ligne 1: "trying to log in by mac-cookie"  (IP négociée)
+                    //   ligne 2: "logged in"                       (IP finale, parfois différente)
+                    //   + chaque ligne dupliquée avec préfixe "->:".
+                    // On dédoublonne par (heure + user) — l'IP peut varier entre les deux
+                    // lignes — et on garde l'action la plus informative.
                     const score = (a: string) => {
                       if (/^log in by /i.test(a)) return 3;
                       if (/^logged out .+/i.test(a)) return 3;
@@ -745,7 +746,7 @@ export default function Dashboard() {
                     const groups = new Map<string, LogEntry>();
                     for (const e of logs) {
                       const p = parseHotspotMessage(e.message);
-                      const key = `${e.time}|${p.user ?? ""}|${p.ip ?? ""}`;
+                      const key = `${e.time}|${p.user ?? ""}`;
                       const prev = groups.get(key);
                       if (!prev) { groups.set(key, e); continue; }
                       const prevAction = parseHotspotMessage(prev.message).action;
@@ -756,7 +757,7 @@ export default function Dashboard() {
                     const dedup: LogEntry[] = [];
                     for (const e of logs) {
                       const p = parseHotspotMessage(e.message);
-                      const key = `${e.time}|${p.user ?? ""}|${p.ip ?? ""}`;
+                      const key = `${e.time}|${p.user ?? ""}`;
                       if (seen.has(key)) continue;
                       seen.add(key);
                       const winner = groups.get(key);
