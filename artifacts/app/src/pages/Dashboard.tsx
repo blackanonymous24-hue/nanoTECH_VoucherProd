@@ -741,9 +741,9 @@ export default function Dashboard() {
                             )}
                           </td>
                           <td className="px-3 py-2 align-top">
-                            <div className="flex items-center gap-2">
-                              {icon}
-                              <span className="text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis">{action}</span>
+                            <div className="flex items-start gap-2">
+                              <span className="mt-0.5 shrink-0">{icon}</span>
+                              <span className="text-gray-700 break-words leading-snug">{action}</span>
                             </div>
                           </td>
                         </tr>
