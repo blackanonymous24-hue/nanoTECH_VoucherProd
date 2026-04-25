@@ -107,20 +107,19 @@ interface DailyArrearsResponse {
 /** Consolidated arrears entry: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
 type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrearEntry[] };
 function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
-  if (entries.length <= 3) return entries;
-  // Sort descending by date so the 2 most recent are at the front
-  const desc = [...entries].sort((a, b) => b.date.localeCompare(a.date));
-  const recent = desc.slice(0, 2);
-  const older = desc.slice(2);
+  // Always return ascending (oldest first, most recent last)
+  const asc = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  if (asc.length <= 3) return asc;
+  const older = asc.slice(0, asc.length - 2); // all but the 2 most recent
+  const recent = asc.slice(asc.length - 2);   // 2 most recent, ascending
   const merged: ConsolidatableArrearEntry = {
-    date: older[0].date, // most recent of the merged (older) days
+    date: older[older.length - 1].date, // most recent of the merged (older) days
     salesAmount: older.reduce((s, e) => s + e.salesAmount, 0),
     paidAmount:  older.reduce((s, e) => s + e.paidAmount,  0),
     remaining:   older.reduce((s, e) => s + e.remaining,   0),
     payments:    older.flatMap((e) => e.payments),
     __underlying: older,
   };
-  // Return merged line first (oldest bucket), then the 2 most recent individually
   return [merged, ...recent];
 }
 

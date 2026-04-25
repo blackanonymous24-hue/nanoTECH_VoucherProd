@@ -97,20 +97,20 @@ type DailyArrearsData = { days: DailyArrearsDay[] };
 /** Consolidated arrears: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
 type ConsolidatableDailyArrearsDay = DailyArrearsDay & { __underlyingCount?: number };
 function consolidateDailyArrears(days: DailyArrearsDay[]): ConsolidatableDailyArrearsDay[] {
-  if (days.length <= 3) return days;
-  const desc = [...days].sort((a, b) => b.date.localeCompare(a.date));
-  const recent = desc.slice(0, 2);
-  const older = desc.slice(2);
+  // Always return ascending (oldest first, most recent last)
+  const asc = [...days].sort((a, b) => a.date.localeCompare(b.date));
+  if (asc.length <= 3) return asc;
+  const older = asc.slice(0, asc.length - 2);
+  const recent = asc.slice(asc.length - 2);
   const merged: ConsolidatableDailyArrearsDay = {
-    date: older[0].date,
+    date: older[older.length - 1].date,
     count:     older.reduce((s, d) => s + d.count, 0),
     amount:    older.reduce((s, d) => s + d.amount, 0),
     paid:      older.reduce((s, d) => s + d.paid, 0),
     remaining: older.reduce((s, d) => s + d.remaining, 0),
     __underlyingCount: older.length,
   };
-  // Caller sorts ascending; return ascending (oldest merged first, then 2 most recent ascending)
-  return [merged, ...recent.slice().reverse()];
+  return [merged, ...recent];
 }
 type PeriodSalesData = {
   period: string;
