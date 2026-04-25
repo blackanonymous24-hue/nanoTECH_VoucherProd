@@ -718,21 +718,6 @@ export default function VendorTracking() {
   const grandCount       = useMemo(() => summary.reduce((s, r) => s + r.count, 0), [summary]);
   const activeSummary    = useMemo(() => summary.filter((s) => s.count > 0), [summary]);
 
-  // Per-vendor, per-profile breakdown computed from raw vouchers (for daily recap cards)
-  const dailyProfileMap = useMemo(() => {
-    const map = new Map<number | null, { profileName: string; count: number; amount: number }[]>();
-    for (const v of vouchers) {
-      if (!map.has(v.vendorId)) map.set(v.vendorId, []);
-      const list = map.get(v.vendorId)!;
-      const existing = list.find((p) => p.profileName === v.profileName);
-      if (existing) { existing.count += 1; existing.amount += v.amount; }
-      else list.push({ profileName: v.profileName, count: 1, amount: v.amount });
-    }
-    // Sort each vendor's list by amount desc
-    for (const list of map.values()) list.sort((a, b) => b.amount - a.amount);
-    return map;
-  }, [vouchers]);
-
   const weekTotal_amount = useMemo(() => weekSummary.reduce((s, r) => s + r.amount, 0), [weekSummary]);
   const weekTotal_count  = useMemo(() => weekSummary.reduce((s, r) => s + r.count, 0), [weekSummary]);
   const weekTotal_paid   = useMemo(() => weekSummary.reduce((s, r) => s + (r.paidAmount ?? 0), 0), [weekSummary]);
@@ -951,7 +936,6 @@ export default function VendorTracking() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {activeSummary.map((s) => {
-                    const profiles = dailyProfileMap.get(s.vendorId) ?? [];
                     const allArrears = arrearsData?.arrears[String(s.vendorId)] ?? [];
                     const currentWeekStart = mondayOfDate(applied);
                     // Split arriérés: previous weeks vs current week
@@ -976,27 +960,13 @@ export default function VendorTracking() {
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
-                        {/* Profile breakdown */}
+                        {/* Vendor totals + arrears (forfait breakdown removed) */}
                         <table className="w-full border-collapse">
-                          <thead>
-                            <tr style={{ backgroundColor: pal.light + "80" }}>
-                              <th className="px-3 py-1 text-left text-[10px] text-gray-400 font-medium">Forfait</th>
-                              <th className="px-3 py-1 text-center text-[10px] text-gray-400 font-medium w-14">Tkt</th>
-                              <th className="px-3 py-1 text-right text-[10px] text-gray-400 font-medium">Montant</th>
-                            </tr>
-                          </thead>
                           <tbody>
-                            {profiles.map((p) => (
-                              <tr key={p.profileName} className="border-t border-gray-50">
-                                <td className="px-3 py-1.5 text-gray-600">{p.profileName}</td>
-                                <td className="px-3 py-1.5 text-center text-gray-700 tabular-nums">{p.count}</td>
-                                <td className="px-3 py-1.5 text-right font-medium text-gray-800 tabular-nums">{fmtAmount(p.amount)} FCFA</td>
-                              </tr>
-                            ))}
                             {/* Total row */}
-                            <tr className="border-t" style={{ borderColor: pal.border, backgroundColor: pal.mid }}>
+                            <tr style={{ backgroundColor: pal.mid }}>
                               <td className="px-3 py-1.5 font-semibold" style={{ color: pal.dark }}>Total</td>
-                              <td className="px-3 py-1.5 text-center font-bold tabular-nums" style={{ color: pal.dark }}>{s.count}</td>
+                              <td className="px-3 py-1.5 text-center font-bold tabular-nums w-14" style={{ color: pal.dark }}>{s.count}</td>
                               <td className="px-3 py-1.5 text-right font-bold tabular-nums" style={{ color: pal.dark }}>{fmtAmount(s.amount)} FCFA</td>
                             </tr>
                             {/* ── Arriérés semaine(s) précédente(s) — ligne agrégée ── */}
