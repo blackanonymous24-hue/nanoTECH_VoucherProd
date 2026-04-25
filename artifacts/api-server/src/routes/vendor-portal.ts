@@ -604,6 +604,10 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   }
   const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
 
+  // cutoffDate = Monday of the FIRST non-settled week.
+  // Tous les jours strictement antérieurs à ce lundi (donc la semaine soldée
+  // elle-même + toutes les semaines plus anciennes, même vieilles de plusieurs
+  // années) sont considérés comme soldés et masqués.
   let cutoffDate: string | null = null;
   for (const monday of weekMondays) {
     const weekStart = new Date(monday + "T00:00:00Z");
@@ -614,7 +618,11 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
       weekTotalSales += salesMap.get(dateStr) ?? 0;
       weekTotalPaid  += paidMap.get(dateStr)  ?? 0;
     }
-    if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) { cutoffDate = monday; break; }
+    if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) {
+      const nextMonday = new Date(weekStart.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+      cutoffDate = nextMonday;
+      break;
+    }
   }
 
   const days = salesRows

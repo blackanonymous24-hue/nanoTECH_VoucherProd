@@ -61,7 +61,7 @@ function ArrearRow({
   vendorId: number;
   entry: DailyArrearEntry;
   routerId: number;
-  onDone: () => void;
+  onDone: () => Promise<void> | void;
 }) {
   const [amount, setAmount]   = useState(String(entry.remaining));
   const [loading, setLoading] = useState(false);
@@ -97,7 +97,9 @@ function ArrearRow({
       toast({ title: "Versement supprimé" });
       // Re-active la ligne si on l'avait marquée "soldée" puis qu'on retire un paiement.
       setDone(false);
-      onDone();
+      // On attend la fin du refetch pour que la liste affichée soit
+      // strictement à jour avant que l'utilisateur ne puisse re-cliquer.
+      await onDone();
     } finally {
       setDeletingId(null);
     }
@@ -269,9 +271,10 @@ export default function DailyPayments() {
     staleTime: 60_000,
   });
 
-  const refresh = useCallback(() => {
-    void invalidateAllPaymentQueries(queryClient, selectedRouterId);
-  }, [queryClient, selectedRouterId]);
+  const refresh = useCallback(
+    () => invalidateAllPaymentQueries(queryClient, selectedRouterId),
+    [queryClient, selectedRouterId],
+  );
 
   /* Build sorted vendor rows */
   const rows: VendorRow[] = [];

@@ -1103,7 +1103,10 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     for (const [date] of paidMapV) weekMondaysSet.add(getMondayOf(date));
     const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
 
-    // Find the most recently settled week
+    // Find the most recently settled week.
+    // cutoffDate = Monday of the FIRST non-settled week. Tous les jours
+    // strictement antérieurs à ce lundi (donc la semaine soldée elle-même +
+    // toutes les semaines antérieures, même très anciennes) sont masqués.
     let cutoffDate: string | null = null;
     for (const monday of weekMondays) {
       const weekStart = new Date(monday + "T00:00:00Z");
@@ -1114,7 +1117,11 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
         weekTotalSales += salesMapV.get(d) ?? 0;
         weekTotalPaid  += paidMapV.get(d)  ?? 0;
       }
-      if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) { cutoffDate = monday; break; }
+      if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) {
+        const nextMonday = new Date(weekStart.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+        cutoffDate = nextMonday;
+        break;
+      }
     }
 
     const vendorArr: typeof arrears[string] = [];

@@ -133,7 +133,7 @@ function VendorRow({
   vendor: VendorWeekEntry;
   routerId: number;
   weekStart: string;
-  onMutated: () => void;
+  onMutated: () => Promise<void> | void;
 }) {
   const [open, setOpen]     = useState(false);
   const [amount, setAmount] = useState("");
@@ -169,7 +169,9 @@ function VendorRow({
         toast({ title: "Erreur", description: txt || `HTTP ${res.status}`, variant: "destructive" });
         return;
       }
-      onMutated();
+      // On attend la fin du refetch pour que la liste affichée soit
+      // strictement à jour avant que le bouton ne redevienne actif.
+      await onMutated();
       toast({ title: "Versement annulé" });
     } catch (err) {
       toast({
@@ -329,7 +331,7 @@ function WeekCard({
     staleTime: 30_000,
   });
 
-  const onMutated = () => void invalidateAllPaymentQueries(queryClient, routerId);
+  const onMutated = () => invalidateAllPaymentQueries(queryClient, routerId);
 
   const grandSales      = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.amount, 0), [data]);
   const grandCommission = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.commission, 0), [data]);
