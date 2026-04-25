@@ -206,6 +206,11 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
         .returning();
     });
 
+    // Drop the cached MikroTik user list so any reconciliation read-back
+    // (e.g. the client checking how many users actually exist for a lot
+    // after a retry) sees the freshly-added users.
+    invalidateUserCache(routerId);
+
     res.status(201).json(inserted);
 
     // Background: auto-attribute vouchers without vendorId to the matching vendor by comment suffix

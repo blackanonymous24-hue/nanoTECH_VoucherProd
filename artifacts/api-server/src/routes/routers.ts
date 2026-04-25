@@ -626,9 +626,13 @@ interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expir
 const userCache = new Map<number, UserCache>();
 const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expires first
 
-async function getCachedUsers(id: number, conn: Parameters<typeof listHotspotUsers>[0]) {
+async function getCachedUsers(
+  id: number,
+  conn: Parameters<typeof listHotspotUsers>[0],
+  opts: { force?: boolean } = {},
+) {
   const cached = userCache.get(id);
-  if (cached && Date.now() < cached.expiresAt) return cached.users;
+  if (!opts.force && cached && Date.now() < cached.expiresAt) return cached.users;
   const users = await listHotspotUsers(conn, 60_000);
   userCache.set(id, { users, expiresAt: Date.now() + USER_CACHE_TTL });
   return users;
@@ -644,8 +648,8 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { search, profile, comment: commentFilter, limit: limitStr, offset: offsetStr } = req.query as {
-    search?: string; profile?: string; comment?: string; limit?: string; offset?: string;
+  const { search, profile, comment: commentFilter, limit: limitStr, offset: offsetStr, refresh } = req.query as {
+    search?: string; profile?: string; comment?: string; limit?: string; offset?: string; refresh?: string;
   };
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
@@ -653,7 +657,7 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    let users = await getCachedUsers(id, conn);
+    let users = await getCachedUsers(id, conn, { force: refresh === "1" || refresh === "true" });
 
     if (search) {
       const q = search.toLowerCase();

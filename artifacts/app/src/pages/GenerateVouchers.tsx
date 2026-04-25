@@ -115,6 +115,26 @@ async function waitForRouter(routerId: number, base: string): Promise<void> {
   }
 }
 
+/**
+ * Réconcilie l'état du lot avec le routeur après une erreur réseau ou un
+ * timeout : un batch peut avoir abouti sur MikroTik sans que la réponse HTTP
+ * nous parvienne. Sans ça, on régénérerait 50 vouchers de plus à chaque
+ * tentative — d'où des lots qui finissent à 1050+ alors qu'on en a demandé
+ * 1000. Renvoie la liste réelle des utilisateurs MikroTik portant ce
+ * commentaire (cache invalidé côté serveur via `refresh=1`).
+ */
+async function fetchLotUsers(
+  routerId: number,
+  comment: string,
+  base: string,
+): Promise<Array<{ username: string; password: string; profile: string; comment: string | null }>> {
+  const url = `${base}/api/routers/${routerId}/users?comment=${encodeURIComponent(comment)}&limit=5000&refresh=1`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { users?: Array<{ username: string; password: string; profile: string; comment: string | null }> };
+  return data.users ?? [];
+}
+
 function makeBatchId(mode: "vc" | "up" = "vc"): string {
   const now = new Date();
   const M = String(now.getMonth() + 1).padStart(2, "0");
@@ -343,8 +363,49 @@ export default function GenerateVouchers() {
               // Routeur inaccessible : on met en pause et on attend le retour.
               setGenPaused(true);
               await waitForRouter(selectedRouterId, BASE);
+
+              // ── Réconciliation anti-doublons ────────────────────────────
+              // Le batch peut avoir été appliqué côté MikroTik avant la
+              // coupure : si on retentait à l'aveugle, on créerait un
+              // 2ᵉ jeu de 50 utilisateurs (avec des noms différents) sous
+              // le même commentaire de lot. On interroge donc MikroTik
+              // pour obtenir l'état réel et on synchronise `done` /
+              // `allVouchers` en conséquence avant de poursuivre.
+              try {
+                if (effectiveComment) {
+                  const onRouter = await fetchLotUsers(selectedRouterId, effectiveComment, BASE);
+                  if (onRouter.length > done) {
+                    const knownNames = new Set(allVouchers.map((v) => v.username));
+                    const missing = onRouter
+                      .filter((u) => !knownNames.has(u.username))
+                      .map<Voucher>((u) => ({
+                        id: 0,
+                        routerId: selectedRouterId,
+                        vendorId: vendorId ? parseInt(vendorId, 10) : null,
+                        username: u.username,
+                        password: u.password,
+                        profileName: u.profile,
+                        price: profilePrice,
+                        validity: profileValidity,
+                        comment: u.comment ?? effectiveComment,
+                        createdAt: new Date().toISOString(),
+                        printedAt: null,
+                        usedAt: null,
+                        soldAt: null,
+                      } as unknown as Voucher));
+                    allVouchers.push(...missing);
+                    done = allVouchers.length;
+                    setProgress({ done, total });
+                  }
+                }
+              } catch {
+                // Réconciliation best-effort : si elle échoue on retente
+                // simplement le batch comme avant.
+              }
+
               setGenPaused(false);
-              // Le même batch sera retenté.
+              // Le même batch sera retenté (avec un qty ajusté au tour
+              // suivant grâce au `done` mis à jour).
             } else {
               throw err; // Erreur non-retriable → on sort.
             }
