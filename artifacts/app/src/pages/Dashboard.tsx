@@ -67,6 +67,20 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " FCFA";
 }
 
+/**
+ * Parse a MikroTik hotspot log message into its semantic parts.
+ * Typical formats:
+ *   "->: 1mfih2id (172.16.3.126): logged in"
+ *   "1mfih2id (172.16.3.126): trying to log in by mac-cookie"
+ *   "1sm6k76j (172.16.0.15): logged out: keepalive timeout"
+ */
+function parseHotspotMessage(raw: string): { user: string | null; ip: string | null; action: string } {
+  const stripped = raw.replace(/^->:\s*/, "").trim();
+  const m = stripped.match(/^([^\s(<>:]+)\s*\(([^)]+)\):\s*(.*)$/);
+  if (m) return { user: m[1], ip: m[2], action: m[3] || stripped };
+  return { user: null, ip: null, action: stripped };
+}
+
 function classifyLog(entry: LogEntry): {
   icon: React.ReactNode;
   rowClass: string;
@@ -678,48 +692,64 @@ export default function Dashboard() {
           ) : (
             <div
               ref={listRef}
-              className="max-h-[260px] overflow-auto"
+              className="max-h-[320px] overflow-auto"
             >
-              <table className="w-full table-fixed font-mono text-xs">
+              <table className="w-full table-fixed text-xs">
                 <colgroup>
-                  <col style={{ width: 26 }} />
-                  <col style={{ width: 92 }} />
-                  <col style={{ width: 110 }} />
+                  <col style={{ width: 88 }} />
+                  <col style={{ width: 170 }} />
                   <col />
                 </colgroup>
-                <thead className="sticky top-0 z-10 bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
+                <thead className="sticky top-0 z-10 bg-gray-100 text-[11px] uppercase tracking-wide text-gray-600">
                   <tr className="border-b border-gray-200">
-                    <th className="px-2 py-1.5 text-center font-semibold"></th>
-                    <th className="px-2 py-1.5 text-left font-semibold">Heure</th>
-                    <th className="px-2 py-1.5 text-left font-semibold">Topics</th>
-                    <th className="px-2 py-1.5 text-left font-semibold">Message</th>
+                    <th className="px-3 py-2 text-left font-semibold">Time</th>
+                    <th className="px-3 py-2 text-left font-semibold">Users (IP)</th>
+                    <th className="px-3 py-2 text-left font-semibold">Messages</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {logs.map((entry, i) => {
-                    const { icon, rowClass, timeClass } = classifyLog(entry);
-                    const isNew = entry.id ? newIds.has(entry.id) : false;
-                    return (
-                      <tr
-                        key={entry.id || i}
-                        className={`transition-colors duration-500 ${rowClass} ${isNew ? "bg-blue-50/60" : ""}`}
-                        title={`${entry.time}  [${entry.topics}]  ${entry.message}`}
-                      >
-                        <td className="px-2 py-1 align-middle">
-                          <div className="flex items-center justify-center">{icon}</div>
-                        </td>
-                        <td className={`px-2 py-1 align-middle whitespace-nowrap ${timeClass}`}>
-                          {entry.time}
-                        </td>
-                        <td className="px-2 py-1 align-middle whitespace-nowrap text-gray-500 truncate">
-                          {entry.topics}
-                        </td>
-                        <td className="px-2 py-1 align-middle whitespace-nowrap text-gray-700 truncate">
-                          {entry.message}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                <tbody>
+                  {(() => {
+                    // Dedupe consecutive duplicates (MikroTik logs each event twice — with and without `->:` prefix).
+                    const dedup: typeof logs = [];
+                    let lastKey = "";
+                    for (const e of logs) {
+                      const stripped = (e.message ?? "").replace(/^->:\s*/, "").trim();
+                      const key = `${e.time}|${stripped}`;
+                      if (key !== lastKey) { dedup.push(e); lastKey = key; }
+                    }
+                    return dedup.map((entry, i) => {
+                      const { icon, rowClass, timeClass } = classifyLog(entry);
+                      const isNew = entry.id ? newIds.has(entry.id) : false;
+                      const { user, ip, action } = parseHotspotMessage(entry.message);
+                      return (
+                        <tr
+                          key={entry.id || i}
+                          className={`border-b border-gray-100 transition-colors duration-500 ${rowClass} ${isNew ? "bg-blue-50/60" : ""}`}
+                          title={`[${entry.topics}]  ${entry.message}`}
+                        >
+                          <td className={`px-3 py-2 align-top whitespace-nowrap font-mono ${timeClass}`}>
+                            {entry.time}
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            {user ? (
+                              <div className="leading-tight">
+                                <div className="font-mono text-gray-800 truncate">{user}</div>
+                                {ip && <div className="font-mono text-[11px] text-gray-500 truncate">({ip})</div>}
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 italic">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            <div className="flex items-center gap-2">
+                              {icon}
+                              <span className="text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis">{action}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
