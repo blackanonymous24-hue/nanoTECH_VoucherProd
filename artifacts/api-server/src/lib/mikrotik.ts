@@ -498,6 +498,29 @@ export async function deleteIpBinding(conn: RouterConnection, id: string): Promi
   });
 }
 
+// ─── Hotspot servers (instances) ────────────────────────────────────────────
+//
+// Listed via `/ip/hotspot/print`. Used by IP-binding UI to populate a
+// "Server" dropdown — instead of asking the user to type the name manually.
+export interface HotspotServer {
+  name: string;
+  interface: string;
+  profile: string;
+  disabled: boolean;
+}
+
+export async function listHotspotServers(conn: RouterConnection): Promise<HotspotServer[]> {
+  return withRouter(conn, async (api) => {
+    const rows = await api.write("/ip/hotspot/print");
+    return rows.map((s): HotspotServer => ({
+      name:      (s["name"]      as string) ?? "",
+      interface: (s["interface"] as string) ?? "",
+      profile:   (s["profile"]   as string) ?? "",
+      disabled:  (s["disabled"]  as string) === "true",
+    }));
+  });
+}
+
 export async function listAddressPools(conn: RouterConnection): Promise<string[]> {
   return withRouter(conn, async (api) => {
     const pools = await api.write("/ip/pool/print");

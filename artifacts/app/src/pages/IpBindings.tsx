@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,18 @@ interface BindingFormState {
   disabled: boolean;
 }
 
+interface HotspotServer {
+  name: string;
+  interface: string;
+  profile: string;
+  disabled: boolean;
+}
+
+// Sentinel value used inside the Select component because Radix Select
+// does not allow `value=""` on its <SelectItem>. We translate this to an
+// empty string before sending the payload to the API.
+const SERVER_ALL = "__all__";
+
 const EMPTY_FORM: BindingFormState = {
   macAddress: "",
   address: "",
@@ -119,6 +131,17 @@ export default function IpBindings() {
   const [form, setForm]         = useState<BindingFormState>(EMPTY_FORM);
   const [saving, setSaving]     = useState(false);
 
+  // Hotspot servers, lazily loaded the first time the dialog opens for this router.
+  const [servers, setServers]                 = useState<HotspotServer[]>([]);
+  const [serversLoading, setServersLoading]   = useState(false);
+  const [serversError, setServersError]       = useState<string | null>(null);
+  // Refs used to harden against router-switch races and double-invocations.
+  // - inFlightRouterIdRef stores the router id of the currently in-flight
+  //   request (or null when idle), so we can dedupe and reject stale results.
+  // - abortRef cancels the in-flight fetch when the active router changes.
+  const inFlightRouterIdRef = useRef<number | null>(null);
+  const abortRef            = useRef<AbortController | null>(null);
+
   // Delete confirm
   const [confirmDelete, setConfirmDelete] = useState<IpBinding | null>(null);
   const [deleting, setDeleting]           = useState(false);
@@ -161,10 +184,85 @@ export default function IpBindings() {
     );
   }, [bindings, search]);
 
+  // Lazy-load the hotspot server list once per router-session and reuse it
+  // for every dialog open (servers rarely change at runtime).
+  //
+  // Hardening:
+  // - Capture the routerId at request time and verify it still matches before
+  //   committing results to state. Prevents stale responses (issued for a
+  //   previous router) from polluting the UI after the user switches routers.
+  // - Use a ref-based in-flight guard (instead of relying on the async state
+  //   update of `serversLoading`) to dedupe rapid-fire opens.
+  // - Use AbortController so router-switch cancels the network request.
+  const ensureServersLoaded = async () => {
+    const routerId = selectedRouterId;
+    if (!routerId) return;
+    // Already loaded for this router?
+    if (servers.length > 0 && !serversError) return;
+    // Already loading for this router?
+    if (inFlightRouterIdRef.current === routerId) return;
+
+    // Cancel any previous in-flight request (defensive: should already be
+    // aborted by the router-change effect, but make sure).
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current            = controller;
+    inFlightRouterIdRef.current = routerId;
+
+    setServersLoading(true);
+    setServersError(null);
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${routerId}/hotspot-servers`,
+        { signal: controller.signal },
+      );
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { servers: HotspotServer[] };
+      // Bail if router changed (or component unmounted) while we awaited.
+      if (routerId !== selectedRouterId || controller.signal.aborted) return;
+      setServers(data.servers);
+    } catch (e) {
+      if ((e as { name?: string })?.name === "AbortError") return;
+      if (routerId !== selectedRouterId) return;
+      setServersError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (inFlightRouterIdRef.current === routerId) {
+        inFlightRouterIdRef.current = null;
+      }
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
+      // Only flip loading off if we're still the active request.
+      if (routerId === selectedRouterId) {
+        setServersLoading(false);
+      }
+    }
+  };
+
+  // Reset the server cache and abort any in-flight request when the active
+  // router changes (or on unmount).
+  useEffect(() => {
+    setServers([]);
+    setServersError(null);
+    abortRef.current?.abort();
+    abortRef.current            = null;
+    inFlightRouterIdRef.current = null;
+    setServersLoading(false);
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current            = null;
+      inFlightRouterIdRef.current = null;
+    };
+  }, [selectedRouterId]);
+
   const openAdd = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
     setFormOpen(true);
+    void ensureServersLoaded();
   };
 
   const openEdit = (b: IpBinding) => {
@@ -181,6 +279,7 @@ export default function IpBindings() {
       disabled:   b.disabled,
     });
     setFormOpen(true);
+    void ensureServersLoaded();
   };
 
   const submitForm = async () => {
@@ -204,6 +303,8 @@ export default function IpBindings() {
       const url = editing
         ? `${BASE}/api/routers/${selectedRouterId}/ip-bindings/${encodeURIComponent(editing.id)}`
         : `${BASE}/api/routers/${selectedRouterId}/ip-bindings`;
+      // Sentinel SERVER_ALL = empty string = MikroTik "all"
+      const serverPayload = form.server === SERVER_ALL ? "" : form.server.trim();
       const res = await fetch(url, {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -211,7 +312,7 @@ export default function IpBindings() {
           macAddress: mac,
           address:    addr,
           toAddress:  form.toAddress.trim(),
-          server:     form.server.trim(),  // vide → "all" côté MikroTik
+          server:     serverPayload,  // vide → "all" côté MikroTik
           type:       form.type,
           comment:    form.comment.trim(),
           disabled:   form.disabled,
@@ -457,8 +558,14 @@ export default function IpBindings() {
 
       {/* Add / edit dialog */}
       <Dialog open={formOpen} onOpenChange={(o) => { if (!saving) setFormOpen(o); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        {/*
+          Responsive sizing:
+          - On small screens, take nearly the full viewport (95vw, max 90vh).
+          - On md+ screens, cap at 28rem like before.
+          - Form body scrolls vertically when content overflows.
+        */}
+        <DialogContent className="w-[95vw] max-w-md max-h-[90vh] flex flex-col p-0 sm:p-0">
+          <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
             <DialogTitle>{editing ? "Modifier la liaison" : "Nouveau bypass MAC"}</DialogTitle>
             <DialogDescription>
               {editing
@@ -466,7 +573,7 @@ export default function IpBindings() {
                 : "Autorisez un appareil à contourner le portail captif en ajoutant son adresse MAC."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 px-6 py-2 overflow-y-auto flex-1 min-h-0">
             <div>
               <Label htmlFor="mac">Adresse MAC</Label>
               <Input
@@ -506,16 +613,46 @@ export default function IpBindings() {
             </div>
             <div>
               <Label htmlFor="server">Serveur</Label>
-              <Input
-                id="server"
-                value={form.server}
-                onChange={(e) => setForm((f) => ({ ...f, server: e.target.value }))}
-                placeholder="all"
-                className="font-mono"
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Nom du serveur Hotspot (ex: <code>HOTSPOT_SERVER</code>) — laisser vide pour <code>all</code>.
-              </p>
+              <Select
+                value={form.server === "" ? SERVER_ALL : form.server}
+                onValueChange={(v) => setForm((f) => ({ ...f, server: v === SERVER_ALL ? "" : v }))}
+                disabled={serversLoading}
+              >
+                <SelectTrigger id="server">
+                  <SelectValue placeholder={serversLoading ? "Chargement…" : "Sélectionner un serveur"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SERVER_ALL}>Tous (all)</SelectItem>
+                  {servers.map((s) => (
+                    <SelectItem key={s.name} value={s.name}>
+                      {s.name}
+                      {s.interface ? ` — ${s.interface}` : ""}
+                      {s.disabled ? " (désactivé)" : ""}
+                    </SelectItem>
+                  ))}
+                  {/*
+                    Si le binding pointe sur un serveur qui n'est pas (ou plus)
+                    listé par MikroTik, on ajoute quand même son nom pour éviter
+                    de perdre la valeur lors d'une modification.
+                  */}
+                  {form.server && form.server !== SERVER_ALL &&
+                    !servers.some((s) => s.name === form.server) && (
+                    <SelectItem value={form.server}>
+                      {form.server} (introuvable)
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {serversError && (
+                <p className="text-xs text-red-500 mt-1">
+                  Serveurs indisponibles : {serversError}
+                </p>
+              )}
+              {!serversError && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Choisissez un serveur Hotspot ou « Tous » pour s&apos;appliquer à toutes les instances.
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="type">Type</Label>
