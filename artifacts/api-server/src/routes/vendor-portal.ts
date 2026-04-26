@@ -577,6 +577,26 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     .groupBy(vendorDailyPaymentsTable.date),
   ]);
 
+  // Versements hebdomadaires (lump-sum) sur la même fenêtre — indispensable
+  // pour détecter une semaine soldée par un seul versement hebdo.
+  const weeklyLumpRows = await db
+    .select({
+      weekStart: vendorPaymentsTable.weekStart,
+      paid: sql<number>`sum(${vendorPaymentsTable.amount})::int`,
+    })
+    .from(vendorPaymentsTable)
+    .where(and(
+      eq(vendorPaymentsTable.vendorId, vendor.id),
+      gte(vendorPaymentsTable.weekStart, sinceStr),
+      lt(vendorPaymentsTable.weekStart, todayStr),
+    ))
+    .groupBy(vendorPaymentsTable.weekStart);
+  const weeklyLumpMap = new Map<string, number>();
+  for (const row of weeklyLumpRows) {
+    const key = typeof row.weekStart === "string" ? row.weekStart : (row.weekStart as Date).toISOString().slice(0, 10);
+    weeklyLumpMap.set(key, Number(row.paid));
+  }
+
   // Normalize payment dates to "YYYY-MM-DD" strings (pg may return Date objects).
   const paidMap = new Map(paymentRows.map((p) => {
     const key = typeof p.date === "string" ? p.date : (p.date as Date).toISOString().slice(0, 10);
@@ -602,6 +622,8 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     const dateStr = typeof row.date === "string" ? row.date : (row.date as Date).toISOString().slice(0, 10);
     weekMondaysSet.add(getMondayOf(dateStr));
   }
+  // Inclure aussi les semaines couvertes par un versement hebdomadaire.
+  for (const monday of weeklyLumpMap.keys()) weekMondaysSet.add(monday);
   const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
 
   // cutoffDate = Monday of the FIRST non-settled week.
@@ -618,6 +640,8 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
       weekTotalSales += salesMap.get(dateStr) ?? 0;
       weekTotalPaid  += paidMap.get(dateStr)  ?? 0;
     }
+    // Ajouter le versement hebdomadaire (lump-sum) pour cette semaine.
+    weekTotalPaid += weeklyLumpMap.get(monday) ?? 0;
     if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) {
       const nextMonday = new Date(weekStart.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
       cutoffDate = nextMonday;

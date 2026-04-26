@@ -1075,6 +1075,29 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     return new Date(d.getTime() + diff * 86_400_000).toISOString().slice(0, 10);
   }
 
+  // Fetch weekly LUMP-SUM payments (vendorPaymentsTable) for the same window.
+  // Une semaine peut être soldée via un versement hebdomadaire et non
+  // forcément via des versements journaliers. Sans ça, le seuil "semaine
+  // soldée" ne se déclenche jamais et les anciens jours restent visibles.
+  const wStartMonday = getMondayOf(wStartStr);
+  const weeklyLumpRows = await db
+    .select()
+    .from(vendorPaymentsTable)
+    .where(
+      and(
+        eq(vendorPaymentsTable.routerId, routerId),
+        sql`${vendorPaymentsTable.weekStart} >= ${wStartMonday}`,
+        sql`${vendorPaymentsTable.weekStart} <= ${wEndStr}`,
+      )
+    );
+
+  // Map: "vendorId|weekStart(Monday)" → total lump-sum paid for that week
+  const weeklyLumpMap = new Map<string, number>();
+  for (const p of weeklyLumpRows) {
+    const k = `${p.vendorId}|${p.weekStart}`;
+    weeklyLumpMap.set(k, (weeklyLumpMap.get(k) ?? 0) + p.amount);
+  }
+
   // Build arrears: per-day, with weekly cutoff (same logic as vendor portal).
   // A week is "settled" when total paid for that week >= total sales.
   // Any day before the Monday of the most recent settled week is hidden.
@@ -1107,8 +1130,16 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     // cutoffDate = Monday of the FIRST non-settled week. Tous les jours
     // strictement antérieurs à ce lundi (donc la semaine soldée elle-même +
     // toutes les semaines antérieures, même très anciennes) sont masqués.
+    // Inclure aussi les semaines avec un versement hebdomadaire (lump-sum)
+    // pour qu'une semaine soldée par versement hebdo soit bien détectée.
+    for (const k of weeklyLumpMap.keys()) {
+      const [vId, monday] = k.split("|");
+      if (Number(vId) === vendorId) weekMondaysSet.add(monday);
+    }
+    const weekMondaysFinal = [...weekMondaysSet].sort().reverse();
+
     let cutoffDate: string | null = null;
-    for (const monday of weekMondays) {
+    for (const monday of weekMondaysFinal) {
       const weekStart = new Date(monday + "T00:00:00Z");
       let weekTotalSales = 0;
       let weekTotalPaid  = 0;
@@ -1117,6 +1148,8 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
         weekTotalSales += salesMapV.get(d) ?? 0;
         weekTotalPaid  += paidMapV.get(d)  ?? 0;
       }
+      // Ajouter les versements hebdomadaires (lump-sum) pour cette semaine.
+      weekTotalPaid += weeklyLumpMap.get(`${vendorId}|${monday}`) ?? 0;
       if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) {
         const nextMonday = new Date(weekStart.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
         cutoffDate = nextMonday;
