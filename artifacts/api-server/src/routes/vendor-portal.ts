@@ -649,9 +649,32 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     }
   }
 
+  // Allouer les versements hebdomadaires (lump-sum) jour par jour en FIFO :
+  // chaque versement hebdo solde d'abord les jours les plus anciens de SA
+  // semaine. Sans ça, un versement hebdo partiel laisse les arriérés
+  // journaliers afficher la dette pleine au lieu du reliquat réel.
+  const lumpAllocatedPaid = new Map<string, number>();
+  for (const monday of weekMondays) {
+    let lumpRemaining = weeklyLumpMap.get(monday) ?? 0;
+    if (lumpRemaining <= 0) continue;
+    const weekStart = new Date(monday + "T00:00:00Z");
+    for (let i = 0; i < 7 && lumpRemaining > 0; i++) {
+      const d = new Date(weekStart.getTime() + i * 86_400_000).toISOString().slice(0, 10);
+      const sales      = salesMap.get(d) ?? 0;
+      const dailyPaid  = paidMap.get(d)  ?? 0;
+      const stillOwed  = Math.max(0, sales - dailyPaid);
+      if (stillOwed === 0) continue;
+      const allocate = Math.min(lumpRemaining, stillOwed);
+      lumpAllocatedPaid.set(d, (lumpAllocatedPaid.get(d) ?? 0) + allocate);
+      lumpRemaining -= allocate;
+    }
+  }
+
   const days = salesRows
     .map((d) => {
-      const paid = paidMap.get(d.date) ?? 0;
+      const dailyPaid    = paidMap.get(d.date) ?? 0;
+      const lumpAllocated = lumpAllocatedPaid.get(d.date) ?? 0;
+      const paid         = dailyPaid + lumpAllocated;
       return { date: d.date, count: d.count, amount: d.amount, paid, remaining: Math.max(0, d.amount - paid) };
     })
     .filter((d) => d.remaining > 0 && (!cutoffDate || d.date >= cutoffDate));
