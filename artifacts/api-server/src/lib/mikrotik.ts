@@ -1262,14 +1262,17 @@ export async function resetHotspotUser(
       .replace(/\s{2,}/g, " ")
       .trim();
     const server         = (user["server"]            as string) ?? "";
-    const macAddress     = (user["mac-address"]       as string) ?? "";
-    // NOTE: limit-uptime / limit-bytes-total are intentionally NOT preserved.
-    // The MikHmon on-login script decrements `limit-uptime` as the user
-    // consumes time, so a fully-used voucher has `limit-uptime=1s` (or 0s).
-    // Re-creating with that value would make the user expire on first login.
-    // By omitting these fields, MikroTik falls back to the profile defaults
-    // (session-timeout / rate-limit) and the on-login script writes a fresh
-    // quota next time the user authenticates — i.e. a true reset.
+    // NOTE: mac-address, limit-uptime and limit-bytes-total are intentionally
+    // NOT preserved.  A reset must produce a fully blank voucher:
+    //   • limit-uptime / limit-bytes-total are decremented by the on-login
+    //     script as the voucher is consumed; preserving them would re-cap
+    //     the user at "1s" or near-zero quota.
+    //   • mac-address binds the voucher to the device that first logged in;
+    //     keeping it would prevent the voucher from being handed to anyone
+    //     else.  The on-login script will re-bind on next login if the
+    //     profile uses lockMac.
+    // By omitting all three, MikroTik recreates a pristine voucher whose
+    // quota and MAC binding will be set fresh on the next authentication.
     const disabled       = (user["disabled"]          as string) === "true";
 
     // 2. Kick active session(s) first
@@ -1311,18 +1314,16 @@ export async function resetHotspotUser(
       }
     }
 
-    // 5. Recreate with the same credentials — counters start at zero
+    // 5. Recreate as a pristine voucher — same identity (name/password/
+    //    profile/server) but no leftover quota, MAC binding or expiry.
     const addParams: string[] = [
       `=name=${toWin1252(name)}`,
       `=password=${toWin1252(password)}`,
       `=profile=${toWin1252(profile)}`,
     ];
-    if (comment)          addParams.push(`=comment=${toWin1252(comment)}`);
-    if (server)           addParams.push(`=server=${server}`);
-    if (macAddress)       addParams.push(`=mac-address=${macAddress}`);
-    if (limitUptime)      addParams.push(`=limit-uptime=${limitUptime}`);
-    if (limitBytesTotal)  addParams.push(`=limit-bytes-total=${limitBytesTotal}`);
-    if (disabled)         addParams.push(`=disabled=yes`);
+    if (comment)  addParams.push(`=comment=${toWin1252(comment)}`);
+    if (server)   addParams.push(`=server=${server}`);
+    if (disabled) addParams.push(`=disabled=yes`);
 
     await api.write("/ip/hotspot/user/add", addParams);
 

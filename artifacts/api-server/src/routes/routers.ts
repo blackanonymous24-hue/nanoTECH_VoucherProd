@@ -1055,11 +1055,12 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
     // Surgically patch the cached snapshot so the next list call returns the
     // post-reset state instantly (no MikroTik round-trip for thousands of
     // users). The fields below mirror what `resetHotspotUser` writes back:
-    // comment is cleared and per-user limits are dropped (profile defaults).
+    // a pristine voucher with no comment, no quota override, no MAC binding.
     const patched = patchCachedUser(id, username, {
       comment: null,
       limitUptime: null,
       limitBytesTotal: null,
+      macAddress: null,
     });
     if (!patched) userCache.delete(id);
     res.json({
