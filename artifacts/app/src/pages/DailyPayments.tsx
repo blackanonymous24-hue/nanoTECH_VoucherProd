@@ -57,11 +57,13 @@ function ArrearRow({
   entry,
   routerId,
   onDone,
+  onOptimisticDeletePayment,
 }: {
   vendorId: number;
   entry: DailyArrearEntry;
   routerId: number;
   onDone: () => Promise<void> | void;
+  onOptimisticDeletePayment: (vendorId: number, date: string, paymentId: number) => void;
 }) {
   const [amount, setAmount]   = useState(String(entry.remaining));
   const [loading, setLoading] = useState(false);
@@ -94,16 +96,18 @@ function ArrearRow({
         toast({ title: "Erreur lors de la suppression", variant: "destructive" });
         return;
       }
+      // Update optimiste : retire le versement de l'affichage tout de suite
+      // pour éviter une attente quand l'API est lente (MikroTik).
+      onOptimisticDeletePayment(vendorId, entry.date, paymentId);
       toast({ title: "Versement supprimé" });
       // Re-active la ligne si on l'avait marquée "soldée" puis qu'on retire un paiement.
       setDone(false);
-      // On attend la fin du refetch pour que la liste affichée soit
-      // strictement à jour avant que l'utilisateur ne puisse re-cliquer.
-      await onDone();
+      // Refetch en arrière-plan pour resynchroniser totaux et arriérés.
+      void onDone();
     } finally {
       setDeletingId(null);
     }
-  }, [deletingId, entry.date, onDone, toast]);
+  }, [deletingId, entry.date, vendorId, onDone, onOptimisticDeletePayment, toast]);
 
   const handleSolder = () => void pay(entry.remaining);
   const handlePay    = () => void pay(Number(amount));
@@ -196,10 +200,12 @@ function VendorCard({
   row,
   routerId,
   onRefresh,
+  onOptimisticDeletePayment,
 }: {
   row: VendorRow;
   routerId: number;
   onRefresh: () => void;
+  onOptimisticDeletePayment: (vendorId: number, date: string, paymentId: number) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -239,6 +245,7 @@ function VendorCard({
               entry={a}
               routerId={routerId}
               onDone={onRefresh}
+              onOptimisticDeletePayment={onOptimisticDeletePayment}
             />
           ))}
         </CardContent>
@@ -274,6 +281,33 @@ export default function DailyPayments() {
   const refresh = useCallback(
     () => invalidateAllPaymentQueries(queryClient, selectedRouterId),
     [queryClient, selectedRouterId],
+  );
+
+  // Update optimiste : retire localement un versement annulé pour que la
+  // disparition soit instantanée, sans attendre le refetch de l'API.
+  const onOptimisticDeletePayment = useCallback(
+    (vendorId: number, date: string, paymentId: number) => {
+      queryClient.setQueryData<DailyArrearsResponse>(
+        ["vendor-daily-arrears", selectedRouterId, queryDate],
+        (old) => {
+          if (!old) return old;
+          const vIdStr = String(vendorId);
+          const vendorArrears = old.arrears[vIdStr];
+          if (!vendorArrears) return old;
+          const newVendorArrears = vendorArrears.map((a) => {
+            if (a.date !== date) return a;
+            const removed = a.payments.find((p) => p.id === paymentId);
+            if (!removed) return a;
+            const newPayments  = a.payments.filter((p) => p.id !== paymentId);
+            const newPaid      = Math.max(0, a.paidAmount - removed.amount);
+            const newRemaining = Math.max(0, a.salesAmount - newPaid);
+            return { ...a, payments: newPayments, paidAmount: newPaid, remaining: newRemaining };
+          });
+          return { ...old, arrears: { ...old.arrears, [vIdStr]: newVendorArrears } };
+        },
+      );
+    },
+    [queryClient, selectedRouterId, queryDate],
   );
 
   /* Build sorted vendor rows */
@@ -374,6 +408,7 @@ export default function DailyPayments() {
           row={row}
           routerId={selectedRouterId}
           onRefresh={refresh}
+          onOptimisticDeletePayment={onOptimisticDeletePayment}
         />
       ))}
     </div>

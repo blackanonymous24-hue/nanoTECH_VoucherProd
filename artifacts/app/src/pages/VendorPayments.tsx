@@ -129,11 +129,13 @@ function VendorRow({
   routerId,
   weekStart,
   onMutated,
+  onOptimisticDeletePayment,
 }: {
   vendor: VendorWeekEntry;
   routerId: number;
   weekStart: string;
   onMutated: () => Promise<void> | void;
+  onOptimisticDeletePayment: (vendorId: number, paymentId: number) => void;
 }) {
   const [open, setOpen]     = useState(false);
   const [amount, setAmount] = useState("");
@@ -169,10 +171,13 @@ function VendorRow({
         toast({ title: "Erreur", description: txt || `HTTP ${res.status}`, variant: "destructive" });
         return;
       }
-      // On attend la fin du refetch pour que la liste affichée soit
-      // strictement à jour avant que le bouton ne redevienne actif.
-      await onMutated();
+      // 1) Update optimiste : on retire le versement de l'affichage tout
+      //    de suite, sans attendre le refetch (qui peut être lent quand
+      //    l'API est sous charge MikroTik).
+      onOptimisticDeletePayment(vendor.vendorId, id);
       toast({ title: "Versement annulé" });
+      // 2) Refetch en arrière-plan pour resynchroniser totaux et arriérés.
+      void onMutated();
     } catch (err) {
       toast({
         title: "Erreur réseau",
@@ -333,6 +338,36 @@ function WeekCard({
 
   const onMutated = () => invalidateAllPaymentQueries(queryClient, routerId);
 
+  // Update optimiste : retire localement un versement annulé pour que la
+  // disparition soit instantanée, sans attendre le refetch (utile quand
+  // l'API est ralentie par les appels MikroTik).
+  const onOptimisticDeletePayment = useCallback((vendorId: number, paymentId: number) => {
+    queryClient.setQueryData<WeeklySummaryResponse>(qk, (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        vendors: old.vendors.map((v) => {
+          if (v.vendorId !== vendorId) return v;
+          const removed = v.payments.find((p) => p.id === paymentId);
+          if (!removed) return v;
+          const newPayments = v.payments.filter((p) => p.id !== paymentId);
+          const newTotalPaid = Math.max(0, v.totalPaid - removed.amount);
+          const newWeeklyPaid = v.weeklyPaid !== undefined
+            ? Math.max(0, v.weeklyPaid - removed.amount)
+            : v.weeklyPaid;
+          const newRemaining = Math.max(0, v.amount - newTotalPaid);
+          return {
+            ...v,
+            payments: newPayments,
+            totalPaid: newTotalPaid,
+            weeklyPaid: newWeeklyPaid,
+            remaining: newRemaining,
+          };
+        }),
+      };
+    });
+  }, [queryClient, qk]);
+
   const grandSales      = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.amount, 0), [data]);
   const grandCommission = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.commission, 0), [data]);
   const grandPaid       = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.totalPaid, 0), [data]);
@@ -401,7 +436,7 @@ function WeekCard({
           <p className="text-center text-xs text-gray-400 py-6">Aucune vente cette semaine</p>
         )}
         {!isLoading && (data?.vendors ?? []).map((v) => (
-          <VendorRow key={v.vendorId} vendor={v} routerId={routerId} weekStart={weekStart} onMutated={onMutated} />
+          <VendorRow key={v.vendorId} vendor={v} routerId={routerId} weekStart={weekStart} onMutated={onMutated} onOptimisticDeletePayment={onOptimisticDeletePayment} />
         ))}
       </CardContent>
     </Card>
@@ -460,8 +495,15 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
         toast({ title: "Erreur suppression", description: txt || `HTTP ${res.status}`, variant: "destructive" });
         return;
       }
-      await invalidateAllPaymentQueries(queryClient, routerId);
+      // Update optimiste : retire le versement de la liste affichée tout
+      // de suite pour éviter une attente quand l'API est lente.
+      queryClient.setQueryData<DailyPaymentWithVendor[]>(qk, (old) => {
+        if (!old) return old;
+        return old.filter((p) => p.id !== id);
+      });
       toast({ title: "Versement supprimé" });
+      // Refetch en arrière-plan pour resynchroniser totaux et arriérés.
+      void invalidateAllPaymentQueries(queryClient, routerId);
     } catch (err) {
       toast({
         title: "Erreur réseau",
