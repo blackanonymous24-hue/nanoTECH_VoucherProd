@@ -106,3 +106,18 @@ id serial PK, name text, username text UNIQUE, password_hash text, is_active boo
 - `artifacts/app: web` — `pnpm --filter @workspace/app run dev`
 - `artifacts/api-server: api` — `pnpm --filter @workspace/api-server run dev`
 - `artifacts/mobile: expo` — `pnpm --filter @workspace/mobile run dev`
+
+## Optimisation des syncs MikroTik (avril 2026)
+Les syncs depuis les routeurs étaient lents et timeout-aient. Causes corrigées :
+
+1. **Workflow API-server dupliqué** — un orphan `artifacts/api-server: API Server` tournait en parallèle du workflow géré par l'artefact (`api`), tous les deux sur le port 3001. Deux processus = deux connexions concurrentes par routeur, saturant les sémaphores RouterOS et provoquant des `RosException errno -104`. Workflow orphelin supprimé via `removeWorkflow`.
+
+2. **Tempête de full-loads dans `script-cache.ts`** — chaque tick vendor-sync (20 s) appelait `syncScriptCache(routerId)` UNE FOIS PAR VENDOR. Avec plusieurs vendors par routeur, le `?comment=mikhmon` (heavy, 120 s timeout) était lancé N fois en parallèle pour la même donnée. Pire : si le full-load timeoutait, `lastFullLoadAt` n'était PAS mis à jour, donc le tick suivant retentait immédiatement → spirale.
+
+   Fix appliqué dans `artifacts/api-server/src/lib/script-cache.ts` :
+   - **In-flight dedup** (`Map<routerId, Promise>`) — les appels concurrents pour le même routeur partagent une seule promesse au lieu d'ouvrir N sessions MikroTik.
+   - **Backoff exponentiel après échec** (`fullLoadFailStreak` + min 1 min, max 10 min) — un full-load échoué attend 1 min, puis 2, 4, 8, 10, 10… le streak est remis à zéro dès le premier succès (router redémarré récupère vite, router chroniquement injoignable n'est testé que toutes les 10 min).
+   - **Throttle des incrémentaux par routeur** (`INCREMENTAL_MIN_GAP_MS = 60 s`) — N vendors sur le même routeur ne déclenchent qu'une seule série de requêtes par minute.
+   - `clearRouterScriptCache` reset aussi `fullLoadFailStreak` (un sync forcé par l'utilisateur ne doit pas être bloqué par un backoff hérité).
+
+   Résultat mesuré après restart : 5 routeurs → 5 full-loads (au lieu de 29 sur la même fenêtre avant), 1 échec transitoire (au lieu de 52), router 4 complète en ~26 s (au lieu de 120 s timeout). Les vendor backfills s'enchaînent normalement (4322 ventes historiques ré-attribuées sur router 2 vendor 9 dans la foulée).
