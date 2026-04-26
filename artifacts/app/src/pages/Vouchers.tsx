@@ -1890,6 +1890,51 @@ export default function Vouchers() {
   );
 }
 
+// Parse a MikroTik comment that may contain an expiration date set by the
+// hotspot on-login script. Common formats observed:
+//   "mmm/dd/yyyy HH:mm:ss"   e.g. "jan/12/2026 14:30:00"
+//   "YYYY-MM-DD HH:mm:ss"    e.g. "2026-01-12 14:30:00"
+//   "YYYY-MM-DD mmm/dd/yyyy HH:mm:ss" (combined — take the trailing date)
+// Returns a Date if a valid timestamp can be parsed, otherwise null.
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+function parseExpirationDate(comment: string | null | undefined): Date | null {
+  if (!comment) return null;
+  const c = comment.trim();
+  if (!c) return null;
+  // Skip lot tags ("vc-lotname", "up-lotname") — these are unused vouchers.
+  if (/^(vc|up)[-_]/i.test(c)) return null;
+
+  // Try "mmm/dd/yyyy HH:mm:ss" anywhere in the string (last match wins).
+  const mtkRe = /([a-z]{3})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/gi;
+  let last: RegExpExecArray | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = mtkRe.exec(c)) !== null) last = m;
+  if (last) {
+    const month = MONTHS[last[1].toLowerCase()];
+    if (month != null) {
+      const d = new Date(Number(last[3]), month, Number(last[2]), Number(last[4]), Number(last[5]), Number(last[6] ?? 0));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  // Try "YYYY-MM-DD HH:mm[:ss]"
+  const isoRe = /(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/;
+  const i = isoRe.exec(c);
+  if (i) {
+    const d = new Date(Number(i[1]), Number(i[2]) - 1, Number(i[3]), Number(i[4]), Number(i[5]), Number(i[6] ?? 0));
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+function isExpired(comment: string | null | undefined): boolean {
+  const d = parseExpirationDate(comment);
+  if (!d) return false;
+  return d.getTime() < Date.now();
+}
+
 function UserRow({
   user,
   selected,
@@ -1903,6 +1948,7 @@ function UserRow({
   onEdit: () => void;
   onReset: () => void;
 }) {
+  const expired = isExpired(user.comment);
   return (
     <div
       className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 group ${selected ? "bg-blue-50" : ""}`}
@@ -1912,13 +1958,20 @@ function UserRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-mono font-semibold text-sm">{user.username}</span>
+            {expired && (
+              <span className="text-[10px] uppercase tracking-wide font-semibold bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                Expiré
+              </span>
+            )}
           </div>
           <div className="text-xs text-gray-400 mt-0.5 flex flex-wrap gap-2">
             <span>{user.profile}</span>
             {user.comment && (
               <>
                 <span>·</span>
-                <span className="font-mono bg-gray-100 px-1 rounded">{user.comment}</span>
+                <span className={`font-mono px-1 rounded ${expired ? "bg-red-50 text-red-600" : "bg-gray-100"}`}>
+                  {user.comment}
+                </span>
               </>
             )}
             {user.limitUptime && (
