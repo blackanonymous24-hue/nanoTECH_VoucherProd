@@ -1249,7 +1249,18 @@ export async function resetHotspotUser(
     const name           = (user["name"]              as string) ?? username;
     const password       = (user["password"]          as string) ?? "";
     const profile        = (user["profile"]           as string) ?? "default";
-    const comment        = (user["comment"]           as string) ?? "";
+    const rawComment     = (user["comment"]           as string) ?? "";
+    // Strip any expiration timestamp written by the MikHmon on-login script —
+    // otherwise the recreated user inherits the past expiry date and stays
+    // marked as "Expiré" both in the UI and in the on-login script logic.
+    // Date formats handled (case-insensitive): "mmm/dd/yyyy HH:mm[:ss]" and
+    // "YYYY-MM-DD HH:mm[:ss]".  Any surrounding text (e.g. lot tag "vc-foo")
+    // is preserved.
+    const comment = rawComment
+      .replace(/[a-z]{3}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?/gi, "")
+      .replace(/\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}(?::\d{2})?/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
     const server         = (user["server"]            as string) ?? "";
     const macAddress     = (user["mac-address"]       as string) ?? "";
     const limitUptime    = (user["limit-uptime"]      as string) ?? "";
