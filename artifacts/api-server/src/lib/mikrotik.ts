@@ -1127,6 +1127,69 @@ export async function deleteHotspotUsersByNames(
 }
 
 /**
+ * Server-side lookup of a hotspot user by name. Tries the MikroTik query
+ * filter `?name=<value>` with several encoding variants (toWin1252, raw,
+ * trimmed, NBSP-normalised) so a name created in any context (Mikhmon,
+ * VoucherNet, WinBox) can be located without scanning the entire user list.
+ *
+ * Falls back to a full scan with case-insensitive normalised compare only
+ * if every direct query returns nothing — needed for legacy users whose
+ * names contain mojibake bytes that no single encoding will reproduce.
+ */
+async function findHotspotUserByName(
+  api: { write: (path: string, params?: string[]) => Promise<Record<string, unknown>[]> },
+  username: string,
+): Promise<Record<string, unknown> | null> {
+  const UNICODE_SPACES = /[\u00A0\u2007\u202F\u2009\u200A\u2008\u2006\u2005\u2004\u2003\u2002]/g;
+
+  // Build an ordered list of variants — exact raw first (preserves leading/
+  // trailing spaces if any), then trimmed/encoded forms.
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const addVariant = (v: string) => {
+    if (!v || seen.has(v)) return;
+    seen.add(v);
+    ordered.push(v);
+  };
+
+  addVariant(username);                                       // raw, no trim
+  const trimmed = username.trim();
+  addVariant(trimmed);                                        // trimmed
+  addVariant(toWin1252(username));                            // raw + win1252
+  addVariant(toWin1252(trimmed));                             // trimmed + win1252
+  const ascii = trimmed.replace(UNICODE_SPACES, " ");
+  if (ascii !== trimmed) {
+    addVariant(ascii);
+    addVariant(toWin1252(ascii));
+  }
+  const nbsp = trimmed.replace(/ /g, "\u00A0");
+  if (nbsp !== trimmed) {
+    addVariant(nbsp);
+    addVariant(toWin1252(nbsp));
+  }
+
+  for (const v of ordered) {
+    try {
+      const rows = await api.write("/ip/hotspot/user/print", [`?name=${v}`]);
+      if (rows.length > 0) return rows[0];
+    } catch {
+      // ignore — try next variant
+    }
+  }
+
+  // Last resort: full scan with normalisation on both sides.
+  const norm = (s: string) => s.replace(UNICODE_SPACES, " ").trim().toLowerCase();
+  const target = norm(username);
+  const all = await api.write("/ip/hotspot/user/print");
+  for (const u of all) {
+    const raw = (u["name"] as string) ?? "";
+    if (norm(raw) === target) return u;
+    if (norm(fixEncoding(raw)) === target) return u;
+  }
+  return null;
+}
+
+/**
  * Rename a hotspot user on MikroTik (changes the `name` field).
  * Returns false if the user is not found.
  */
@@ -1136,8 +1199,7 @@ export async function renameHotspotUser(
   newUsername: string,
 ): Promise<boolean> {
   return withRouter(conn, async (api) => {
-    const all = await api.write("/ip/hotspot/user/print");
-    const user = all.find((u) => fixEncoding((u["name"] as string) ?? "").toLowerCase() === oldUsername.toLowerCase());
+    const user = await findHotspotUserByName(api, oldUsername);
     if (!user) return false;
     const id = user[".id"] as string | undefined;
     if (!id) return false;
@@ -1175,9 +1237,10 @@ export async function resetHotspotUser(
   username: string,
 ): Promise<{ found: boolean; sessionKicked: number; salesScriptsRemoved: number; salesScriptsFailed: number }> {
   return withRouter(conn, async (api) => {
-    // 1. Find user and capture all relevant fields
-    const all = await api.write("/ip/hotspot/user/print");
-    const user = all.find((u) => fixEncoding((u["name"] as string) ?? "").toLowerCase() === username.toLowerCase());
+    // 1. Find user and capture all relevant fields. Use server-side query
+    //    with multiple encoding variants — scanning all users is slow and
+    //    fragile when names contain non-ASCII bytes that can't round-trip.
+    const user = await findHotspotUserByName(api, username);
     if (!user) return { found: false, sessionKicked: 0, salesScriptsRemoved: 0, salesScriptsFailed: 0 };
 
     const id = user[".id"] as string | undefined;

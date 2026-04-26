@@ -1020,7 +1020,8 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
     });
 
     if (!result.found) {
-      res.status(404).json({ error: "Utilisateur introuvable sur le routeur" });
+      console.warn(`[reset] user not found on router id=${id} username=${JSON.stringify(username)} (len=${username.length})`);
+      res.status(404).json({ error: `Utilisateur "${username}" introuvable sur le routeur` });
       return;
     }
 
