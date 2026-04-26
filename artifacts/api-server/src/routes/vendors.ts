@@ -1186,25 +1186,6 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     }
     const weekMondaysFinal = [...weekMondaysSet].sort().reverse();
 
-    let cutoffDate: string | null = null;
-    for (const monday of weekMondaysFinal) {
-      const weekStart = new Date(monday + "T00:00:00Z");
-      let weekTotalSales = 0;
-      let weekTotalPaid  = 0;
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(weekStart.getTime() + i * 86_400_000).toISOString().slice(0, 10);
-        weekTotalSales += salesMapV.get(d) ?? 0;
-        weekTotalPaid  += paidMapV.get(d)  ?? 0;
-      }
-      // Ajouter les versements hebdomadaires (lump-sum) pour cette semaine.
-      weekTotalPaid += weeklyLumpMap.get(`${vendorId}|${monday}`) ?? 0;
-      if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) {
-        const nextMonday = new Date(weekStart.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
-        cutoffDate = nextMonday;
-        break;
-      }
-    }
-
     // Allouer les versements hebdomadaires (lump-sum) jour par jour en FIFO :
     // chaque versement hebdo solde d'abord les jours les plus anciens de SA
     // semaine. Sans ça, un versement hebdo partiel laisse les arriérés
@@ -1228,7 +1209,6 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
 
     const vendorArr: typeof arrears[string] = [];
     for (const [date, salesAmount] of dayMap) {
-      if (cutoffDate && date < cutoffDate) continue; // hidden by cutoff
       const k = `${vendorId}|${date}`;
       const { paidAmount: dailyPaidRaw, payments } = dailyPaidMap.get(k) ?? { paidAmount: 0, payments: [] };
       const lumpAllocated = lumpAllocatedPaid.get(date) ?? 0;

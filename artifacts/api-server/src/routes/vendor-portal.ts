@@ -632,29 +632,6 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   for (const monday of weeklyLumpMap.keys()) weekMondaysSet.add(monday);
   const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
 
-  // cutoffDate = Monday of the FIRST non-settled week.
-  // Tous les jours strictement antérieurs à ce lundi (donc la semaine soldée
-  // elle-même + toutes les semaines plus anciennes, même vieilles de plusieurs
-  // années) sont considérés comme soldés et masqués.
-  let cutoffDate: string | null = null;
-  for (const monday of weekMondays) {
-    const weekStart = new Date(monday + "T00:00:00Z");
-    let weekTotalSales = 0;
-    let weekTotalPaid  = 0;
-    for (let i = 0; i < 7; i++) {
-      const dateStr = new Date(weekStart.getTime() + i * 86_400_000).toISOString().slice(0, 10);
-      weekTotalSales += salesMap.get(dateStr) ?? 0;
-      weekTotalPaid  += paidMap.get(dateStr)  ?? 0;
-    }
-    // Ajouter le versement hebdomadaire (lump-sum) pour cette semaine.
-    weekTotalPaid += weeklyLumpMap.get(monday) ?? 0;
-    if (weekTotalSales > 0 && weekTotalPaid >= weekTotalSales) {
-      const nextMonday = new Date(weekStart.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
-      cutoffDate = nextMonday;
-      break;
-    }
-  }
-
   // Allouer les versements hebdomadaires (lump-sum) jour par jour en FIFO :
   // chaque versement hebdo solde d'abord les jours les plus anciens de SA
   // semaine. Sans ça, un versement hebdo partiel laisse les arriérés
@@ -683,7 +660,7 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
       const paid         = dailyPaid + lumpAllocated;
       return { date: d.date, count: d.count, amount: d.amount, paid, remaining: Math.max(0, d.amount - paid) };
     })
-    .filter((d) => d.remaining > 0 && (!cutoffDate || d.date >= cutoffDate));
+    .filter((d) => d.remaining > 0);
 
   const arrearsPayload = { days };
   cSet(arrearsKey, ARREARS_TTL, arrearsPayload);
