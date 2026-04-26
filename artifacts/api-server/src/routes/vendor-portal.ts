@@ -485,7 +485,7 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     for (const r of salesRaw) {
       const cnt = Number(r.cnt);
       const raw = Math.max(Number(r.salePriceSum), Number(r.priceSum));
-      const amt = Math.max(raw, cnt * resolveUnit(r.profileName));
+      const amt = raw > 0 ? raw : cnt * resolveUnit(r.profileName);
       count  += cnt;
       amount += amt;
     }
@@ -615,12 +615,7 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   }));
   const salesMap = new Map(salesRows.map((d) => [d.date, d.amount]));
 
-  // Find the most recently settled week (Mon–Sun).
-  // A week is "settled" when the TOTAL paid for that week >= TOTAL sales for that week.
-  // (A vendor may pay in one lump sum, so we compare weekly totals, not day-by-day.)
-  // Any dates before the Monday of that settled week are hidden from the vendor.
-  // (`getMondayOf` est déjà défini plus haut pour normaliser sinceMondayStr.)
-
+  // Build the set of all week-Mondays from sales, daily payments, and lump-sum payments.
   const weekMondaysSet = new Set<string>();
   for (const row of salesRows) weekMondaysSet.add(getMondayOf(row.date));
   // Also include payment weeks so lump-sum payments on days with no sales are counted.

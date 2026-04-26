@@ -790,7 +790,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
   const enriched = sold.filter((v) => !v.vendorId || !demoVendorIds.has(v.vendorId)).map((v) => {
     const rawAmount = parseFloat(v.salePrice || v.price || "0") || 0;
     const unitPrice = resolveUnitPrice(v.profileName);
-    const amount    = Math.max(rawAmount, unitPrice);
+    const amount    = rawAmount > 0 ? rawAmount : unitPrice;
     const vendorName = v.vendorId ? (vendorMap.get(v.vendorId)?.name ?? "Inconnu") : "Sans vendeur";
     const usedAtObj  = v.usedAt ? new Date(v.usedAt) : null;
     return {
@@ -882,7 +882,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     const cnt  = Number(row.count);
     const raw  = Math.max(Number(row.salePriceSum), Number(row.priceSum));
     const unit = resolveUnitPrice(row.profileName);
-    const amt  = Math.max(raw, cnt * unit);
+    const amt  = raw > 0 ? raw : cnt * unit;
     if (!weekMap.has(key)) {
       const vname = key ? (vendorMap.get(key)?.name ?? "Inconnu") : "Sans vendeur";
       weekMap.set(key, { vendorId: key, vendorName: vname, count: 0, amount: 0 });
@@ -1086,7 +1086,8 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     const cnt  = Number(row.cnt);
     const raw  = Math.max(Number(row.salePriceSum), Number(row.priceSum));
     const unit = resolveUnit(row.profileName);
-    const amt  = Math.max(raw, cnt * unit);
+    // Use stored price as authoritative; only fall back to live router profile price when no stored price
+    const amt  = raw > 0 ? raw : cnt * unit;
 
     if (!vendorDayMap.has(row.vendorId)) vendorDayMap.set(row.vendorId, new Map());
     const dm = vendorDayMap.get(row.vendorId)!;
@@ -1174,12 +1175,7 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     for (const [date] of paidMapV) weekMondaysSet.add(getMondayOf(date));
     const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
 
-    // Find the most recently settled week.
-    // cutoffDate = Monday of the FIRST non-settled week. Tous les jours
-    // strictement antérieurs à ce lundi (donc la semaine soldée elle-même +
-    // toutes les semaines antérieures, même très anciennes) sont masqués.
-    // Inclure aussi les semaines avec un versement hebdomadaire (lump-sum)
-    // pour qu'une semaine soldée par versement hebdo soit bien détectée.
+    // Include weeks that have lump-sum payments so FIFO can allocate them
     for (const k of weeklyLumpMap.keys()) {
       const [vId, monday] = k.split("|");
       if (Number(vId) === vendorId) weekMondaysSet.add(monday);
@@ -1312,7 +1308,7 @@ router.get("/vendors/weekly-summary", async (req, res) => {
       const cnt  = Number(r.cnt);
       const raw  = Math.max(Number(r.salePriceSum), Number(r.priceSum));
       const unit = resolveUnit(r.profileName);
-      const amt  = Math.max(raw, cnt * unit);
+      const amt  = raw > 0 ? raw : cnt * unit;
       const key  = r.vendorId;
       if (!salesMap.has(key)) salesMap.set(key, { count: 0, amount: 0 });
       const s = salesMap.get(key)!;
