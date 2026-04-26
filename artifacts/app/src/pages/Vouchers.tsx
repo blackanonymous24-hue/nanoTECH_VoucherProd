@@ -684,10 +684,9 @@ export default function Vouchers() {
       }
       const data = await res.json() as { sessionKicked: number };
 
-      // 3. Laisser MikroTik traiter le reset avant de relire
-      await new Promise((r) => setTimeout(r, 600));
-
-      // 4. Rechargement complet — users + lots (usedAt effacé en DB)
+      // 3. Rechargement immédiat — le serveur a déjà patché son cache
+      //    in-memory (commentaire vidé, limites/quotas remis à zéro), donc
+      //    le refetch revient instantanément sans round-trip MikroTik.
       await Promise.all([refetchUsers(), refetchLots()]);
 
       toast({

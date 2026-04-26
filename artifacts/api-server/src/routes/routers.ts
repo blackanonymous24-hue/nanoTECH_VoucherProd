@@ -661,6 +661,33 @@ export function invalidateUserCache(routerId: number) {
 }
 
 /**
+ * Surgically patch a single user in the cache instead of invalidating it.
+ * Used by reset/rename to avoid a full re-fetch of thousands of users.
+ * Returns true if a row was patched.
+ */
+function patchCachedUser(
+  routerId: number,
+  username: string,
+  patch: Partial<Awaited<ReturnType<typeof listHotspotUsers>>[number]>,
+): boolean {
+  const cached = userCache.get(routerId);
+  if (!cached) return false;
+  const target = username.toLowerCase();
+  for (const u of cached.users) {
+    if (u.username.toLowerCase() === target) {
+      Object.assign(u, patch);
+      // The /count payload depends on usedSet from DB, not on user fields we
+      // just patched, so leave it alone — but we do bump cachedAt so it
+      // doesn't look "stale" to the next reader.
+      const cnt = _usersCountCache.get(routerId);
+      if (cnt) cnt.cachedAt = Date.now();
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * GET /routers/:id/users/count
  * Lightweight: returns just `{ total, available, used, disabled, cachedAt }`.
  * Mikhmon-style stale-while-revalidate: as long as we have a previous user
@@ -1025,7 +1052,16 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
       return;
     }
 
-    userCache.delete(id);
+    // Surgically patch the cached snapshot so the next list call returns the
+    // post-reset state instantly (no MikroTik round-trip for thousands of
+    // users). The fields below mirror what `resetHotspotUser` writes back:
+    // comment is cleared and per-user limits are dropped (profile defaults).
+    const patched = patchCachedUser(id, username, {
+      comment: null,
+      limitUptime: null,
+      limitBytesTotal: null,
+    });
+    if (!patched) userCache.delete(id);
     res.json({
       ok: true,
       username,

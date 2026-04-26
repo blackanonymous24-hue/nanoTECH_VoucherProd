@@ -1263,8 +1263,13 @@ export async function resetHotspotUser(
       .trim();
     const server         = (user["server"]            as string) ?? "";
     const macAddress     = (user["mac-address"]       as string) ?? "";
-    const limitUptime    = (user["limit-uptime"]      as string) ?? "";
-    const limitBytesTotal = (user["limit-bytes-total"] as string) ?? "";
+    // NOTE: limit-uptime / limit-bytes-total are intentionally NOT preserved.
+    // The MikHmon on-login script decrements `limit-uptime` as the user
+    // consumes time, so a fully-used voucher has `limit-uptime=1s` (or 0s).
+    // Re-creating with that value would make the user expire on first login.
+    // By omitting these fields, MikroTik falls back to the profile defaults
+    // (session-timeout / rate-limit) and the on-login script writes a fresh
+    // quota next time the user authenticates — i.e. a true reset.
     const disabled       = (user["disabled"]          as string) === "true";
 
     // 2. Kick active session(s) first
