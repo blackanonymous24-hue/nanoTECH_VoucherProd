@@ -106,6 +106,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
         data.manager?.routerId ?? null,
         data.collaborateur?.routerIds ?? undefined,
         remember,
+        data.isSuperAdmin === true,
       );
       if (data.role === "vendor") {
         navigate("/vendor-portal");

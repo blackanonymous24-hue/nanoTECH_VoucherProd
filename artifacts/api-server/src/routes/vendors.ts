@@ -2,12 +2,26 @@ import { Router } from "express";
 import { eq, desc, and, ne, count, sql, isNotNull, isNull, ilike, inArray, gte, lte } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
+import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
 import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { invalidateVendorPortalCache } from "./vendor-portal.js";
+
+/**
+ * Returns the admin scope (adminId + isSuperAdmin) when the request carries
+ * a valid admin token, or null when there's no admin token.
+ *
+ * Several /vendors endpoints serve both admin and vendor-portal callers;
+ * routes that strictly require admin should reject when this returns null.
+ */
+function getAdminScopeOptional(req: import("express").Request): { adminId: number; isSuperAdmin: boolean } | null {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return null;
+  return verifyAdminTokenFull(auth.slice(7));
+}
 
 const router = Router();
 
@@ -61,15 +75,21 @@ async function attributeVouchersBySuffix(vendorId: number, routerId: number, com
 
 router.get("/vendors", async (req, res): Promise<void> => {
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
-  const vendors = await db
-    .select()
-    .from(vendorsTable)
-    .where(routerId ? eq(vendorsTable.routerId, routerId) : undefined)
-    .orderBy(vendorsTable.name);
+  // Tenant scoping: a regular admin token only sees their own vendors.
+  // Other auth modes (vendor portal, manager, collab) keep the legacy
+  // behavior because they have their own server-side guards.
+  const scope = getAdminScopeOptional(req);
+  const conds: ReturnType<typeof eq>[] = [];
+  if (routerId) conds.push(eq(vendorsTable.routerId, routerId));
+  if (scope && !scope.isSuperAdmin) conds.push(eq(vendorsTable.ownerAdminId, scope.adminId));
+  const where = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
+  const vendors = await db.select().from(vendorsTable).where(where).orderBy(vendorsTable.name);
   res.json(vendors.map(safeVendor));
 });
 
 router.post("/vendors", async (req, res): Promise<void> => {
+  const scope = getAdminScopeOptional(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
   const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2, commissionRate, isDemo } = req.body as {
     name?: string;
     phone?: string;
@@ -86,6 +106,17 @@ router.post("/vendors", async (req, res): Promise<void> => {
   if (!name || name.trim() === "") {
     res.status(400).json({ error: "Le nom du vendeur est requis" });
     return;
+  }
+
+  // Tenant ownership: if a routerId is supplied, make sure it belongs to
+  // this admin. Super admin can target any router.
+  if (routerId != null && !scope.isSuperAdmin) {
+    const [r] = await db.select({ owner: routersTable.ownerAdminId })
+      .from(routersTable).where(eq(routersTable.id, routerId));
+    if (!r) { res.status(400).json({ error: "Routeur invalide" }); return; }
+    if (r.owner !== scope.adminId) {
+      res.status(403).json({ error: "Ce routeur ne vous appartient pas" }); return;
+    }
   }
 
   // If username not provided, fall back to phone number
@@ -114,6 +145,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
   const [vendor] = await db
     .insert(vendorsTable)
     .values({
+      ownerAdminId: scope.adminId,
       routerId: routerId ?? null,
       name: name.trim().toUpperCase(),
       phone: phone?.trim() || null,
@@ -153,6 +185,8 @@ router.put("/vendors/bulk-commission", async (req, res): Promise<void> => {
 });
 
 router.put("/vendors/:id", async (req, res): Promise<void> => {
+  const scope = getAdminScopeOptional(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
@@ -172,6 +206,10 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   // Fetch current vendor early (needed for username fallback)
   const [current] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
   if (!current) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
+  // Tenant ownership check (regular admins only — super sees all).
+  if (!scope.isSuperAdmin && current.ownerAdminId !== scope.adminId) {
+    res.status(403).json({ error: "Accès refusé" }); return;
+  }
 
   // If username is being set to empty, fall back to phone (new or current)
   let resolvedUsername: string | null | undefined = undefined;
@@ -300,8 +338,18 @@ router.post("/vendors/:id/sync", async (req, res): Promise<void> => {
 });
 
 router.delete("/vendors/:id", async (req, res): Promise<void> => {
+  const scope = getAdminScopeOptional(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  // Tenant ownership check (regular admins only — super sees all).
+  const [target] = await db.select({ ownerAdminId: vendorsTable.ownerAdminId })
+    .from(vendorsTable).where(eq(vendorsTable.id, id));
+  if (!target) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
+  if (!scope.isSuperAdmin && target.ownerAdminId !== scope.adminId) {
+    res.status(403).json({ error: "Accès refusé" }); return;
+  }
 
   const [deleted] = await db
     .delete(vendorsTable)

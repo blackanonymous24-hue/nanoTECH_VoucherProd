@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, sql } from "drizzle-orm";
 import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
-import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken } from "../lib/admin-auth.js";
+import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken } from "../lib/manager-auth.js";
 import { verifyPassword as verifyCollabPassword, createToken as createCollabToken } from "../lib/collaborateur-auth.js";
@@ -12,13 +12,31 @@ import { clearRouterScriptCache } from "../lib/script-cache.js";
 
 const router = Router();
 
-async function getOrInitAdmin(): Promise<{ id: number; login: string; passwordHash: string }> {
-  const rows = await db.select().from(adminSettingsTable).limit(1);
-  if (rows.length > 0) return rows[0];
+/**
+ * Ensure that at least one super-admin exists. On a fresh database we seed
+ * one with login="admin" / password="root". On an existing database we make
+ * sure the original first admin row carries the is_super_admin flag (the
+ * migration backfill already does this, but this is idempotent and survives
+ * accidental flag flips).
+ */
+async function getOrInitSuperAdmin(): Promise<typeof adminSettingsTable.$inferSelect> {
+  const supers = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.isSuperAdmin, true)).limit(1);
+  if (supers.length > 0) return supers[0];
+  // Promote any existing admin to super before creating a new one.
+  const any = await db.select().from(adminSettingsTable).limit(1);
+  if (any.length > 0) {
+    const [promoted] = await db
+      .update(adminSettingsTable)
+      .set({ isSuperAdmin: true, isActive: true })
+      .where(eq(adminSettingsTable.id, any[0].id))
+      .returning();
+    return promoted;
+  }
+  // Truly empty database: seed.
   const passwordHash = await hashPassword("root");
   const [created] = await db
     .insert(adminSettingsTable)
-    .values({ login: "admin", passwordHash })
+    .values({ login: "admin", passwordHash, isSuperAdmin: true, isActive: true })
     .returning();
   return created;
 }
@@ -31,11 +49,43 @@ router.post("/login", async (req, res): Promise<void> => {
   }
   const loginTrimmed = login.trim();
 
-  const admin = await getOrInitAdmin();
-  if (loginTrimmed === admin.login) {
-    const valid = await verifyPassword(password, admin.passwordHash);
+  // Make sure the super-admin seed exists before the lookup.
+  await getOrInitSuperAdmin();
+
+  // Admin lookup by login (multi-tenant: there may be many admin rows now).
+  const [adminRow] = await db
+    .select()
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.login, loginTrimmed));
+
+  if (adminRow) {
+    const valid = await verifyPassword(password, adminRow.passwordHash);
     if (valid) {
-      res.json({ role: "admin", token: createAdminToken() });
+      // Account-level gates. Super admins bypass the forfait check (they
+      // don't have a forfait — they manage them).
+      if (!adminRow.isActive) {
+        res.status(403).json({ error: "Compte désactivé" });
+        return;
+      }
+      if (!adminRow.isSuperAdmin) {
+        const now = Date.now();
+        const ends = adminRow.forfaitEndsAt ? adminRow.forfaitEndsAt.getTime() : 0;
+        if (!ends || ends < now) {
+          res.status(403).json({ error: "Forfait expiré ou non attribué — contactez le super administrateur." });
+          return;
+        }
+      }
+      res.json({
+        role: "admin",
+        isSuperAdmin: adminRow.isSuperAdmin,
+        token: createAdminToken(adminRow.id, adminRow.isSuperAdmin),
+        admin: {
+          id: adminRow.id,
+          login: adminRow.login,
+          displayName: adminRow.displayName,
+          isSuperAdmin: adminRow.isSuperAdmin,
+        },
+      });
       return;
     }
   }
@@ -101,17 +151,41 @@ router.post("/login", async (req, res): Promise<void> => {
 
 router.get("/admin/me", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims) {
     res.status(401).json({ error: "Non authentifié" });
     return;
   }
-  const admin = await getOrInitAdmin();
-  res.json({ login: admin.login });
+  const [adminRow] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, claims.adminId));
+  if (!adminRow) {
+    res.status(401).json({ error: "Compte introuvable" });
+    return;
+  }
+  // Live router count for quota display.
+  const [{ count: routerCount }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(routersTable)
+    .where(eq(routersTable.ownerAdminId, adminRow.id));
+  const baseSlots = 5;
+  res.json({
+    id: adminRow.id,
+    login: adminRow.login,
+    displayName: adminRow.displayName,
+    isSuperAdmin: adminRow.isSuperAdmin,
+    isActive: adminRow.isActive,
+    forfaitStartedAt: adminRow.forfaitStartedAt,
+    forfaitEndsAt: adminRow.forfaitEndsAt,
+    credits: adminRow.credits,
+    extraRouterSlots: adminRow.extraRouterSlots,
+    routerCount,
+    routerLimit: baseSlots + adminRow.extraRouterSlots,
+  });
 });
 
 router.put("/admin/credentials", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims) {
     res.status(401).json({ error: "Non authentifié" });
     return;
   }
@@ -121,12 +195,53 @@ router.put("/admin/credentials", async (req, res): Promise<void> => {
     return;
   }
   const passwordHash = await hashPassword(password);
-  const admin = await getOrInitAdmin();
   await db
     .update(adminSettingsTable)
     .set({ login: login.trim(), passwordHash })
-    .where(eq(adminSettingsTable.id, admin.id));
+    .where(eq(adminSettingsTable.id, claims.adminId));
   res.json({ ok: true });
+});
+
+/**
+ * POST /api/admin/buy-routers
+ * Self-service: an admin spends 50 credits to unlock 5 extra router slots.
+ * Atomic: a single UPDATE … WHERE credits >= 50 prevents racing the wallet.
+ */
+router.post("/admin/buy-routers", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (claims.isSuperAdmin) {
+    res.status(400).json({ error: "Le super administrateur n'est pas soumis à la limite de routeurs." });
+    return;
+  }
+  const PACK_PRICE  = 50;
+  const PACK_SLOTS  = 5;
+  // Conditional update — only debits if balance is sufficient.
+  const updated = await db
+    .update(adminSettingsTable)
+    .set({
+      credits:          sql`${adminSettingsTable.credits} - ${PACK_PRICE}`,
+      extraRouterSlots: sql`${adminSettingsTable.extraRouterSlots} + ${PACK_SLOTS}`,
+    })
+    .where(and(
+      eq(adminSettingsTable.id, claims.adminId),
+      sql`${adminSettingsTable.credits} >= ${PACK_PRICE}`,
+    ))
+    .returning({
+      credits: adminSettingsTable.credits,
+      extraRouterSlots: adminSettingsTable.extraRouterSlots,
+    });
+  if (updated.length === 0) {
+    res.status(402).json({ error: `Crédits insuffisants (il en faut ${PACK_PRICE}).` });
+    return;
+  }
+  res.json({
+    ok: true,
+    credits: updated[0].credits,
+    extraRouterSlots: updated[0].extraRouterSlots,
+    routerLimit: 5 + updated[0].extraRouterSlots,
+  });
 });
 
 router.post("/admin/purge-phantoms", async (req, res): Promise<void> => {

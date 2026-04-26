@@ -1,9 +1,13 @@
 import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { adminSettingsTable } from "./admin-settings.js";
 
 export const routersTable = pgTable("routers", {
   id: serial("id").primaryKey(),
+  // Tenant owner. Nullable so the migration is non-destructive for legacy rows;
+  // a backfill step assigns the original super-admin to every existing row.
+  ownerAdminId: integer("owner_admin_id").references(() => adminSettingsTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   hotspotName: text("hotspot_name"),
   contact: text("contact"),

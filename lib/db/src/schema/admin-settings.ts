@@ -1,7 +1,23 @@
-import { pgTable, serial, text } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, integer, timestamp } from "drizzle-orm/pg-core";
 
 export const adminSettingsTable = pgTable("admin_settings", {
   id: serial("id").primaryKey(),
-  login: text("login").notNull().default("admin"),
+  login: text("login").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  displayName: text("display_name"),
+  // Marks the original / root admin who can manage other admins.
+  isSuperAdmin: boolean("is_super_admin").notNull().default(false),
+  // Soft-disable an admin account (login refused but data preserved).
+  isActive: boolean("is_active").notNull().default(true),
+  // Subscription window — null means "no active forfait".
+  forfaitStartedAt: timestamp("forfait_started_at", { withTimezone: true }),
+  forfaitEndsAt: timestamp("forfait_ends_at", { withTimezone: true }),
+  // Wallet for buying additional router slots (50 cr = +5 routers).
+  credits: integer("credits").notNull().default(0),
+  // Number of EXTRA router slots purchased (added on top of the base 5).
+  extraRouterSlots: integer("extra_router_slots").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
+
+export type AdminSettings = typeof adminSettingsTable.$inferSelect;

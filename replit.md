@@ -25,15 +25,38 @@ Monorepo pnpm avec les packages suivants :
 - **Rapports** — Stats de ventes par vendeur et par période
 - **Gérants de zone** — Sous-admins avec accès complet sauf création/suppression de ressources
 
-## Système d'authentification — 4 rôles
+## Système d'authentification — 5 rôles (multi-tenant)
 
 ### Rôles
 | Rôle | Accès |
 |------|-------|
-| `admin` | Accès complet. Login: `admin` / `root` par défaut |
-| `manager` | Accès complet sauf : créer/supprimer routeurs, vendeurs, forfaits, templates. Peut être verrouillé sur 1 routeur. |
-| `collaborateur` | Accès admin complet mais **uniquement sur les routeurs qui lui sont assignés** (many-to-many). Badge violet. |
+| `super-admin` | Gère tous les admins (création, forfait, crédits, désactivation, suppression). Voit tous les routeurs. Login: `admin` / `root` |
+| `admin` (régulier) | Accès complet à **son propre tenant** uniquement. Limite 5 routeurs (+5 par pack de 50 crédits). Bloqué si forfait expiré. |
+| `manager` | Accès admin sauf : créer/supprimer routeurs/vendeurs/forfaits/templates. Verrouillable sur 1 routeur. |
+| `collaborateur` | Accès admin **uniquement sur les routeurs assignés** (many-to-many). Badge violet. |
 | `vendor` | Portail vendeur uniquement (vente de vouchers) |
+
+### Multi-tenant — isolation des données
+- `admin_settings.isSuperAdmin`, `forfaitMonths`, `forfaitEndsAt`, `credits`, `extraRouterSlots`, `isActive`
+- `routers.ownerAdminId`, `managers.ownerAdminId`, `vendors.ownerAdminId`, `collaborateurs.ownerAdminId` — référence le tenant propriétaire
+- Forfaits durables : 1, 2, 3, 4, 5, 6, 12 mois (extensibles)
+- Pack routeurs : 50 crédits → +5 slots routeurs (super-admin a crédits illimités)
+- Login bloqué (`403`) si `forfaitEndsAt < now`
+- Création routeur bloquée (`402`) si limite atteinte
+- Tenant scoping appliqué sur tous les CRUD : routers, managers, vendors, collaborateurs (PUT/DELETE refusent les ressources hors tenant)
+- `/api/routers` et `/api/routers/:id*` exigent désormais un token valide (admin/manager/vendor/collab) ; les tokens non-admin sont scope sur les routeurs assignés (`403` sinon)
+
+### Endpoints super-admin (`/api/super/admins`)
+- `GET` — liste tous les admins
+- `POST` — crée un nouvel admin (login, password, displayName, forfaitMonths, credits)
+- `PATCH /:id` — met à jour (displayName, password, isActive, login)
+- `POST /:id/credits` — alloue/retire des crédits
+- `POST /:id/extend-forfait` — prolonge le forfait (+N mois)
+- `DELETE /:id` — supprime (cascade tous routeurs/données du tenant). Auto-suppression interdite.
+
+### Endpoints admin self (`/api/admin`)
+- `GET /me` — retourne `{ id, login, isSuperAdmin, forfaitEndsAt, credits, extraRouterSlots, routerCount, routerLimit }`
+- `POST /buy-routers` — achat pack 5 routeurs (50 crédits, `402` si insuffisant)
 
 ### Endpoint unifié
 `POST /api/login { login, password }` — Essaie admin → manager → collaborateur → vendor dans l'ordre.  

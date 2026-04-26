@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
-import { db, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
+import { eq, and, inArray } from "drizzle-orm";
+import { db, collaborateursTable, collaborateurRoutersTable, routersTable } from "@workspace/db";
 import { hashPassword, verifyPassword, verifyToken } from "../lib/collaborateur-auth.js";
-import { verifyAdminToken } from "../lib/admin-auth.js";
+import { verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
 
 const router = Router();
 
@@ -13,6 +13,20 @@ function requireAdmin(req: import("express").Request, res: import("express").Res
     return false;
   }
   return true;
+}
+
+/**
+ * Returns the admin scope (adminId + isSuperAdmin) when the request carries
+ * a valid admin token, or null on unauthorized.
+ */
+function getAdminScope(req: import("express").Request, res: import("express").Response): { adminId: number; isSuperAdmin: boolean } | null {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims) {
+    res.status(401).json({ error: "Accès réservé à l'administrateur" });
+    return null;
+  }
+  return claims;
 }
 
 function safeCollab(c: typeof collaborateursTable.$inferSelect) {
@@ -29,9 +43,21 @@ async function getRouterIds(collaborateurId: number): Promise<number[]> {
 }
 
 router.get("/collaborateurs", async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
-  const collabs = await db.select().from(collaborateursTable).orderBy(collaborateursTable.name);
-  const assignments = await db.select().from(collaborateurRoutersTable);
+  const scope = getAdminScope(req, res);
+  if (!scope) return;
+  // Tenant filter: regular admin only sees their own collaborateurs.
+  const collabs = scope.isSuperAdmin
+    ? await db.select().from(collaborateursTable).orderBy(collaborateursTable.name)
+    : await db.select().from(collaborateursTable)
+        .where(eq(collaborateursTable.ownerAdminId, scope.adminId))
+        .orderBy(collaborateursTable.name);
+  // Only fetch assignments belonging to the visible collaborateurs to avoid
+  // leaking another admin's router_ids when filtered.
+  const ids = collabs.map((c) => c.id);
+  const assignments = ids.length === 0
+    ? []
+    : await db.select().from(collaborateurRoutersTable)
+        .where(inArray(collaborateurRoutersTable.collaborateurId, ids));
   const result = collabs.map((c) => ({
     ...safeCollab(c),
     routerIds: assignments.filter((a) => a.collaborateurId === c.id).map((a) => a.routerId),
@@ -40,7 +66,8 @@ router.get("/collaborateurs", async (req, res): Promise<void> => {
 });
 
 router.post("/collaborateurs", async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  const scope = getAdminScope(req, res);
+  if (!scope) return;
   const { name, username, password, routerIds } = req.body as {
     name?: string; username?: string; password?: string; routerIds?: number[];
   };
@@ -53,13 +80,32 @@ router.post("/collaborateurs", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Au moins un routeur doit être assigné" }); return;
   }
 
+  // Verify all assigned routers belong to this admin (super admin bypasses).
+  if (!scope.isSuperAdmin) {
+    const owned = await db.select({ id: routersTable.id })
+      .from(routersTable)
+      .where(and(
+        inArray(routersTable.id, routerIds),
+        eq(routersTable.ownerAdminId, scope.adminId),
+      ));
+    if (owned.length !== routerIds.length) {
+      res.status(403).json({ error: "Certains routeurs ne vous appartiennent pas" });
+      return;
+    }
+  }
+
   const [existing] = await db.select({ id: collaborateursTable.id })
     .from(collaborateursTable).where(eq(collaborateursTable.username, username.trim()));
   if (existing) { res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" }); return; }
 
   const passwordHash = await hashPassword(password);
   const [collab] = await db.insert(collaborateursTable)
-    .values({ name: name.trim(), username: username.trim(), passwordHash })
+    .values({
+      ownerAdminId: scope.adminId,
+      name: name.trim(),
+      username: username.trim(),
+      passwordHash,
+    })
     .returning();
 
   await db.insert(collaborateurRoutersTable).values(
@@ -95,9 +141,18 @@ router.put("/collaborateurs/me/password", async (req, res): Promise<void> => {
 });
 
 router.put("/collaborateurs/:id", async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  const scope = getAdminScope(req, res);
+  if (!scope) return;
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  // Tenant ownership check (regular admins only — super sees all).
+  const [target] = await db.select({ ownerAdminId: collaborateursTable.ownerAdminId })
+    .from(collaborateursTable).where(eq(collaborateursTable.id, id));
+  if (!target) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
+  if (!scope.isSuperAdmin && target.ownerAdminId !== scope.adminId) {
+    res.status(403).json({ error: "Accès refusé" }); return;
+  }
 
   const { name, username, password, isActive, routerIds } = req.body as {
     name?: string; username?: string; password?: string; isActive?: boolean; routerIds?: number[];
@@ -113,6 +168,19 @@ router.put("/collaborateurs/:id", async (req, res): Promise<void> => {
 
   if (Array.isArray(routerIds) && routerIds.length === 0) {
     res.status(400).json({ error: "Au moins un routeur doit être assigné" }); return;
+  }
+
+  // If routerIds are provided, verify each belongs to the caller's tenant.
+  if (Array.isArray(routerIds) && routerIds.length > 0 && !scope.isSuperAdmin) {
+    const owned = await db.select({ id: routersTable.id })
+      .from(routersTable)
+      .where(and(
+        inArray(routersTable.id, routerIds),
+        eq(routersTable.ownerAdminId, scope.adminId),
+      ));
+    if (owned.length !== routerIds.length) {
+      res.status(403).json({ error: "Un ou plusieurs routeurs n'appartiennent pas à votre tenant" }); return;
+    }
   }
 
   const updates: Record<string, unknown> = {};
@@ -140,9 +208,18 @@ router.put("/collaborateurs/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/collaborateurs/:id", async (req, res): Promise<void> => {
-  if (!requireAdmin(req, res)) return;
+  const scope = getAdminScope(req, res);
+  if (!scope) return;
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  // Tenant ownership check (regular admins only — super sees all).
+  const [target] = await db.select({ ownerAdminId: collaborateursTable.ownerAdminId })
+    .from(collaborateursTable).where(eq(collaborateursTable.id, id));
+  if (!target) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
+  if (!scope.isSuperAdmin && target.ownerAdminId !== scope.adminId) {
+    res.status(403).json({ error: "Accès refusé" }); return;
+  }
 
   const [deleted] = await db.delete(collaborateursTable).where(eq(collaborateursTable.id, id)).returning();
   if (!deleted) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }

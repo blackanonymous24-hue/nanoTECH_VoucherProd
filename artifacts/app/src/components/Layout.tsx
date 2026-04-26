@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -75,7 +75,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { routerIdentity, selectedRouterId } = useRouterContext();
-  const { logout, role, token } = useAuth();
+  const { logout, role, token, isSuperAdmin } = useAuth();
   const appNavigate = useAppNavigate();
 
   const handleLogout = () => {
@@ -300,6 +300,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         ...(isAdmin ? [{ href: "/maintenance", label: "Maintenance", icon: Wrench }] : []),
       ],
     },
+    // Super Admin section: only the platform super-admin sees this group.
+    ...(isSuperAdmin ? [{
+      label: "Super Admin",
+      items: [
+        { href: "/super/admins", label: "Administrateurs", icon: Crown },
+      ],
+    }] : []),
   ];
 
   return (

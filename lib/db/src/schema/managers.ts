@@ -1,8 +1,11 @@
 import { pgTable, serial, text, boolean, timestamp, integer } from "drizzle-orm/pg-core";
 import { routersTable } from "./routers.js";
+import { adminSettingsTable } from "./admin-settings.js";
 
 export const managersTable = pgTable("managers", {
   id: serial("id").primaryKey(),
+  // Tenant owner. Nullable during migration; backfilled to the original super-admin.
+  ownerAdminId: integer("owner_admin_id").references(() => adminSettingsTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash"),

@@ -1,6 +1,10 @@
 import { Router } from "express";
-import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
-import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable } from "@workspace/db";
+import { eq, and, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
+import { verifyAdminTokenFull } from "../lib/admin-auth.js";
+import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
+import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
+import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
@@ -77,8 +81,143 @@ const MIK_TTL = {
   logs:       10_000,
 } as const;
 
-router.get("/routers", async (_req, res): Promise<void> => {
-  const routers = await db
+/**
+ * Decode the admin token (if present and valid) so we can scope this request
+ * to the caller's tenant. Returns null when there is no admin token (e.g. a
+ * manager / vendor / collaborateur is calling). The endpoints that strictly
+ * require an admin handle the auth refusal themselves.
+ */
+function getAdminScopeFromHeader(req: { headers: { authorization?: string } }): { adminId: number; isSuperAdmin: boolean } | null {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return null;
+  return verifyAdminTokenFull(auth.slice(7));
+}
+
+/**
+ * Resolve the caller into a list of routerIds they are permitted to access
+ * AND the tenant (ownerAdminId) they belong to. Returns null when the request
+ * carries no recognized token at all.
+ *
+ *   - super-admin           → { kind: "super" }                (all routers)
+ *   - regular admin         → { kind: "admin",   adminId,    routerIds }
+ *   - manager/vendor/collab → { kind: "<role>",  adminId?,   routerIds }
+ *
+ * `adminId` for non-super callers is the tenant they belong to.
+ * `routerIds` is the exact set of routers the caller is allowed to touch.
+ */
+type CallerScope =
+  | { kind: "super" }
+  | { kind: "admin"; adminId: number; routerIds: number[] }
+  | { kind: "manager"; adminId: number | null; routerIds: number[] }
+  | { kind: "vendor"; adminId: number | null; routerIds: number[] }
+  | { kind: "collaborateur"; adminId: number | null; routerIds: number[] };
+
+async function resolveCallerScope(req: { headers: { authorization?: string } }): Promise<CallerScope | null> {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return null;
+  const token = auth.slice(7);
+
+  // Try admin token first (super-admin or regular admin).
+  const adminScope = verifyAdminTokenFull(token);
+  if (adminScope) {
+    if (adminScope.isSuperAdmin) return { kind: "super" };
+    const ownedRouters = await db
+      .select({ id: routersTable.id })
+      .from(routersTable)
+      .where(eq(routersTable.ownerAdminId, adminScope.adminId));
+    return {
+      kind: "admin",
+      adminId: adminScope.adminId,
+      routerIds: ownedRouters.map((r) => r.id),
+    };
+  }
+
+  // Try manager token.
+  const mgr = verifyManagerToken(token);
+  if (mgr) {
+    const [row] = await db
+      .select({
+        ownerAdminId: managersTable.ownerAdminId,
+        routerId:     managersTable.routerId,
+        isActive:     managersTable.isActive,
+      })
+      .from(managersTable)
+      .where(eq(managersTable.id, mgr.managerId));
+    if (!row || !row.isActive) return null;
+    // Locked manager → only the assigned router.
+    // Unlocked manager (routerId == null) → all routers in their tenant.
+    let routerIds: number[];
+    if (row.routerId !== null) {
+      routerIds = [row.routerId];
+    } else if (row.ownerAdminId !== null) {
+      const ownerRouters = await db
+        .select({ id: routersTable.id })
+        .from(routersTable)
+        .where(eq(routersTable.ownerAdminId, row.ownerAdminId));
+      routerIds = ownerRouters.map((r) => r.id);
+    } else {
+      routerIds = [];
+    }
+    return {
+      kind: "manager",
+      adminId: row.ownerAdminId,
+      routerIds,
+    };
+  }
+
+  // Try vendor token.
+  const vnd = verifyVendorToken(token);
+  if (vnd) {
+    const [row] = await db
+      .select({
+        ownerAdminId: vendorsTable.ownerAdminId,
+        routerId:     vendorsTable.routerId,
+        isActive:     vendorsTable.isActive,
+      })
+      .from(vendorsTable)
+      .where(eq(vendorsTable.id, vnd.vendorId));
+    if (!row || !row.isActive) return null;
+    return {
+      kind: "vendor",
+      adminId: row.ownerAdminId,
+      routerIds: row.routerId !== null ? [row.routerId] : [],
+    };
+  }
+
+  // Try collaborateur token.
+  const col = verifyCollaborateurToken(token);
+  if (col) {
+    // Refuse disabled collaborateurs even if their token is still valid.
+    const [colRow] = await db
+      .select({
+        ownerAdminId: collaborateursTable.ownerAdminId,
+        isActive:     collaborateursTable.isActive,
+      })
+      .from(collaborateursTable)
+      .where(eq(collaborateursTable.id, col.collaborateurId));
+    if (!colRow || !colRow.isActive) return null;
+    // Re-derive the assignment from the DB — never trust the token-embedded
+    // routerIds without a sanity check against current assignments.
+    const rows = await db
+      .select({ routerId: collaborateurRoutersTable.routerId })
+      .from(collaborateurRoutersTable)
+      .where(eq(collaborateurRoutersTable.collaborateurId, col.collaborateurId));
+    const dbRouterIds = rows.map((r) => r.routerId);
+    return {
+      kind: "collaborateur",
+      adminId: colRow.ownerAdminId,
+      routerIds: dbRouterIds,
+    };
+  }
+
+  return null;
+}
+
+router.get("/routers", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+
+  const baseSelect = db
     .select({
       id: routersTable.id,
       name: routersTable.name,
@@ -88,15 +227,29 @@ router.get("/routers", async (_req, res): Promise<void> => {
       port: routersTable.port,
       username: routersTable.username,
       isActive: routersTable.isActive,
+      ownerAdminId: routersTable.ownerAdminId,
       createdAt: routersTable.createdAt,
       updatedAt: routersTable.updatedAt,
     })
-    .from(routersTable)
-    .orderBy(routersTable.name);
-  res.json(routers);
+    .from(routersTable);
+
+  if (scope.kind === "super") {
+    res.json(await baseSelect.orderBy(routersTable.name));
+    return;
+  }
+  if (scope.kind === "admin") {
+    res.json(await baseSelect.where(eq(routersTable.ownerAdminId, scope.adminId)).orderBy(routersTable.name));
+    return;
+  }
+  // manager / vendor / collaborateur: only the routers they're assigned to.
+  if (scope.routerIds.length === 0) { res.json([]); return; }
+  res.json(await baseSelect.where(inArray(routersTable.id, scope.routerIds)).orderBy(routersTable.name));
 });
 
 router.post("/routers", async (req, res): Promise<void> => {
+  const scope = getAdminScopeFromHeader(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+
   const { name, hotspotName, contact, host, port, username, password, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
@@ -113,9 +266,40 @@ router.post("/routers", async (req, res): Promise<void> => {
     return;
   }
 
+  // Quota enforcement (regular admins only). The super-admin bypasses the
+  // limit because they manage all tenants.
+  if (!scope.isSuperAdmin) {
+    const [adminRow] = await db
+      .select({
+        extraRouterSlots: adminSettingsTable.extraRouterSlots,
+        isActive:         adminSettingsTable.isActive,
+      })
+      .from(adminSettingsTable)
+      .where(eq(adminSettingsTable.id, scope.adminId));
+    if (!adminRow || !adminRow.isActive) {
+      res.status(403).json({ error: "Compte désactivé" });
+      return;
+    }
+    const limit = 5 + adminRow.extraRouterSlots;
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(routersTable)
+      .where(eq(routersTable.ownerAdminId, scope.adminId));
+    if (Number(count) >= limit) {
+      res.status(402).json({
+        error: `Limite atteinte (${limit} routeur${limit > 1 ? "s" : ""}). Achetez un pack de 5 routeurs supplémentaires (50 crédits).`,
+        routerCount: Number(count),
+        routerLimit: limit,
+      });
+      return;
+    }
+  }
+
   const [created] = await db
     .insert(routersTable)
     .values({
+      // Super-admin-created routers default to the super-admin's tenant.
+      ownerAdminId: scope.adminId,
       name,
       hotspotName: hotspotName ?? null,
       contact: contact ?? null,
@@ -134,11 +318,53 @@ router.post("/routers", async (req, res): Promise<void> => {
       port: routersTable.port,
       username: routersTable.username,
       isActive: routersTable.isActive,
+      ownerAdminId: routersTable.ownerAdminId,
       createdAt: routersTable.createdAt,
       updatedAt: routersTable.updatedAt,
     });
 
   res.status(201).json(created);
+});
+
+/**
+ * Tenant-isolation middleware for every /routers/:id and /routers/:id/* route.
+ *
+ * Rules:
+ *   - No recognized token  → 401
+ *   - Super-admin          → allowed
+ *   - Regular admin        → router must belong to their tenant (ownerAdminId)
+ *   - Manager / vendor     → router id must equal their assigned routerId
+ *   - Collaborateur        → router id must be in their assigned routerIds set
+ */
+router.use("/routers/:id", async (req, res, next) => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind === "super") { next(); return; }
+
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (Number.isNaN(id)) { next(); return; } // let the handler report a clean 400
+
+  if (scope.kind === "admin") {
+    const [r] = await db
+      .select({ owner: routersTable.ownerAdminId })
+      .from(routersTable)
+      .where(eq(routersTable.id, id));
+    if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+    if (r.owner !== scope.adminId) {
+      res.status(403).json({ error: "Accès refusé à ce routeur" });
+      return;
+    }
+    next();
+    return;
+  }
+
+  // manager / vendor / collaborateur — must be in their assigned set.
+  if (!scope.routerIds.includes(id)) {
+    res.status(403).json({ error: "Accès refusé à ce routeur" });
+    return;
+  }
+  next();
 });
 
 router.get("/routers/:id", async (req, res): Promise<void> => {

@@ -10,7 +10,7 @@ import {
   getListRoutersQueryKey,
 } from "@workspace/api-client-react";
 import type { Router as RouterType } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -336,9 +336,49 @@ export default function Routers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { setSelectedRouterId, selectedRouterId } = useRouterContext();
-  const { role, token } = useAuth();
+  const { role, token, isSuperAdmin } = useAuth();
   const isManager = role === "manager";
   const [, navigate] = useLocation();
+
+  /* ── Quota & credits (admin only, regular admins see the banner) ─── */
+  interface AdminMe {
+    isSuperAdmin: boolean;
+    credits: number;
+    routerCount: number;
+    routerLimit: number;
+    forfaitEndsAt: string | null;
+  }
+  const { data: adminMe } = useQuery<AdminMe>({
+    queryKey: ["admin", "me"],
+    enabled: !!token && role === "admin",
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/admin/me`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error("Échec de chargement du profil");
+      return r.json();
+    },
+  });
+  const buyRoutersM = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`${BASE}/api/admin/buy-routers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const data = await r.json().catch(() => ({} as { error?: string }));
+      if (!r.ok) throw new Error(data?.error ?? "Achat impossible");
+      return data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin", "me"] });
+      toast({ title: "Pack acquis", description: "+5 routeurs ajoutés à votre quota." });
+    },
+    onError: (err) => {
+      toast({
+        title: "Achat impossible",
+        description: err instanceof Error ? err.message : "Crédits insuffisants",
+        variant: "destructive",
+      });
+    },
+  });
 
   const [showForm, setShowForm] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
@@ -459,6 +499,43 @@ export default function Routers() {
           )}
         </div>
       </div>
+
+      {role === "admin" && !isSuperAdmin && adminMe && (() => {
+        const used = adminMe.routerCount;
+        const limit = adminMe.routerLimit;
+        const remaining = Math.max(0, limit - used);
+        const isFull = used >= limit;
+        const isWarn = remaining <= 1;
+        if (!isFull && !isWarn) return null;
+        return (
+          <Card className={`mb-4 border ${isFull ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+            <CardContent className="py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-2 min-w-0">
+                <AlertTriangle className={`h-5 w-5 flex-shrink-0 ${isFull ? "text-red-500" : "text-amber-500"}`} />
+                <div className="text-sm">
+                  <div className={`font-medium ${isFull ? "text-red-900" : "text-amber-900"}`}>
+                    {isFull
+                      ? `Quota atteint : ${used}/${limit} routeurs`
+                      : `Bientôt à la limite : ${used}/${limit} routeurs`}
+                  </div>
+                  <div className={`text-xs ${isFull ? "text-red-700" : "text-amber-700"}`}>
+                    Crédits disponibles : {adminMe.credits}. Un pack +5 routeurs coûte 50 crédits.
+                  </div>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => buyRoutersM.mutate()}
+                disabled={buyRoutersM.isPending || adminMe.credits < 50}
+                className="gap-1"
+              >
+                <Plus className="h-4 w-4" />
+                Acheter +5 routeurs (50 crédits)
+              </Button>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {isLoading ? (
         <div className="text-gray-400 text-sm">Chargement...</div>

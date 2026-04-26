@@ -7,6 +7,7 @@ const VENDOR_KEY          = "vouchernet_vendor_info";
 const ROUTER_KEY          = "vouchernet_router_id";
 const MGR_ROUTER_KEY      = "vouchernet_manager_router_id";
 const COLLAB_ROUTER_IDS   = "vouchernet_collab_router_ids";
+const SUPER_ADMIN_KEY     = "vouchernet_is_super_admin";
 
 function readKey(key: string): string | null {
   return localStorage.getItem(key) ?? sessionStorage.getItem(key);
@@ -36,8 +37,9 @@ interface AuthContextValue {
   vendorInfo: VendorInfo | null;
   managerRouterId: number | null;
   collaborateurRouterIds: number[];
+  isSuperAdmin: boolean;
   isAuthenticated: boolean;
-  login: (token: string, role: UserRole, vendorInfo?: VendorInfo, managerRouterId?: number | null, collaborateurRouterIds?: number[], remember?: boolean) => void;
+  login: (token: string, role: UserRole, vendorInfo?: VendorInfo, managerRouterId?: number | null, collaborateurRouterIds?: number[], remember?: boolean, isSuperAdmin?: boolean) => void;
   logout: () => void;
 }
 
@@ -47,6 +49,7 @@ const AuthContext = createContext<AuthContextValue>({
   vendorInfo: null,
   managerRouterId: null,
   collaborateurRouterIds: [],
+  isSuperAdmin: false,
   isAuthenticated: false,
   login: () => {},
   logout: () => {},
@@ -67,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { const v = readKey(COLLAB_ROUTER_IDS); return v ? JSON.parse(v) : []; }
     catch { return []; }
   });
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => readKey(SUPER_ADMIN_KEY) === "1");
 
   const login = (
     t: string,
@@ -75,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mgrRouterId?: number | null,
     collabRouterIds?: number[],
     remember = true,
+    superAdmin = false,
   ) => {
     writeKey(TOKEN_KEY, t, remember);
     writeKey(ROLE_KEY, r, remember);
@@ -95,11 +100,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       removeKey(COLLAB_ROUTER_IDS);
     }
 
+    // Only admin tokens can be super-admin; defensively force false for others.
+    const effectiveSuper = r === "admin" && superAdmin;
+    if (effectiveSuper) writeKey(SUPER_ADMIN_KEY, "1", remember);
+    else removeKey(SUPER_ADMIN_KEY);
+
     setToken(t);
     setRole(r);
     setVendorInfo(vi ?? null);
     setManagerRouterId(r === "manager" && mgrRouterId != null ? mgrRouterId : null);
     setCollaborateurRouterIds(r === "collaborateur" && collabRouterIds ? collabRouterIds : []);
+    setIsSuperAdmin(effectiveSuper);
   };
 
   const logout = () => {
@@ -112,16 +123,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     removeKey(ROUTER_KEY);
     removeKey(MGR_ROUTER_KEY);
     removeKey(COLLAB_ROUTER_IDS);
+    removeKey(SUPER_ADMIN_KEY);
     setToken(null);
     setRole(null);
     setVendorInfo(null);
     setManagerRouterId(null);
     setCollaborateurRouterIds([]);
+    setIsSuperAdmin(false);
   };
 
   return (
     <AuthContext.Provider value={{
       token, role, vendorInfo, managerRouterId, collaborateurRouterIds,
+      isSuperAdmin,
       isAuthenticated: !!token, login, logout,
     }}>
       {children}

@@ -30,6 +30,7 @@ const DailyPayments  = lazy(() => import("@/pages/DailyPayments"));
 const StockAlerts = lazy(() => import("@/pages/StockAlerts"));
 const Maintenance = lazy(() => import("@/pages/Maintenance"));
 const TicketLookup = lazy(() => import("@/pages/TicketLookup"));
+const SuperAdmins = lazy(() => import("@/pages/SuperAdmins"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageSkeleton() {
@@ -74,7 +75,7 @@ function PageSkeleton() {
 
 function AppRoutes() {
   const [location] = useLocation();
-  const { isAuthenticated, role } = useAuth();
+  const { isAuthenticated, role, isSuperAdmin } = useAuth();
   const [routeReloadToken, setRouteReloadToken] = useState(0);
   const qc = useQueryClient();
   const prevLocationRef = useRef(location);
@@ -154,6 +155,7 @@ function AppRoutes() {
             <Route path="/stock-alerts" component={StockAlerts} />
             <Route path="/maintenance" component={role === "admin" ? Maintenance : Dashboard} />
             <Route path="/ticket-lookup" component={TicketLookup} />
+            <Route path="/super/admins" component={isSuperAdmin ? SuperAdmins : Dashboard} />
             <Route component={NotFound} />
           </Switch>
         </Suspense>
