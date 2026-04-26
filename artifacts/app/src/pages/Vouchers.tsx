@@ -1934,6 +1934,35 @@ function isExpired(comment: string | null | undefined): boolean {
   return d.getTime() < Date.now();
 }
 
+// MikroTik durations: "1d2h3m4s", "30m", "1h", "1s", "0s"…
+// Returns total seconds, or null if unparseable.
+function parseMikrotikDuration(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const t = s.trim().toLowerCase();
+  if (!t) return null;
+  let total = 0;
+  let matched = false;
+  const re = /(\d+)\s*([wdhms])/g;
+  const units: Record<string, number> = { w: 604800, d: 86400, h: 3600, m: 60, s: 1 };
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t)) !== null) {
+    matched = true;
+    total += Number(m[1]) * (units[m[2]] ?? 0);
+  }
+  return matched ? total : null;
+}
+
+// Hide tiny limit-uptime values (< 1 minute) — they are leftovers from the
+// MikHmon on-login script having decremented the per-user limit down to
+// nothing, not real "remaining time" worth showing.  The "Expiré" badge
+// already conveys exhausted status more clearly.
+function shouldShowLimitUptime(s: string | null | undefined): boolean {
+  if (!s) return false;
+  const secs = parseMikrotikDuration(s);
+  if (secs == null) return true; // unknown format → show anyway
+  return secs >= 60;
+}
+
 function UserRow({
   user,
   selected,
@@ -1973,7 +2002,7 @@ function UserRow({
                 </span>
               </>
             )}
-            {user.limitUptime && (
+            {shouldShowLimitUptime(user.limitUptime) && (
               <>
                 <span>·</span>
                 <span>{user.limitUptime}</span>
