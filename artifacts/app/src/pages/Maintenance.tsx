@@ -11,7 +11,58 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const SCRIPT_PURGE_BATCH_SIZE = 50;
+// Larger batches → fewer round-trips → less risk of network "load failed".
+// Backend caps this at 500.
+const SCRIPT_PURGE_BATCH_SIZE = 200;
+// Per-request timeout (ms): MikroTik can be slow on big batches.
+const SCRIPT_PURGE_REQUEST_TIMEOUT = 60_000;
+// Number of retries for a single batch on transient network failures.
+const SCRIPT_PURGE_MAX_RETRIES = 3;
+
+/**
+ * Returns true for the few error shapes the browser uses for transient
+ * network failures: AbortError (our timeout fired), or TypeError thrown by
+ * `fetch()` itself when the network layer fails ("Failed to fetch" on
+ * Chromium/Firefox, "Load failed" on Safari/WebKit, NetworkError on others).
+ * Any other thrown error is treated as non-transient and not retried.
+ */
+function isTransientFetchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "AbortError") return true;
+  if (err instanceof TypeError) return true; // fetch network failure
+  return false;
+}
+
+/**
+ * Fetch with timeout + retry for transient network errors only.
+ * "load failed" / "Failed to fetch" / aborts → retry with small backoff.
+ * HTTP errors (non-2xx) are returned as-is so the caller can decide.
+ * Non-transient thrown errors are re-thrown immediately.
+ */
+async function fetchScriptPurgeBatch(url: string, init: RequestInit): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= SCRIPT_PURGE_MAX_RETRIES; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), SCRIPT_PURGE_REQUEST_TIMEOUT);
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      // Only retry on real transient network errors. Re-throw everything else
+      // (programming errors, etc.) immediately so we don't mask bugs.
+      if (!isTransientFetchError(err)) throw err;
+      if (attempt < SCRIPT_PURGE_MAX_RETRIES) {
+        // Exponential-ish backoff: 400ms, 900ms, 1600ms
+        await new Promise((r) => setTimeout(r, 400 + attempt * 500));
+        continue;
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Échec réseau (load failed)");
+}
 
 type PurgeResult = {
   routerId: number;
@@ -139,7 +190,7 @@ export default function Maintenance() {
       // Loop until backend reports done. Each call deletes at most BATCH scripts.
       // Defensive cap to avoid an infinite loop if something is wrong.
       for (let i = 0; i < 10_000; i++) {
-        const res = await fetch(`${BASE}/api/admin/purge-old-sales-scripts`, {
+        const res = await fetchScriptPurgeBatch(`${BASE}/api/admin/purge-old-sales-scripts`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,

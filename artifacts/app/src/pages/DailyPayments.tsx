@@ -114,55 +114,60 @@ function ArrearRow({
 
   return (
     <div className={`px-3 py-2 border-t border-orange-100 text-xs ${done ? "opacity-50" : ""}`}>
-      <div className="flex items-center gap-2">
-        {/* Date + montant */}
-        <div className="flex-1 min-w-0">
+      {/* Mobile: stacks (date+paid on row 1, reste on row 2, controls on row 3).
+          Desktop (sm+): single horizontal row. */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
+        {/* Date + montant versé */}
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 sm:flex-1 sm:min-w-0">
           <span className="font-medium text-gray-700">{fmtDateFr(entry.date)}</span>
           {entry.paidAmount > 0 && (
-            <span className="ml-2 text-gray-400 tabular-nums">
+            <span className="text-gray-400 tabular-nums">
               versé {fmtAmount(entry.paidAmount)} / {fmtAmount(entry.salesAmount)} FCFA
             </span>
           )}
         </div>
 
-        {/* Reste */}
-        <span className="font-bold text-orange-700 tabular-nums flex-shrink-0">
-          {fmtAmount(entry.remaining)} FCFA
-        </span>
+        {/* Reste + actions. Wrap autorisé pour les écrans très étroits
+            (~320 px) afin que les boutons ne débordent jamais. */}
+        <div className="flex flex-wrap items-center gap-1.5 justify-between sm:justify-end">
+          <span className="font-bold text-orange-700 tabular-nums flex-shrink-0">
+            {fmtAmount(entry.remaining)} FCFA
+          </span>
 
-        {done ? (
-          <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-        ) : (
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {/* Custom amount input */}
-            <Input
-              type="number"
-              min={1}
-              max={entry.remaining}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="h-7 w-24 text-xs px-2 text-right tabular-nums"
-              disabled={loading}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs px-2"
-              disabled={loading || Number(amount) <= 0}
-              onClick={handlePay}
-            >
-              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Payer"}
-            </Button>
-            <Button
-              size="sm"
-              className="h-7 text-xs px-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-              disabled={loading}
-              onClick={handleSolder}
-            >
-              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Solder"}
-            </Button>
-          </div>
-        )}
+          {done ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+          ) : (
+            <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">
+              {/* Custom amount input */}
+              <Input
+                type="number"
+                min={1}
+                max={entry.remaining}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="h-7 w-20 sm:w-24 text-xs px-2 text-right tabular-nums"
+                disabled={loading}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs px-2"
+                disabled={loading || Number(amount) <= 0}
+                onClick={handlePay}
+              >
+                {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Payer"}
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 text-xs px-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                disabled={loading}
+                onClick={handleSolder}
+              >
+                {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Solder"}
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Versements déjà enregistrés pour cet arriéré (annulables) */}

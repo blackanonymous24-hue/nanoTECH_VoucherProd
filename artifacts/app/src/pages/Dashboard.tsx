@@ -171,7 +171,7 @@ function yTickFmt(v: number) {
   return `${parseFloat((v / Math.pow(1024, i)).toFixed(2))} ${sizes[i]}`;
 }
 
-function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
+function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | null; enabled?: boolean }) {
   const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
   const [selectedIface, setSelectedIface] = useState<string>("");
 
@@ -183,7 +183,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
       if (!res.ok) throw new Error("interfaces unavailable");
       return res.json();
     },
-    enabled: !!routerId,
+    enabled: !!routerId && enabled,
     staleTime: 60_000,
     retry: false,
     throwOnError: false,
@@ -209,7 +209,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
       if (!res.ok) throw new Error("traffic unavailable");
       return res.json();
     },
-    enabled: !!routerId && !!selectedIface,
+    enabled: !!routerId && !!selectedIface && enabled,
     refetchInterval: 3_000,
     refetchIntervalInBackground: false,
     staleTime: 2_500,
@@ -232,7 +232,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
   const yTicks = [0, yTop * 0.333, yTop * 0.667, yTop];
 
   return (
-    <Card className="flex flex-col flex-1 min-w-0">
+    <Card className="flex flex-col flex-1 min-w-0 min-h-[300px]">
       <CardHeader className="pb-2 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
@@ -436,6 +436,30 @@ export default function Dashboard() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const salesFresh = !!sales && (sales as any)._cachedAt != null;
 
+  // Priority loading: defer logs + traffic until the high-priority cards
+  // (router info, sessions, sales, tickets) have arrived. Falls back after
+  // 2 s so logs/traffic eventually load even if a priority query is slow.
+  // We track readiness PER routerId so that switching router immediately
+  // resets readiness (no carry-over from the previous router).
+  const [readyForRouterId, setReadyForRouterId] = useState<number | null>(null);
+  const secondariesReady =
+    selectedRouterId != null && readyForRouterId === selectedRouterId;
+  const prioritiesGotData =
+    !!selectedRouterId
+    && activeSessions !== undefined
+    && sales !== undefined
+    && usersStats !== undefined;
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    if (readyForRouterId === selectedRouterId) return; // already enabled
+    if (prioritiesGotData) {
+      setReadyForRouterId(selectedRouterId);
+      return;
+    }
+    const t = setTimeout(() => setReadyForRouterId(selectedRouterId), 2_000);
+    return () => clearTimeout(t);
+  }, [selectedRouterId, prioritiesGotData, readyForRouterId]);
+
   const {
     data: logs = [],
     isLoading: logsLoading,
@@ -447,7 +471,7 @@ export default function Dashboard() {
     { limit: 80, topics: "hotspot" },
     {
       query: {
-        enabled: !!selectedRouterId,
+        enabled: !!selectedRouterId && secondariesReady,
         refetchInterval: 5_000,
         refetchIntervalInBackground: false,
         staleTime: 4_000,
@@ -671,7 +695,7 @@ export default function Dashboard() {
       </div>
 
       <div className="traffic-logs-layout flex flex-col gap-4 items-stretch">
-      <TrafficMonitorCard routerId={selectedRouterId} />
+      <TrafficMonitorCard routerId={selectedRouterId} enabled={secondariesReady} />
       <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
