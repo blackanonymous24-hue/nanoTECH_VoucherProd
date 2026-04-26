@@ -1294,18 +1294,23 @@ router.get("/vendors/weekly-summary", async (req, res) => {
 
     // Track weekly lump-sum and daily payments separately so the frontend can
     // show "weekly expected after daily deductions".
+    // IMPORTANT: tag chaque versement avec sa source ("weekly" | "daily") pour
+    // que le frontend route correctement la suppression vers le bon endpoint
+    // (sinon un id de daily-payment peut entrer en collision avec un id de
+    // weekly-payment et supprimer la mauvaise ligne).
     const weeklyPaidMap = new Map<number, number>();
     const dailyPaidMap  = new Map<number, number>();
-    const paymentsMap = new Map<number, { id: number; amount: number; paidAt: Date; note: string | null }[]>();
+    const paymentsMap = new Map<number, { id: number; amount: number; paidAt: Date; note: string | null; source: "weekly" | "daily" }[]>();
     for (const p of payments) {
       if (!paymentsMap.has(p.vendorId)) paymentsMap.set(p.vendorId, []);
-      paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note });
+      paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note, source: "weekly" });
       weeklyPaidMap.set(p.vendorId, (weeklyPaidMap.get(p.vendorId) ?? 0) + p.amount);
     }
-    // Merge daily payments into the same map (synthetic entries without id exposed for deletion)
+    // Merge daily payments into the same list (tagged source="daily" so the
+    // frontend uses /api/vendors/daily-payments/:id pour la suppression).
     for (const p of dailyPayments) {
       if (!paymentsMap.has(p.vendorId)) paymentsMap.set(p.vendorId, []);
-      paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note });
+      paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note, source: "daily" });
       dailyPaidMap.set(p.vendorId, (dailyPaidMap.get(p.vendorId) ?? 0) + p.amount);
     }
 

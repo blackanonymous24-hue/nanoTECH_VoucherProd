@@ -579,6 +579,17 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
 
   // Versements hebdomadaires (lump-sum) sur la même fenêtre — indispensable
   // pour détecter une semaine soldée par un seul versement hebdo.
+  // IMPORTANT : on borne sur le LUNDI de `sinceStr`, sinon les versements
+  // hebdo de la première semaine partielle de la fenêtre seraient ignorés
+  // (leur weekStart = lundi < sinceStr), faussant cutoff et FIFO.
+  function getMondayOf(dateStr: string): string {
+    const d = new Date(dateStr + "T00:00:00Z");
+    const dow = d.getUTCDay(); // 0=Sun
+    const diff = dow === 0 ? -6 : 1 - dow;
+    return new Date(d.getTime() + diff * 86_400_000).toISOString().slice(0, 10);
+  }
+  const sinceMondayStr = getMondayOf(sinceStr);
+
   const weeklyLumpRows = await db
     .select({
       weekStart: vendorPaymentsTable.weekStart,
@@ -587,7 +598,7 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     .from(vendorPaymentsTable)
     .where(and(
       eq(vendorPaymentsTable.vendorId, vendor.id),
-      gte(vendorPaymentsTable.weekStart, sinceStr),
+      gte(vendorPaymentsTable.weekStart, sinceMondayStr),
       lt(vendorPaymentsTable.weekStart, todayStr),
     ))
     .groupBy(vendorPaymentsTable.weekStart);
@@ -608,12 +619,7 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   // A week is "settled" when the TOTAL paid for that week >= TOTAL sales for that week.
   // (A vendor may pay in one lump sum, so we compare weekly totals, not day-by-day.)
   // Any dates before the Monday of that settled week are hidden from the vendor.
-  function getMondayOf(dateStr: string): string {
-    const d = new Date(dateStr + "T00:00:00Z");
-    const dow = d.getUTCDay(); // 0=Sun
-    const diff = dow === 0 ? -6 : 1 - dow;
-    return new Date(d.getTime() + diff * 86_400_000).toISOString().slice(0, 10);
-  }
+  // (`getMondayOf` est déjà défini plus haut pour normaliser sinceMondayStr.)
 
   const weekMondaysSet = new Set<string>();
   for (const row of salesRows) weekMondaysSet.add(getMondayOf(row.date));

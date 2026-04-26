@@ -69,6 +69,10 @@ interface PaymentEntry {
   amount: number;
   paidAt: string;
   note: string | null;
+  // "weekly" = vendorPaymentsTable (lump-sum); "daily" = vendorDailyPaymentsTable.
+  // Indispensable pour router la suppression vers le bon endpoint.
+  // Optionnel pour rester compatible avec d'anciens clients en cache.
+  source?: "weekly" | "daily";
 }
 
 interface VendorWeekEntry {
@@ -135,7 +139,7 @@ function VendorRow({
   routerId: number;
   weekStart: string;
   onMutated: () => Promise<void> | void;
-  onOptimisticDeletePayment: (vendorId: number, paymentId: number) => void;
+  onOptimisticDeletePayment: (vendorId: number, paymentId: number, source: "weekly" | "daily") => void;
 }) {
   const [open, setOpen]     = useState(false);
   const [amount, setAmount] = useState("");
@@ -160,12 +164,17 @@ function VendorRow({
   };
 
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const deletePayment = async (id: number, amt: number) => {
+  const deletePayment = async (id: number, amt: number, source: "weekly" | "daily" | undefined) => {
     if (deletingId !== null) return;
     if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} FCFA ?`)) return;
+    // Default to "weekly" si la source manque (ancien cache) — c'est l'endpoint historique.
+    const src = source ?? "weekly";
+    const url = src === "daily"
+      ? `${BASE}/api/vendors/daily-payments/${id}`
+      : `${BASE}/api/vendors/payments/${id}`;
     setDeletingId(id);
     try {
-      const res = await fetch(`${BASE}/api/vendors/payments/${id}`, { method: "DELETE" });
+      const res = await fetch(url, { method: "DELETE" });
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         toast({ title: "Erreur", description: txt || `HTTP ${res.status}`, variant: "destructive" });
@@ -174,7 +183,7 @@ function VendorRow({
       // 1) Update optimiste : on retire le versement de l'affichage tout
       //    de suite, sans attendre le refetch (qui peut être lent quand
       //    l'API est sous charge MikroTik).
-      onOptimisticDeletePayment(vendor.vendorId, id);
+      onOptimisticDeletePayment(vendor.vendorId, id, src);
       toast({ title: "Versement annulé" });
       // 2) Refetch en arrière-plan pour resynchroniser totaux et arriérés.
       void onMutated();
@@ -283,7 +292,7 @@ function VendorRow({
                   <button
                     type="button"
                     className="ml-auto p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0 disabled:opacity-50"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); void deletePayment(p.id, p.amount); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); void deletePayment(p.id, p.amount, p.source); }}
                     disabled={deletingId === p.id}
                     title="Annuler ce versement"
                   >
@@ -341,26 +350,38 @@ function WeekCard({
   // Update optimiste : retire localement un versement annulé pour que la
   // disparition soit instantanée, sans attendre le refetch (utile quand
   // l'API est ralentie par les appels MikroTik).
-  const onOptimisticDeletePayment = useCallback((vendorId: number, paymentId: number) => {
+  const onOptimisticDeletePayment = useCallback((vendorId: number, paymentId: number, source: "weekly" | "daily") => {
     queryClient.setQueryData<WeeklySummaryResponse>(qk, (old) => {
       if (!old) return old;
       return {
         ...old,
         vendors: old.vendors.map((v) => {
           if (v.vendorId !== vendorId) return v;
-          const removed = v.payments.find((p) => p.id === paymentId);
+          // On filtre par (id, source) car les ids peuvent se croiser entre
+          // vendor_payments (weekly) et vendor_daily_payments (daily).
+          const removed = v.payments.find((p) => p.id === paymentId && (p.source ?? "weekly") === source);
           if (!removed) return v;
-          const newPayments = v.payments.filter((p) => p.id !== paymentId);
+          const newPayments = v.payments.filter((p) => !(p.id === paymentId && (p.source ?? "weekly") === source));
           const newTotalPaid = Math.max(0, v.totalPaid - removed.amount);
-          const newWeeklyPaid = v.weeklyPaid !== undefined
+          const newWeeklyPaid = source === "weekly" && v.weeklyPaid !== undefined
             ? Math.max(0, v.weeklyPaid - removed.amount)
             : v.weeklyPaid;
-          const newRemaining = Math.max(0, v.amount - newTotalPaid);
+          const newDailyPaid = source === "daily" && v.dailyPaid !== undefined
+            ? Math.max(0, v.dailyPaid - removed.amount)
+            : v.dailyPaid;
+          // Reste = ventes − commission − total versé (préserver la commission existante).
+          const newRemaining = Math.max(0, v.amount - v.commission - newTotalPaid);
+          // weeklyExpected = ventes − commission − dailyPaid (ce qui reste à régler en hebdo)
+          const newWeeklyExpected = newDailyPaid !== undefined
+            ? Math.max(0, v.amount - v.commission - newDailyPaid)
+            : v.weeklyExpected;
           return {
             ...v,
             payments: newPayments,
             totalPaid: newTotalPaid,
             weeklyPaid: newWeeklyPaid,
+            dailyPaid: newDailyPaid,
+            weeklyExpected: newWeeklyExpected,
             remaining: newRemaining,
           };
         }),

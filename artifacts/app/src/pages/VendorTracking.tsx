@@ -612,11 +612,19 @@ export default function VendorTracking() {
     staleTime: 5 * 60_000,
   });
 
+  // L'endpoint /vendors/daily-arrears utilise une fenêtre [date−31j ; date−1j],
+  // donc le jour `applied` lui-même serait exclu si on l'envoyait tel quel.
+  // Pour inclure le jour sélectionné dans les arriérés (cohérent avec la
+  // page « Versement du jour »), on requête avec date+1.
+  const arrearsQueryDate = (() => {
+    const d = new Date(applied + "T00:00:00Z");
+    return new Date(d.getTime() + 86_400_000).toISOString().slice(0, 10);
+  })();
   const { data: arrearsData } = useQuery<DailyArrearsResponse>({
-    queryKey: ["vendor-daily-arrears", selectedRouterId, applied],
+    queryKey: ["vendor-daily-arrears", selectedRouterId, arrearsQueryDate],
     queryFn: async ({ signal }) => {
       if (!selectedRouterId) return { arrears: {} };
-      const params = new URLSearchParams({ date: applied, routerId: String(selectedRouterId) });
+      const params = new URLSearchParams({ date: arrearsQueryDate, routerId: String(selectedRouterId) });
       const res = await fetch(`${BASE}/api/vendors/daily-arrears?${params}`, { signal });
       if (!res.ok) return { arrears: {} };
       return res.json();
