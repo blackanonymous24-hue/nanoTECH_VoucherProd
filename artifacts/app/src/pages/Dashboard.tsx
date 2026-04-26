@@ -436,21 +436,11 @@ export default function Dashboard() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const salesFresh = !!sales && (sales as any)._cachedAt != null;
 
-  // Priority loading: give the high-priority cards (router info, sessions,
-  // sales, tickets) a 150 ms head start in the browser's request pool, then
-  // immediately enable logs + traffic. 150 ms is below human perception
-  // (~200 ms) so the dashboard still feels instant, while priority HTTP
-  // requests get dispatched first. Tracked PER routerId so switching router
-  // resets the head start.
-  const [readyForRouterId, setReadyForRouterId] = useState<number | null>(null);
-  const secondariesReady =
-    selectedRouterId != null && readyForRouterId === selectedRouterId;
-  useEffect(() => {
-    if (!selectedRouterId) return;
-    if (readyForRouterId === selectedRouterId) return;
-    const t = setTimeout(() => setReadyForRouterId(selectedRouterId), 150);
-    return () => clearTimeout(t);
-  }, [selectedRouterId, readyForRouterId]);
+  // Mikhmon-style: fire every dashboard fetch in parallel immediately, no
+  // gating. Priority cards (info / sessions / sales / tickets) are served
+  // stale-while-revalidate by the API so they paint instantly from the last
+  // known value, exactly like Mikhmon v3.
+  const secondariesReady = !!selectedRouterId;
 
   const {
     data: logs = [],

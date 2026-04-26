@@ -595,24 +595,40 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   }
 });
 
-// GET /routers/:id/sessions/count — lightweight: returns {count,cachedAt} using the sessions cache.
-// Never triggers a fresh MikroTik call if the full sessions list is already cached.
+// GET /routers/:id/sessions/count — Mikhmon-style: returns the last known
+// count instantly (stale-while-revalidate). Never blocks on MikroTik when a
+// previous value (even expired) is available; refreshes in background.
+const _sessionsRefreshing = new Set<number>();
 router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  // Try to serve from the shared sessions cache first (avoids any MikroTik roundtrip)
   const ck = `sessions:${id}`;
-  const hit = mGet(ck) as unknown[] | null;
-  if (hit) {
-    res.json({ count: hit.length, cached: true });
-    return;
-  }
+  const fresh = mGet(ck) as unknown[] | null;
+  if (fresh) { res.json({ count: fresh.length, cached: true }); return; }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
+  // Stale hit — return immediately, refresh in background (Mikhmon-style)
+  const stale = mGetStale(ck) as unknown[] | null;
+  if (stale) {
+    res.json({ count: stale.length, cached: true, stale: true });
+    if (!_sessionsRefreshing.has(id)) {
+      _sessionsRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+          mSet(ck, MIK_TTL.sessions, sessions);
+        } catch { /* keep stale */ }
+        finally { _sessionsRefreshing.delete(id); }
+      });
+    }
+    return;
+  }
+
+  // No cache at all — blocking call (first ever request only)
   try {
     const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
     mSet(ck, MIK_TTL.sessions, sessions);
@@ -641,16 +657,58 @@ async function getCachedUsers(
 /** Call this after any action that modifies hotspot users (disable/enable/reset/delete/rename). */
 export function invalidateUserCache(routerId: number) {
   userCache.delete(routerId);
+  _usersCountCache.delete(routerId);
 }
 
 /**
  * GET /routers/:id/users/count
  * Lightweight: returns just `{ total, available, used, disabled, cachedAt }`.
- * Uses the same in-memory user cache as /users so it's instant on warm cache.
- * - "available" = vouchers not yet sold (no MAC, not disabled, not in DB used set, excludes trial/system)
- * - "used"      = vouchers tracked as sold in the local DB
- * - "total"     = all hotspot users on the MikroTik (raw count)
+ * Mikhmon-style stale-while-revalidate: as long as we have a previous user
+ * snapshot (even past TTL), we serve it instantly and refresh in background.
  */
+const _usersRefreshing = new Set<number>();
+type UsersCountPayload = {
+  total: number;
+  available: number;
+  used: number;
+  disabled: number;
+  cachedAt: number;
+  cached: boolean;
+  stale?: boolean;
+};
+const _usersCountCache = new Map<number, UsersCountPayload>();
+
+async function computeUsersCount(
+  routerId: number,
+  conn: Parameters<typeof listHotspotUsers>[0],
+  users: Awaited<ReturnType<typeof listHotspotUsers>>,
+): Promise<UsersCountPayload> {
+  const usedRows = await db
+    .select({ username: vouchersTable.username })
+    .from(vouchersTable)
+    .where(and(eq(vouchersTable.routerId, routerId), isNotNull(vouchersTable.usedAt)));
+  const usedSet = new Set(usedRows.map((v) => v.username.toLowerCase()));
+  let available = 0;
+  let disabled  = 0;
+  for (const u of users) {
+    if (u.disabled) { disabled++; continue; }
+    const prof = (u.profile ?? "").toLowerCase();
+    if (prof === "trial" || prof === "default-trial") continue;
+    if (u.macAddress) continue;
+    if (usedSet.has(u.username.toLowerCase())) continue;
+    available++;
+  }
+  void conn; // signature kept for future use
+  return {
+    total: users.length,
+    available,
+    used: usedSet.size,
+    disabled,
+    cachedAt: Date.now(),
+    cached: false,
+  };
+}
+
 router.get("/routers/:id/users/count", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
@@ -658,42 +716,45 @@ router.get("/routers/:id/users/count", async (req, res): Promise<void> => {
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
-  try {
-    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const cached = userCache.get(id);
-    const wasCached = !!cached && Date.now() < cached.expiresAt;
-    const users = await getCachedUsers(id, conn);
-    const cachedAt = userCache.get(id)?.expiresAt
-      ? userCache.get(id)!.expiresAt - USER_CACHE_TTL
-      : Date.now();
+  const userHit = userCache.get(id);
+  const userFresh = !!userHit && Date.now() < userHit.expiresAt;
+  const cachedPayload = _usersCountCache.get(id);
 
-    // Cross-reference with vouchers table to get accurate "available" count.
-    const usedRows = await db
-      .select({ username: vouchersTable.username })
-      .from(vouchersTable)
-      .where(and(eq(vouchersTable.routerId, id), isNotNull(vouchersTable.usedAt)));
-    const usedSet = new Set(usedRows.map((v) => v.username.toLowerCase()));
+  // Counts go stale much faster than the user-list snapshot (the DB-derived
+  // `used`/`available` numbers depend on usage sync, which runs every ~30s).
+  // Keep the count payload "fresh" only for ~20s so we re-query DB regularly,
+  // while still serving older payloads instantly via the stale path below.
+  const COUNT_FRESH_MS = 20_000;
+  if (userFresh && cachedPayload && (Date.now() - cachedPayload.cachedAt) < COUNT_FRESH_MS) {
+    res.json({ ...cachedPayload, cached: true });
+    return;
+  }
 
-    let available = 0;
-    let disabled  = 0;
-    for (const u of users) {
-      if (u.disabled) { disabled++; continue; }
-      const prof = (u.profile ?? "").toLowerCase();
-      if (prof === "trial" || prof === "default-trial") continue;
-      if (u.macAddress) continue;
-      if (usedSet.has(u.username.toLowerCase())) continue;
-      available++;
+  // Stale path — we have *some* previous payload: serve it + refresh in bg
+  if (cachedPayload) {
+    res.json({ ...cachedPayload, cached: true, stale: true });
+    if (!_usersRefreshing.has(id)) {
+      _usersRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const users = await getCachedUsers(id, conn, { force: !userFresh });
+          const payload = await computeUsersCount(id, conn, users);
+          _usersCountCache.set(id, payload);
+        } catch { /* keep stale */ }
+        finally { _usersRefreshing.delete(id); }
+      });
     }
+    return;
+  }
 
-    res.json({
-      total: users.length,
-      available,
-      used: usedSet.size,
-      disabled,
-      cachedAt,
-      cached: wasCached,
-    });
+  // Cold start — must block to compute the very first payload
+  try {
+    const users = await getCachedUsers(id, conn);
+    const payload = await computeUsersCount(id, conn, users);
+    _usersCountCache.set(id, payload);
+    res.json(payload);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
@@ -1190,20 +1251,39 @@ router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
   }
 });
 
+// Per-key in-flight refresh guard for short-lived caches (logs/traffic) — Mikhmon-style.
+const _swrRefreshing = new Set<string>();
+
 router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : "";
   const ck = `traffic:${id}:${ifaceName}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    if (!_swrRefreshing.has(ck)) {
+      _swrRefreshing.add(ck);
+      setImmediate(async () => {
+        try {
+          const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
+          mSet(ck, MIK_TTL.traffic, traffic);
+        } catch { /* keep stale */ }
+        finally { _swrRefreshing.delete(ck); }
+      });
+    }
+    return;
+  }
 
   try {
-    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
     mSet(ck, MIK_TTL.traffic, traffic);
     res.json(traffic);
@@ -1220,14 +1300,30 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
   const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : 50;
   const topics = (req.query.topics as string | undefined) ?? "";
   const ck = `logs:${id}:${topics}:${limit}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    if (!_swrRefreshing.has(ck)) {
+      _swrRefreshing.add(ck);
+      setImmediate(async () => {
+        try {
+          const logs = await listLogs(conn, limit, topics || undefined);
+          mSet(ck, MIK_TTL.logs, logs);
+        } catch { /* keep stale */ }
+        finally { _swrRefreshing.delete(ck); }
+      });
+    }
+    return;
+  }
 
   try {
-    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
     const logs = await listLogs(conn, limit, topics || undefined);
     mSet(ck, MIK_TTL.logs, logs);
     res.json(logs);
