@@ -1169,16 +1169,28 @@ export default function Vouchers() {
                         const username = [...selectedUsernames][0];
                         const selUser = filtered.find((u) => u.username === username) ?? ({ username } as HotspotUser);
                         return (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setConfirmResetUser(selUser)}
-                            disabled={isResetting}
-                            className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                            Réinitialiser
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openEditUser(selUser)}
+                              disabled={isSavingRename}
+                              className="gap-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              Modifier
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setConfirmResetUser(selUser)}
+                              disabled={isResetting}
+                              className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              Réinitialiser
+                            </Button>
+                          </>
                         );
                       })()}
                       <Button
@@ -1529,7 +1541,7 @@ export default function Vouchers() {
                       <div className="border-t border-gray-100 bg-gray-50 px-5 py-2 flex flex-wrap gap-3">
                         {lot.preview.map((u) => (
                           <span key={u.username} className="font-mono text-xs text-gray-500">
-                            {u.username} / {u.password}
+                            {u.username}
                           </span>
                         ))}
                         {lot.count > 4 && (
@@ -1555,10 +1567,12 @@ export default function Vouchers() {
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm text-gray-600">
                 <p>
-                  L'utilisateur <span className="font-mono font-semibold">{confirmResetUser?.username}</span> sera réinitialisé :
+                  L'utilisateur <span className="font-mono font-semibold">{confirmResetUser?.username}</span> sera supprimé puis recréé avec les mêmes identifiants :
                 </p>
                 <ul className="list-disc pl-4 space-y-1 text-gray-500">
-                  <li>Compteurs MikroTik remis à zéro (uptime, octets)</li>
+                  <li>Suppression de l'utilisateur sur MikroTik</li>
+                  <li>Recréation avec le même nom, mot de passe et profil</li>
+                  <li>Compteurs (uptime, octets) repartent à zéro</li>
                   <li>Session active déconnectée</li>
                   <li>Marqué comme non vendu en base de données</li>
                 </ul>
@@ -1898,7 +1912,6 @@ function UserRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-mono font-semibold text-sm">{user.username}</span>
-            <span className="text-gray-400 font-mono text-sm">/ {user.password}</span>
           </div>
           <div className="text-xs text-gray-400 mt-0.5 flex flex-wrap gap-2">
             <span>{user.profile}</span>
