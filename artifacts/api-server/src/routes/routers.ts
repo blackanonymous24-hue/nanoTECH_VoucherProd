@@ -833,6 +833,8 @@ router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
       limitBytesTotal: limitBytesTotal?.trim() || undefined,
       macAddress: macAddress?.trim() || undefined,
     }));
+    // Invalidate user/list/count caches so subsequent reads see the new user immediately
+    invalidateUserCache(id);
     res.status(201).json({ success: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erreur MikroTik";

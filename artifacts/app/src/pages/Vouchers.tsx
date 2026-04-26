@@ -43,6 +43,12 @@ import {
   Pencil,
   RotateCcw,
   MoreHorizontal,
+  UserPlus,
+  Eye,
+  EyeOff,
+  X,
+  Save,
+  BookOpen,
 } from "lucide-react";
 import {
   Dialog,
@@ -150,6 +156,22 @@ export default function Vouchers() {
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
   const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
   const [lotsVendorPopoverOpen, setLotsVendorPopoverOpen] = useState(false);
+
+  // ── Add User dialog (Mikhmon-style) ─────────────────────────────────────────
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const [addServer, setAddServer] = useState("all");
+  const [addName, setAddName] = useState("");
+  const [addPassword, setAddPassword] = useState("");
+  const [addShowPassword, setAddShowPassword] = useState(false);
+  const [addProfile, setAddProfile] = useState("");
+  const [addTimeLimit, setAddTimeLimit] = useState("");
+  const [addDataLimit, setAddDataLimit] = useState("");
+  const [addDataUnit, setAddDataUnit] = useState<"MB" | "GB">("MB");
+  const [addComment, setAddComment] = useState("");
+  const [addProfilePopoverOpen, setAddProfilePopoverOpen] = useState(false);
+  const [addServerPopoverOpen, setAddServerPopoverOpen] = useState(false);
+  const [addUnitPopoverOpen, setAddUnitPopoverOpen] = useState(false);
+  const [isSavingUser, setIsSavingUser] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -684,6 +706,97 @@ export default function Vouchers() {
     setPage(0);
   };
 
+  // ── Add User (Mikhmon-style single user creation) ──────────────────────────
+  function resetAddUserForm() {
+    setAddServer("all");
+    setAddName("");
+    setAddPassword("");
+    setAddShowPassword(false);
+    setAddProfile("");
+    setAddTimeLimit("");
+    setAddDataLimit("");
+    setAddDataUnit("MB");
+    setAddComment("");
+  }
+
+  function bytesFromInput(value: string, unit: "MB" | "GB"): string | undefined {
+    const v = value.trim();
+    if (!v) return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    const mult = unit === "GB" ? 1024 * 1024 * 1024 : 1024 * 1024;
+    return String(Math.round(n * mult));
+  }
+
+  // Validate Mikhmon's wdhm format: 30d, 12h, 4w3d, 1d12h30m...
+  function isValidWdhm(s: string): boolean {
+    if (!s.trim()) return true; // optional
+    return /^(\d+w)?(\d+d)?(\d+h)?(\d+m)?(\d+s)?$/i.test(s.trim()) && /\d/.test(s);
+  }
+
+  async function handleSaveUser() {
+    if (!activeRouterId) return;
+    if (!addName.trim()) {
+      toast({ title: "Nom requis", description: "Veuillez saisir un nom d'utilisateur.", variant: "destructive" });
+      return;
+    }
+    if (!addPassword.trim()) {
+      toast({ title: "Mot de passe requis", description: "Veuillez saisir un mot de passe.", variant: "destructive" });
+      return;
+    }
+    if (!addProfile.trim()) {
+      toast({ title: "Profil requis", description: "Veuillez choisir un profil.", variant: "destructive" });
+      return;
+    }
+    if (!isValidWdhm(addTimeLimit)) {
+      toast({
+        title: "Time Limit invalide",
+        description: "Format attendu: wdhm (ex: 30d, 12h, 4w3d).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSavingUser(true);
+    try {
+      const body: Record<string, string> = {
+        name: addName.trim(),
+        password: addPassword.trim(),
+        profile: addProfile.trim(),
+      };
+      if (addServer && addServer !== "all") body.server = addServer.trim();
+      if (addTimeLimit.trim()) body.limitUptime = addTimeLimit.trim();
+      const bytes = bytesFromInput(addDataLimit, addDataUnit);
+      if (bytes) body.limitBytesTotal = bytes;
+      if (addComment.trim()) body.comment = addComment.trim();
+
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/hotspot-users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+      toast({ title: "Utilisateur ajouté", description: `${addName.trim()} créé sur MikroTik.` });
+      // Refresh data
+      void refetchUsers();
+      void refetchLots();
+      queryClient.invalidateQueries({ queryKey: [`/routers/${activeRouterId}/users/count`] });
+      resetAddUserForm();
+      setAddUserOpen(false);
+    } catch (e) {
+      toast({
+        title: "Échec de la création",
+        description: e instanceof Error ? e.message : "Erreur inconnue",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingUser(false);
+    }
+  }
+
   const handleProfileChange = (v: string) => {
     setFilterProfile(v);
     setFilterComment("all");
@@ -719,6 +832,15 @@ export default function Vouchers() {
                 <RefreshCw className="h-3 w-3 animate-spin" /> Mise à jour...
               </span>
             )}
+            <Button
+              size="sm"
+              onClick={() => { resetAddUserForm(); setAddUserOpen(true); }}
+              className="gap-2 bg-cyan-500 hover:bg-cyan-600 text-white"
+              title="Ajouter un utilisateur (Mikhmon-style)"
+            >
+              <UserPlus className="h-4 w-4" />
+              <span className="hidden sm:inline">Add User</span>
+            </Button>
             {view === "list" && (
               <Button
                 variant="outline"
@@ -1494,6 +1616,231 @@ export default function Vouchers() {
               {isSavingRename ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Enregistrement...</> : "Enregistrer"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add User dialog (Mikhmon-style) ────────────────────────────────── */}
+      <Dialog open={addUserOpen} onOpenChange={(o) => { if (!isSavingUser) setAddUserOpen(o); }}>
+        <DialogContent className="max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md">
+          {/* Header */}
+          <DialogHeader className="px-4 pt-3 pb-2 border-b border-slate-600 bg-slate-700">
+            <DialogTitle className="text-base font-semibold flex items-center gap-2 text-slate-100">
+              <UserPlus className="h-4 w-4" /> Add User
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Action buttons (Close / Save) — Mikhmon style */}
+          <div className="flex items-center gap-2 px-4 pt-3 pb-3 bg-slate-700">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setAddUserOpen(false)}
+              disabled={isSavingUser}
+              className="bg-amber-500 hover:bg-amber-600 text-white gap-1.5"
+            >
+              <X className="h-3.5 w-3.5" /> Close
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveUser}
+              disabled={isSavingUser}
+              className="bg-cyan-500 hover:bg-cyan-600 text-white gap-1.5"
+            >
+              {isSavingUser ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save
+            </Button>
+          </div>
+
+          {/* Form grid (label left, input right — Mikhmon layout) */}
+          <div className="px-4 pb-4 space-y-3 bg-slate-700">
+            {/* Server */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Server</Label>
+              <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white"
+                  >
+                    <span className="truncate">{addServer || "all"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
+                  {/* "all" maps to RouterOS default (any hotspot server). We
+                      avoid hardcoding specific server names to prevent invalid
+                      submissions on routers without that name. */}
+                  <button
+                    type="button"
+                    onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-sm rounded hover:bg-gray-100 text-left"
+                  >
+                    <Check className={`h-3.5 w-3.5 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                    all
+                  </button>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Name */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Name</Label>
+              <Input
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                disabled={isSavingUser}
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+                autoComplete="off"
+              />
+            </div>
+
+            {/* Password (with eye toggle) */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Password</Label>
+              <div className="relative">
+                <Input
+                  type={addShowPassword ? "text" : "password"}
+                  value={addPassword}
+                  onChange={(e) => setAddPassword(e.target.value)}
+                  disabled={isSavingUser}
+                  className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 pr-10"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setAddShowPassword((v) => !v)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-8 flex items-center justify-center rounded bg-white text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500"
+                  aria-label={addShowPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                  aria-pressed={addShowPassword}
+                >
+                  {addShowPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Profile */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Profile</Label>
+              <Popover open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white"
+                  >
+                    <span className="truncate">{addProfile || "—"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-64 overflow-y-auto" align="start">
+                  {sortedProfiles.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-gray-400">Aucun profil disponible.</p>
+                  )}
+                  {sortedProfiles.map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => { setAddProfile(p.name); setAddProfilePopoverOpen(false); }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-sm rounded hover:bg-gray-100 text-left"
+                    >
+                      <Check className={`h-3.5 w-3.5 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Time Limit */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Time Limit</Label>
+              <Input
+                value={addTimeLimit}
+                onChange={(e) => setAddTimeLimit(e.target.value)}
+                disabled={isSavingUser}
+                placeholder="ex: 30d, 12h, 4w3d"
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+              />
+            </div>
+
+            {/* Data Limit (input + unit) */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Data Limit</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  value={addDataLimit}
+                  onChange={(e) => setAddDataLimit(e.target.value)}
+                  disabled={isSavingUser}
+                  className="flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+                />
+                <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-20 justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white"
+                    >
+                      {addDataUnit}
+                      <ChevronsUpDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-20 p-1" align="end">
+                    {(["MB", "GB"] as const).map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => { setAddDataUnit(u); setAddUnitPopoverOpen(false); }}
+                        className="flex w-full items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-gray-100 text-left"
+                      >
+                        <Check className={`h-3.5 w-3.5 ${addDataUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                        {u}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {/* Comment */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Comment</Label>
+              <Input
+                value={addComment}
+                onChange={(e) => setAddComment(e.target.value)}
+                disabled={isSavingUser}
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+              />
+            </div>
+          </div>
+
+          {/* Read Me section */}
+          <div className="border-t border-slate-600 bg-slate-700">
+            <div className="px-4 py-2 border-b border-slate-600">
+              <h4 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                <BookOpen className="h-4 w-4" /> Read Me
+              </h4>
+            </div>
+            <div className="px-4 py-3 text-xs text-slate-300 space-y-2 leading-relaxed">
+              <p>
+                <strong>Format Time Limit.</strong>
+                <br />
+                [wdhm] Example : 30d = 30days, 12h = 12hours, 4w3d = 31days.
+              </p>
+              <p>
+                Add User with Time Limit.
+                <br />
+                Should Time Limit &lt; Validity.
+              </p>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
