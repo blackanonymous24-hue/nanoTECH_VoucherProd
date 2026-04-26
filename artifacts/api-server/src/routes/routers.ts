@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, resetHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, renameHotspotUser, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -1072,6 +1072,123 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
     });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// ─── Hotspot IP-bindings (MAC bypass) ────────────────────────────────────────
+//
+// Direct passthrough to MikroTik /ip/hotspot/ip-binding (no caching — list
+// is small and changes are admin-driven, not high-frequency).
+
+router.get("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const bindings = await listIpBindings(conn);
+    res.json({ bindings });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// Shared payload validation for POST/PATCH ip-binding requests.
+// Returns either a sanitized opts object or an { error } message.
+const VALID_BINDING_TYPES = new Set(["bypassed", "blocked", "regular"]);
+const MAC_RE = /^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/;
+function parseBindingPayload(body: unknown, opts: { partial: boolean }):
+  | { error: string }
+  | {
+      macAddress?: string; address?: string; toAddress?: string;
+      type?: "bypassed" | "blocked" | "regular"; server?: string;
+      comment?: string; disabled?: boolean;
+    }
+{
+  if (!body || typeof body !== "object") return { error: "Corps de requête invalide" };
+  const b = body as Record<string, unknown>;
+  const out: {
+    macAddress?: string; address?: string; toAddress?: string;
+    type?: "bypassed" | "blocked" | "regular"; server?: string;
+    comment?: string; disabled?: boolean;
+  } = {};
+  // String fields — accept undefined; validate type when present.
+  for (const k of ["macAddress", "address", "toAddress", "server", "comment"] as const) {
+    if (b[k] !== undefined) {
+      if (typeof b[k] !== "string") return { error: `Champ ${k} invalide` };
+      out[k] = b[k] as string;
+    }
+  }
+  if (b.type !== undefined) {
+    if (typeof b.type !== "string" || !VALID_BINDING_TYPES.has(b.type)) {
+      return { error: "Type invalide (bypassed|blocked|regular)" };
+    }
+    out.type = b.type as "bypassed" | "blocked" | "regular";
+  }
+  if (b.disabled !== undefined) {
+    if (typeof b.disabled !== "boolean") return { error: "Champ disabled doit être booléen" };
+    out.disabled = b.disabled;
+  }
+  // Create requires at least MAC or IP; partial updates may touch a single field.
+  if (!opts.partial) {
+    if (!out.macAddress?.trim() && !out.address?.trim()) {
+      return { error: "Adresse MAC ou IP requise" };
+    }
+  }
+  if (out.macAddress !== undefined && out.macAddress !== "" && !MAC_RE.test(out.macAddress.trim())) {
+    return { error: "Adresse MAC invalide (format attendu : AA:BB:CC:DD:EE:FF)" };
+  }
+  return out;
+}
+
+router.post("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  const parsed = parseBindingPayload(req.body, { partial: false });
+  if ("error" in parsed) { res.status(400).json(parsed); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    await withRouterLock(id, () => addIpBinding(conn, parsed));
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
+  }
+});
+
+router.patch("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  // Express already URL-decodes route params, so use the raw value.
+  const bindingId = req.params.bindingId as string;
+  if (isNaN(id) || !bindingId) { res.status(400).json({ error: "Paramètre invalide" }); return; }
+  const parsed = parseBindingPayload(req.body, { partial: true });
+  if ("error" in parsed) { res.status(400).json(parsed); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    await withRouterLock(id, () => updateIpBinding(conn, bindingId, parsed));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
+  }
+});
+
+router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  // Express already URL-decodes route params, so use the raw value.
+  const bindingId = req.params.bindingId as string;
+  if (isNaN(id) || !bindingId) { res.status(400).json({ error: "Paramètre invalide" }); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    await withRouterLock(id, () => deleteIpBinding(conn, bindingId));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
   }
 });
 

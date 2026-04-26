@@ -407,6 +407,97 @@ export async function deleteProfile(conn: RouterConnection, name: string): Promi
   });
 }
 
+// ─── Hotspot IP-bindings (MAC bypass) ──────────────────────────────────────
+//
+// MikroTik's `/ip/hotspot/ip-binding` table lets specific MAC addresses
+// bypass the captive portal entirely (`type=bypassed`), be blocked
+// (`type=blocked`) or simply have a custom one-to-one NAT (`type=regular`).
+// Most common use-case: trust a printer / smart-TV / personal device so it
+// goes online without ever seeing the login page.
+export interface HotspotIpBinding {
+  id: string;                 // MikroTik internal id (.id)
+  macAddress: string;         // empty if binding is keyed by IP only
+  address: string;            // requested IP (optional)
+  toAddress: string;          // 1-to-1 NAT target (optional)
+  type: "bypassed" | "blocked" | "regular";
+  server: string;             // hotspot server scope ("all" if any)
+  comment: string;
+  disabled: boolean;
+}
+
+export async function listIpBindings(conn: RouterConnection): Promise<HotspotIpBinding[]> {
+  return withRouter(conn, async (api) => {
+    const rows = await api.write("/ip/hotspot/ip-binding/print");
+    return rows.map((b): HotspotIpBinding => {
+      const t = ((b["type"] as string) || "regular").toLowerCase();
+      const type: HotspotIpBinding["type"] =
+        t === "bypassed" || t === "blocked" ? t : "regular";
+      return {
+        id:         (b[".id"]        as string) ?? "",
+        macAddress: ((b["mac-address"] as string) ?? "").toUpperCase(),
+        address:    (b["address"]    as string) ?? "",
+        toAddress:  (b["to-address"] as string) ?? "",
+        type,
+        server:     (b["server"]     as string) ?? "all",
+        comment:    fixEncoding((b["comment"] as string) ?? ""),
+        disabled:   (b["disabled"]   as string) === "true",
+      };
+    });
+  });
+}
+
+export interface AddIpBindingOpts {
+  macAddress?: string;
+  address?: string;
+  toAddress?: string;
+  type?: "bypassed" | "blocked" | "regular";
+  server?: string;
+  comment?: string;
+  disabled?: boolean;
+}
+
+export async function addIpBinding(conn: RouterConnection, opts: AddIpBindingOpts): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const mac = (opts.macAddress ?? "").trim().toUpperCase();
+    const addr = (opts.address ?? "").trim();
+    if (!mac && !addr) {
+      throw new Error("Adresse MAC ou IP requise");
+    }
+    const args: string[] = [`=type=${opts.type ?? "bypassed"}`];
+    if (mac)            args.push(`=mac-address=${mac}`);
+    if (addr)           args.push(`=address=${addr}`);
+    if (opts.toAddress) args.push(`=to-address=${opts.toAddress.trim()}`);
+    if (opts.server && opts.server !== "all") args.push(`=server=${opts.server}`);
+    if (opts.comment)   args.push(`=comment=${toWin1252(opts.comment)}`);
+    if (opts.disabled)  args.push(`=disabled=yes`);
+    await api.write("/ip/hotspot/ip-binding/add", args);
+  });
+}
+
+export async function updateIpBinding(
+  conn: RouterConnection,
+  id: string,
+  opts: Partial<AddIpBindingOpts>,
+): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const args: string[] = [`=.id=${id}`];
+    if (opts.macAddress !== undefined) args.push(`=mac-address=${opts.macAddress.trim().toUpperCase()}`);
+    if (opts.address    !== undefined) args.push(`=address=${opts.address.trim()}`);
+    if (opts.toAddress  !== undefined) args.push(`=to-address=${opts.toAddress.trim()}`);
+    if (opts.type       !== undefined) args.push(`=type=${opts.type}`);
+    if (opts.server     !== undefined) args.push(`=server=${opts.server}`);
+    if (opts.comment    !== undefined) args.push(`=comment=${toWin1252(opts.comment)}`);
+    if (opts.disabled   !== undefined) args.push(`=disabled=${opts.disabled ? "yes" : "no"}`);
+    await api.write("/ip/hotspot/ip-binding/set", args);
+  });
+}
+
+export async function deleteIpBinding(conn: RouterConnection, id: string): Promise<void> {
+  return withRouter(conn, async (api) => {
+    await api.write("/ip/hotspot/ip-binding/remove", [`=.id=${id}`]);
+  });
+}
+
 export async function listAddressPools(conn: RouterConnection): Promise<string[]> {
   return withRouter(conn, async (api) => {
     const pools = await api.write("/ip/pool/print");

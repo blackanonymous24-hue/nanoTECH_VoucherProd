@@ -54,6 +54,7 @@ Réponse collaborateur : `{ role: "collaborateur", token, collaborateur: { id, n
 - `LoginPage.tsx` — page unifiée, redirige vers / (manager/collaborateur) ou /vendor-portal (vendor)
 - `RouterContext.tsx` — filtre la liste des routeurs pour les collaborateurs (seuls les routeurs assignés sont visibles)
 - `Collaborateurs.tsx` — page CRUD admin-only avec sélection multi-routeurs (checkboxes)
+- `IpBindings.tsx` — page "Bypass MAC" : CRUD sur `/ip/hotspot/ip-binding` du routeur (bypass / blocked / regular). Utilise direct fetch via `${BASE}/api/routers/:id/ip-bindings`. Sidebar : groupe "Réseau", icône `ShieldCheck`.
 
 ## Configuration importante
 - Le frontend (`/api/*`) est proxifié vers `http://localhost:3001` via Vite proxy
