@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, ne, sql } from "drizzle-orm";
 import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken } from "../lib/vendor-auth.js";
@@ -182,6 +182,12 @@ router.get("/admin/me", async (req, res): Promise<void> => {
   });
 });
 
+/**
+ * PUT /api/admin/credentials
+ * Self-service: the authenticated admin (super-admin or regular) updates
+ * their own login and/or password. Either field may be omitted to leave
+ * it unchanged. Rejects login collisions and enforces minimum lengths.
+ */
 router.put("/admin/credentials", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
@@ -190,16 +196,52 @@ router.put("/admin/credentials", async (req, res): Promise<void> => {
     return;
   }
   const { login, password } = req.body as { login?: string; password?: string };
-  if (!login || !password) {
-    res.status(400).json({ error: "Identifiants requis" });
+
+  const patch: Partial<typeof adminSettingsTable.$inferInsert> = {};
+
+  if (login !== undefined) {
+    const loginTrimmed = login.trim();
+    if (loginTrimmed.length < 3) {
+      res.status(400).json({ error: "Login trop court (min 3 caractères)" });
+      return;
+    }
+    // Collision check (excluding self).
+    const dup = await db
+      .select({ id: adminSettingsTable.id })
+      .from(adminSettingsTable)
+      .where(and(eq(adminSettingsTable.login, loginTrimmed), ne(adminSettingsTable.id, claims.adminId)));
+    if (dup.length > 0) {
+      res.status(409).json({ error: "Login déjà utilisé" });
+      return;
+    }
+    patch.login = loginTrimmed;
+  }
+
+  if (password !== undefined) {
+    if (password.length < 4) {
+      res.status(400).json({ error: "Mot de passe trop court (min 4 caractères)" });
+      return;
+    }
+    patch.passwordHash = await hashPassword(password);
+  }
+
+  if (Object.keys(patch).length === 0) {
+    res.status(400).json({ error: "Aucun champ à mettre à jour" });
     return;
   }
-  const passwordHash = await hashPassword(password);
-  await db
+
+  const [updated] = await db
     .update(adminSettingsTable)
-    .set({ login: login.trim(), passwordHash })
-    .where(eq(adminSettingsTable.id, claims.adminId));
-  res.json({ ok: true });
+    .set(patch)
+    .where(eq(adminSettingsTable.id, claims.adminId))
+    .returning({
+      id: adminSettingsTable.id,
+      login: adminSettingsTable.login,
+      displayName: adminSettingsTable.displayName,
+      isSuperAdmin: adminSettingsTable.isSuperAdmin,
+    });
+
+  res.json({ ok: true, admin: updated });
 });
 
 /**

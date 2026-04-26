@@ -57,6 +57,7 @@ Monorepo pnpm avec les packages suivants :
 ### Endpoints admin self (`/api/admin`)
 - `GET /me` — retourne `{ id, login, isSuperAdmin, forfaitEndsAt, credits, extraRouterSlots, routerCount, routerLimit }`
 - `POST /buy-routers` — achat pack 5 routeurs (50 crédits, `402` si insuffisant)
+- `PUT /credentials` — l'admin connecté change son propre login et/ou mot de passe (champs indépendamment optionnels, login min 3, password min 4, collision exclut soi-même). UI : bouton « Mon compte » dans l'en-tête de `/super/admins`.
 
 ### Endpoint unifié
 `POST /api/login { login, password }` — Essaie admin → manager → collaborateur → vendor dans l'ordre.  

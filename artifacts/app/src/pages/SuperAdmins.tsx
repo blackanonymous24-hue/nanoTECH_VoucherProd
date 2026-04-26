@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
-  CalendarPlus, Power, KeyRound, Loader2, Crown,
+  CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +61,7 @@ export default function SuperAdmins() {
   const [editing, setEditing] = useState<AdminRow | null>(null);
   const [forfaitTarget, setForfaitTarget] = useState<{ admin: AdminRow; mode: "set" | "extend" } | null>(null);
   const [creditsTarget, setCreditsTarget] = useState<AdminRow | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
@@ -142,6 +143,29 @@ export default function SuperAdmins() {
     onError: handleErr,
   });
 
+  // Self-service: super-admin (or any admin) updates their own login/password.
+  const accountM = useMutation({
+    mutationFn: async (v: { login?: string; password?: string }) => {
+      const body: Record<string, string> = {};
+      if (v.login) body.login = v.login;
+      if (v.password) body.password = v.password;
+      const r = await fetch(`${BASE}/api/admin/credentials`, {
+        method: "PUT", headers, body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Mise à jour impossible");
+      return r.json();
+    },
+    onSuccess: () => {
+      setAccountOpen(false);
+      refresh();
+      toast({
+        title: "Identifiants mis à jour",
+        description: "Vos nouveaux identifiants seront utilisés à la prochaine connexion.",
+      });
+    },
+    onError: handleErr,
+  });
+
   /* ---------- gating ---------- */
   if (!isSuperAdmin) {
     return (
@@ -166,9 +190,15 @@ export default function SuperAdmins() {
             <p className="text-sm text-gray-500">Gérez les comptes administrateurs, forfaits et crédits</p>
           </div>
         </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2">
-          <Plus className="h-4 w-4" /> Nouvel administrateur
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setAccountOpen(true)} className="gap-2" title="Modifier mes identifiants">
+            <UserCog className="h-4 w-4" />
+            <span className="hidden sm:inline">Mon compte</span>
+          </Button>
+          <Button onClick={() => setCreateOpen(true)} className="gap-2">
+            <Plus className="h-4 w-4" /> Nouvel administrateur
+          </Button>
+        </div>
       </div>
 
       {/* Table card */}
@@ -316,6 +346,14 @@ export default function SuperAdmins() {
           pending={creditsM.isPending}
         />
       )}
+
+      {/* My credentials (self) dialog */}
+      <AccountDialog
+        open={accountOpen}
+        onClose={() => setAccountOpen(false)}
+        onSubmit={(v) => accountM.mutate(v)}
+        pending={accountM.isPending}
+      />
     </div>
   );
 }
@@ -553,6 +591,104 @@ function CreditsDialog({ admin, onClose, onSubmit, pending }: {
             {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             <KeyRound className="h-4 w-4 mr-1" />
             Confirmer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ──────────── AccountDialog: super-admin self-service login/password ──────────── */
+function AccountDialog({ open, onClose, onSubmit, pending }: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (v: { login?: string; password?: string }) => void;
+  pending: boolean;
+}) {
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const reset = () => { setLogin(""); setPassword(""); setConfirm(""); };
+
+  const loginInvalid = login.length > 0 && login.trim().length < 3;
+  const passwordInvalid = password.length > 0 && password.length < 4;
+  const confirmMismatch = password.length > 0 && confirm !== password;
+  const nothingToChange = login.trim().length === 0 && password.length === 0;
+
+  const canSubmit =
+    !pending &&
+    !nothingToChange &&
+    !loginInvalid &&
+    !passwordInvalid &&
+    !confirmMismatch;
+
+  const handleSubmit = () => {
+    const payload: { login?: string; password?: string } = {};
+    if (login.trim().length > 0) payload.login = login.trim();
+    if (password.length > 0) payload.password = password;
+    onSubmit(payload);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { reset(); onClose(); } }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Mes identifiants</DialogTitle>
+          <DialogDescription>
+            Modifiez votre login et/ou votre mot de passe. Laissez un champ vide pour ne pas le changer.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="acc-login">Nouveau login</Label>
+            <Input
+              id="acc-login"
+              autoComplete="username"
+              placeholder="Laisser vide pour conserver"
+              value={login}
+              onChange={(e) => setLogin(e.target.value)}
+            />
+            {loginInvalid && (
+              <p className="mt-1 text-xs text-red-600">Min. 3 caractères</p>
+            )}
+          </div>
+          <div>
+            <Label htmlFor="acc-password">Nouveau mot de passe</Label>
+            <Input
+              id="acc-password"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Laisser vide pour conserver"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            {passwordInvalid && (
+              <p className="mt-1 text-xs text-red-600">Min. 4 caractères</p>
+            )}
+          </div>
+          <div>
+            <Label htmlFor="acc-confirm">Confirmer le mot de passe</Label>
+            <Input
+              id="acc-confirm"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Confirmer"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              disabled={password.length === 0}
+            />
+            {confirmMismatch && (
+              <p className="mt-1 text-xs text-red-600">Les mots de passe ne correspondent pas</p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { reset(); onClose(); }}>Annuler</Button>
+          <Button disabled={!canSubmit} onClick={handleSubmit}>
+            {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            <KeyRound className="h-4 w-4 mr-1" />
+            Enregistrer
           </Button>
         </DialogFooter>
       </DialogContent>
