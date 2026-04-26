@@ -61,6 +61,7 @@ interface BindingFormState {
   macAddress: string;
   address: string;
   toAddress: string;
+  server: string;
   type: BindingType;
   comment: string;
   disabled: boolean;
@@ -70,6 +71,7 @@ const EMPTY_FORM: BindingFormState = {
   macAddress: "",
   address: "",
   toAddress: "",
+  server: "",
   type: "bypassed",
   comment: "",
   disabled: false,
@@ -171,6 +173,9 @@ export default function IpBindings() {
       macAddress: b.macAddress,
       address:    b.address,
       toAddress:  b.toAddress,
+      // "all" est le placeholder MikroTik pour "tous les serveurs" → on l'efface
+      // dans le formulaire pour ne pas l'envoyer comme une valeur explicite.
+      server:     b.server === "all" ? "" : b.server,
       type:       b.type,
       comment:    b.comment,
       disabled:   b.disabled,
@@ -206,6 +211,7 @@ export default function IpBindings() {
           macAddress: mac,
           address:    addr,
           toAddress:  form.toAddress.trim(),
+          server:     form.server.trim(),  // vide → "all" côté MikroTik
           type:       form.type,
           comment:    form.comment.trim(),
           disabled:   form.disabled,
@@ -476,6 +482,42 @@ export default function IpBindings() {
               </p>
             </div>
             <div>
+              <Label htmlFor="addr">Adresse IP</Label>
+              <Input
+                id="addr"
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                placeholder="192.168.88.50"
+                className="font-mono"
+              />
+            </div>
+            <div>
+              <Label htmlFor="toaddr">Vers adresse IP</Label>
+              <Input
+                id="toaddr"
+                value={form.toAddress}
+                onChange={(e) => setForm((f) => ({ ...f, toAddress: e.target.value }))}
+                placeholder="10.0.0.50"
+                className="font-mono"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Optionnel — utilisé pour une translation NAT 1 vers 1.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="server">Serveur</Label>
+              <Input
+                id="server"
+                value={form.server}
+                onChange={(e) => setForm((f) => ({ ...f, server: e.target.value }))}
+                placeholder="all"
+                className="font-mono"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Nom du serveur Hotspot (ex: <code>HOTSPOT_SERVER</code>) — laisser vide pour <code>all</code>.
+              </p>
+            </div>
+            <div>
               <Label htmlFor="type">Type</Label>
               <Select value={form.type} onValueChange={(v: BindingType) => setForm((f) => ({ ...f, type: v }))}>
                 <SelectTrigger id="type"><SelectValue /></SelectTrigger>
@@ -495,33 +537,6 @@ export default function IpBindings() {
                 placeholder="Ex: TV salon, imprimante bureau…"
               />
             </div>
-            <details className="text-sm">
-              <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
-                Options avancées (IP fixe, NAT)
-              </summary>
-              <div className="mt-3 space-y-3">
-                <div>
-                  <Label htmlFor="addr">Adresse IP (optionnel)</Label>
-                  <Input
-                    id="addr"
-                    value={form.address}
-                    onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                    placeholder="192.168.88.50"
-                    className="font-mono"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="toaddr">Vers IP (NAT 1-1, optionnel)</Label>
-                  <Input
-                    id="toaddr"
-                    value={form.toAddress}
-                    onChange={(e) => setForm((f) => ({ ...f, toAddress: e.target.value }))}
-                    placeholder="10.0.0.50"
-                    className="font-mono"
-                  />
-                </div>
-              </div>
-            </details>
             <div className="flex items-center justify-between rounded-md border p-3">
               <div>
                 <p className="text-sm font-medium">Désactivée</p>
