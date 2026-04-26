@@ -436,29 +436,21 @@ export default function Dashboard() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const salesFresh = !!sales && (sales as any)._cachedAt != null;
 
-  // Priority loading: defer logs + traffic until the high-priority cards
-  // (router info, sessions, sales, tickets) have arrived. Falls back after
-  // 2 s so logs/traffic eventually load even if a priority query is slow.
-  // We track readiness PER routerId so that switching router immediately
-  // resets readiness (no carry-over from the previous router).
+  // Priority loading: give the high-priority cards (router info, sessions,
+  // sales, tickets) a 150 ms head start in the browser's request pool, then
+  // immediately enable logs + traffic. 150 ms is below human perception
+  // (~200 ms) so the dashboard still feels instant, while priority HTTP
+  // requests get dispatched first. Tracked PER routerId so switching router
+  // resets the head start.
   const [readyForRouterId, setReadyForRouterId] = useState<number | null>(null);
   const secondariesReady =
     selectedRouterId != null && readyForRouterId === selectedRouterId;
-  const prioritiesGotData =
-    !!selectedRouterId
-    && activeSessions !== undefined
-    && sales !== undefined
-    && usersStats !== undefined;
   useEffect(() => {
     if (!selectedRouterId) return;
-    if (readyForRouterId === selectedRouterId) return; // already enabled
-    if (prioritiesGotData) {
-      setReadyForRouterId(selectedRouterId);
-      return;
-    }
-    const t = setTimeout(() => setReadyForRouterId(selectedRouterId), 2_000);
+    if (readyForRouterId === selectedRouterId) return;
+    const t = setTimeout(() => setReadyForRouterId(selectedRouterId), 150);
     return () => clearTimeout(t);
-  }, [selectedRouterId, prioritiesGotData, readyForRouterId]);
+  }, [selectedRouterId, readyForRouterId]);
 
   const {
     data: logs = [],
