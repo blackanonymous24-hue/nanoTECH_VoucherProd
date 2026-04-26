@@ -43,6 +43,29 @@ function formatValidity(v: string | null | undefined): string {
     .replace(/(\d+)w/, "$1 semaine(s)");
 }
 
+// Bidirectional mapping between MikroTik / MikhMon canonical values
+// and the dropdown labels used in the form.
+function expiredModeFromBackend(value: string | null | undefined): string {
+  if (value == null) return "None";
+  const raw = String(value).trim();
+  if (!raw) return "None";
+  // Pass-through dropdown labels (saved by VoucherNet itself).
+  if (
+    raw === "None" ||
+    raw === "Remove" ||
+    raw === "Notice" ||
+    raw === "Remove & Record" ||
+    raw === "Notice & Record"
+  ) return raw;
+  const v = raw.toLowerCase();
+  if (v === "nothing" || v === "none" || v === "-") return "None";
+  if (v === "rem" || v === "remove") return "Remove";
+  if (v === "ntf" || v === "notice" || v === "disable") return "Notice";
+  if (v === "remc" || v === "remove & record" || v === "remove and record") return "Remove & Record";
+  if (v === "ntfc" || v === "notice & record" || v === "notice and record") return "Notice & Record";
+  return "None";
+}
+
 const defaultForm = {
   name: "",
   addrPool: "",
@@ -178,7 +201,7 @@ export default function Forfaits() {
       addrPool: p.addrPool ?? "",
       sharedUsers: p.sharedUsers ?? "1",
       rateLimit: p.rateLimit ?? "",
-      expiredMode: p.expiredMode ?? "None",
+      expiredMode: expiredModeFromBackend(p.expiredMode),
       price: p.price ?? "",
       sellingPrice: p.sellingPrice ?? "",
       lockMac: p.lockMac ?? false,
