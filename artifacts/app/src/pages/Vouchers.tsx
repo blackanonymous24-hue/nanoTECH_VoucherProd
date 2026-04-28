@@ -303,23 +303,41 @@ export default function Vouchers() {
   const isLoading = view === "lots" ? lotsLoading : usersLoading;
   const refetch = () => { void refetchLots(); void refetchUsers(); };
 
+  const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
+    query: { enabled: !!activeRouterId, staleTime: 120_000 },
+  });
+  const profileExpiryModeByName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of profilesList as Array<Record<string, unknown>>) {
+      const name = String(p.name ?? "").trim();
+      if (!name) continue;
+      const mode = String(p.expiredMode ?? p.expmode ?? "").trim().toLowerCase();
+      if (mode) map.set(name, mode);
+    }
+    return map;
+  }, [profilesList]);
+  const userIsExpired = (u: HotspotUser): boolean => {
+    const mode = profileExpiryModeByName.get(u.profile ?? "");
+    if (mode) {
+      if (mode === "none" || mode === "nothing" || mode === "0") return false;
+      return isExpired(u.comment);
+    }
+    return !isUnlimitedProfile(u.profile) && isExpired(u.comment);
+  };
+
   // Filtered list = what the server returned (already filtered server-side)
   const filtered = useMemo(() => {
     const base = allUsersData?.users ?? [];
     if (filterStatus === "all") return base;
     if (filterStatus === "disabled") return base.filter((u) => !!u.disabled);
     if (filterStatus === "active") return base.filter((u) => !u.disabled);
-    return base.filter((u) => !u.disabled && !isUnlimitedProfile(u.profile) && isExpired(u.comment));
-  }, [allUsersData?.users, filterStatus]);
+    return base.filter((u) => !u.disabled && userIsExpired(u));
+  }, [allUsersData?.users, filterStatus, profileExpiryModeByName]);
   const filteredTotal = filtered.length;
 
   // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageUsers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
-    query: { enabled: !!activeRouterId, staleTime: 120_000 },
-  });
   const { data: bypassBindings = [] } = useQuery({
     queryKey: ["router-ip-bindings", activeRouterId],
     enabled: !!activeRouterId && !!editingUser && linkBypass,
@@ -1416,6 +1434,7 @@ export default function Vouchers() {
                         <UserRow
                           key={user.username}
                           user={user}
+                          isExpired={userIsExpired(user)}
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
@@ -2152,23 +2171,34 @@ function isExpired(comment: string | null | undefined): boolean {
 function isUnlimitedProfile(profile: string | null | undefined): boolean {
   if (!profile) return false;
   const p = profile.toLowerCase();
-  return p.includes("illim") || p.includes("unlimit") || p.includes("unlimited") || p.includes("infinite");
+  return (
+    p.includes("illim")
+    || p.includes("unlimit")
+    || p.includes("unlimited")
+    || p.includes("infinite")
+    || p.includes("free")
+    || p.includes("sans exp")
+    || p.includes("no-exp")
+    || p.includes("noexp")
+    || p.includes("permanent")
+  );
 }
 
 function UserRow({
   user,
+  isExpired: expired,
   selected,
   onToggle,
   onEdit,
   onReset,
 }: {
   user: HotspotUser;
+  isExpired: boolean;
   selected: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onReset: () => void;
 }) {
-  const expired = !isUnlimitedProfile(user.profile) && isExpired(user.comment);
   return (
     <div
       className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 group ${selected ? "bg-blue-50" : ""}`}

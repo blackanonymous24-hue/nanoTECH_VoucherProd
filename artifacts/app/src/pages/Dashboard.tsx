@@ -48,6 +48,12 @@ interface PrioritySnapshot {
   users: { total: number; available: number; used: number; disabled: number; cachedAt: number | null };
   sales: SalesLite;
   info: RouterInfo | null;
+  availability?: {
+    sessionsKnown?: boolean;
+    usersKnown?: boolean;
+    salesKnown?: boolean;
+    infoKnown?: boolean;
+  };
 }
 
 const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
@@ -454,15 +460,19 @@ export default function Dashboard() {
   const sessionsFetching = !sseConnected && priorityQueryFetching;
   const usersFetching = !sseConnected && priorityQueryFetching;
   const salesFetching = !sseConnected && priorityQueryFetching;
+  const sessionsKnown = !!livePriority?.availability?.sessionsKnown;
+  const usersKnown = !!livePriority?.availability?.usersKnown;
+  const infoKnown = !!livePriority?.availability?.infoKnown;
 
   // Mikhmon-style: fire every dashboard fetch in parallel immediately, no
   // gating. Priority cards (info / sessions / sales / tickets) are served
   // stale-while-revalidate by the API so they paint instantly from the last
   // known value, exactly like Mikhmon v3.
   const priorityReady = !!selectedRouterId
-    && activeSessions !== undefined
-    && usersStats !== undefined
-    && salesFresh;
+    && sessionsKnown
+    && usersKnown
+    && salesFresh
+    && infoKnown;
 
   useEffect(() => {
     if (!selectedRouterId) {
@@ -659,7 +669,7 @@ export default function Dashboard() {
           live={!!selectedRouterId}
           fetching={sessionsFetching}
           icon={<Wifi className="h-5 w-5 text-purple-500" />}
-          loading={!!selectedRouterId && activeSessions === undefined}
+          loading={!!selectedRouterId && !sessionsKnown}
           href="/sessions"
         />
         <StatCard
@@ -688,7 +698,7 @@ export default function Dashboard() {
           live={!!selectedRouterId}
           fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
-          loading={!!selectedRouterId && hotspotUserCount === undefined}
+          loading={!!selectedRouterId && !usersKnown}
           href="/vouchers"
         />
       </div>

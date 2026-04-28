@@ -1735,6 +1735,12 @@ async function buildDashboardPrioritySnapshot(id: number) {
     users,
     sales,
     info,
+    availability: {
+      sessionsKnown: !!(sessionsFresh || sessionsStale),
+      usersKnown: !!usersCached,
+      salesKnown: !!salesCached,
+      infoKnown: !!(infoFresh || infoStale),
+    },
   };
 }
 
