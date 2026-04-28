@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
-  CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog,
+  CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,26 @@ interface AdminRow {
   createdAt: string;
 }
 
+type RouterCreatePayload = {
+  name: string;
+  hotspotName?: string;
+  contact?: string;
+  address: string;
+  username: string;
+  password: string;
+};
+
+function parseAddress(address: string): { host: string; port: number } {
+  const colonIdx = address.lastIndexOf(":");
+  if (colonIdx > 0) {
+    const portStr = address.slice(colonIdx + 1);
+    if (/^\d+$/.test(portStr)) {
+      return { host: address.slice(0, colonIdx), port: parseInt(portStr, 10) };
+    }
+  }
+  return { host: address, port: 8728 };
+}
+
 function fmt(d: string | null): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -62,6 +82,9 @@ export default function SuperAdmins() {
   const [forfaitTarget, setForfaitTarget] = useState<{ admin: AdminRow; mode: "set" | "extend" } | null>(null);
   const [creditsTarget, setCreditsTarget] = useState<AdminRow | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [routerTarget, setRouterTarget] = useState<AdminRow | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "expired">("all");
 
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
@@ -143,6 +166,33 @@ export default function SuperAdmins() {
     onError: handleErr,
   });
 
+  const createRouterM = useMutation({
+    mutationFn: async (v: { adminId: number; payload: RouterCreatePayload }) => {
+      const { host, port } = parseAddress(v.payload.address);
+      const r = await fetch(`${BASE}/api/super/admins/${v.adminId}/routers`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: v.payload.name,
+          hotspotName: v.payload.hotspotName || undefined,
+          contact: v.payload.contact || undefined,
+          host,
+          port,
+          username: v.payload.username,
+          password: v.payload.password,
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Création routeur impossible");
+      return r.json();
+    },
+    onSuccess: () => {
+      setRouterTarget(null);
+      refresh();
+      toast({ title: "Routeur ajouté pour admin" });
+    },
+    onError: handleErr,
+  });
+
   // Self-service: super-admin (or any admin) updates their own login/password.
   const accountM = useMutation({
     mutationFn: async (v: { login?: string; password?: string }) => {
@@ -177,6 +227,21 @@ export default function SuperAdmins() {
     );
   }
 
+  const filteredAdmins = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return admins.filter((a) => {
+      if (statusFilter === "active" && !a.isActive) return false;
+      if (statusFilter === "inactive" && a.isActive) return false;
+      if (statusFilter === "expired") {
+        if (a.isSuperAdmin || !a.forfaitEndsAt) return false;
+        if (new Date(a.forfaitEndsAt).getTime() >= Date.now()) return false;
+      }
+      if (!q) return true;
+      const hay = `${a.login} ${a.displayName ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [admins, search, statusFilter]);
+
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
       {/* Header */}
@@ -201,15 +266,33 @@ export default function SuperAdmins() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-72">
+          <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un admin..." className="pl-9" />
+        </div>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+          <SelectTrigger className="w-full sm:w-52">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous</SelectItem>
+            <SelectItem value="active">Actifs</SelectItem>
+            <SelectItem value="inactive">Inactifs</SelectItem>
+            <SelectItem value="expired">Expirés</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Table card */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="p-8 flex items-center justify-center gap-2 text-gray-500 text-sm">
             <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
           </div>
-        ) : admins.length === 0 ? (
+        ) : filteredAdmins.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-500">
-            Aucun administrateur. Cliquez sur « Nouvel administrateur » pour commencer.
+            Aucun administrateur pour ce filtre.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -225,9 +308,11 @@ export default function SuperAdmins() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {admins.map((a) => {
+                {filteredAdmins.map((a) => {
                   const status = forfaitStatus(a);
                   const limit = 5 + a.extraRouterSlots;
+                  const isExpired = !a.isSuperAdmin && !!a.forfaitEndsAt && new Date(a.forfaitEndsAt).getTime() < Date.now();
+                  const isExpiredAndInactive = isExpired && !a.isActive;
                   const toneClass =
                     status.tone === "success" ? "bg-emerald-100 text-emerald-700" :
                     status.tone === "warning" ? "bg-amber-100 text-amber-700" :
@@ -249,9 +334,16 @@ export default function SuperAdmins() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant={a.isActive ? "default" : "destructive"} className={a.isActive ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100" : ""}>
-                          {a.isActive ? "Actif" : "Désactivé"}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge variant={a.isActive ? "default" : "destructive"} className={a.isActive ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100" : ""}>
+                            {a.isActive ? "Actif" : "Désactivé"}
+                          </Badge>
+                          {isExpiredAndInactive && (
+                            <Badge className="bg-red-600 text-white hover:bg-red-600">
+                              Expiré + Inactif
+                            </Badge>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="space-y-1">
@@ -274,6 +366,22 @@ export default function SuperAdmins() {
                         <div className="flex items-center justify-end gap-1">
                           {!a.isSuperAdmin && (
                             <>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title={a.isActive ? "Désactiver" : "Activer"}
+                                onClick={() => editM.mutate({ id: a.id, isActive: !a.isActive })}
+                              >
+                                <Power className={`h-4 w-4 ${a.isActive ? "text-emerald-600" : "text-gray-500"}`} />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title="Ajouter un routeur pour cet admin"
+                                onClick={() => setRouterTarget(a)}
+                              >
+                                <RouterIcon className="h-4 w-4 text-blue-600" />
+                              </Button>
                               <Button size="icon" variant="ghost" title="Définir le forfait"
                                 onClick={() => setForfaitTarget({ admin: a, mode: "set" })}>
                                 <Calendar className="h-4 w-4" />
@@ -347,6 +455,15 @@ export default function SuperAdmins() {
         />
       )}
 
+      {routerTarget && (
+        <AddRouterForAdminDialog
+          admin={routerTarget}
+          onClose={() => setRouterTarget(null)}
+          onSubmit={(payload) => createRouterM.mutate({ adminId: routerTarget.id, payload })}
+          pending={createRouterM.isPending}
+        />
+      )}
+
       {/* My credentials (self) dialog */}
       <AccountDialog
         open={accountOpen}
@@ -355,6 +472,53 @@ export default function SuperAdmins() {
         pending={accountM.isPending}
       />
     </div>
+  );
+}
+
+function AddRouterForAdminDialog({
+  admin, onClose, onSubmit, pending,
+}: {
+  admin: AdminRow;
+  onClose: () => void;
+  onSubmit: (payload: RouterCreatePayload) => void;
+  pending: boolean;
+}) {
+  const [name, setName] = useState("");
+  const [hotspotName, setHotspotName] = useState("");
+  const [contact, setContact] = useState("");
+  const [address, setAddress] = useState("");
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Ajouter un routeur — {admin.displayName || admin.login}</DialogTitle>
+          <DialogDescription>Ce routeur sera rattaché directement à cet administrateur.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div><Label>Nom</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div><Label>Nom du hotspot</Label><Input value={hotspotName} onChange={(e) => setHotspotName(e.target.value)} /></div>
+          <div><Label>Contact</Label><Input value={contact} onChange={(e) => setContact(e.target.value)} /></div>
+          <div><Label>Adresse (hôte:port)</Label><Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.88.1:8728" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Utilisateur</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} /></div>
+            <div><Label>Mot de passe</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button
+            disabled={pending || !name.trim() || !address.trim() || !username.trim() || password.length < 1}
+            onClick={() => onSubmit({ name: name.trim(), hotspotName: hotspotName.trim(), contact: contact.trim(), address: address.trim(), username: username.trim(), password })}
+          >
+            {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Ajouter
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -34,7 +34,7 @@ const RouterContext = createContext<RouterContextValue>({
 const STORAGE_KEY = "vouchernet_router_id";
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const { managerRouterId, role, collaborateurRouterIds } = useAuth();
+  const { managerRouterId, role, collaborateurRouterIds, isAuthenticated } = useAuth();
   const isManagerLocked = role === "manager" && managerRouterId != null;
   // A collaborateur is "locked" to their assigned routers (cannot see others).
   // The selector is NOT locked (they can switch between their assigned routers),
@@ -49,7 +49,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const initializedRef = useRef(false);
 
   useEffect(() => {
-    if (freshRouters && freshRouters.length > 0) {
+    if (freshRouters) {
       setAllRouters(freshRouters);
       initializedRef.current = true;
     }
@@ -86,6 +86,26 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [role, routers, selectedRouterId]);
+
+  // For admin/vendor (and any non-manager unlocked role): if selection is
+  // empty or stale after reconnect, auto-select the first available router.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (isManagerLocked) return;
+    if (role === "collaborateur") return; // handled above
+    if (routers.length === 0) {
+      if (selectedRouterId !== null) {
+        setSelectedRouterIdState(null);
+        localStorage.removeItem(STORAGE_KEY);
+      }
+      return;
+    }
+    if (selectedRouterId === null || !routers.some((r) => r.id === selectedRouterId)) {
+      const firstId = routers[0].id;
+      setSelectedRouterIdState(firstId);
+      localStorage.setItem(STORAGE_KEY, String(firstId));
+    }
+  }, [isAuthenticated, isManagerLocked, role, routers, selectedRouterId]);
 
   const [pingTrigger, setPingTrigger] = useState(0);
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);

@@ -341,4 +341,63 @@ router.post("/super/admins/:id/credits", async (req, res): Promise<void> => {
   res.json(publicAdminShape(updated, Number(routerCount)));
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/super/admins/:id/routers — create a router for a target admin.
+// Body: { name, host, port?, username, password, hotspotName?, contact?, isActive? }
+// ---------------------------------------------------------------------------
+router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+
+  const adminId = parseInt(req.params.id, 10);
+  if (!adminId || Number.isNaN(adminId)) { res.status(400).json({ error: "ID admin invalide" }); return; }
+
+  const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, adminId));
+  if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
+  if (target.isSuperAdmin) { res.status(400).json({ error: "Routeur direct non supporté pour super admin" }); return; }
+  if (!target.isActive) { res.status(400).json({ error: "Admin désactivé" }); return; }
+
+  const { name, hotspotName, contact, host, port, username, password, isActive } = req.body as {
+    name?: string;
+    hotspotName?: string;
+    contact?: string;
+    host?: string;
+    port?: number;
+    username?: string;
+    password?: string;
+    isActive?: boolean;
+  };
+
+  if (!name?.trim() || !host?.trim() || !username?.trim() || !password?.trim()) {
+    res.status(400).json({ error: "name, host, username et password sont requis" });
+    return;
+  }
+
+  const limit = 5 + target.extraRouterSlots;
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(routersTable)
+    .where(eq(routersTable.ownerAdminId, adminId));
+  if (Number(count) >= limit) {
+    res.status(402).json({ error: `Limite atteinte (${limit} routeurs)` });
+    return;
+  }
+
+  const [created] = await db
+    .insert(routersTable)
+    .values({
+      ownerAdminId: adminId,
+      name: name.trim(),
+      hotspotName: hotspotName?.trim() || null,
+      contact: contact?.trim() || null,
+      host: host.trim(),
+      port: port ?? 8728,
+      username: username.trim(),
+      password: password.trim(),
+      isActive: isActive ?? true,
+    })
+    .returning();
+
+  res.status(201).json(created);
+});
+
 export default router;

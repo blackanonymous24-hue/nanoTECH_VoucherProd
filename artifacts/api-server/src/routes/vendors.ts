@@ -1336,14 +1336,33 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     const weekMondaysSet = new Set<string>();
     for (const [date] of salesMapV) weekMondaysSet.add(getMondayOf(date));
     for (const [date] of paidMapV) weekMondaysSet.add(getMondayOf(date));
-    const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
-
     // Include weeks that have lump-sum payments so FIFO can allocate them
     for (const k of weeklyLumpMap.keys()) {
       const [vId, monday] = k.split("|");
       if (Number(vId) === vendorId) weekMondaysSet.add(monday);
     }
     const weekMondaysFinal = [...weekMondaysSet].sort().reverse();
+
+    // Apply commission to each day proportionally once the week is ended, so
+    // daily settlements and arrears use the same "net attendu" as weekly logic.
+    const expectedByDay = new Map<string, number>();
+    for (const monday of weekMondaysFinal) {
+      const ws = new Date(monday + "T00:00:00Z");
+      const we = new Date(ws.getTime() + 7 * 86_400_000);
+      const weekEnded = we.getTime() <= Date.now();
+      const rate = weekEnded ? (vendorCommMap.get(vendorId) ?? 0) : 0;
+      const weekDates = Array.from({ length: 7 }, (_, i) =>
+        new Date(ws.getTime() + i * 86_400_000).toISOString().slice(0, 10),
+      );
+      const weekGross = weekDates.reduce((s, d) => s + (salesMapV.get(d) ?? 0), 0);
+      const weekCommission = rate > 0 ? Math.round(weekGross * rate) / 100 : 0;
+      const weekExpected = Math.max(0, weekGross - weekCommission);
+      const factor = weekGross > 0 ? (weekExpected / weekGross) : 1;
+      for (const d of weekDates) {
+        const gross = salesMapV.get(d) ?? 0;
+        expectedByDay.set(d, Math.max(0, Math.round(gross * factor)));
+      }
+    }
 
     // Allouer les versements hebdomadaires (lump-sum) jour par jour en FIFO :
     // chaque versement hebdo solde d'abord les jours les plus anciens de SA
@@ -1356,7 +1375,7 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
       const weekStart = new Date(monday + "T00:00:00Z");
       for (let i = 0; i < 7 && lumpRemaining > 0; i++) {
         const d = new Date(weekStart.getTime() + i * 86_400_000).toISOString().slice(0, 10);
-        const sales      = salesMapV.get(d) ?? 0;
+        const sales      = expectedByDay.get(d) ?? (salesMapV.get(d) ?? 0);
         const dailyPaid  = paidMapV.get(d)  ?? 0;
         const stillOwed  = Math.max(0, sales - dailyPaid);
         if (stillOwed === 0) continue;
@@ -1367,11 +1386,12 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     }
 
     const vendorArr: typeof arrears[string] = [];
-    for (const [date, salesAmount] of dayMap) {
+    for (const [date, grossSalesAmount] of dayMap) {
       const k = `${vendorId}|${date}`;
       const { paidAmount: dailyPaidRaw, payments } = dailyPaidMap.get(k) ?? { paidAmount: 0, payments: [] };
       const lumpAllocated = lumpAllocatedPaid.get(date) ?? 0;
       const paidAmount = dailyPaidRaw + lumpAllocated;
+      const salesAmount = expectedByDay.get(date) ?? grossSalesAmount;
       const remaining  = Math.max(0, salesAmount - paidAmount);
       if (remaining > 0) {
         vendorArr.push({ date, salesAmount, paidAmount, remaining, payments });
@@ -1400,6 +1420,71 @@ function mondayOf(dateStr: string): string {
   const diff = day === 0 ? -6 : 1 - day;
   d.setUTCDate(d.getUTCDate() + diff);
   return d.toISOString().slice(0, 10);
+}
+
+async function autoSettleDailyRowsForValidatedWeek(
+  routerId: number,
+  vendorId: number,
+  weekStart: string,
+  commissionRate: number,
+) {
+  const wStart = new Date(weekStart + "T00:00:00Z");
+  const wEnd = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const weekEnded = wEnd.getTime() <= Date.now();
+  const weekEndStr = new Date(wEnd.getTime() - 1).toISOString().slice(0, 10);
+
+  const salesRows = await db
+    .select({
+      date: sql<string>`(${vouchersTable.usedAt})::date::text`,
+      amount: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
+    })
+    .from(vouchersTable)
+    .where(and(
+      eq(vouchersTable.routerId, routerId),
+      eq(vouchersTable.vendorId, vendorId),
+      isNotNull(vouchersTable.usedAt),
+      sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+      sql`${vouchersTable.usedAt} < ${wEnd.toISOString()}`,
+    ))
+    .groupBy(sql`(${vouchersTable.usedAt})::date`);
+
+  const dailyPaidRows = await db
+    .select({
+      date: vendorDailyPaymentsTable.date,
+      amount: sql<number>`sum(${vendorDailyPaymentsTable.amount})::int`,
+    })
+    .from(vendorDailyPaymentsTable)
+    .where(and(
+      eq(vendorDailyPaymentsTable.routerId, routerId),
+      eq(vendorDailyPaymentsTable.vendorId, vendorId),
+      gte(vendorDailyPaymentsTable.date, weekStart),
+      lte(vendorDailyPaymentsTable.date, weekEndStr),
+    ))
+    .groupBy(vendorDailyPaymentsTable.date);
+
+  const dailyPaidMap = new Map(dailyPaidRows.map((r) => [r.date, Number(r.amount) || 0]));
+  const weekSales = salesRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const weekCommission = weekEnded && commissionRate > 0 ? Math.round(weekSales * commissionRate) / 100 : 0;
+  const weekExpected = Math.max(0, weekSales - weekCommission);
+  const factor = weekSales > 0 ? (weekExpected / weekSales) : 1;
+
+  const toInsert: Array<{ vendorId: number; routerId: number; date: string; amount: number; note: string }> = [];
+  for (const r of salesRows) {
+    const gross = Number(r.amount) || 0;
+    const expectedDay = Math.max(0, Math.round(gross * factor));
+    const paidDay = dailyPaidMap.get(r.date) ?? 0;
+    const missing = Math.max(0, expectedDay - paidDay);
+    if (missing > 0) {
+      toInsert.push({
+        vendorId,
+        routerId,
+        date: r.date,
+        amount: missing,
+        note: `Soldé auto via validation semaine ${weekStart}`,
+      });
+    }
+  }
+  if (toInsert.length > 0) await db.insert(vendorDailyPaymentsTable).values(toInsert);
 }
 
 /**
@@ -1602,6 +1687,10 @@ router.post("/vendors/payments", async (req, res) => {
       .insert(vendorPaymentsTable)
       .values({ vendorId: +vendorId, routerId: +routerId, weekStart: ws, amount: appliedAmount, note: note || null })
       .returning();
+    const remainingAfter = Math.max(0, remaining - appliedAmount);
+    if (remainingAfter === 0) {
+      await autoSettleDailyRowsForValidatedWeek(+routerId, +vendorId, ws, vendor.commissionRate ?? 0);
+    }
     invalidateVendorPortalCache(+vendorId);
     res.json({
       ...payment,
@@ -1609,7 +1698,7 @@ router.post("/vendors/payments", async (req, res) => {
       appliedAmount,
       adjusted: appliedAmount !== requested,
       expectedNet,
-      remainingAfter: Math.max(0, remaining - appliedAmount),
+      remainingAfter,
     });
   } catch (err) {
     logger.error({ err }, "create payment error");

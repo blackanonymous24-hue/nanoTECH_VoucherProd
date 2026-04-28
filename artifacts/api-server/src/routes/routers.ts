@@ -106,7 +106,7 @@ function getAdminScopeFromHeader(req: { headers: { authorization?: string } }): 
  * `routerIds` is the exact set of routers the caller is allowed to touch.
  */
 type CallerScope =
-  | { kind: "super" }
+  | { kind: "super"; adminId: number }
   | { kind: "admin"; adminId: number; routerIds: number[] }
   | { kind: "manager"; adminId: number | null; routerIds: number[] }
   | { kind: "vendor"; adminId: number | null; routerIds: number[] }
@@ -120,7 +120,7 @@ async function resolveCallerScope(req: { headers: { authorization?: string } }):
   // Try admin token first (super-admin or regular admin).
   const adminScope = verifyAdminTokenFull(token);
   if (adminScope) {
-    if (adminScope.isSuperAdmin) return { kind: "super" };
+    if (adminScope.isSuperAdmin) return { kind: "super", adminId: adminScope.adminId };
     const ownedRouters = await db
       .select({ id: routersTable.id })
       .from(routersTable)
@@ -234,7 +234,8 @@ router.get("/routers", async (req, res): Promise<void> => {
     .from(routersTable);
 
   if (scope.kind === "super") {
-    res.json(await baseSelect.orderBy(routersTable.name));
+    // Super-admin should only see routers in their own tenant account.
+    res.json(await baseSelect.where(eq(routersTable.ownerAdminId, scope.adminId)).orderBy(routersTable.name));
     return;
   }
   if (scope.kind === "admin") {
@@ -1251,11 +1252,12 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const oldUsername = decodeURIComponent(req.params.username as string);
-  const { newUsername, password, profile, bypassMacAddress, linkBypass } = (req.body ?? {}) as {
+  const { newUsername, password, profile, bypassMacAddress, bypassComment, linkBypass } = (req.body ?? {}) as {
     newUsername?: string;
     password?: string;
     profile?: string;
     bypassMacAddress?: string;
+    bypassComment?: string;
     linkBypass?: boolean;
   };
   if (newUsername !== undefined && (!newUsername || !newUsername.trim())) {
@@ -1270,8 +1272,8 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
     res.status(400).json({ error: "profile invalide" });
     return;
   }
-  if (linkBypass && (!bypassMacAddress || !bypassMacAddress.trim())) {
-    res.status(400).json({ error: "bypassMacAddress requis si linkBypass=true" });
+  if (linkBypass && (!bypassMacAddress?.trim() && !bypassComment?.trim())) {
+    res.status(400).json({ error: "bypassMacAddress ou bypassComment requis si linkBypass=true" });
     return;
   }
   const trimmed = newUsername?.trim();
@@ -1289,8 +1291,20 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
     if (!updated.found) { res.status(404).json({ error: "Utilisateur introuvable sur le routeur" }); return; }
     const finalUsername = updated.username;
 
-    if (linkBypass && bypassMacAddress) {
-      await upsertLinkedBypass(conn, finalUsername, bypassMacAddress, updated.comment);
+    if (linkBypass) {
+      let mac = bypassMacAddress?.trim().toUpperCase() ?? "";
+      if (!mac && bypassComment?.trim()) {
+        const q = bypassComment.trim().toLowerCase();
+        const bindings = await listIpBindings(conn);
+        const exact = bindings.find((b) => (b.comment ?? "").trim().toLowerCase() === q && !!b.macAddress);
+        const partial = bindings.find((b) => (b.comment ?? "").toLowerCase().includes(q) && !!b.macAddress);
+        mac = (exact?.macAddress || partial?.macAddress || "").trim().toUpperCase();
+      }
+      if (!mac) {
+        res.status(400).json({ error: "Impossible de résoudre la MAC depuis ce commentaire bypass" });
+        return;
+      }
+      await upsertLinkedBypass(conn, finalUsername, mac, updated.comment);
     }
 
     userCache.delete(id);

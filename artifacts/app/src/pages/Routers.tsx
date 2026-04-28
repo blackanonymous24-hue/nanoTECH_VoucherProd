@@ -555,7 +555,11 @@ export default function Routers() {
           {routers.map((r) => {
             const isSelected = r.id === selectedRouterId;
             return (
-              <Card key={r.id} className={isSelected ? "ring-2 ring-blue-500" : ""}>
+              <Card
+                key={r.id}
+                className={`${isSelected ? "ring-2 ring-blue-500" : ""} cursor-pointer`}
+                onClick={() => handleSelect(r.id)}
+              >
                 <CardContent className="py-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -598,7 +602,7 @@ export default function Routers() {
                         <Button
                           size="icon"
                           className="h-8 w-8 bg-blue-600 hover:bg-blue-700 text-white"
-                          onClick={() => handleSelect(r.id)}
+                          onClick={(e) => { e.stopPropagation(); handleSelect(r.id); }}
                           title="Sélectionner"
                         >
                           <CheckCircle2 className="h-4 w-4" />
@@ -607,7 +611,7 @@ export default function Routers() {
                       <Button
                         variant="outline"
                         className="h-8 w-8 text-blue-600 text-xs font-medium p-0"
-                        onClick={() => handleTest(r.id)}
+                        onClick={(e) => { e.stopPropagation(); void handleTest(r.id); }}
                         disabled={testMutation.isPending}
                       >
                         Ping
@@ -616,14 +620,14 @@ export default function Routers() {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 text-gray-400 hover:text-gray-700"
-                        onClick={() => openEdit(r)}
+                        onClick={(e) => { e.stopPropagation(); openEdit(r); }}
                         title="Modifier"
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-gray-400">
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-gray-400" onClick={(e) => e.stopPropagation()}>
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>

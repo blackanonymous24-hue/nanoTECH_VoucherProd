@@ -151,6 +151,7 @@ export default function Vouchers() {
   const [editPassword, setEditPassword] = useState("");
   const [editProfile, setEditProfile] = useState("");
   const [editBypassMac, setEditBypassMac] = useState("");
+  const [editBypassComment, setEditBypassComment] = useState("");
   const [linkBypass, setLinkBypass] = useState(false);
   const [editShowPassword, setEditShowPassword] = useState(false);
   const [isSavingRename, setIsSavingRename] = useState(false);
@@ -310,6 +311,17 @@ export default function Vouchers() {
 
   const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
     query: { enabled: !!activeRouterId, staleTime: 120_000 },
+  });
+  const { data: bypassBindings = [] } = useQuery({
+    queryKey: ["router-ip-bindings", activeRouterId],
+    enabled: !!activeRouterId && !!editingUser && linkBypass,
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/ip-bindings`);
+      if (!res.ok) return [] as Array<{ id: string; macAddress: string; comment: string; type: string }>;
+      const data = await res.json() as { bindings?: Array<{ id: string; macAddress: string; comment: string; type: string }> };
+      return (data.bindings ?? []).filter((b) => (b.type ?? "").toLowerCase() === "bypassed");
+    },
+    staleTime: 30_000,
   });
 
   // Keep MikroTik insertion order (= creation order), same as Mikhmon
@@ -641,6 +653,7 @@ export default function Vouchers() {
     setEditPassword(user.password);
     setEditProfile(user.profile);
     setEditBypassMac(user.macAddress ?? "");
+    setEditBypassComment("");
     setLinkBypass(!!user.macAddress);
     setEditShowPassword(false);
   };
@@ -689,6 +702,7 @@ export default function Vouchers() {
             profile: nextProfile,
             linkBypass,
             bypassMacAddress: linkBypass ? nextBypassMac : undefined,
+            bypassComment: linkBypass ? editBypassComment.trim() : undefined,
           }),
         },
       );
@@ -1706,16 +1720,44 @@ export default function Vouchers() {
               <Label htmlFor="link-bypass" className="text-sm text-gray-600">Lier un bypass MAC automatique</Label>
             </div>
             {linkBypass && (
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-bypass-mac" className="text-xs text-gray-500">Adresse MAC bypass</Label>
-                <Input
-                  id="edit-bypass-mac"
-                  value={editBypassMac}
-                  onChange={(e) => setEditBypassMac(e.target.value)}
-                  placeholder="AA:BB:CC:DD:EE:FF"
-                  className="font-mono"
-                  disabled={isSavingRename}
-                />
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-bypass-comment" className="text-xs text-gray-500">Rechercher un bypass (commentaire)</Label>
+                  <Input
+                    id="edit-bypass-comment"
+                    list="bypass-comment-options"
+                    value={editBypassComment}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setEditBypassComment(value);
+                      const match = bypassBindings.find((b) => (b.comment ?? "").toLowerCase() === value.trim().toLowerCase());
+                      if (match?.macAddress) setEditBypassMac(match.macAddress);
+                    }}
+                    placeholder="Tapez pour rechercher un commentaire bypass..."
+                    disabled={isSavingRename}
+                  />
+                  <datalist id="bypass-comment-options">
+                    {bypassBindings
+                      .filter((b) => !!b.comment && !!b.macAddress)
+                      .slice(0, 200)
+                      .map((b) => (
+                        <option key={b.id} value={b.comment}>
+                          {b.macAddress}
+                        </option>
+                      ))}
+                  </datalist>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-bypass-mac" className="text-xs text-gray-500">Adresse MAC bypass (ou saisie directe)</Label>
+                  <Input
+                    id="edit-bypass-mac"
+                    value={editBypassMac}
+                    onChange={(e) => setEditBypassMac(e.target.value)}
+                    placeholder="AA:BB:CC:DD:EE:FF"
+                    className="font-mono"
+                    disabled={isSavingRename}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1725,7 +1767,13 @@ export default function Vouchers() {
             </Button>
             <Button
               onClick={() => void handleRenameUser()}
-              disabled={isSavingRename || !editUsername.trim() || !editPassword.trim() || !editProfile.trim()}
+              disabled={
+                isSavingRename ||
+                !editUsername.trim() ||
+                !editPassword.trim() ||
+                !editProfile.trim() ||
+                (linkBypass && !editBypassMac.trim() && !editBypassComment.trim())
+              }
             >
               {isSavingRename ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Enregistrement...</> : "Enregistrer"}
             </Button>

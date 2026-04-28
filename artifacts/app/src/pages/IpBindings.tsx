@@ -64,6 +64,7 @@ interface BindingFormState {
   server: string;
   type: BindingType;
   comment: string;
+  linkedUsername: string;
   disabled: boolean;
 }
 
@@ -74,10 +75,16 @@ interface HotspotServer {
   disabled: boolean;
 }
 
+interface HotspotUserLite {
+  username: string;
+  macAddress: string | null;
+}
+
 // Sentinel value used inside the Select component because Radix Select
 // does not allow `value=""` on its <SelectItem>. We translate this to an
 // empty string before sending the payload to the API.
 const SERVER_ALL = "__all__";
+const AUTO_BYPASS_PREFIX = "auto-bypass:user:";
 
 const EMPTY_FORM: BindingFormState = {
   macAddress: "",
@@ -86,6 +93,7 @@ const EMPTY_FORM: BindingFormState = {
   server: "",
   type: "bypassed",
   comment: "",
+  linkedUsername: "",
   disabled: false,
 };
 
@@ -145,6 +153,8 @@ export default function IpBindings() {
   // Delete confirm
   const [confirmDelete, setConfirmDelete] = useState<IpBinding | null>(null);
   const [deleting, setDeleting]           = useState(false);
+  const [usersLite, setUsersLite]         = useState<HotspotUserLite[]>([]);
+  const [usersLoading, setUsersLoading]   = useState(false);
 
   const refresh = async () => {
     if (!selectedRouterId) return;
@@ -242,11 +252,26 @@ export default function IpBindings() {
     }
   };
 
+  const ensureUsersLoaded = async () => {
+    if (!selectedRouterId || usersLoading || usersLite.length > 0) return;
+    setUsersLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users?limit=5000`);
+      if (!res.ok) return;
+      const data = await res.json() as { users?: Array<{ username: string; macAddress: string | null }> };
+      setUsersLite((data.users ?? []).map((u) => ({ username: u.username, macAddress: u.macAddress ?? null })));
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
   // Reset the server cache and abort any in-flight request when the active
   // router changes (or on unmount).
   useEffect(() => {
     setServers([]);
     setServersError(null);
+    setUsersLite([]);
+    setUsersLoading(false);
     abortRef.current?.abort();
     abortRef.current            = null;
     inFlightRouterIdRef.current = null;
@@ -263,6 +288,7 @@ export default function IpBindings() {
     setForm(EMPTY_FORM);
     setFormOpen(true);
     void ensureServersLoaded();
+    void ensureUsersLoaded();
   };
 
   const openEdit = (b: IpBinding) => {
@@ -276,10 +302,14 @@ export default function IpBindings() {
       server:     b.server === "all" ? "" : b.server,
       type:       b.type,
       comment:    b.comment,
+      linkedUsername: b.comment.toLowerCase().startsWith(AUTO_BYPASS_PREFIX)
+        ? b.comment.slice(AUTO_BYPASS_PREFIX.length)
+        : "",
       disabled:   b.disabled,
     });
     setFormOpen(true);
     void ensureServersLoaded();
+    void ensureUsersLoaded();
   };
 
   const submitForm = async () => {
@@ -305,6 +335,10 @@ export default function IpBindings() {
         : `${BASE}/api/routers/${selectedRouterId}/ip-bindings`;
       // Sentinel SERVER_ALL = empty string = MikroTik "all"
       const serverPayload = form.server === SERVER_ALL ? "" : form.server.trim();
+      const linkedUsername = form.linkedUsername.trim();
+      const computedComment = linkedUsername
+        ? `${AUTO_BYPASS_PREFIX}${linkedUsername.toLowerCase()}`
+        : form.comment.trim();
       const res = await fetch(url, {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -314,7 +348,7 @@ export default function IpBindings() {
           toAddress:  form.toAddress.trim(),
           server:     serverPayload,  // vide → "all" côté MikroTik
           type:       form.type,
-          comment:    form.comment.trim(),
+          comment:    computedComment,
           disabled:   form.disabled,
         }),
       });
@@ -666,12 +700,43 @@ export default function IpBindings() {
               </Select>
             </div>
             <div>
+              <Label htmlFor="linked-user">Lier à un utilisateur hotspot (optionnel)</Label>
+              <Input
+                id="linked-user"
+                list="hotspot-users-list"
+                value={form.linkedUsername}
+                onChange={(e) => {
+                  const username = e.target.value;
+                  const matched = usersLite.find((u) => u.username.toLowerCase() === username.trim().toLowerCase());
+                  setForm((f) => ({
+                    ...f,
+                    linkedUsername: username,
+                    type: username.trim() ? "bypassed" : f.type,
+                    macAddress: matched?.macAddress ? matched.macAddress : f.macAddress,
+                  }));
+                }}
+                placeholder={usersLoading ? "Chargement des utilisateurs..." : "Tapez pour rechercher un username"}
+                disabled={usersLoading}
+              />
+              <datalist id="hotspot-users-list">
+                {usersLite.slice(0, 5000).map((u) => (
+                  <option key={u.username} value={u.username}>
+                    {u.macAddress ?? ""}
+                  </option>
+                ))}
+              </datalist>
+              <p className="text-xs text-gray-400 mt-1">
+                Si un utilisateur est lié, le commentaire est généré automatiquement ({AUTO_BYPASS_PREFIX}username).
+              </p>
+            </div>
+            <div>
               <Label htmlFor="comment">Commentaire</Label>
               <Input
                 id="comment"
                 value={form.comment}
                 onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
                 placeholder="Ex: TV salon, imprimante bureau…"
+                disabled={!!form.linkedUsername.trim()}
               />
             </div>
             <div className="flex items-center justify-between rounded-md border p-3">
