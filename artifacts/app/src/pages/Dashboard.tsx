@@ -2,20 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
-import { useGetDashboard, useListRouterLogs, useGetRouterSales } from "@workspace/api-client-react";
+import { useGetDashboard, useListRouterLogs } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-// Module-level cache: persists across React unmount/remount (navigating away and back to the Dashboard).
-// Provides instant display by acting as initialData for React Query — bypasses the staleTime/gcTime window.
-const _liveCache: Record<number, {
-  sessions?: number; sessionTs?: number;
-  users?: { total: number; available: number; used: number }; usersTs?: number;
-}> = {};
 
 // Dashboard-level (router-agnostic) cache — stores last successful dashboard API response.
 // Used as fallback display value while data refetches in background.
@@ -39,6 +32,22 @@ interface RouterInfo {
   freeMemory: string | null;
   uptime: string | null;
   architecture: string | null;
+}
+
+interface SalesLite {
+  dailyCount: number;
+  dailyAmount: number;
+  monthlyCount: number;
+  monthlyAmount: number;
+  _cachedAt: number | null;
+}
+
+interface PrioritySnapshot {
+  serverTs: number;
+  sessionsCount: number;
+  users: { total: number; available: number; used: number; disabled: number; cachedAt: number | null };
+  sales: SalesLite;
+  info: RouterInfo | null;
 }
 
 function formatUptime(raw: string | null): string | null {
@@ -351,96 +360,90 @@ export default function Dashboard() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any = _freshData ?? _dashboardCache.data;
   const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity } = useRouterContext();
+  const [enableSecondaries, setEnableSecondaries] = useState(false);
+  const [ssePriority, setSsePriority] = useState<PrioritySnapshot | null>(null);
+  const [sseConnected, setSseConnected] = useState(false);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
 
   const {
-    data: activeSessions,
-    isFetching: sessionsFetching,
-    dataUpdatedAt: sessionsUpdatedAt,
-    refetch: refetchSessions,
-  } = useQuery({
-    queryKey: ["router-sessions-count", selectedRouterId],
-    queryFn: async ({ signal }): Promise<number> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions/count`, { signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { count: number };
-      const count = d.count ?? 0;
-      if (selectedRouterId) {
-        _liveCache[selectedRouterId] = { ..._liveCache[selectedRouterId], sessions: count, sessionTs: Date.now() };
-      }
-      return count;
+    data: priority,
+    isFetching: priorityQueryFetching,
+    isLoading: priorityLoading,
+    refetch: refetchPriority,
+    dataUpdatedAt: priorityUpdatedAt,
+  } = useQuery<PrioritySnapshot>({
+    queryKey: ["router-dashboard-priority", selectedRouterId],
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority`, { signal });
+      if (!res.ok) throw new Error("dashboard priority unavailable");
+      return res.json() as Promise<PrioritySnapshot>;
     },
     enabled: !!selectedRouterId,
-    refetchInterval: 10_000,
-    refetchIntervalInBackground: false,
-    staleTime: 9_000,
-    gcTime: 30 * 60_000, // keep in React Query cache for 30 min
-    initialData: selectedRouterId != null ? _liveCache[selectedRouterId]?.sessions : undefined,
-    initialDataUpdatedAt: selectedRouterId != null ? _liveCache[selectedRouterId]?.sessionTs : undefined,
-    throwOnError: false,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
+    staleTime: 10_000,
     retry: false,
+    throwOnError: false,
   });
 
-  const {
-    data: usersStats,
-    isFetching: usersFetching,
-    refetch: refetchUsers,
-  } = useQuery({
-    queryKey: ["router-users-count", selectedRouterId],
-    queryFn: async ({ signal }): Promise<{ total: number; available: number; used: number }> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users/count`, { signal });
-      if (!res.ok) return { total: 0, available: 0, used: 0 };
-      const d = await res.json() as { total?: number; available?: number; used?: number };
-      const stats = {
-        total:     d.total     ?? 0,
-        available: d.available ?? 0,
-        used:      d.used      ?? 0,
-      };
-      if (selectedRouterId) {
-        _liveCache[selectedRouterId] = { ..._liveCache[selectedRouterId], users: stats, usersTs: Date.now() };
+  useEffect(() => {
+    if (!selectedRouterId) {
+      setSsePriority(null);
+      setSseConnected(false);
+      return;
+    }
+    const es = new EventSource(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority/stream`);
+    es.onopen = () => setSseConnected(true);
+    es.onmessage = (ev) => {
+      try {
+        setSsePriority(JSON.parse(ev.data) as PrioritySnapshot);
+        setRouterOnline(true);
+      } catch {
+        // fallback polling still active
       }
-      return stats;
-    },
-    enabled: !!selectedRouterId,
-    refetchInterval: 20_000,
-    refetchIntervalInBackground: false,
-    staleTime: 15_000,
-    gcTime: 30 * 60_000,
-    initialData: selectedRouterId != null ? _liveCache[selectedRouterId]?.users : undefined,
-    initialDataUpdatedAt: selectedRouterId != null ? _liveCache[selectedRouterId]?.usersTs : undefined,
-    throwOnError: false,
-    retry: false,
-  });
+    };
+    es.onerror = () => setSseConnected(false);
+    return () => {
+      es.close();
+      setSseConnected(false);
+    };
+  }, [selectedRouterId, setRouterOnline]);
+
+  const livePriority = ssePriority ?? priority;
+  const activeSessions = livePriority?.sessionsCount;
+  const usersStats = livePriority?.users;
   const hotspotUserCount = usersStats?.available ?? usersStats?.total;
-
-  const {
-    data: sales,
-    isFetching: salesFetching,
-    refetch: refetchSales,
-  } = useGetRouterSales(
-    selectedRouterId ?? 0,
-    {
-      query: {
-        enabled: !!selectedRouterId,
-        refetchInterval: 10_000,
-        refetchIntervalInBackground: false,
-        staleTime: 9_000,
-      },
-    },
-  );
-  // Server returns zeros + `_cachedAt: null` when its in-memory cache is cold and the
-  // background MikroTik fetch hasn't returned yet. Treat that as "still loading" so
-  // the user never sees a misleading "0 FCFA" before real data arrives.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const salesFresh = !!sales && (sales as any)._cachedAt != null;
+  const sales = livePriority?.sales;
+  const salesFresh = !!sales && sales._cachedAt != null;
+  const routerInfo = livePriority?.info ?? null;
+  const infoLoading = !!selectedRouterId && !livePriority && priorityLoading;
+  const sessionsFetching = !sseConnected && priorityQueryFetching;
+  const usersFetching = !sseConnected && priorityQueryFetching;
+  const salesFetching = !sseConnected && priorityQueryFetching;
 
   // Mikhmon-style: fire every dashboard fetch in parallel immediately, no
   // gating. Priority cards (info / sessions / sales / tickets) are served
   // stale-while-revalidate by the API so they paint instantly from the last
   // known value, exactly like Mikhmon v3.
-  const secondariesReady = !!selectedRouterId;
+  const priorityReady = !!selectedRouterId
+    && activeSessions !== undefined
+    && usersStats !== undefined
+    && salesFresh;
+
+  useEffect(() => {
+    if (!selectedRouterId) {
+      setEnableSecondaries(false);
+      return;
+    }
+    if (priorityReady) {
+      setEnableSecondaries(true);
+      return;
+    }
+    const t = setTimeout(() => setEnableSecondaries(true), 1200);
+    return () => clearTimeout(t);
+  }, [selectedRouterId, priorityReady]);
 
   const {
     data: logs = [],
@@ -453,8 +456,8 @@ export default function Dashboard() {
     { limit: 80, topics: "hotspot" },
     {
       query: {
-        enabled: !!selectedRouterId && secondariesReady,
-        refetchInterval: 5_000,
+        enabled: !!selectedRouterId && enableSecondaries,
+        refetchInterval: 4_000,
         refetchIntervalInBackground: false,
         staleTime: 4_000,
       },
@@ -478,10 +481,16 @@ export default function Dashboard() {
 
   // Sessions success → green
   useEffect(() => {
-    if (!selectedRouterId || sessionsUpdatedAt === 0) return;
-    lastSuccessRef.current = Math.max(lastSuccessRef.current, sessionsUpdatedAt);
+    if (!selectedRouterId || priorityUpdatedAt === 0) return;
+    lastSuccessRef.current = Math.max(lastSuccessRef.current, priorityUpdatedAt);
     setRouterOnline(true);
-  }, [sessionsUpdatedAt, selectedRouterId, setRouterOnline]);
+  }, [priorityUpdatedAt, selectedRouterId, setRouterOnline]);
+
+  useEffect(() => {
+    if (!selectedRouterId || !ssePriority) return;
+    lastSuccessRef.current = Math.max(lastSuccessRef.current, ssePriority.serverTs || Date.now());
+    setRouterOnline(true);
+  }, [ssePriority, selectedRouterId, setRouterOnline]);
 
   // Logs success → green
   useEffect(() => {
@@ -509,25 +518,6 @@ export default function Dashboard() {
   }, [selectedRouterId]);
   // ─────────────────────────────────────────────────────────────────────────
 
-  const {
-    data: routerInfo,
-    isLoading: infoLoading,
-    refetch: refetchInfo,
-  } = useQuery<RouterInfo>({
-    queryKey: ["router-info", selectedRouterId],
-    queryFn: async ({ signal }) => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/info`, { signal });
-      if (!res.ok) throw new Error("info unavailable");
-      return res.json() as Promise<RouterInfo>;
-    },
-    enabled: !!selectedRouterId,
-    refetchInterval: 10_000,
-    refetchIntervalInBackground: false,
-    staleTime: 9_000,
-    retry: false,
-    throwOnError: false,
-  });
-
   useEffect(() => {
     if (routerInfo?.identity) setRouterIdentity(routerInfo.identity);
   }, [routerInfo, setRouterIdentity]);
@@ -539,19 +529,14 @@ export default function Dashboard() {
     prevPingTriggerRef.current = pingTrigger;
     refetch();
     refetchLogs();
-    refetchSales();
-    refetchSessions();
-    refetchUsers();
-    refetchInfo();
-  }, [pingTrigger, refetch, refetchLogs, refetchSales, refetchSessions, refetchUsers, refetchInfo]);
+    refetchPriority();
+  }, [pingTrigger, refetch, refetchLogs, refetchPriority]);
 
   const handleRefresh = () => {
     refetch();
     if (selectedRouterId) {
       refetchLogs();
-      refetchSales();
-      refetchSessions();
-      refetchUsers();
+      refetchPriority();
     }
   };
 
@@ -567,7 +552,7 @@ export default function Dashboard() {
           onClick={handleRefresh}
           className="gap-1.5 text-gray-500"
         >
-          <RefreshCw className={`h-4 w-4 ${logsFetching ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-4 w-4 ${(!sseConnected && priorityQueryFetching) ? "animate-spin" : ""}`} />
           Actualiser
         </Button>
       </div>
@@ -677,7 +662,7 @@ export default function Dashboard() {
       </div>
 
       <div className="traffic-logs-layout flex flex-col gap-4 items-stretch">
-      <TrafficMonitorCard routerId={selectedRouterId} enabled={secondariesReady} />
+      <TrafficMonitorCard routerId={selectedRouterId} enabled={enableSecondaries} />
       <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
@@ -693,7 +678,7 @@ export default function Dashboard() {
                 </span>
               )}
             </CardTitle>
-            <span className="text-xs text-gray-400">↻ 5s</span>
+                <span className="text-xs text-gray-400">↻ 4s</span>
           </div>
         </CardHeader>
 

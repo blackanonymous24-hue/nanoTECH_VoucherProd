@@ -1621,6 +1621,169 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   }
 });
 
+async function buildDashboardPrioritySnapshot(id: number) {
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) throw new Error("ROUTER_NOT_FOUND");
+
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  ensureUsageSyncScheduled(id, conn);
+  triggerSalesRefresh(id, r.host, r.port, r.username, r.password);
+
+  const now = Date.now();
+
+  // Sessions count (stale-while-revalidate)
+  const sessionsKey = `sessions:${id}`;
+  const sessionsFresh = mGet(sessionsKey) as unknown[] | null;
+  const sessionsStale = mGetStale(sessionsKey) as unknown[] | null;
+  const sessionsCount = sessionsFresh?.length ?? sessionsStale?.length ?? 0;
+  if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
+    _sessionsRefreshing.add(id);
+    setImmediate(async () => {
+      try {
+        const sessions = await listSessions(conn);
+        mSet(sessionsKey, MIK_TTL.sessions, sessions);
+      } catch { /* keep stale */ }
+      finally { _sessionsRefreshing.delete(id); }
+    });
+  }
+
+  // Router info (stale-while-revalidate)
+  const infoKey = `info:${id}`;
+  const infoFresh = mGet(infoKey);
+  const infoStale = mGetStale(infoKey);
+  const info = (infoFresh ?? infoStale ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
+  if (!infoFresh) {
+    setImmediate(async () => {
+      try {
+        const liveInfo = await getRouterInfo(conn);
+        mSet(infoKey, MIK_TTL.info, liveInfo);
+      } catch { /* keep stale */ }
+    });
+  }
+
+  // Users count from cache if possible, refresh asynchronously when needed
+  const usersCached = _usersCountCache.get(id) ?? null;
+  const users = usersCached
+    ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
+    : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
+
+  const userHit = userCache.get(id);
+  const userFresh = !!userHit && now < userHit.expiresAt;
+  const COUNT_FRESH_MS = 20_000;
+  if ((!usersCached || (now - usersCached.cachedAt) > COUNT_FRESH_MS) && !_usersRefreshing.has(id)) {
+    _usersRefreshing.add(id);
+    setImmediate(async () => {
+      try {
+        const list = await getCachedUsers(id, conn, { force: !userFresh });
+        const payload = await computeUsersCount(id, conn, list);
+        _usersCountCache.set(id, payload);
+      } catch { /* keep stale */ }
+      finally { _usersRefreshing.delete(id); }
+    });
+  }
+
+  // Sales from dedicated cache (already refreshed above)
+  const salesCached = salesCache.get(id);
+  const mm = String(new Date().getMonth() + 1).padStart(2, "0");
+  const y = new Date().getFullYear();
+  const d = String(new Date().getDate()).padStart(2, "0");
+  const sales: SalesReport & { _cachedAt: number | null } = salesCached
+    ? { ...salesCached.data, _cachedAt: salesCached.updatedAt }
+    : {
+      dailyCount: 0, dailyAmount: 0,
+      yesterdayCount: 0, yesterdayAmount: 0,
+      weekCount: 0, weekAmount: 0,
+      lastWeekCount: 0, lastWeekAmount: 0,
+      monthlyCount: 0, monthlyAmount: 0,
+      lastMonthCount: 0, lastMonthAmount: 0,
+      totalCount: 0, totalAmount: 0,
+      dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`, _cachedAt: null,
+    };
+
+  return {
+    serverTs: now,
+    sessionsCount,
+    users,
+    sales,
+    info,
+  };
+}
+
+/**
+ * GET /routers/:id/dashboard-priority
+ * Atomic snapshot for critical dashboard KPIs:
+ * - active sessions
+ * - tickets available/used/disabled
+ * - daily/monthly sales
+ * - router hardware/info bar
+ */
+router.get("/routers/:id/dashboard-priority", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  try {
+    const snapshot = await buildDashboardPrioritySnapshot(id);
+    res.json(snapshot);
+  } catch (err) {
+    if (err instanceof Error && err.message === "ROUTER_NOT_FOUND") {
+      res.status(404).json({ error: "Routeur introuvable" });
+      return;
+    }
+    res.status(502).json({ error: err instanceof Error ? err.message : "Erreur routeur" });
+  }
+});
+
+/**
+ * GET /routers/:id/dashboard-priority/stream
+ * Server-Sent Events push stream for dashboard-priority snapshots.
+ */
+router.get("/routers/:id/dashboard-priority/stream", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  let closed = false;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let inFlight = false;
+
+  const push = async () => {
+    if (closed || inFlight) return;
+    inFlight = true;
+    try {
+      const snapshot = await buildDashboardPrioritySnapshot(id);
+      res.write(`event: priority\n`);
+      res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+    } catch (err) {
+      const message = err instanceof Error && err.message === "ROUTER_NOT_FOUND"
+        ? "Routeur introuvable"
+        : (err instanceof Error ? err.message : "Erreur routeur");
+      res.write(`event: error\n`);
+      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  await push();
+  timer = setInterval(push, 1500);
+
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(": keep-alive\n\n");
+  }, 20000);
+
+  req.on("close", () => {
+    closed = true;
+    if (timer) clearInterval(timer);
+    clearInterval(heartbeat);
+    res.end();
+  });
+});
+
 /**
  * GET /routers/:id/profile-stock
  * Returns per-profile ticket availability and daily sales for the gauge panel.

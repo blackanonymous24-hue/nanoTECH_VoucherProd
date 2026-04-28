@@ -93,13 +93,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated) return;
     if (isManagerLocked) return;
     if (role === "collaborateur") return; // handled above
-    if (routers.length === 0) {
-      if (selectedRouterId !== null) {
-        setSelectedRouterIdState(null);
-        localStorage.removeItem(STORAGE_KEY);
-      }
-      return;
-    }
+    if (routers.length === 0) return;
     if (selectedRouterId === null || !routers.some((r) => r.id === selectedRouterId)) {
       const firstId = routers[0].id;
       setSelectedRouterIdState(firstId);

@@ -481,12 +481,19 @@ export async function updateIpBinding(
 ): Promise<void> {
   return withRouter(conn, async (api) => {
     const args: string[] = [`=.id=${id}`];
-    if (opts.macAddress !== undefined) args.push(`=mac-address=${opts.macAddress.trim().toUpperCase()}`);
-    if (opts.address    !== undefined) args.push(`=address=${opts.address.trim()}`);
-    if (opts.toAddress  !== undefined) args.push(`=to-address=${opts.toAddress.trim()}`);
-    if (opts.type       !== undefined) args.push(`=type=${opts.type}`);
-    if (opts.server     !== undefined) args.push(`=server=${opts.server}`);
-    if (opts.comment    !== undefined) args.push(`=comment=${toWin1252(opts.comment)}`);
+    const mac = opts.macAddress?.trim().toUpperCase();
+    const addr = opts.address?.trim();
+    const toAddr = opts.toAddress?.trim();
+    const srv = opts.server?.trim();
+
+    // RouterOS rejects empty address fields ("value of address expects range of ip adress").
+    // For partial updates, skip empty strings instead of sending clear operations.
+    if (mac)           args.push(`=mac-address=${mac}`);
+    if (addr)          args.push(`=address=${addr}`);
+    if (toAddr)        args.push(`=to-address=${toAddr}`);
+    if (opts.type)     args.push(`=type=${opts.type}`);
+    if (srv)           args.push(`=server=${srv}`);
+    if (opts.comment !== undefined) args.push(`=comment=${toWin1252(opts.comment)}`);
     if (opts.disabled   !== undefined) args.push(`=disabled=${opts.disabled ? "yes" : "no"}`);
     await api.write("/ip/hotspot/ip-binding/set", args);
   });
