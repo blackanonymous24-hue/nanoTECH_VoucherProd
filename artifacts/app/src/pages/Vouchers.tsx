@@ -145,7 +145,9 @@ export default function Vouchers() {
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
+  const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
   const [filterVendor, setFilterVendor] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "expired" | "disabled" | "active">("all");
   const [editingUser, setEditingUser] = useState<HotspotUser | null>(null);
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
@@ -302,8 +304,14 @@ export default function Vouchers() {
   const refetch = () => { void refetchLots(); void refetchUsers(); };
 
   // Filtered list = what the server returned (already filtered server-side)
-  const filtered = allUsersData?.users ?? [];
-  const filteredTotal = allUsersData?.total ?? filtered.length;
+  const filtered = useMemo(() => {
+    const base = allUsersData?.users ?? [];
+    if (filterStatus === "all") return base;
+    if (filterStatus === "disabled") return base.filter((u) => !!u.disabled);
+    if (filterStatus === "active") return base.filter((u) => !u.disabled);
+    return base.filter((u) => !u.disabled && !isUnlimitedProfile(u.profile) && isExpired(u.comment));
+  }, [allUsersData?.users, filterStatus]);
+  const filteredTotal = filtered.length;
 
   // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -727,7 +735,10 @@ export default function Vouchers() {
     // 1. Close dialog + loading state
     setConfirmResetUser(null);
     setIsResetting(true);
-    toast({ title: "Réinitialisation…", description: `${user.username} — en cours…` });
+    const resetToast = toast({
+      title: "Réinitialisation… en cours",
+      description: `${user.username} — traitement en cours`,
+    });
 
     try {
       // 2. Reset on MikroTik
@@ -739,19 +750,25 @@ export default function Vouchers() {
         const err = await res.json() as { error?: string };
         throw new Error(err.error ?? `HTTP ${res.status}`);
       }
-      const data = await res.json() as { sessionKicked: number };
+      await res.json();
 
       // 3. Rechargement immédiat — le serveur a déjà patché son cache
       //    in-memory (commentaire vidé, limites/quotas remis à zéro), donc
       //    le refetch revient instantanément sans round-trip MikroTik.
       await Promise.all([refetchUsers(), refetchLots()]);
-
-      toast({
+      resetToast.update({
+        id: resetToast.id,
         title: "Réinitialisation réussie",
-        description: `${user.username} — compteurs remis à zéro${data.sessionKicked > 0 ? ", session déconnectée" : ""}`,
+        description: `${user.username} a été réinitialisé.`,
       });
+
     } catch (err) {
-      toast({ title: "Erreur de réinitialisation", description: String(err), variant: "destructive" });
+      resetToast.update({
+        id: resetToast.id,
+        title: "Erreur de réinitialisation",
+        description: String(err),
+        variant: "destructive",
+      });
     } finally {
       setIsResetting(false);
     }
@@ -1100,6 +1117,48 @@ export default function Vouchers() {
                       </PopoverContent>
                     </Popover>
 
+                    {/* Combobox — Statut */}
+                    <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={statusPopoverOpen}
+                          className={`w-40 justify-between font-normal ${filterStatus !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                        >
+                          <span className="truncate whitespace-nowrap">
+                            {filterStatus === "all"
+                              ? "Tous statuts"
+                              : filterStatus === "expired"
+                                ? "Expirés"
+                                : filterStatus === "disabled"
+                                  ? "Désactivés"
+                                  : "Activés"}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto min-w-[10rem] max-w-xs p-0" align="start">
+                        <div className="overflow-y-auto max-h-56 py-1">
+                          {[
+                            { id: "all", label: "Tous statuts" },
+                            { id: "active", label: "Activés" },
+                            { id: "disabled", label: "Désactivés" },
+                            { id: "expired", label: "Expirés" },
+                          ].map((s) => (
+                            <button
+                              key={s.id}
+                              onClick={() => { setFilterStatus(s.id as typeof filterStatus); setStatusPopoverOpen(false); setPage(0); }}
+                              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
+                            >
+                              <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterStatus === s.id ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                              {s.label}
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+
                     <span className="text-xs text-gray-400">↻ 30s</span>
                   </div>
                 </CardContent>
@@ -1186,6 +1245,13 @@ export default function Vouchers() {
 
                   {selectedUsernames.size > 0 && (
                     <>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUsernames(new Set())}
+                        className="text-xs text-blue-500 hover:text-blue-700 underline underline-offset-2 transition-colors"
+                      >
+                        Désélectionner tout
+                      </button>
                       <span className="text-sm text-blue-700 font-medium">
                         {selectedUsernames.size} sélectionné(s)
                       </span>

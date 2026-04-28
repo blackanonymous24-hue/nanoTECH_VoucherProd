@@ -1394,9 +1394,9 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
     // Surgically patch the cached snapshot so the next list call returns the
     // post-reset state instantly (no MikroTik round-trip for thousands of
     // users). The fields below mirror what `resetHotspotUser` writes back:
-    // a pristine voucher with no comment, no quota override, no MAC binding.
+    // a pristine voucher with no quota override/MAC binding and normalized comment.
     const patched = patchCachedUser(id, username, {
-      comment: null,
+      comment: result.comment,
       limitUptime: null,
       limitBytesTotal: null,
       macAddress: null,
@@ -1406,8 +1406,10 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
       ok: true,
       username,
       sessionKicked: result.sessionKicked,
+      cookiesRemoved: result.cookiesRemoved,
       salesScriptsRemoved: result.salesScriptsRemoved,
       salesScriptsFailed: result.salesScriptsFailed,
+      schedulerRemoved: result.schedulerRemoved,
     });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

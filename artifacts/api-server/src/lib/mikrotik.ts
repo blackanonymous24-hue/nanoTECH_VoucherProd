@@ -1388,13 +1388,31 @@ export async function disconnectSession(conn: RouterConnection, username: string
 export async function resetHotspotUser(
   conn: RouterConnection,
   username: string,
-): Promise<{ found: boolean; sessionKicked: number; salesScriptsRemoved: number; salesScriptsFailed: number }> {
+): Promise<{
+  found: boolean;
+  sessionKicked: number;
+  salesScriptsRemoved: number;
+  salesScriptsFailed: number;
+  schedulerRemoved: number;
+  cookiesRemoved: number;
+  comment: string | null;
+}> {
   return withRouter(conn, async (api) => {
     // 1. Find user and capture all relevant fields. Use server-side query
     //    with multiple encoding variants — scanning all users is slow and
     //    fragile when names contain non-ASCII bytes that can't round-trip.
     const user = await findHotspotUserByName(api, username);
-    if (!user) return { found: false, sessionKicked: 0, salesScriptsRemoved: 0, salesScriptsFailed: 0 };
+    if (!user) {
+      return {
+        found: false,
+        sessionKicked: 0,
+        salesScriptsRemoved: 0,
+        salesScriptsFailed: 0,
+        schedulerRemoved: 0,
+        cookiesRemoved: 0,
+        comment: null,
+      };
+    }
 
     const id = user[".id"] as string | undefined;
 
@@ -1439,6 +1457,20 @@ export async function resetHotspotUser(
       }
     }
 
+    // 2.b Remove cookies for this user (Mikhmon-like clean reset)
+    let cookiesRemoved = 0;
+    const cookies = await api.write("/ip/hotspot/cookie/print", [`?user=${name}`]).catch(() => []);
+    for (const c of cookies) {
+      const cid = c[".id"] as string | undefined;
+      if (!cid) continue;
+      try {
+        await api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]);
+        cookiesRemoved++;
+      } catch {
+        // non-fatal
+      }
+    }
+
     // 3. Delete the user
     if (id) {
       await api.write("/ip/hotspot/user/remove", [`=.id=${id}`]);
@@ -1467,6 +1499,21 @@ export async function resetHotspotUser(
       }
     }
 
+    // 4.b Remove scheduler entries bound to this username so old expiry jobs
+    // cannot disable/remove the freshly reset voucher later.
+    let schedulerRemoved = 0;
+    const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
+    for (const sch of schedulers) {
+      const sid = sch[".id"] as string | undefined;
+      if (!sid) continue;
+      try {
+        await api.write("/system/scheduler/remove", [`=.id=${sid}`]);
+        schedulerRemoved++;
+      } catch {
+        // non-fatal
+      }
+    }
+
     // 5. Recreate as a pristine voucher — same identity (name/password/
     //    profile/server) but no leftover quota, MAC binding or expiry.
     const addParams: string[] = [
@@ -1480,7 +1527,15 @@ export async function resetHotspotUser(
 
     await api.write("/ip/hotspot/user/add", addParams);
 
-    return { found: true, sessionKicked, salesScriptsRemoved, salesScriptsFailed };
+    return {
+      found: true,
+      sessionKicked,
+      salesScriptsRemoved,
+      salesScriptsFailed,
+      schedulerRemoved,
+      cookiesRemoved,
+      comment: comment || null,
+    };
   }, 30_000);
 }
 

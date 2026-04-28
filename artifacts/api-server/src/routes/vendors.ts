@@ -1314,6 +1314,7 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
   // A week is "settled" when total paid for that week >= total sales.
   // Any day before the Monday of the most recent settled week is hidden.
   const arrears: Record<string, { date: string; salesAmount: number; paidAmount: number; remaining: number; payments: { id: number; amount: number }[] }[]> = {};
+  const settledWeeks: Record<string, string[]> = {};
 
   for (const [vendorId, dayMap] of vendorDayMap) {
     // Build per-date paid amounts for this vendor
@@ -1346,6 +1347,7 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     // Apply commission to each day proportionally once the week is ended, so
     // daily settlements and arrears use the same "net attendu" as weekly logic.
     const expectedByDay = new Map<string, number>();
+    const expectedByWeek = new Map<string, number>();
     for (const monday of weekMondaysFinal) {
       const ws = new Date(monday + "T00:00:00Z");
       const we = new Date(ws.getTime() + 7 * 86_400_000);
@@ -1357,6 +1359,7 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
       const weekGross = weekDates.reduce((s, d) => s + (salesMapV.get(d) ?? 0), 0);
       const weekCommission = rate > 0 ? Math.round(weekGross * rate) / 100 : 0;
       const weekExpected = Math.max(0, weekGross - weekCommission);
+      expectedByWeek.set(monday, weekExpected);
       const factor = weekGross > 0 ? (weekExpected / weekGross) : 1;
       for (const d of weekDates) {
         const gross = salesMapV.get(d) ?? 0;
@@ -1385,8 +1388,30 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
       }
     }
 
+    // Hard guard: once a week is globally settled (daily + weekly paid >= expected net),
+    // hide every day in that week from daily arrears to avoid false residuals due to
+    // per-day rounding/allocation artifacts.
+    const settledWeekMap = new Map<string, boolean>();
+    for (const monday of weekMondaysFinal) {
+      const ws = new Date(monday + "T00:00:00Z");
+      const weekDates = Array.from({ length: 7 }, (_, i) =>
+        new Date(ws.getTime() + i * 86_400_000).toISOString().slice(0, 10),
+      );
+      const expectedWeek = expectedByWeek.get(monday) ?? 0;
+      const dailyPaidWeek = weekDates.reduce((s, d) => s + (paidMapV.get(d) ?? 0), 0);
+      const weeklyLump = weeklyLumpMap.get(`${vendorId}|${monday}`) ?? 0;
+      const paidWeek = dailyPaidWeek + weeklyLump;
+      settledWeekMap.set(monday, paidWeek >= Math.max(0, expectedWeek - 1));
+    }
+
     const vendorArr: typeof arrears[string] = [];
+    const settledForVendor = new Set<string>();
     for (const [date, grossSalesAmount] of dayMap) {
+      const monday = getMondayOf(date);
+      if (settledWeekMap.get(monday)) {
+        settledForVendor.add(monday);
+        continue;
+      }
       const k = `${vendorId}|${date}`;
       const { paidAmount: dailyPaidRaw, payments } = dailyPaidMap.get(k) ?? { paidAmount: 0, payments: [] };
       const lumpAllocated = lumpAllocatedPaid.get(date) ?? 0;
@@ -1401,12 +1426,13 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     // Sort oldest first
     vendorArr.sort((a, b) => a.date.localeCompare(b.date));
     if (vendorArr.length > 0) arrears[String(vendorId)] = vendorArr;
+    if (settledForVendor.size > 0) settledWeeks[String(vendorId)] = [...settledForVendor].sort();
   }
 
   const vendorInfoMap: Record<string, { name: string }> = {};
   for (const v of vendors) vendorInfoMap[String(v.id)] = { name: v.name };
 
-  res.json({ arrears, vendorInfo: vendorInfoMap });
+  res.json({ arrears, vendorInfo: vendorInfoMap, settledWeeks });
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
