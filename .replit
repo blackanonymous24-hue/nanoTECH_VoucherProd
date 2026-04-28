@@ -1,4 +1,5 @@
 modules = ["nodejs-24", "javascript", "postgresql-16"]
+run = ["sh", "-c", "corepack enable && pnpm install && (PORT=${VITE_PORT:-23863} pnpm --filter @workspace/app run dev &) && VITE_PORT=${VITE_PORT:-23863} pnpm --filter @workspace/api-server run dev"]
 
 [[artifacts]]
 id = "artifacts/api-server"
@@ -10,10 +11,10 @@ id = "artifacts/mockup-sandbox"
 router = "application"
 deploymentTarget = "autoscale"
 build = ["sh", "-c", "corepack enable && pnpm install && pnpm --filter @workspace/app run build && pnpm --filter @workspace/api-server run build"]
-run = ["sh", "-c", "pnpm --filter @workspace/api-server run start"]
+run = ["sh", "-c", "corepack enable && pnpm --filter @workspace/api-server run start"]
 
 [deployment.postBuild]
-args = ["pnpm", "store", "prune"]
+args = ["sh", "-c", "corepack enable && pnpm store prune"]
 env = { "CI" = "true" }
 
 [workflows]
