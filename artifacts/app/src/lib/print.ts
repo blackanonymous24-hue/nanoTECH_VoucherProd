@@ -141,6 +141,38 @@ function printWithNewWindow(html: string, title: string): void {
 }
 
 /**
+ * Fallback robuste pour APK/WebView: imprime dans la page courante sans popup.
+ * Évite les blocages de window.open/iframe dans certains moteurs Android.
+ */
+function printInline(html: string, title: string): void {
+  const host = document.createElement("div");
+  host.id = "apk-print-host";
+  host.style.position = "fixed";
+  host.style.inset = "0";
+  host.style.background = "#fff";
+  host.style.zIndex = "2147483647";
+  host.style.overflow = "auto";
+  host.innerHTML = html;
+  document.body.appendChild(host);
+  const prevTitle = document.title;
+  document.title = title;
+  const restore = () => {
+    try { document.body.removeChild(host); } catch { /* noop */ }
+    document.title = prevTitle;
+  };
+  window.addEventListener("afterprint", restore, { once: true });
+  setTimeout(() => {
+    try {
+      window.print();
+    } catch {
+      restore();
+    }
+    // Certains WebView ne déclenchent pas afterprint.
+    setTimeout(restore, 2000);
+  }, 100);
+}
+
+/**
  * Envoie le HTML au pont natif React Native WebView pour impression via
  * le dialogue Android/iOS natif (expo-print).
  */
@@ -162,9 +194,14 @@ export function printTickets(htmlItems: string[], title: string): void {
     printWithNativeBridge(html, title);
     return;
   }
+  const inlineHtml = `<style>${PRINT_CSS}</style>${htmlItems.join("")}`;
   if (isMobile()) {
-    const html = buildHtml(htmlItems, title, true);
-    printWithNewWindow(html, title);
+    try {
+      printInline(inlineHtml, title);
+    } catch {
+      const html = buildHtml(htmlItems, title, true);
+      printWithNewWindow(html, title);
+    }
   } else {
     const html = buildHtml(htmlItems, title, false);
     printWithIframe(html, title);
@@ -192,13 +229,18 @@ export function printReport(title: string): void {
   });
 
   const html = buildReportHtml(clone.innerHTML, title);
+  const inlineHtml = `<style>${REPORT_CSS}</style>${clone.innerHTML}`;
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);
     return;
   }
   if (isMobile()) {
-    printWithNewWindow(html, title);
+    try {
+      printInline(inlineHtml, title);
+    } catch {
+      printWithNewWindow(html, title);
+    }
   } else {
     printWithIframe(html, title);
   }

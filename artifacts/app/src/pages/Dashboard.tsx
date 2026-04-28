@@ -50,6 +50,30 @@ interface PrioritySnapshot {
   info: RouterInfo | null;
 }
 
+const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
+
+function readPriorityCache(routerId: number | null): PrioritySnapshot | null {
+  if (!routerId) return null;
+  try {
+    const raw = localStorage.getItem(`${PRIORITY_CACHE_KEY}:${routerId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PrioritySnapshot;
+    if (!parsed || typeof parsed.serverTs !== "number") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writePriorityCache(routerId: number | null, snapshot: PrioritySnapshot | null) {
+  if (!routerId || !snapshot) return;
+  try {
+    localStorage.setItem(`${PRIORITY_CACHE_KEY}:${routerId}`, JSON.stringify(snapshot));
+  } catch {
+    // Ignore storage errors (private mode/quota)
+  }
+}
+
 function formatUptime(raw: string | null): string | null {
   if (!raw) return null;
   return raw
@@ -297,8 +321,8 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
               <p className="text-center text-xs font-medium text-gray-400 mb-1 font-mono">Interface {selectedIface}</p>
             )}
             {/* position:relative wrapper is the recharts trick to fill flex space with height="100%" */}
-            <div className="flex-1" style={{ position: "relative", minHeight: 0 }}>
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="flex-1" style={{ position: "relative", minHeight: 220 }}>
+              <ResponsiveContainer width="100%" height="100%" minHeight={220}>
                 <LineChart data={history} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid stroke={LIGHT_GRID} strokeDasharray="0" vertical={true} horizontal={true} />
                   <XAxis
@@ -386,6 +410,8 @@ export default function Dashboard() {
     staleTime: 10_000,
     retry: false,
     throwOnError: false,
+    initialData: readPriorityCache(selectedRouterId),
+    initialDataUpdatedAt: readPriorityCache(selectedRouterId)?.serverTs,
   });
 
   useEffect(() => {
@@ -398,7 +424,9 @@ export default function Dashboard() {
     es.onopen = () => setSseConnected(true);
     es.onmessage = (ev) => {
       try {
-        setSsePriority(JSON.parse(ev.data) as PrioritySnapshot);
+        const payload = JSON.parse(ev.data) as PrioritySnapshot;
+        setSsePriority(payload);
+        writePriorityCache(selectedRouterId, payload);
         setRouterOnline(true);
       } catch {
         // fallback polling still active
@@ -412,6 +440,10 @@ export default function Dashboard() {
   }, [selectedRouterId, setRouterOnline]);
 
   const livePriority = ssePriority ?? priority;
+  useEffect(() => {
+    if (!selectedRouterId || !livePriority) return;
+    writePriorityCache(selectedRouterId, livePriority);
+  }, [selectedRouterId, livePriority]);
   const activeSessions = livePriority?.sessionsCount;
   const usersStats = livePriority?.users;
   const hotspotUserCount = usersStats?.available ?? usersStats?.total;

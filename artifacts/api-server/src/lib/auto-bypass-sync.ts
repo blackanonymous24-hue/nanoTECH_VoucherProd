@@ -2,9 +2,17 @@ import { db, routersTable } from "@workspace/db";
 import { listHotspotUsers, listIpBindings, updateIpBinding, type RouterConnection } from "./mikrotik.js";
 import { logger } from "./logger.js";
 
-const AUTO_BYPASS_PREFIX = "auto-bypass:user:";
 const DEFAULT_INTERVAL_MS = 30_000;
 let timer: NodeJS.Timeout | null = null;
+
+function extractLinkedUsername(comment: string | null | undefined): string | null {
+  if (!comment) return null;
+  const legacy = comment.match(/^auto-bypass:user:(.+)$/i)?.[1]?.trim();
+  if (legacy) return legacy;
+  const m = comment.match(/\(([^()]+)\)\s*$/);
+  const candidate = m?.[1]?.trim();
+  return candidate ? candidate : null;
+}
 
 function parseExpiryFromComment(comment: string | null | undefined): Date | null {
   if (!comment) return null;
@@ -27,9 +35,7 @@ async function syncRouter(routerId: number, conn: RouterConnection) {
   const now = Date.now();
 
   for (const b of bindings) {
-    const c = (b.comment ?? "").toLowerCase();
-    if (!c.startsWith(AUTO_BYPASS_PREFIX)) continue;
-    const uname = c.slice(AUTO_BYPASS_PREFIX.length).trim();
+    const uname = extractLinkedUsername(b.comment)?.toLowerCase() ?? "";
     if (!uname) continue;
     const user = usersByName.get(uname);
     const exp = parseExpiryFromComment(user?.comment);

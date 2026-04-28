@@ -1203,7 +1203,28 @@ router.delete("/routers/:id/users", async (req, res): Promise<void> => {
 });
 
 // PATCH /routers/:id/users/:username — rename a hotspot user
-const AUTO_BYPASS_PREFIX = "auto-bypass:user:";
+
+function extractLinkedUsername(comment: string | null | undefined): string | null {
+  if (!comment) return null;
+  const legacy = comment.match(/^auto-bypass:user:(.+)$/i)?.[1]?.trim();
+  if (legacy) return legacy;
+  const m = comment.match(/\(([^()]+)\)\s*$/);
+  const candidate = m?.[1]?.trim();
+  return candidate ? candidate : null;
+}
+
+function stripLinkedSuffix(comment: string | null | undefined): string {
+  if (!comment) return "";
+  if (/^auto-bypass:user:/i.test(comment.trim())) return "";
+  return comment.replace(/\s*\([^()]+\)\s*$/, "").trim();
+}
+
+function buildLinkedBypassComment(baseComment: string | null | undefined, username: string): string {
+  const base = stripLinkedSuffix(baseComment);
+  const u = username.trim();
+  if (!u) return base;
+  return base ? `${base} (${u})` : `(${u})`;
+}
 
 function parseExpiryFromComment(comment: string | null | undefined): Date | null {
   if (!comment) return null;
@@ -1225,19 +1246,25 @@ async function upsertLinkedBypass(
   username: string,
   macAddress: string,
   comment: string | null,
+  preferredBypassComment?: string | null,
 ) {
-  const tag = `${AUTO_BYPASS_PREFIX}${username.toLowerCase()}`;
+  const uname = username.trim();
+  const unameLower = uname.toLowerCase();
   const expired = (() => {
     const exp = parseExpiryFromComment(comment);
     return exp ? exp.getTime() <= Date.now() : false;
   })();
 
   const all = await listIpBindings(conn);
-  const existing = all.find((b) => (b.comment ?? "").toLowerCase() === tag);
+  const macNorm = macAddress.trim().toUpperCase();
+  const existing = all.find((b) => (b.macAddress ?? "").trim().toUpperCase() === macNorm)
+    ?? all.find((b) => (extractLinkedUsername(b.comment)?.toLowerCase() ?? "") === unameLower);
+  const baseComment = stripLinkedSuffix(existing?.comment ?? preferredBypassComment ?? "");
+  const finalComment = buildLinkedBypassComment(baseComment, uname);
   const payload = {
-    macAddress: macAddress.trim().toUpperCase(),
+    macAddress: macNorm,
     type: "bypassed" as const,
-    comment: tag,
+    comment: finalComment,
     disabled: expired,
   };
   if (existing) {
@@ -1304,7 +1331,7 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
         res.status(400).json({ error: "Impossible de résoudre la MAC depuis ce commentaire bypass" });
         return;
       }
-      await upsertLinkedBypass(conn, finalUsername, mac, updated.comment);
+      await upsertLinkedBypass(conn, finalUsername, mac, updated.comment, bypassComment?.trim());
     }
 
     userCache.delete(id);
@@ -1708,6 +1735,67 @@ async function buildDashboardPrioritySnapshot(id: number) {
     info,
   };
 }
+
+let dashboardPriorityWarmTimer: ReturnType<typeof setInterval> | null = null;
+const dashboardPriorityWarmStatus = new Map<number, { updatedAt: number; ok: boolean; error?: string }>();
+
+/**
+ * Pre-warm dashboard-priority caches in background so first dashboard paint is instant
+ * even right after API startup (Mikhmon-style warm cache).
+ */
+export function startDashboardPriorityWarmer() {
+  if (dashboardPriorityWarmTimer) return;
+  const intervalMs = Number(process.env.DASHBOARD_PRIORITY_WARM_INTERVAL_MS || 20_000);
+
+  const run = async () => {
+    try {
+      const routers = await db.select().from(routersTable);
+      for (const r of routers) {
+        try {
+          await buildDashboardPrioritySnapshot(r.id);
+          dashboardPriorityWarmStatus.set(r.id, { updatedAt: Date.now(), ok: true });
+        } catch {
+          dashboardPriorityWarmStatus.set(r.id, { updatedAt: Date.now(), ok: false, error: "warm_failed" });
+          // Keep warming loop resilient per-router.
+        }
+      }
+    } catch {
+      // Keep warmer alive on transient DB errors.
+    }
+  };
+
+  void run();
+  dashboardPriorityWarmTimer = setInterval(() => { void run(); }, intervalMs);
+}
+
+/**
+ * GET /routers/dashboard-priority/warm-status
+ * Returns pre-warm status for each router.
+ */
+router.get("/routers/dashboard-priority/warm-status", async (_req, res): Promise<void> => {
+  try {
+    const routers = await db
+      .select({ id: routersTable.id, name: routersTable.name })
+      .from(routersTable);
+    const now = Date.now();
+    res.json({
+      warmerRunning: !!dashboardPriorityWarmTimer,
+      routers: routers.map((r) => {
+        const st = dashboardPriorityWarmStatus.get(r.id);
+        return {
+          routerId: r.id,
+          routerName: r.name,
+          lastWarmAt: st?.updatedAt ?? null,
+          ageMs: st?.updatedAt ? now - st.updatedAt : null,
+          ok: st?.ok ?? null,
+          error: st?.error ?? null,
+        };
+      }),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Erreur warm-status" });
+  }
+});
 
 /**
  * GET /routers/:id/dashboard-priority

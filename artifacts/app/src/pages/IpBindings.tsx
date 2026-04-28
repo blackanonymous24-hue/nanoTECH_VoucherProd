@@ -84,7 +84,24 @@ interface HotspotUserLite {
 // does not allow `value=""` on its <SelectItem>. We translate this to an
 // empty string before sending the payload to the API.
 const SERVER_ALL = "__all__";
-const AUTO_BYPASS_PREFIX = "auto-bypass:user:";
+function extractLinkedUsername(comment: string): string {
+  const legacy = comment.match(/^auto-bypass:user:(.+)$/i)?.[1]?.trim();
+  if (legacy) return legacy;
+  const m = comment.match(/\(([^()]+)\)\s*$/);
+  return m?.[1]?.trim() ?? "";
+}
+
+function stripLinkedSuffix(comment: string): string {
+  if (/^auto-bypass:user:/i.test(comment.trim())) return "";
+  return comment.replace(/\s*\([^()]+\)\s*$/, "").trim();
+}
+
+function buildLinkedComment(base: string, username: string): string {
+  const b = stripLinkedSuffix(base);
+  const u = username.trim();
+  if (!u) return b;
+  return b ? `${b} (${u})` : `(${u})`;
+}
 
 const EMPTY_FORM: BindingFormState = {
   macAddress: "",
@@ -292,6 +309,7 @@ export default function IpBindings() {
   };
 
   const openEdit = (b: IpBinding) => {
+    const linkedFromComment = extractLinkedUsername(b.comment);
     setEditing(b);
     setForm({
       macAddress: b.macAddress,
@@ -301,10 +319,8 @@ export default function IpBindings() {
       // dans le formulaire pour ne pas l'envoyer comme une valeur explicite.
       server:     b.server === "all" ? "" : b.server,
       type:       b.type,
-      comment:    b.comment,
-      linkedUsername: b.comment.toLowerCase().startsWith(AUTO_BYPASS_PREFIX)
-        ? b.comment.slice(AUTO_BYPASS_PREFIX.length)
-        : "",
+      comment:    stripLinkedSuffix(b.comment),
+      linkedUsername: linkedFromComment,
       disabled:   b.disabled,
     });
     setFormOpen(true);
@@ -336,9 +352,7 @@ export default function IpBindings() {
       // Sentinel SERVER_ALL = empty string = MikroTik "all"
       const serverPayload = form.server === SERVER_ALL ? "" : form.server.trim();
       const linkedUsername = form.linkedUsername.trim();
-      const computedComment = linkedUsername
-        ? `${AUTO_BYPASS_PREFIX}${linkedUsername.toLowerCase()}`
-        : form.comment.trim();
+      const computedComment = buildLinkedComment(form.comment.trim(), linkedUsername);
       const res = await fetch(url, {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -726,7 +740,7 @@ export default function IpBindings() {
                 ))}
               </datalist>
               <p className="text-xs text-gray-400 mt-1">
-                Si un utilisateur est lié, le commentaire est généré automatiquement ({AUTO_BYPASS_PREFIX}username).
+                Si un utilisateur est lié, le commentaire est conservé et le username est ajouté entre parenthèses.
               </p>
             </div>
             <div>
@@ -736,7 +750,6 @@ export default function IpBindings() {
                 value={form.comment}
                 onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
                 placeholder="Ex: TV salon, imprimante bureau…"
-                disabled={!!form.linkedUsername.trim()}
               />
             </div>
             <div className="flex items-center justify-between rounded-md border p-3">

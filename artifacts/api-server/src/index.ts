@@ -6,6 +6,7 @@ import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
 import { startMaintenanceScheduler } from "./lib/maintenance-scheduler.js";
 import { startAutoBypassSync } from "./lib/auto-bypass-sync.js";
+import { startDashboardPriorityWarmer } from "./routes/routers.js";
 
 const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
@@ -30,4 +31,5 @@ app.listen(port, "0.0.0.0", () => {
   // et suppression des anciens scripts MikHmon le 1er de chaque mois.
   startMaintenanceScheduler();
   startAutoBypassSync();
+  startDashboardPriorityWarmer();
 });
