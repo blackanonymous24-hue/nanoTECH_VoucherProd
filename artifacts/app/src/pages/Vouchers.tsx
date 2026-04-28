@@ -4,7 +4,8 @@ import {
   useListRouterUsers,
   useListRouterProfiles,
 } from "@workspace/api-client-react";
-import type { HotspotUser } from "@workspace/api-client-react";
+import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
+import { queryClient } from "@/lib/queryClient";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Printer,
+  Loader2,
   Search,
   RefreshCw,
   WifiOff,
@@ -35,17 +37,79 @@ import {
   Package,
   List,
   PowerOff,
+  Power,
   Check,
   ChevronsUpDown,
+  Pencil,
+  RotateCcw,
+  MoreHorizontal,
+  UserPlus,
+  Eye,
+  EyeOff,
+  X,
+  Save,
+  BookOpen,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { getStoredPHP } from "@/pages/TicketTemplate";
+import { printTickets } from "@/lib/print";
 
 type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// Module-level cache — persists across component unmount/remount (tab navigation).
+// Provides instant display on re-visit without waiting for React Query to refetch.
+const _vouchersCache: Record<number, {
+  lots?: { lots: LotSummary[]; total: number }; lotsTs?: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  users?: any; usersTs?: number;
+}> = {};
+
+// ── Optimistic update helpers ──────────────────────────────────────────────────
+// Instantly flip the `disabled` field for a set of usernames in ALL React Query
+// caches for this router, returning a snapshot for rollback on error.
+function optimisticSetDisabled(routerId: number, usernames: Set<string>, disabled: boolean) {
+  const snapshot = queryClient.getQueriesData<HotspotUserListResponse>({
+    queryKey: [`/routers/${routerId}/users`],
+    exact: false,
+  });
+  queryClient.setQueriesData<HotspotUserListResponse>(
+    { queryKey: [`/routers/${routerId}/users`], exact: false },
+    (old) => {
+      if (!old) return old;
+      return { ...old, users: old.users.map((u) => usernames.has(u.username) ? { ...u, disabled } : u) };
+    },
+  );
+  return snapshot;
+}
+
+// Extract vendor name from lot name: "vc-991-04.08.26-3JEZECHIEL" → "EZECHIEL"
+// Format after date: -{digits}{profile_letter(s)}{VENDOR_NAME}
+// Profile codes: 1J, 3J, 1S, 1M, 2S, 1H, 2H, 5H, etc.
+function extractVendorFromLot(name: string): string | null {
+  // Format: "vc-{qty}-{DD.MM.YY}-{digits}{1_profile_letter}{VENDORNAME}"
+  // e.g. "vc-991-04.08.26-3JEZECHIEL" → "EZECHIEL"
+  //       "vc-881-04.08.26-1SDIALLO"  → "DIALLO"
+  const m = name.match(/-\d{2}\.\d{2}\.\d{2}-\d+[A-Z]([A-Z]{2,})$/);
+  return m ? m[1] : null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -67,6 +131,7 @@ export default function Vouchers() {
   const [search, setSearch] = useState("");
   const [filterProfile, setFilterProfile] = useState<string>("all");
   const [filterComment, setFilterComment] = useState<string>("all");
+  const [isPrinting, setIsPrinting] = useState(false);
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
@@ -75,9 +140,43 @@ export default function Vouchers() {
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
+  const [isTogglingSelected, setIsTogglingSelected] = useState(false);
+  const [confirmToggleSelected, setConfirmToggleSelected] = useState<boolean | null>(null);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
-  const [autoLoadedRouterId, setAutoLoadedRouterId] = useState<number | null>(null);
+  const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
+  const [filterVendor, setFilterVendor] = useState<string>("all");
+  const [editingUser, setEditingUser] = useState<HotspotUser | null>(null);
+  const [editUsername, setEditUsername] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editProfile, setEditProfile] = useState("");
+  const [editBypassMac, setEditBypassMac] = useState("");
+  const [linkBypass, setLinkBypass] = useState(false);
+  const [editShowPassword, setEditShowPassword] = useState(false);
+  const [isSavingRename, setIsSavingRename] = useState(false);
+  const [confirmResetUser, setConfirmResetUser] = useState<HotspotUser | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+  const [lotsSearch, setLotsSearch] = useState("");
+  const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
+  const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
+  const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
+  const [lotsVendorPopoverOpen, setLotsVendorPopoverOpen] = useState(false);
+
+  // ── Add User dialog (Mikhmon-style) ─────────────────────────────────────────
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const [addServer, setAddServer] = useState("all");
+  const [addName, setAddName] = useState("");
+  const [addPassword, setAddPassword] = useState("");
+  const [addShowPassword, setAddShowPassword] = useState(false);
+  const [addProfile, setAddProfile] = useState("");
+  const [addTimeLimit, setAddTimeLimit] = useState("");
+  const [addDataLimit, setAddDataLimit] = useState("");
+  const [addDataUnit, setAddDataUnit] = useState<"MB" | "GB">("MB");
+  const [addComment, setAddComment] = useState("");
+  const [addProfilePopoverOpen, setAddProfilePopoverOpen] = useState(false);
+  const [addServerPopoverOpen, setAddServerPopoverOpen] = useState(false);
+  const [addUnitPopoverOpen, setAddUnitPopoverOpen] = useState(false);
+  const [isSavingUser, setIsSavingUser] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -91,38 +190,78 @@ export default function Vouchers() {
     refetch: refetchLots,
   } = useQuery({
     queryKey: ["router-lots", activeRouterId],
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/routers/${activeRouterId}/lots`);
+    queryFn: async ({ signal }) => {
+      const r = await fetch(`${BASE}/api/routers/${activeRouterId}/lots`, { signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json() as Promise<{ lots: LotSummary[]; total: number }>;
+      const result = await r.json() as { lots: LotSummary[]; total: number };
+      if (activeRouterId) {
+        _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], lots: result, lotsTs: Date.now() };
+      }
+      return result;
     },
     enabled: !!activeRouterId,
-    staleTime: 120_000,
+    // staleTime:0 → background-refetch déclenché à chaque montage ; comme /lots utilise
+    // getCachedUsers (MikroTik, TTL 5 min serveur), un lot supprimé disparaît dès que le
+    // cache serveur expire, ou immédiatement après invalidateUserCache (delete/disable).
+    staleTime: 0,
+    gcTime: 30 * 60_000,
+    initialData: activeRouterId != null ? _vouchersCache[activeRouterId]?.lots : undefined,
+    initialDataUpdatedAt: activeRouterId != null ? _vouchersCache[activeRouterId]?.lotsTs : undefined,
   });
 
   const lots: LotSummary[] = lotsData?.lots ?? [];
   const totalUsers = lotsData?.total ?? 0;
   // For the filter dropdown: derive from lots (server already sorted)
-  // When a profile is selected, only show lots belonging to that profile
-  const lotsForCommentFilter = filterProfile === "all"
-    ? lots
-    : lots.filter((l) => l.profile === filterProfile);
+  // Apply both profile and vendor filters so lot dropdown is narrowed
+  const lotsForCommentFilter = lots
+    .filter((l) => filterProfile === "all" || l.profile === filterProfile)
+    .filter((l) => filterVendor === "all" || extractVendorFromLot(l.name) === filterVendor);
   const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
 
-  // Mikhmon-like behavior: on page open/router switch, preselect latest generated lot.
-  useEffect(() => {
-    if (!activeRouterId || lots.length === 0) return;
-    if (autoLoadedRouterId === activeRouterId) return;
-    const latestLot = lots[0]?.name;
-    if (!latestLot) return;
-    setView("list");
-    setFilterComment(latestLot);
-    setPage(0);
-    setSelectedUsernames(new Set());
-    setAutoLoadedRouterId(activeRouterId);
-  }, [activeRouterId, lots, autoLoadedRouterId]);
+  // Unique vendor list for the list-view vendor filter (reuses same extraction)
+  const uniqueVendors = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of lots) {
+      const v = extractVendorFromLot(l.name);
+      if (v) set.add(v);
+    }
+    return [...set].sort();
+  }, [lots]);
+
+  // ── Lots view: local search + profile + vendor filters ───────────────────────
+  const debouncedLotsSearch = useDebounce(lotsSearch, 200);
+
+  // Build unique vendor list from lot names (extracted via naming convention)
+  const lotsVendors = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of lots) {
+      const v = extractVendorFromLot(l.name);
+      if (v) set.add(v);
+    }
+    return [...set].sort();
+  }, [lots]);
+
+  const filteredLots = useMemo(() => {
+    let result = lots;
+    if (lotsFilterProfile !== "all") result = result.filter((l) => l.profile === lotsFilterProfile);
+    if (lotsFilterVendor !== "all")
+      result = result.filter((l) => extractVendorFromLot(l.name) === lotsFilterVendor);
+    if (debouncedLotsSearch.trim()) {
+      const q = debouncedLotsSearch.toLowerCase().trim();
+      result = result.filter(
+        (l) =>
+          l.name.toLowerCase().includes(q) ||
+          (l.profile ?? "").toLowerCase().includes(q) ||
+          (extractVendorFromLot(l.name) ?? "").toLowerCase().includes(q) ||
+          l.preview.some((u) => u.username.toLowerCase().includes(q)),
+      );
+    }
+    return result;
+  }, [lots, lotsFilterProfile, lotsFilterVendor, debouncedLotsSearch]);
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
+  // For the default (unfiltered) case, use module-level cache so list shows instantly on re-visit.
+  const isDefaultFilter = !debouncedSearch && filterProfile === "all" && filterComment === "all";
   const {
     data: allUsersData,
     isLoading: usersLoading,
@@ -140,10 +279,23 @@ export default function Vouchers() {
     {
       query: {
         enabled: !!activeRouterId && view === "list",
-        staleTime: 120_000,
+        // staleTime:0 → React Query déclenche TOUJOURS un background-refetch au montage,
+        // même si initialData est présent. Un utilisateur supprimé de MikroTik disparaît
+        // dès que le refetch revient (< 1s avec cache serveur), sans jamais rester visible.
+        staleTime: 0,
+        gcTime: 30 * 60_000,
+        initialData: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.users : undefined,
+        initialDataUpdatedAt: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.usersTs : undefined,
       },
     },
   );
+
+  // Update module cache when unfiltered users data arrives
+  useEffect(() => {
+    if (isDefaultFilter && activeRouterId && allUsersData) {
+      _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], users: allUsersData, usersTs: Date.now() };
+    }
+  }, [allUsersData, activeRouterId, isDefaultFilter]);
 
   const isLoading = view === "lots" ? lotsLoading : usersLoading;
   const refetch = () => { void refetchLots(); void refetchUsers(); };
@@ -166,6 +318,15 @@ export default function Vouchers() {
   // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
   const handleDisableLot = async (comment: string, enable: boolean) => {
     if (!activeRouterId) return;
+
+    // Optimistic update — flip users matching this lot comment in the cache
+    const usersInLot = new Set(
+      (allUsersData?.users ?? []).filter((u) => u.comment === comment).map((u) => u.username),
+    );
+    const snapshot = usersInLot.size > 0
+      ? optimisticSetDisabled(activeRouterId, usersInLot, !enable)
+      : [];
+
     setIsDisabling(true);
     try {
       const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
@@ -181,8 +342,10 @@ export default function Vouchers() {
           : `${data.done} voucher(s) désactivé(s)`,
         description: `Lot : ${comment}`,
       });
-      refetch();
+      void refetchLots();
+      void refetchUsers();
     } catch {
+      for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
     } finally {
       setIsDisabling(false);
@@ -207,6 +370,40 @@ export default function Vouchers() {
       toast({ title: "Erreur chargement", variant: "destructive" });
     } finally {
       setIsSelectingAll(false);
+    }
+  };
+
+  // ── Toggle (enable/disable) selected usernames ───────────────────────────────
+  const handleToggleSelected = async (enable: boolean) => {
+    if (!activeRouterId || selectedUsernames.size === 0 || isTogglingSelected) return;
+    const usernamesArr = [...selectedUsernames];
+    const count = usernamesArr.length;
+
+    // 1. Optimistic update — instant visual feedback
+    const snapshot = optimisticSetDisabled(activeRouterId, selectedUsernames, !enable);
+
+    // 2. Close dialog + clear selection + toast immediately (0ms delay)
+    setConfirmToggleSelected(null);
+    setSelectedUsernames(new Set());
+    toast({ title: enable ? `${count} voucher(s) réactivé(s)` : `${count} voucher(s) désactivé(s)` });
+
+    // 3. API call + silent background sync
+    setIsTogglingSelected(true);
+    try {
+      const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routerId: activeRouterId, usernames: usernamesArr, enable }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      void refetchLots();
+      void refetchUsers();
+    } catch (err) {
+      // Rollback optimistic update
+      for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
+      toast({ title: "Erreur", description: String(err), variant: "destructive" });
+    } finally {
+      setIsTogglingSelected(false);
     }
   };
 
@@ -263,23 +460,26 @@ export default function Vouchers() {
 
   // ── Print ────────────────────────────────────────────────────────────────────
   const handlePrintVouchers = async () => {
-    const printWin = window.open("", "_blank", "noopener,noreferrer");
-    if (!printWin) {
-      toast({ title: "Erreur impression PHP", description: "Le navigateur a bloqué l'ouverture du nouvel onglet.", variant: "destructive" });
+    const php = getStoredPHP();
+    if (!php) {
+      toast({
+        title: "Aucun modèle de ticket configuré",
+        description: "Allez dans Modèle de ticket pour charger votre template PHP.",
+        variant: "destructive",
+      });
       return;
     }
-    printWin.document.open();
-    printWin.document.write("<!doctype html><html><body style='font-family:Arial,sans-serif;padding:16px;color:#444'>Préparation de l'impression...</body></html>");
-    printWin.document.close();
-
-    const php = getStoredPHP()!;
     const usersForPrint = selectedUsernames.size > 0
       ? filtered.filter((u) => selectedUsernames.has(u.username))
       : filtered;
+    if (usersForPrint.length === 0) {
+      toast({ title: "Aucun voucher à imprimer", description: "Sélectionnez un lot ou des vouchers d'abord.", variant: "destructive" });
+      return;
+    }
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
-        hotspotname: activeRouter?.name ?? "",
+        hotspotname: (activeRouter as any)?.hotspotName || (activeRouter?.name ?? ""),
         dnsname: (activeRouter as any)?.contact ?? "",
         username: user.username,
         password: user.password,
@@ -291,18 +491,94 @@ export default function Vouchers() {
         num: idx + 1,
       };
     });
+    setIsPrinting(true);
     try {
-      const resp = await fetch(`${BASE}/api/render-tickets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ php, vouchers }),
-      });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error);
-      openPrintTab(data.html as string[], `Voucher-${activeRouter?.name ?? "router"}`, printWin);
-    } catch (err: unknown) {
-      try { printWin.close(); } catch { /* ignore */ }
-      toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
+      let resp: Response;
+      try {
+        resp = await fetch(`${BASE}/api/render-tickets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ php, vouchers }),
+        });
+      } catch (netErr) {
+        // Réseau coupé / serveur inaccessible
+        // eslint-disable-next-line no-console
+        console.error("[print] network error:", netErr);
+        toast({
+          title: "Connexion au serveur perdue",
+          description: "Vérifiez votre connexion Internet puis réessayez.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Lecture sécurisée — l'API peut renvoyer du HTML (504, 502…) au lieu de JSON
+      const rawText = await resp.text();
+      let data: { html?: string[]; error?: string } = {};
+      try { data = rawText ? JSON.parse(rawText) : {}; } catch {
+        // eslint-disable-next-line no-console
+        console.error("[print] non-JSON response:", resp.status, rawText.slice(0, 300));
+        toast({
+          title: "Réponse serveur invalide",
+          description: `HTTP ${resp.status} — réessayez dans quelques secondes.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!resp.ok || data.error) {
+        const msg = data.error ?? `HTTP ${resp.status}`;
+        // eslint-disable-next-line no-console
+        console.error("[print] server error:", msg);
+        toast({
+          title: "Erreur d'impression",
+          description: msg.length > 220 ? msg.slice(0, 220) + "…" : msg,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!Array.isArray(data.html) || data.html.length === 0) {
+        toast({
+          title: "Aucun ticket généré",
+          description: "Le modèle PHP n'a rien retourné. Vérifiez votre template.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
+      const toFileValidity = (v: string) => {
+        const s = v.trim();
+        const mk = s.match(/^(\d+)(h|d|m|w)$/i);
+        if (mk) {
+          const map: Record<string, string> = { h: "Heure", d: "Jour", m: "Minute", w: "Semaine" };
+          return mk[1] + (map[mk[2].toLowerCase()] ?? mk[2].toUpperCase());
+        }
+        return s.replace(/[\s-]+/g, "");
+      };
+      const firstUser = usersForPrint[0];
+      const printProfile = firstUser?.profile ?? "";
+      const rawValidity = profilesList.find((p) => p.name === printProfile)?.validity ?? "";
+      const compactValidity = toFileValidity(rawValidity);
+      const printComment = firstUser?.comment ?? "";
+      const hotspotName = (activeRouter as any)?.hotspotName || activeRouter?.name || "";
+      const profileSlug = printProfile.trim().split(/\s+/)[0] ?? printProfile;
+      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment, profileSlug].filter(Boolean);
+
+      try {
+        printTickets(data.html, printParts.join("-"));
+      } catch (printErr) {
+        // eslint-disable-next-line no-console
+        console.error("[print] printTickets threw:", printErr);
+        toast({
+          title: "Impression bloquée",
+          description: "Si une fenêtre popup a été bloquée, autorisez-la pour ce site puis réessayez.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsPrinting(false);
     }
   };
 
@@ -358,14 +634,214 @@ export default function Vouchers() {
     }
   };
 
+  // ── Rename (edit username) ────────────────────────────────────────────────
+  const openEditUser = (user: HotspotUser) => {
+    setEditingUser(user);
+    setEditUsername(user.username);
+    setEditPassword(user.password);
+    setEditProfile(user.profile);
+    setEditBypassMac(user.macAddress ?? "");
+    setLinkBypass(!!user.macAddress);
+    setEditShowPassword(false);
+  };
+
+  const handleRenameUser = async () => {
+    if (!activeRouterId || !editingUser) return;
+    const nextUsername = editUsername.trim();
+    const nextPassword = editPassword.trim();
+    const nextProfile = editProfile.trim();
+    const nextBypassMac = editBypassMac.trim().toUpperCase();
+
+    if (!nextUsername) {
+      toast({ title: "Identifiant requis", variant: "destructive" });
+      return;
+    }
+    if (!nextPassword) {
+      toast({ title: "Mot de passe requis", variant: "destructive" });
+      return;
+    }
+    if (!nextProfile) {
+      toast({ title: "Profil requis", variant: "destructive" });
+      return;
+    }
+    if (linkBypass && !nextBypassMac) {
+      toast({ title: "MAC bypass requise", description: "Renseignez une adresse MAC pour lier le bypass.", variant: "destructive" });
+      return;
+    }
+
+    const nothingChanged =
+      nextUsername === editingUser.username &&
+      nextPassword === editingUser.password &&
+      nextProfile === editingUser.profile &&
+      (!linkBypass || nextBypassMac === (editingUser.macAddress ?? ""));
+    if (nothingChanged) { setEditingUser(null); return; }
+
+    setIsSavingRename(true);
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(editingUser.username)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            newUsername: nextUsername,
+            password: nextPassword,
+            profile: nextProfile,
+            linkBypass,
+            bypassMacAddress: linkBypass ? nextBypassMac : undefined,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      toast({ title: "Utilisateur modifié", description: `${editingUser.username} mis à jour.` });
+      setEditingUser(null);
+      await Promise.all([refetchUsers(), refetchLots()]);
+    } catch (err) {
+      toast({ title: "Erreur modification", description: String(err), variant: "destructive" });
+    } finally {
+      setIsSavingRename(false);
+    }
+  };
+
+  const handleResetUser = async () => {
+    if (!activeRouterId || !confirmResetUser || isResetting) return;
+    const user = confirmResetUser;
+
+    // 1. Close dialog + loading state
+    setConfirmResetUser(null);
+    setIsResetting(true);
+    toast({ title: "Réinitialisation…", description: `${user.username} — en cours…` });
+
+    try {
+      // 2. Reset on MikroTik
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}/reset`,
+        { method: "POST", headers: { "Content-Type": "application/json" } },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json() as { sessionKicked: number };
+
+      // 3. Rechargement immédiat — le serveur a déjà patché son cache
+      //    in-memory (commentaire vidé, limites/quotas remis à zéro), donc
+      //    le refetch revient instantanément sans round-trip MikroTik.
+      await Promise.all([refetchUsers(), refetchLots()]);
+
+      toast({
+        title: "Réinitialisation réussie",
+        description: `${user.username} — compteurs remis à zéro${data.sessionKicked > 0 ? ", session déconnectée" : ""}`,
+      });
+    } catch (err) {
+      toast({ title: "Erreur de réinitialisation", description: String(err), variant: "destructive" });
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const handleSearchChange = (v: string) => {
     setSearch(v);
     setPage(0);
   };
 
+  // ── Add User (Mikhmon-style single user creation) ──────────────────────────
+  function resetAddUserForm() {
+    setAddServer("all");
+    setAddName("");
+    setAddPassword("");
+    setAddShowPassword(false);
+    setAddProfile("");
+    setAddTimeLimit("");
+    setAddDataLimit("");
+    setAddDataUnit("MB");
+    setAddComment("");
+  }
+
+  function bytesFromInput(value: string, unit: "MB" | "GB"): string | undefined {
+    const v = value.trim();
+    if (!v) return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    const mult = unit === "GB" ? 1024 * 1024 * 1024 : 1024 * 1024;
+    return String(Math.round(n * mult));
+  }
+
+  // Validate Mikhmon's wdhm format: 30d, 12h, 4w3d, 1d12h30m...
+  function isValidWdhm(s: string): boolean {
+    if (!s.trim()) return true; // optional
+    return /^(\d+w)?(\d+d)?(\d+h)?(\d+m)?(\d+s)?$/i.test(s.trim()) && /\d/.test(s);
+  }
+
+  async function handleSaveUser() {
+    if (!activeRouterId) return;
+    if (!addName.trim()) {
+      toast({ title: "Nom requis", description: "Veuillez saisir un nom d'utilisateur.", variant: "destructive" });
+      return;
+    }
+    if (!addPassword.trim()) {
+      toast({ title: "Mot de passe requis", description: "Veuillez saisir un mot de passe.", variant: "destructive" });
+      return;
+    }
+    if (!addProfile.trim()) {
+      toast({ title: "Profil requis", description: "Veuillez choisir un profil.", variant: "destructive" });
+      return;
+    }
+    if (!isValidWdhm(addTimeLimit)) {
+      toast({
+        title: "Time Limit invalide",
+        description: "Format attendu: wdhm (ex: 30d, 12h, 4w3d).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSavingUser(true);
+    try {
+      const body: Record<string, string> = {
+        name: addName.trim(),
+        password: addPassword.trim(),
+        profile: addProfile.trim(),
+      };
+      if (addServer && addServer !== "all") body.server = addServer.trim();
+      if (addTimeLimit.trim()) body.limitUptime = addTimeLimit.trim();
+      const bytes = bytesFromInput(addDataLimit, addDataUnit);
+      if (bytes) body.limitBytesTotal = bytes;
+      if (addComment.trim()) body.comment = addComment.trim();
+
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/hotspot-users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+      toast({ title: "Utilisateur ajouté", description: `${addName.trim()} créé sur MikroTik.` });
+      // Refresh data
+      void refetchUsers();
+      void refetchLots();
+      queryClient.invalidateQueries({ queryKey: [`/routers/${activeRouterId}/users/count`] });
+      resetAddUserForm();
+      setAddUserOpen(false);
+    } catch (e) {
+      toast({
+        title: "Échec de la création",
+        description: e instanceof Error ? e.message : "Erreur inconnue",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingUser(false);
+    }
+  }
+
   const handleProfileChange = (v: string) => {
     setFilterProfile(v);
-    setFilterComment("all"); // reset lot filter when profile changes
+    setFilterComment("all");
     setPage(0);
   };
 
@@ -374,38 +850,10 @@ export default function Vouchers() {
     setPage(0);
   };
 
-  const openPrintTab = (htmlItems: string[], title: string, win: Window) => {
-    const content = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>
-      body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-      table.voucher { display:inline-block; border:2px solid black; margin:2px; }
-      #num { float:right; display:inline-block; }
-      @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
-      @media print {
-        table { page-break-after:auto; }
-        tr { page-break-inside:avoid; page-break-after:auto; }
-        td { page-break-inside:avoid; page-break-after:auto; }
-        thead { display:table-header-group; }
-        tfoot { display:table-footer-group; }
-      }
-    </style>
-  </head>
-  <body>
-    ${htmlItems.join("")}
-    <script>
-      window.addEventListener("load", function () {
-        setTimeout(function () { window.print(); }, 60);
-      });
-    </script>
-  </body>
-</html>`;
-    win.document.open();
-    win.document.write(content);
-    win.document.close();
+  const handleVendorChange = (v: string) => {
+    setFilterVendor(v);
+    setFilterComment("all"); // reset lot when vendor changes
+    setPage(0);
   };
 
   return (
@@ -426,6 +874,15 @@ export default function Vouchers() {
                 <RefreshCw className="h-3 w-3 animate-spin" /> Mise à jour...
               </span>
             )}
+            <Button
+              size="sm"
+              onClick={() => { resetAddUserForm(); setAddUserOpen(true); }}
+              className="gap-2 bg-cyan-500 hover:bg-cyan-600 text-white"
+              title="Ajouter un utilisateur (Mikhmon-style)"
+            >
+              <UserPlus className="h-4 w-4" />
+              <span className="hidden sm:inline">Add User</span>
+            </Button>
             {view === "list" && (
               <Button
                 variant="outline"
@@ -433,9 +890,10 @@ export default function Vouchers() {
                 onClick={() => refetch()}
                 disabled={isFetching}
                 className="gap-2"
+                title="Actualiser"
               >
                 <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-                Actualiser
+                <span className="hidden sm:inline">Actualiser</span>
               </Button>
             )}
           </div>
@@ -585,6 +1043,49 @@ export default function Vouchers() {
                         </div>
                       </PopoverContent>
                     </Popover>
+
+                    {/* Combobox — Vendeur */}
+                    <Popover open={vendorPopoverOpen} onOpenChange={setVendorPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={vendorPopoverOpen}
+                          className={`w-44 justify-between font-normal ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                        >
+                          <span className="truncate whitespace-nowrap">
+                            {filterVendor === "all" ? "Tous les vendeurs" : filterVendor}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto min-w-[11rem] max-w-xs p-0" align="start">
+                        <div className="overflow-y-auto max-h-60 py-1">
+                          <button
+                            onClick={() => { handleVendorChange("all"); setVendorPopoverOpen(false); }}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
+                          >
+                            <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterVendor === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                            Tous les vendeurs
+                          </button>
+                          {uniqueVendors.length === 0 ? (
+                            <p className="px-3 py-2 text-xs text-gray-400 italic">Aucun vendeur identifié.</p>
+                          ) : (
+                            uniqueVendors.map((v) => (
+                              <button
+                                key={v}
+                                onClick={() => { handleVendorChange(v); setVendorPopoverOpen(false); }}
+                                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
+                              >
+                                <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterVendor === v ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                                {v}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+
                     <span className="text-xs text-gray-400">↻ 30s</span>
                   </div>
                 </CardContent>
@@ -622,9 +1123,13 @@ export default function Vouchers() {
                       size="sm"
                       variant="ghost"
                       onClick={handlePrintVouchers}
+                      disabled={isPrinting}
                       className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
                     >
-                      <Printer className="h-3.5 w-3.5" /> Imprimer
+                      {isPrinting
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Printer className="h-3.5 w-3.5" />}
+                      {isPrinting ? "Impression en cours..." : "Imprimer"}
                     </Button>
                     <Button
                       size="sm"
@@ -674,10 +1179,62 @@ export default function Vouchers() {
                         size="sm"
                         variant="outline"
                         onClick={handlePrintVouchers}
+                        disabled={isPrinting}
                         className="gap-1.5"
                       >
-                        <Printer className="h-3.5 w-3.5" /> Imprimer
+                        {isPrinting
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Printer className="h-3.5 w-3.5" />}
+                        {isPrinting ? "Impression en cours..." : "Imprimer"}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setConfirmToggleSelected(false)}
+                        disabled={isTogglingSelected}
+                        className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
+                      >
+                        <PowerOff className="h-3.5 w-3.5" />
+                        Désactiver
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setConfirmToggleSelected(true)}
+                        disabled={isTogglingSelected}
+                        className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
+                      >
+                        <Power className="h-3.5 w-3.5" />
+                        Activer
+                      </Button>
+                      {selectedUsernames.size === 1 && (() => {
+                        const username = [...selectedUsernames][0];
+                        const selUser = filtered.find((u) => u.username === username) ?? ({ username } as HotspotUser);
+                        return (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openEditUser(selUser)}
+                              disabled={isSavingRename}
+                              className="gap-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              Modifier
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setConfirmResetUser(selUser)}
+                              disabled={isResetting}
+                              className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              Réinitialiser
+                            </Button>
+                          </>
+                        );
+                      })()}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -691,6 +1248,32 @@ export default function Vouchers() {
                   )}
                 </div>
               )}
+
+              {/* Confirmation dialog — activate/deactivate selected */}
+              <AlertDialog open={confirmToggleSelected !== null} onOpenChange={(open) => { if (!open) setConfirmToggleSelected(null); }}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {confirmToggleSelected ? "Activer" : "Désactiver"} {selectedUsernames.size} voucher(s) ?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {confirmToggleSelected
+                        ? `${selectedUsernames.size} voucher(s) seront réactivés sur MikroTik.`
+                        : `${selectedUsernames.size} voucher(s) seront désactivés sur MikroTik. Les sessions actives seront coupées.`}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Annuler</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => confirmToggleSelected !== null && void handleToggleSelected(confirmToggleSelected)}
+                      disabled={isTogglingSelected}
+                      className={confirmToggleSelected ? "bg-green-600 hover:bg-green-700" : "bg-orange-600 hover:bg-orange-700"}
+                    >
+                      {isTogglingSelected ? "En cours..." : confirmToggleSelected ? "Activer" : "Désactiver"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
               {/* Confirmation dialog — delete selected */}
               <AlertDialog open={confirmDeleteSelected} onOpenChange={setConfirmDeleteSelected}>
@@ -755,6 +1338,8 @@ export default function Vouchers() {
                           user={user}
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
+                          onEdit={() => openEditUser(user)}
+                          onReset={() => setConfirmResetUser(user)}
                         />
                       ))}
                     </div>
@@ -795,7 +1380,124 @@ export default function Vouchers() {
           {/* ─── LOTS VIEW ─── */}
           {view === "lots" && (
             <>
-              {lots.length === 0 ? (
+              {/* Search bar + profile filter for lots */}
+              {lots.length > 0 && (
+                <Card className="mb-4">
+                  <CardContent className="py-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="relative flex-1 min-w-48">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                        <Input
+                          className="pl-8"
+                          placeholder="Rechercher un lot, un vendeur, un forfait..."
+                          value={lotsSearch}
+                          onChange={(e) => setLotsSearch(e.target.value)}
+                        />
+                      </div>
+                      {/* Vendor filter — always visible */}
+                      <Popover open={lotsVendorPopoverOpen} onOpenChange={setLotsVendorPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className={`w-40 justify-between text-sm font-normal ${lotsFilterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                          >
+                            <span className="truncate">
+                              {lotsFilterVendor === "all" ? "Tous les vendeurs" : lotsFilterVendor}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-48 p-1" align="start">
+                          <div className="max-h-64 overflow-y-auto">
+                            <button
+                              className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterVendor === "all" ? "font-semibold text-blue-600" : ""}`}
+                              onClick={() => { setLotsFilterVendor("all"); setLotsVendorPopoverOpen(false); }}
+                            >
+                              Tous les vendeurs
+                            </button>
+                            {lotsVendors.length === 0 ? (
+                              <p className="text-xs text-gray-400 px-3 py-2 italic">Aucun vendeur identifié</p>
+                            ) : (
+                              lotsVendors.map((v) => (
+                                <button
+                                  key={v}
+                                  className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterVendor === v ? "font-semibold text-blue-600" : ""}`}
+                                  onClick={() => { setLotsFilterVendor(v); setLotsVendorPopoverOpen(false); }}
+                                >
+                                  {v}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      {/* Forfait filter */}
+                      <Popover open={lotsProfilePopoverOpen} onOpenChange={setLotsProfilePopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className={`w-44 justify-between text-sm font-normal ${lotsFilterProfile !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                          >
+                            <span className="truncate">
+                              {lotsFilterProfile === "all" ? "Tous les forfaits" : lotsFilterProfile}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-52 p-1" align="end">
+                          <div className="max-h-56 overflow-y-auto">
+                            <button
+                              className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterProfile === "all" ? "font-semibold text-blue-600" : ""}`}
+                              onClick={() => { setLotsFilterProfile("all"); setLotsProfilePopoverOpen(false); }}
+                            >
+                              Tous les forfaits
+                            </button>
+                            {[...new Set(lots.map((l) => l.profile).filter(Boolean) as string[])].sort().map((p) => (
+                              <button
+                                key={p}
+                                className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterProfile === p ? "font-semibold text-blue-600" : ""}`}
+                                onClick={() => { setLotsFilterProfile(p); setLotsProfilePopoverOpen(false); }}
+                              >
+                                {p}
+                              </button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      {/* Reset */}
+                      {(lotsSearch || lotsFilterProfile !== "all" || lotsFilterVendor !== "all") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => { setLotsSearch(""); setLotsFilterProfile("all"); setLotsFilterVendor("all"); }}
+                          className="text-gray-400 hover:text-gray-600"
+                        >
+                          Réinitialiser
+                        </Button>
+                      )}
+
+                      <span className="text-xs text-gray-400 ml-auto">
+                        {filteredLots.length === lots.length
+                          ? `${lots.length} lot(s)`
+                          : `${filteredLots.length} / ${lots.length} lot(s)`}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {lotsLoading ? (
+                <Card>
+                  <CardContent className="py-12 text-center text-gray-400 text-sm">
+                    <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-3 text-gray-300" />
+                    Chargement des lots...
+                  </CardContent>
+                </Card>
+              ) : lots.length === 0 ? (
                 <Card>
                   <CardContent className="py-16 text-center">
                     <Package className="h-12 w-12 text-gray-300 mx-auto mb-3" />
@@ -805,9 +1507,17 @@ export default function Vouchers() {
                     </p>
                   </CardContent>
                 </Card>
+              ) : filteredLots.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <Search className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500 font-medium">Aucun lot trouvé</p>
+                    <p className="text-sm text-gray-400 mt-1">Modifiez la recherche ou réinitialisez les filtres</p>
+                  </CardContent>
+                </Card>
               ) : (
                 <div className="space-y-3">
-                  {lots.map((lot) => (
+                  {filteredLots.map((lot) => (
                     <Card key={lot.name} className="overflow-hidden">
                       <div className="flex items-center justify-between px-5 py-4">
                         <div className="flex items-center gap-3 min-w-0">
@@ -824,6 +1534,14 @@ export default function Vouchers() {
                                 <>
                                   <span className="text-gray-300">·</span>
                                   <span className="text-xs text-gray-400">{lot.profile}</span>
+                                </>
+                              )}
+                              {extractVendorFromLot(lot.name) && (
+                                <>
+                                  <span className="text-gray-300">·</span>
+                                  <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                                    {extractVendorFromLot(lot.name)}
+                                  </span>
                                 </>
                               )}
                             </div>
@@ -865,7 +1583,7 @@ export default function Vouchers() {
                       <div className="border-t border-gray-100 bg-gray-50 px-5 py-2 flex flex-wrap gap-3">
                         {lot.preview.map((u) => (
                           <span key={u.username} className="font-mono text-xs text-gray-500">
-                            {u.username} / {u.password}
+                            {u.username}
                           </span>
                         ))}
                         {lot.count > 4 && (
@@ -882,6 +1600,363 @@ export default function Vouchers() {
           )}
         </>
       )}
+
+      {/* Reset user confirmation dialog */}
+      <AlertDialog open={!!confirmResetUser} onOpenChange={(o) => { if (!o && !isResetting) setConfirmResetUser(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Réinitialiser l'utilisateur ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>
+                  L'utilisateur <span className="font-mono font-semibold">{confirmResetUser?.username}</span> sera supprimé puis recréé avec les mêmes identifiants :
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-gray-500">
+                  <li>Suppression de l'utilisateur sur MikroTik</li>
+                  <li>Recréation avec le même nom, mot de passe et profil</li>
+                  <li>Compteurs (uptime, octets) repartent à zéro</li>
+                  <li>Session active déconnectée</li>
+                  <li>Marqué comme non vendu en base de données</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResetting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleResetUser()}
+              disabled={isResetting}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {isResetting ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Réinitialisation…</> : "Réinitialiser"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit user dialog (Mikhmon-style) */}
+      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename) setEditingUser(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Modifier l'utilisateur</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">Utilisateur actuel</Label>
+              <p className="font-mono text-sm bg-gray-50 rounded px-3 py-2 border border-gray-200">
+                {editingUser?.username}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-username" className="text-xs text-gray-500">Identifiant</Label>
+              <Input
+                id="edit-username"
+                value={editUsername}
+                onChange={(e) => setEditUsername(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleRenameUser(); }}
+                placeholder="Nom d'utilisateur..."
+                className="font-mono"
+                autoFocus
+                disabled={isSavingRename}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-password" className="text-xs text-gray-500">Mot de passe</Label>
+              <div className="relative">
+                <Input
+                  id="edit-password"
+                  type={editShowPassword ? "text" : "password"}
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  className="font-mono pr-10"
+                  disabled={isSavingRename}
+                />
+                <button
+                  type="button"
+                  onClick={() => setEditShowPassword((v) => !v)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-8 flex items-center justify-center rounded bg-gray-100 text-gray-600 hover:bg-gray-200"
+                >
+                  {editShowPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-profile" className="text-xs text-gray-500">Forfait (profil)</Label>
+              <select
+                id="edit-profile"
+                className="w-full h-9 border border-input bg-background rounded-md px-3 text-sm"
+                value={editProfile}
+                onChange={(e) => setEditProfile(e.target.value)}
+                disabled={isSavingRename}
+              >
+                <option value="">Sélectionner un profil</option>
+                {sortedProfiles.map((p) => (
+                  <option key={p.name} value={p.name}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="link-bypass"
+                type="checkbox"
+                checked={linkBypass}
+                onChange={(e) => setLinkBypass(e.target.checked)}
+                disabled={isSavingRename}
+              />
+              <Label htmlFor="link-bypass" className="text-sm text-gray-600">Lier un bypass MAC automatique</Label>
+            </div>
+            {linkBypass && (
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-bypass-mac" className="text-xs text-gray-500">Adresse MAC bypass</Label>
+                <Input
+                  id="edit-bypass-mac"
+                  value={editBypassMac}
+                  onChange={(e) => setEditBypassMac(e.target.value)}
+                  placeholder="AA:BB:CC:DD:EE:FF"
+                  className="font-mono"
+                  disabled={isSavingRename}
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingUser(null)} disabled={isSavingRename}>
+              Annuler
+            </Button>
+            <Button
+              onClick={() => void handleRenameUser()}
+              disabled={isSavingRename || !editUsername.trim() || !editPassword.trim() || !editProfile.trim()}
+            >
+              {isSavingRename ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Enregistrement...</> : "Enregistrer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add User dialog (Mikhmon-style) ────────────────────────────────── */}
+      <Dialog open={addUserOpen} onOpenChange={(o) => { if (!isSavingUser) setAddUserOpen(o); }}>
+        <DialogContent className="max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md">
+          {/* Header */}
+          <DialogHeader className="px-4 pt-3 pb-2 border-b border-slate-600 bg-slate-700">
+            <DialogTitle className="text-base font-semibold flex items-center gap-2 text-slate-100">
+              <UserPlus className="h-4 w-4" /> Add User
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Action buttons (Close / Save) — Mikhmon style */}
+          <div className="flex items-center gap-2 px-4 pt-3 pb-3 bg-slate-700">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setAddUserOpen(false)}
+              disabled={isSavingUser}
+              className="bg-amber-500 hover:bg-amber-600 text-white gap-1.5"
+            >
+              <X className="h-3.5 w-3.5" /> Close
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveUser}
+              disabled={isSavingUser}
+              className="bg-cyan-500 hover:bg-cyan-600 text-white gap-1.5"
+            >
+              {isSavingUser ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save
+            </Button>
+          </div>
+
+          {/* Form grid (label left, input right — Mikhmon layout) */}
+          <div className="px-4 pb-4 space-y-3 bg-slate-700">
+            {/* Server */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Server</Label>
+              <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white"
+                  >
+                    <span className="truncate">{addServer || "all"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
+                  {/* "all" maps to RouterOS default (any hotspot server). We
+                      avoid hardcoding specific server names to prevent invalid
+                      submissions on routers without that name. */}
+                  <button
+                    type="button"
+                    onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-sm rounded hover:bg-gray-100 text-left"
+                  >
+                    <Check className={`h-3.5 w-3.5 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                    all
+                  </button>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Name */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Name</Label>
+              <Input
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                disabled={isSavingUser}
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+                autoComplete="off"
+              />
+            </div>
+
+            {/* Password (with eye toggle) */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Password</Label>
+              <div className="relative">
+                <Input
+                  type={addShowPassword ? "text" : "password"}
+                  value={addPassword}
+                  onChange={(e) => setAddPassword(e.target.value)}
+                  disabled={isSavingUser}
+                  className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 pr-10"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setAddShowPassword((v) => !v)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-8 flex items-center justify-center rounded bg-white text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500"
+                  aria-label={addShowPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                  aria-pressed={addShowPassword}
+                >
+                  {addShowPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Profile */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Profile</Label>
+              <Popover open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white"
+                  >
+                    <span className="truncate">{addProfile || "—"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-64 overflow-y-auto" align="start">
+                  {sortedProfiles.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-gray-400">Aucun profil disponible.</p>
+                  )}
+                  {sortedProfiles.map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => { setAddProfile(p.name); setAddProfilePopoverOpen(false); }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-sm rounded hover:bg-gray-100 text-left"
+                    >
+                      <Check className={`h-3.5 w-3.5 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Time Limit */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Time Limit</Label>
+              <Input
+                value={addTimeLimit}
+                onChange={(e) => setAddTimeLimit(e.target.value)}
+                disabled={isSavingUser}
+                placeholder="ex: 30d, 12h, 4w3d"
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+              />
+            </div>
+
+            {/* Data Limit (input + unit) */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Data Limit</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  value={addDataLimit}
+                  onChange={(e) => setAddDataLimit(e.target.value)}
+                  disabled={isSavingUser}
+                  className="flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+                />
+                <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className="w-20 justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white"
+                    >
+                      {addDataUnit}
+                      <ChevronsUpDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-20 p-1" align="end">
+                    {(["MB", "GB"] as const).map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => { setAddDataUnit(u); setAddUnitPopoverOpen(false); }}
+                        className="flex w-full items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-gray-100 text-left"
+                      >
+                        <Check className={`h-3.5 w-3.5 ${addDataUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                        {u}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {/* Comment */}
+            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Comment</Label>
+              <Input
+                value={addComment}
+                onChange={(e) => setAddComment(e.target.value)}
+                disabled={isSavingUser}
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+              />
+            </div>
+          </div>
+
+          {/* Read Me section */}
+          <div className="border-t border-slate-600 bg-slate-700">
+            <div className="px-4 py-2 border-b border-slate-600">
+              <h4 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                <BookOpen className="h-4 w-4" /> Read Me
+              </h4>
+            </div>
+            <div className="px-4 py-3 text-xs text-slate-300 space-y-2 leading-relaxed">
+              <p>
+                <strong>Format Time Limit.</strong>
+                <br />
+                [wdhm] Example : 30d = 30days, 12h = 12hours, 4w3d = 31days.
+              </p>
+              <p>
+                Add User with Time Limit.
+                <br />
+                Should Time Limit &lt; Validity.
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete lot confirmation */}
       <AlertDialog open={!!deletingLot} onOpenChange={(o) => { if (!o) setDeletingLot(null); }}>
@@ -915,32 +1990,94 @@ export default function Vouchers() {
   );
 }
 
+// Parse a MikroTik comment that may contain an expiration date set by the
+// hotspot on-login script. Common formats observed:
+//   "mmm/dd/yyyy HH:mm:ss"   e.g. "jan/12/2026 14:30:00"
+//   "YYYY-MM-DD HH:mm:ss"    e.g. "2026-01-12 14:30:00"
+//   "YYYY-MM-DD mmm/dd/yyyy HH:mm:ss" (combined — take the trailing date)
+// Returns a Date if a valid timestamp can be parsed, otherwise null.
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+function parseExpirationDate(comment: string | null | undefined): Date | null {
+  if (!comment) return null;
+  const c = comment.trim();
+  if (!c) return null;
+  // Skip lot tags ("vc-lotname", "up-lotname") — these are unused vouchers.
+  if (/^(vc|up)[-_]/i.test(c)) return null;
+
+  // Try "mmm/dd/yyyy HH:mm:ss" anywhere in the string (last match wins).
+  const mtkRe = /([a-z]{3})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/gi;
+  let last: RegExpExecArray | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = mtkRe.exec(c)) !== null) last = m;
+  if (last) {
+    const month = MONTHS[last[1].toLowerCase()];
+    if (month != null) {
+      const d = new Date(Number(last[3]), month, Number(last[2]), Number(last[4]), Number(last[5]), Number(last[6] ?? 0));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  // Try "YYYY-MM-DD HH:mm[:ss]"
+  const isoRe = /(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/;
+  const i = isoRe.exec(c);
+  if (i) {
+    const d = new Date(Number(i[1]), Number(i[2]) - 1, Number(i[3]), Number(i[4]), Number(i[5]), Number(i[6] ?? 0));
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+function isExpired(comment: string | null | undefined): boolean {
+  const d = parseExpirationDate(comment);
+  if (!d) return false;
+  return d.getTime() < Date.now();
+}
+
+function isUnlimitedProfile(profile: string | null | undefined): boolean {
+  if (!profile) return false;
+  const p = profile.toLowerCase();
+  return p.includes("illim") || p.includes("unlimit") || p.includes("unlimited") || p.includes("infinite");
+}
+
 function UserRow({
   user,
   selected,
   onToggle,
+  onEdit,
+  onReset,
 }: {
   user: HotspotUser;
   selected: boolean;
   onToggle: () => void;
+  onEdit: () => void;
+  onReset: () => void;
 }) {
+  const expired = !isUnlimitedProfile(user.profile) && isExpired(user.comment);
   return (
     <div
-      className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 ${selected ? "bg-blue-50" : ""}`}
+      className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 group ${selected ? "bg-blue-50" : ""}`}
     >
       <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
         <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded flex-shrink-0" />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-mono font-semibold text-sm">{user.username}</span>
-            <span className="text-gray-400 font-mono text-sm">/ {user.password}</span>
+            {expired && (
+              <span className="text-[10px] uppercase tracking-wide font-semibold bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                Expiré
+              </span>
+            )}
           </div>
           <div className="text-xs text-gray-400 mt-0.5 flex flex-wrap gap-2">
             <span>{user.profile}</span>
             {user.comment && (
               <>
                 <span>·</span>
-                <span className="font-mono bg-gray-100 px-1 rounded">{user.comment}</span>
+                <span className={`font-mono px-1 rounded ${expired ? "bg-red-50 text-red-600" : "bg-gray-100"}`}>
+                  {user.comment}
+                </span>
               </>
             )}
             {user.limitUptime && (
@@ -964,6 +2101,34 @@ function UserRow({
           </div>
         </div>
       </div>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            onClick={(e) => e.stopPropagation()}
+            className="ml-2 flex-shrink-0 p-1.5 rounded text-gray-300 hover:text-gray-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Actions"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[160px]">
+          <DropdownMenuItem
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            className="gap-2 cursor-pointer"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Modifier utilisateur
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => { e.stopPropagation(); onReset(); }}
+            className="gap-2 cursor-pointer text-orange-600 focus:text-orange-600"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Réinitialiser
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

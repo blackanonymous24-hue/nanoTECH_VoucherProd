@@ -1,37 +1,84 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RouterProvider } from "@/contexts/RouterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
-import LoginPage from "@/pages/LoginPage";
-import Dashboard from "@/pages/Dashboard";
-import Routers from "@/pages/Routers";
-import Forfaits from "@/pages/Forfaits";
-import Sessions from "@/pages/Sessions";
-import GenerateVouchers from "@/pages/GenerateVouchers";
-import Vouchers from "@/pages/Vouchers";
-import Vendors from "@/pages/Vendors";
-import Reports from "@/pages/Reports";
-import SalesRanking from "@/pages/SalesRanking";
-import SellingReport from "@/pages/SellingReport";
-import VendorPortal from "@/pages/VendorPortal";
-import TicketTemplate from "@/pages/TicketTemplate";
-import Managers from "@/pages/Managers";
-import VendorTracking from "@/pages/VendorTracking";
-import VendorPayments from "@/pages/VendorPayments";
-import StockAlerts from "@/pages/StockAlerts";
-import NotFound from "@/pages/not-found";
+
+const LoginPage = lazy(() => import("@/pages/LoginPage"));
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Routers = lazy(() => import("@/pages/Routers"));
+const Forfaits = lazy(() => import("@/pages/Forfaits"));
+const Sessions = lazy(() => import("@/pages/Sessions"));
+const IpBindings = lazy(() => import("@/pages/IpBindings"));
+const GenerateVouchers = lazy(() => import("@/pages/GenerateVouchers"));
+const Vouchers = lazy(() => import("@/pages/Vouchers"));
+const Vendors = lazy(() => import("@/pages/Vendors"));
+const Reports = lazy(() => import("@/pages/Reports"));
+const SalesRanking = lazy(() => import("@/pages/SalesRanking"));
+const SellingReport = lazy(() => import("@/pages/SellingReport"));
+const VendorPortal = lazy(() => import("@/pages/VendorPortal"));
+const TicketTemplate = lazy(() => import("@/pages/TicketTemplate"));
+const Managers = lazy(() => import("@/pages/Managers"));
+const Collaborateurs = lazy(() => import("@/pages/Collaborateurs"));
+const VendorTracking = lazy(() => import("@/pages/VendorTracking"));
+const VendorPayments = lazy(() => import("@/pages/VendorPayments"));
+const DailyPayments  = lazy(() => import("@/pages/DailyPayments"));
+const StockAlerts = lazy(() => import("@/pages/StockAlerts"));
+const Maintenance = lazy(() => import("@/pages/Maintenance"));
+const TicketLookup = lazy(() => import("@/pages/TicketLookup"));
+const SuperAdmins = lazy(() => import("@/pages/SuperAdmins"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+
+function PageSkeleton() {
+  return (
+    <div className="p-4 md:p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="skeleton h-7 w-48 rounded-md" />
+        <div className="skeleton h-8 w-24 rounded-md" />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-white border border-gray-100 rounded-xl p-4 space-y-3 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="skeleton h-10 w-10 rounded-lg flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="skeleton h-5 w-16 rounded" />
+                <div className="skeleton h-3 w-20 rounded" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+        <div className="border-b border-gray-100 px-4 py-3 flex items-center gap-3">
+          <div className="skeleton h-5 w-32 rounded" />
+          <div className="skeleton h-7 w-40 rounded-md ml-auto" />
+        </div>
+        <div className="divide-y divide-gray-50">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="px-4 py-3 flex items-center gap-4">
+              <div className="skeleton h-8 w-8 rounded-full flex-shrink-0" />
+              <div className="skeleton h-4 flex-1 rounded" style={{ maxWidth: `${55 + (i % 3) * 15}%` }} />
+              <div className="skeleton h-4 w-16 rounded hidden sm:block" />
+              <div className="skeleton h-6 w-14 rounded-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AppRoutes() {
   const [location] = useLocation();
-  const { isAuthenticated, role } = useAuth();
+  const { isAuthenticated, role, isSuperAdmin } = useAuth();
   const [routeReloadToken, setRouteReloadToken] = useState(0);
-  const [isRouteLoading, setIsRouteLoading] = useState(true);
-
+  const qc = useQueryClient();
+  const prevLocationRef = useRef(location);
   useEffect(() => {
     const onForceRemount = (event: Event) => {
       const customEvent = event as CustomEvent<{ path?: string }>;
@@ -40,7 +87,6 @@ function AppRoutes() {
         setRouteReloadToken((n) => n + 1);
       }
     };
-
     window.addEventListener("app:route-remount", onForceRemount as EventListener);
     return () => {
       window.removeEventListener("app:route-remount", onForceRemount as EventListener);
@@ -48,38 +94,51 @@ function AppRoutes() {
   }, [location]);
 
   useEffect(() => {
-    setIsRouteLoading(true);
-    const timer = window.setTimeout(() => setIsRouteLoading(false), 150);
-    return () => window.clearTimeout(timer);
-  }, [location, routeReloadToken]);
+    if (prevLocationRef.current !== location) {
+      void qc.cancelQueries();
+      prevLocationRef.current = location;
+    }
+  }, [location, qc]);
+
+  if (location.startsWith("/vendor-portal")) {
+    return (
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
+        <VendorPortal />
+      </Suspense>
+    );
+  }
 
   if (!isAuthenticated) {
     const isVendorPage = location === "/vendeur" || location.startsWith("/vendeur/");
-    return <LoginPage mode={isVendorPage ? "vendor" : "admin"} />;
+    const isChoosePage = location === "/" || location === "/login";
+    const loginMode = isVendorPage ? "vendor" : isChoosePage ? "choose" : "admin";
+    return (
+      <Suspense fallback={null}>
+        <LoginPage mode={loginMode} />
+      </Suspense>
+    );
   }
 
-  if (role === "vendor" || location.startsWith("/vendor-portal")) {
-    return <VendorPortal />;
+  if (role === "vendor") {
+    return (
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
+        <VendorPortal />
+      </Suspense>
+    );
   }
 
   return (
     <RouterProvider>
       <Layout>
-        {isRouteLoading ? (
-          <div className="flex min-h-[220px] items-center justify-center">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
-              Chargement de la page...
-            </div>
-          </div>
-        ) : (
+        <Suspense fallback={<PageSkeleton />}>
           <Switch key={`${location}:${routeReloadToken}`}>
             <Route path="/" component={Dashboard} />
             <Route path="/admin" component={Dashboard} />
             <Route path="/vendeur" component={Dashboard} />
-            <Route path="/routers" component={Routers} />
+            <Route path="/routers" component={role === "manager" ? Dashboard : Routers} />
             <Route path="/forfaits" component={Forfaits} />
             <Route path="/sessions" component={Sessions} />
+            <Route path="/ip-bindings" component={IpBindings} />
             <Route path="/generate" component={GenerateVouchers} />
             <Route path="/vouchers" component={Vouchers} />
             <Route path="/vendors" component={Vendors} />
@@ -89,12 +148,17 @@ function AppRoutes() {
             <Route path="/sales/report" component={SellingReport} />
             <Route path="/vendors/tracking" component={VendorTracking} />
             <Route path="/vendors/versements" component={VendorPayments} />
+            <Route path="/vendors/versement-du-jour" component={DailyPayments} />
             <Route path="/ticket-template" component={TicketTemplate} />
             <Route path="/managers" component={Managers} />
+            <Route path="/collaborateurs" component={role === "admin" ? Collaborateurs : Dashboard} />
             <Route path="/stock-alerts" component={StockAlerts} />
+            <Route path="/maintenance" component={role === "admin" ? Maintenance : Dashboard} />
+            <Route path="/ticket-lookup" component={TicketLookup} />
+            <Route path="/super/admins" component={isSuperAdmin ? SuperAdmins : Dashboard} />
             <Route component={NotFound} />
           </Switch>
-        )}
+        </Suspense>
       </Layout>
     </RouterProvider>
   );

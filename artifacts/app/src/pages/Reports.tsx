@@ -107,26 +107,26 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
-  const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: 30_000 } });
+  const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: 15_000 } });
 
   if (isLoading || !data) return <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>;
 
-  const nonSold   = data.totalVouchers - data.totalUsed;
+  const nonSold   = data.totalAvailable ?? (data.totalVouchers - data.totalUsed);
   const ss        = data.salesStats;
   const todaySold = ss.todaySold;
   const totalJour = nonSold + todaySold;
 
   return (
     <div>
-      <div className="mb-6 flex items-center gap-4">
-        <Button variant="outline" size="sm" onClick={onBack} className="gap-2">
+      <div className="mb-6 flex items-center gap-3">
+        <Button variant="outline" size="sm" onClick={onBack} className="gap-2 flex-shrink-0">
           <ArrowLeft className="h-4 w-4" /> Retour
         </Button>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{data.vendor.name}</h1>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-bold text-gray-900 truncate">{data.vendor.name}</h1>
           <p className="text-sm text-gray-500">Rapport de vente détaillé</p>
         </div>
-        <Badge variant={data.vendor.isActive ? "default" : "secondary"} className="ml-auto">
+        <Badge variant={data.vendor.isActive ? "default" : "secondary"} className="flex-shrink-0">
           {data.vendor.isActive ? "Actif" : "Inactif"}
         </Badge>
       </div>
@@ -202,19 +202,22 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
+        <Card className="flex flex-col h-96">
+          <CardHeader className="pb-2 flex-none">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Par forfait</CardTitle>
               <span className="text-[10px] font-semibold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">Semaine en cours</span>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex-1 min-h-0 overflow-y-auto">
             {data.byProfile.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
             ) : (
               <div className="space-y-4">
                 {[...data.byProfile].sort((a, b) => {
+                  const wa = Number((a as any).weekSold ?? 0);
+                  const wb = Number((b as any).weekSold ?? 0);
+                  if (wb !== wa) return wb - wa;
                   const pa = parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0;
                   const pb = parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0;
                   return pa - pb;
@@ -229,7 +232,6 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                         <span className="text-sm font-medium">{stat.profileName}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-blue-600 font-semibold tabular-nums">{weekSold} cette semaine</span>
-                          <span className="text-xs text-gray-400">{stat.total} total</span>
                         </div>
                       </div>
                       <SaleBar used={weekSold} total={gaugeTotal} />
@@ -241,8 +243,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
+        <Card className="flex flex-col h-96">
+          <CardHeader className="pb-2 flex-none">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Dernières ventes</CardTitle>
               {data.recentVouchers.length > 0 && (
@@ -252,11 +254,11 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
               )}
             </div>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="flex-1 min-h-0 p-0">
             {data.recentVouchers.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8 px-4">Aucune vente enregistrée</p>
             ) : (
-              <div className="max-h-80 overflow-x-auto overflow-y-auto">
+              <div className="h-full overflow-x-auto overflow-y-auto">
                 <table className="w-full min-w-[620px] text-xs border-collapse">
                   <thead>
                     <tr className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
@@ -346,16 +348,16 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
               <Users className="h-5 w-5 text-blue-600" />
             </div>
-            <div>
-              <CardTitle className="text-base">{summary.vendor.name}</CardTitle>
-              {summary.vendor.phone && <p className="text-xs text-gray-500">{summary.vendor.phone}</p>}
+            <div className="min-w-0">
+              <CardTitle className="text-base truncate">{summary.vendor.name}</CardTitle>
+              {summary.vendor.phone && <p className="text-xs text-gray-500 truncate">{summary.vendor.phone}</p>}
             </div>
           </div>
-          <Badge variant={summary.vendor.isActive ? "default" : "secondary"}>
+          <Badge variant={summary.vendor.isActive ? "default" : "secondary"} className="flex-shrink-0">
             {summary.vendor.isActive ? "Actif" : "Inactif"}
           </Badge>
         </div>
@@ -415,7 +417,7 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 
 /* ─── main page ───────────────────────────────────────────────── */
 export default function Reports() {
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 30_000 } });
+  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 15_000 } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
 

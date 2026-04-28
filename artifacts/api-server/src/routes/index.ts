@@ -6,7 +6,9 @@ import dashboardRouter from "./dashboard.js";
 import vendorPortalRouter from "./vendor-portal.js";
 import renderRouter from "./render.js";
 import adminRouter from "./admin.js";
+import superAdminRouter from "./super-admin.js";
 import managersRouter from "./managers.js";
+import collaborateursRouter from "./collaborateurs.js";
 
 export const router = Router();
 
@@ -21,4 +23,6 @@ router.use(dashboardRouter);
 router.use(vendorPortalRouter);
 router.use(renderRouter);
 router.use(adminRouter);
+router.use(superAdminRouter);
 router.use(managersRouter);
+router.use(collaborateursRouter);

@@ -1,5 +1,55 @@
 import { RouterOSAPI } from "node-routeros";
 import net from "net";
+import iconv from "iconv-lite";
+
+/**
+ * Convert a UTF-8 string to its Windows-1252 byte sequence, then back to a
+ * JS string where each character has the correct byte value (≤ 0xFF).
+ * This is what node-routeros does internally before writing to the socket, so
+ * we need to pre-encode any string that contains accented characters before
+ * passing it to api.write() — otherwise the UTF-8 multi-byte sequences arrive
+ * at RouterOS, get stored as raw bytes, and WinBox displays them as garbled
+ * latin characters (è → NadÃ¨ge).
+ */
+function toWin1252(str: string): string {
+  try {
+    const buf = iconv.encode(str, "win1252");
+    // Build a JS string whose char codes are the raw bytes — iconv.encode
+    // returns a Buffer with the correct Windows-1252 byte values.
+    return Array.from(buf as Uint8Array).map((b) => String.fromCharCode(b)).join("");
+  } catch {
+    return str;
+  }
+}
+
+/**
+ * Reverse of toWin1252: when node-routeros hands us back a string whose chars
+ * are raw bytes (≤0xFF), check whether those bytes form a valid UTF-8 sequence
+ * and, if so, return the proper UTF-8 string.
+ *
+ * Real-world case: hotspot login comments / usernames typed in WinBox as UTF-8
+ * (e.g. "Famille Koné" → bytes 0xC3 0xA9 for "é") arrive here as the JS string
+ * "Famille KonÃ©" (each byte mapped 1:1 to U+00xx). Decoding as UTF-8 gives the
+ * correct "Famille Koné". If the bytes are NOT valid UTF-8 (e.g. lone 0xE9 from
+ * legacy Win1252 storage), we fall back to the raw input untouched.
+ */
+function fromWin1252(str: string): string {
+  if (!str) return str;
+  // Quick sniff — only attempt re-decoding if the string contains characters
+  // in the 0x80-0xFF range (i.e. potentially mojibake). Pure ASCII passes through.
+  let needsDecode = false;
+  for (let i = 0; i < str.length; i++) {
+    if (str.charCodeAt(i) > 0x7F) { needsDecode = true; break; }
+  }
+  if (!needsDecode) return str;
+  try {
+    const bytes = new Uint8Array(str.length);
+    for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xff;
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return str;
+  }
+}
 
 export function tcpPing(host: string, port: number, timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -29,6 +79,7 @@ export interface RouterConnection {
 }
 
 export interface HotspotProfile {
+  mikrotikId: string;
   name: string;
   rateLimit: string | null;
   validity: string | null;
@@ -309,14 +360,15 @@ export async function listProfiles(conn: RouterConnection): Promise<HotspotProfi
       const onLogin = (p["on-login"] as string) ?? "";
       const parsed = onLogin.includes(",") ? parseProfileOnLogin(onLogin) : EMPTY_PARSED;
       return {
-        name: fixEncoding((p["name"] as string) ?? ""),
-        rateLimit: (p["rate-limit"] as string) || null,
-        validity: parsed.validity || null,
-        price: parsed.price || null,
+        mikrotikId:  (p[".id"] as string) ?? "",
+        name:        fixEncoding((p["name"] as string) ?? ""),
+        rateLimit:   (p["rate-limit"] as string) || null,
+        validity:    parsed.validity || null,
+        price:       parsed.price || null,
         sellingPrice: parsed.sellingPrice || null,
         sharedUsers: (p["shared-users"] as string) || null,
-        addrPool: (p["address-pool"] as string) || null,
-        lockMac: parsed.lockMac,
+        addrPool:    (p["address-pool"] as string) || null,
+        lockMac:     parsed.lockMac,
         expiredMode: parsed.expiredMode || null,
         parentQueue: (p["parent-queue"] as string) || parsed.parentQueue || null,
       };
@@ -352,6 +404,120 @@ export async function deleteProfile(conn: RouterConnection, name: string): Promi
     if (!found.length) throw new Error(`Profil "${name}" introuvable`);
     const id = found[0][".id"] as string;
     await api.write("/ip/hotspot/user/profile/remove", [`=.id=${id}`]);
+  });
+}
+
+// ─── Hotspot IP-bindings (MAC bypass) ──────────────────────────────────────
+//
+// MikroTik's `/ip/hotspot/ip-binding` table lets specific MAC addresses
+// bypass the captive portal entirely (`type=bypassed`), be blocked
+// (`type=blocked`) or simply have a custom one-to-one NAT (`type=regular`).
+// Most common use-case: trust a printer / smart-TV / personal device so it
+// goes online without ever seeing the login page.
+export interface HotspotIpBinding {
+  id: string;                 // MikroTik internal id (.id)
+  macAddress: string;         // empty if binding is keyed by IP only
+  address: string;            // requested IP (optional)
+  toAddress: string;          // 1-to-1 NAT target (optional)
+  type: "bypassed" | "blocked" | "regular";
+  server: string;             // hotspot server scope ("all" if any)
+  comment: string;
+  disabled: boolean;
+}
+
+export async function listIpBindings(conn: RouterConnection): Promise<HotspotIpBinding[]> {
+  return withRouter(conn, async (api) => {
+    const rows = await api.write("/ip/hotspot/ip-binding/print");
+    return rows.map((b): HotspotIpBinding => {
+      const t = ((b["type"] as string) || "regular").toLowerCase();
+      const type: HotspotIpBinding["type"] =
+        t === "bypassed" || t === "blocked" ? t : "regular";
+      return {
+        id:         (b[".id"]        as string) ?? "",
+        macAddress: ((b["mac-address"] as string) ?? "").toUpperCase(),
+        address:    (b["address"]    as string) ?? "",
+        toAddress:  (b["to-address"] as string) ?? "",
+        type,
+        server:     (b["server"]     as string) ?? "all",
+        comment:    fixEncoding((b["comment"] as string) ?? ""),
+        disabled:   (b["disabled"]   as string) === "true",
+      };
+    });
+  });
+}
+
+export interface AddIpBindingOpts {
+  macAddress?: string;
+  address?: string;
+  toAddress?: string;
+  type?: "bypassed" | "blocked" | "regular";
+  server?: string;
+  comment?: string;
+  disabled?: boolean;
+}
+
+export async function addIpBinding(conn: RouterConnection, opts: AddIpBindingOpts): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const mac = (opts.macAddress ?? "").trim().toUpperCase();
+    const addr = (opts.address ?? "").trim();
+    if (!mac && !addr) {
+      throw new Error("Adresse MAC ou IP requise");
+    }
+    const args: string[] = [`=type=${opts.type ?? "bypassed"}`];
+    if (mac)            args.push(`=mac-address=${mac}`);
+    if (addr)           args.push(`=address=${addr}`);
+    if (opts.toAddress) args.push(`=to-address=${opts.toAddress.trim()}`);
+    if (opts.server && opts.server !== "all") args.push(`=server=${opts.server}`);
+    if (opts.comment)   args.push(`=comment=${toWin1252(opts.comment)}`);
+    if (opts.disabled)  args.push(`=disabled=yes`);
+    await api.write("/ip/hotspot/ip-binding/add", args);
+  });
+}
+
+export async function updateIpBinding(
+  conn: RouterConnection,
+  id: string,
+  opts: Partial<AddIpBindingOpts>,
+): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const args: string[] = [`=.id=${id}`];
+    if (opts.macAddress !== undefined) args.push(`=mac-address=${opts.macAddress.trim().toUpperCase()}`);
+    if (opts.address    !== undefined) args.push(`=address=${opts.address.trim()}`);
+    if (opts.toAddress  !== undefined) args.push(`=to-address=${opts.toAddress.trim()}`);
+    if (opts.type       !== undefined) args.push(`=type=${opts.type}`);
+    if (opts.server     !== undefined) args.push(`=server=${opts.server}`);
+    if (opts.comment    !== undefined) args.push(`=comment=${toWin1252(opts.comment)}`);
+    if (opts.disabled   !== undefined) args.push(`=disabled=${opts.disabled ? "yes" : "no"}`);
+    await api.write("/ip/hotspot/ip-binding/set", args);
+  });
+}
+
+export async function deleteIpBinding(conn: RouterConnection, id: string): Promise<void> {
+  return withRouter(conn, async (api) => {
+    await api.write("/ip/hotspot/ip-binding/remove", [`=.id=${id}`]);
+  });
+}
+
+// ─── Hotspot servers (instances) ────────────────────────────────────────────
+//
+// Listed via `/ip/hotspot/print`. Used by IP-binding UI to populate a
+// "Server" dropdown — instead of asking the user to type the name manually.
+export interface HotspotServer {
+  name: string;
+  interface: string;
+  profile: string;
+  disabled: boolean;
+}
+
+export async function listHotspotServers(conn: RouterConnection): Promise<HotspotServer[]> {
+  return withRouter(conn, async (api) => {
+    const rows = await api.write("/ip/hotspot/print");
+    return rows.map((s): HotspotServer => ({
+      name:      (s["name"]      as string) ?? "",
+      interface: (s["interface"] as string) ?? "",
+      profile:   (s["profile"]   as string) ?? "",
+      disabled:  (s["disabled"]  as string) === "true",
+    }));
   });
 }
 
@@ -429,6 +595,33 @@ export async function listHotspotUsers(conn: RouterConnection, timeout = 15000):
       disabled: (u["disabled"] as string) === "true",
     }));
   }, timeout);
+}
+
+export interface AddHotspotUserOpts {
+  name: string;
+  password: string;
+  profile: string;
+  comment?: string;
+  server?: string;
+  limitUptime?: string;
+  limitBytesTotal?: string;
+  macAddress?: string;
+}
+
+export async function addHotspotUser(conn: RouterConnection, opts: AddHotspotUserOpts): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const params: string[] = [
+      `=name=${toWin1252(opts.name)}`,
+      `=password=${toWin1252(opts.password)}`,
+      `=profile=${toWin1252(opts.profile)}`,
+    ];
+    if (opts.comment)         params.push(`=comment=${toWin1252(opts.comment)}`);
+    if (opts.server)          params.push(`=server=${opts.server}`);
+    if (opts.limitUptime)     params.push(`=limit-uptime=${opts.limitUptime}`);
+    if (opts.limitBytesTotal) params.push(`=limit-bytes-total=${opts.limitBytesTotal}`);
+    if (opts.macAddress)      params.push(`=mac-address=${opts.macAddress}`);
+    await api.write("/ip/hotspot/user/add", params);
+  }, 10_000);
 }
 
 export async function listSessions(conn: RouterConnection): Promise<HotspotSession[]> {
@@ -650,8 +843,12 @@ export async function listLogs(conn: RouterConnection, limit = 50, topicFilter?:
       .map((e) => ({
         id: (e[".id"] as string) ?? "",
         time: (e["time"] as string) ?? "",
-        topics: (e["topics"] as string) ?? "",
-        message: (e["message"] as string) ?? "",
+        topics: fromWin1252((e["topics"] as string) ?? ""),
+        // Hotspot messages frequently embed user-typed names (comments, full names).
+        // node-routeros decodes the socket bytes 1:1 as latin-1, so UTF-8 names
+        // (e.g. "Famille Koné") arrive mojibake'd ("Famille KonÃ©") and need to be
+        // re-decoded as UTF-8 before being shipped to the browser.
+        message: fromWin1252((e["message"] as string) ?? ""),
       }));
   });
 }
@@ -971,7 +1168,7 @@ export async function enableDisableHotspotUsers(
     const found = new Set<string>();
 
     for (const u of all) {
-      const name = ((u["name"] as string) ?? "").toLowerCase();
+      const name = fixEncoding((u["name"] as string) ?? "").toLowerCase();
       const id   = (u[".id"]  as string) ?? "";
       if (!name || !id) continue;
       if (target.has(name)) {
@@ -983,17 +1180,17 @@ export async function enableDisableHotspotUsers(
     const notFound = usernames.filter((u) => !found.has(u.toLowerCase()));
     const disabledVal = enable ? "no" : "yes";
 
-    if (toSet.length > 0) {
-      // Single batch command — RouterOS accepts comma-separated .id list
-      // e.g. =.id=*1,*2,*3 — works for any number of users instantly
+    // RouterOS 7.x API requires one set command per item; comma-separated IDs
+    // in a single command are unreliable across versions.
+    for (const id of toSet) {
       await api.write("/ip/hotspot/user/set", [
-        `=.id=${toSet.join(",")}`,
+        `=.id=${id}`,
         `=disabled=${disabledVal}`,
       ]);
     }
 
     return { done: toSet.length, notFound };
-  }, 30_000);   // 30 s is plenty — batch set is a single round-trip
+  }, 30_000);
 }
 
 /**
@@ -1007,7 +1204,7 @@ export async function deleteHotspotUsersByComment(
     const all = await api.write("/ip/hotspot/user/print");
     const toDelete: string[] = [];
     for (const u of all) {
-      if ((u["comment"] as string ?? "") === comment) {
+      if (fixEncoding((u["comment"] as string) ?? "") === comment) {
         const id = u[".id"] as string | undefined;
         if (id) toDelete.push(id);
       }
@@ -1032,7 +1229,7 @@ export async function deleteHotspotUsersByNames(
     const all = await api.write("/ip/hotspot/user/print");
     const toDelete: string[] = [];
     for (const u of all) {
-      const name = (u["name"] as string ?? "").toLowerCase();
+      const name = fixEncoding((u["name"] as string) ?? "").toLowerCase();
       const id = u[".id"] as string | undefined;
       if (name && id && target.has(name)) toDelete.push(id);
     }
@@ -1041,6 +1238,123 @@ export async function deleteHotspotUsersByNames(
     }
     return toDelete.length;
   }, 30_000);
+}
+
+/**
+ * Server-side lookup of a hotspot user by name. Tries the MikroTik query
+ * filter `?name=<value>` with several encoding variants (toWin1252, raw,
+ * trimmed, NBSP-normalised) so a name created in any context (Mikhmon,
+ * VoucherNet, WinBox) can be located without scanning the entire user list.
+ *
+ * Falls back to a full scan with case-insensitive normalised compare only
+ * if every direct query returns nothing — needed for legacy users whose
+ * names contain mojibake bytes that no single encoding will reproduce.
+ */
+async function findHotspotUserByName(
+  api: { write: (path: string, params?: string[]) => Promise<Record<string, unknown>[]> },
+  username: string,
+): Promise<Record<string, unknown> | null> {
+  const UNICODE_SPACES = /[\u00A0\u2007\u202F\u2009\u200A\u2008\u2006\u2005\u2004\u2003\u2002]/g;
+
+  // Build an ordered list of variants — exact raw first (preserves leading/
+  // trailing spaces if any), then trimmed/encoded forms.
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const addVariant = (v: string) => {
+    if (!v || seen.has(v)) return;
+    seen.add(v);
+    ordered.push(v);
+  };
+
+  addVariant(username);                                       // raw, no trim
+  const trimmed = username.trim();
+  addVariant(trimmed);                                        // trimmed
+  addVariant(toWin1252(username));                            // raw + win1252
+  addVariant(toWin1252(trimmed));                             // trimmed + win1252
+  const ascii = trimmed.replace(UNICODE_SPACES, " ");
+  if (ascii !== trimmed) {
+    addVariant(ascii);
+    addVariant(toWin1252(ascii));
+  }
+  const nbsp = trimmed.replace(/ /g, "\u00A0");
+  if (nbsp !== trimmed) {
+    addVariant(nbsp);
+    addVariant(toWin1252(nbsp));
+  }
+
+  for (const v of ordered) {
+    try {
+      const rows = await api.write("/ip/hotspot/user/print", [`?name=${v}`]);
+      if (rows.length > 0) return rows[0];
+    } catch {
+      // ignore — try next variant
+    }
+  }
+
+  // Last resort: full scan with normalisation on both sides.
+  const norm = (s: string) => s.replace(UNICODE_SPACES, " ").trim().toLowerCase();
+  const target = norm(username);
+  const all = await api.write("/ip/hotspot/user/print");
+  for (const u of all) {
+    const raw = (u["name"] as string) ?? "";
+    if (norm(raw) === target) return u;
+    if (norm(fixEncoding(raw)) === target) return u;
+  }
+  return null;
+}
+
+/**
+ * Rename a hotspot user on MikroTik (changes the `name` field).
+ * Returns false if the user is not found.
+ */
+export async function renameHotspotUser(
+  conn: RouterConnection,
+  oldUsername: string,
+  newUsername: string,
+): Promise<boolean> {
+  return withRouter(conn, async (api) => {
+    const user = await findHotspotUserByName(api, oldUsername);
+    if (!user) return false;
+    const id = user[".id"] as string | undefined;
+    if (!id) return false;
+    await api.write("/ip/hotspot/user/set", [
+      `=.id=${id}`,
+      `=name=${toWin1252(newUsername)}`,
+    ]);
+    return true;
+  }, 15_000);
+}
+
+export interface UpdateHotspotUserOpts {
+  newUsername?: string;
+  password?: string;
+  profile?: string;
+}
+
+export async function updateHotspotUser(
+  conn: RouterConnection,
+  username: string,
+  opts: UpdateHotspotUserOpts,
+): Promise<{ found: boolean; username: string; comment: string | null }> {
+  return withRouter(conn, async (api) => {
+    const user = await findHotspotUserByName(api, username);
+    if (!user) return { found: false, username, comment: null };
+    const id = user[".id"] as string | undefined;
+    if (!id) return { found: false, username, comment: null };
+
+    const nextUsername = opts.newUsername?.trim() || fixEncoding((user["name"] as string) ?? username);
+    const args: string[] = [`=.id=${id}`];
+    if (opts.newUsername !== undefined) args.push(`=name=${toWin1252(nextUsername)}`);
+    if (opts.password !== undefined) args.push(`=password=${toWin1252(opts.password.trim())}`);
+    if (opts.profile !== undefined) args.push(`=profile=${toWin1252(opts.profile.trim())}`);
+    await api.write("/ip/hotspot/user/set", args);
+
+    return {
+      found: true,
+      username: nextUsername,
+      comment: fixEncoding((user["comment"] as string) || null) || null,
+    };
+  }, 20_000);
 }
 
 export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
@@ -1056,6 +1370,179 @@ export async function disconnectSession(conn: RouterConnection, username: string
     }
     return removed;
   });
+}
+
+/**
+ * Reset a hotspot user — Mikhmon-style: kick session, delete user, recreate
+ * with identical credentials (name, password, profile, comment, server,
+ * mac-address, limit-uptime, limit-bytes-total).  This is the only reliable
+ * way to zero all counters AND restore the full remaining quota on RouterOS.
+ */
+export async function resetHotspotUser(
+  conn: RouterConnection,
+  username: string,
+): Promise<{ found: boolean; sessionKicked: number; salesScriptsRemoved: number; salesScriptsFailed: number }> {
+  return withRouter(conn, async (api) => {
+    // 1. Find user and capture all relevant fields. Use server-side query
+    //    with multiple encoding variants — scanning all users is slow and
+    //    fragile when names contain non-ASCII bytes that can't round-trip.
+    const user = await findHotspotUserByName(api, username);
+    if (!user) return { found: false, sessionKicked: 0, salesScriptsRemoved: 0, salesScriptsFailed: 0 };
+
+    const id = user[".id"] as string | undefined;
+
+    // Snapshot fields we need to recreate the user
+    const name           = (user["name"]              as string) ?? username;
+    const password       = (user["password"]          as string) ?? "";
+    const profile        = (user["profile"]           as string) ?? "default";
+    const rawComment     = (user["comment"]           as string) ?? "";
+    // Strip any expiration timestamp written by the MikHmon on-login script —
+    // otherwise the recreated user inherits the past expiry date and stays
+    // marked as "Expiré" both in the UI and in the on-login script logic.
+    // Date formats handled (case-insensitive): "mmm/dd/yyyy HH:mm[:ss]" and
+    // "YYYY-MM-DD HH:mm[:ss]".  Any surrounding text (e.g. lot tag "vc-foo")
+    // is preserved.
+    const comment = rawComment
+      .replace(/[a-z]{3}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?/gi, "")
+      .replace(/\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}(?::\d{2})?/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    const server         = (user["server"]            as string) ?? "";
+    // NOTE: mac-address, limit-uptime and limit-bytes-total are intentionally
+    // NOT preserved.  A reset must produce a fully blank voucher:
+    //   • limit-uptime / limit-bytes-total are decremented by the on-login
+    //     script as the voucher is consumed; preserving them would re-cap
+    //     the user at "1s" or near-zero quota.
+    //   • mac-address binds the voucher to the device that first logged in;
+    //     keeping it would prevent the voucher from being handed to anyone
+    //     else.  The on-login script will re-bind on next login if the
+    //     profile uses lockMac.
+    // By omitting all three, MikroTik recreates a pristine voucher whose
+    // quota and MAC binding will be set fresh on the next authentication.
+    const disabled       = (user["disabled"]          as string) === "true";
+
+    // 2. Kick active session(s) first
+    const sessions = await api.write("/ip/hotspot/active/print", [`?user=${name}`]);
+    let sessionKicked = 0;
+    for (const s of sessions) {
+      const sid = s[".id"] as string | undefined;
+      if (sid) {
+        await api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]);
+        sessionKicked++;
+      }
+    }
+
+    // 3. Delete the user
+    if (id) {
+      await api.write("/ip/hotspot/user/remove", [`=.id=${id}`]);
+    }
+
+    // 4. Remove MikHmon sales scripts for this username so the background
+    //    usage-sync does not re-mark the voucher as used. Script names follow
+    //    the pattern "date-|-time-|-username-|-..." with comment "mikhmon".
+    let salesScriptsRemoved = 0;
+    let salesScriptsFailed = 0;
+    const usernameLower = username.toLowerCase();
+    const mikhmonScripts = await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []);
+    for (const s of mikhmonScripts) {
+      const sname = (s["name"] as string) ?? "";
+      const parts = sname.split("-|-");
+      if (parts.length >= 3 && parts[2].trim().toLowerCase() === usernameLower) {
+        const sid = s[".id"] as string | undefined;
+        if (sid) {
+          try {
+            await api.write("/system/script/remove", [`=.id=${sid}`]);
+            salesScriptsRemoved++;
+          } catch {
+            salesScriptsFailed++;
+          }
+        }
+      }
+    }
+
+    // 5. Recreate as a pristine voucher — same identity (name/password/
+    //    profile/server) but no leftover quota, MAC binding or expiry.
+    const addParams: string[] = [
+      `=name=${toWin1252(name)}`,
+      `=password=${toWin1252(password)}`,
+      `=profile=${toWin1252(profile)}`,
+    ];
+    if (comment)  addParams.push(`=comment=${toWin1252(comment)}`);
+    if (server)   addParams.push(`=server=${server}`);
+    if (disabled) addParams.push(`=disabled=yes`);
+
+    await api.write("/ip/hotspot/user/add", addParams);
+
+    return { found: true, sessionKicked, salesScriptsRemoved, salesScriptsFailed };
+  }, 30_000);
+}
+
+/**
+ * Delete MikHmon sales scripts older than the cutoff (year, month).
+ * Scripts whose parsed date is strictly before the first day of the cutoff
+ * month are removed. Scripts whose date cannot be parsed are skipped.
+ *
+ * Returns counts of removed/failed scripts and a per-month breakdown of
+ * what was removed (oldest first).
+ */
+export async function purgeOldMikhmonScripts(
+  conn: RouterConnection,
+  cutoffYear: number,
+  cutoffMonth: number, // 1-12
+  options: { limit?: number } = {},
+): Promise<{
+  removed: number;
+  failed: number;
+  scanned: number;   // total candidates found *before* deletion (to compute progress)
+  byMonth: Array<{ yearMonth: string; count: number }>;
+}> {
+  return withRouter(conn, async (api) => {
+    const cutoff = new Date(cutoffYear, cutoffMonth - 1, 1, 0, 0, 0);
+    const all = await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []);
+
+    type Candidate = { id: string; date: Date; ym: string };
+    const candidates: Candidate[] = [];
+    for (const s of all) {
+      const sname = (s["name"] as string) ?? "";
+      const sid   = s[".id"] as string | undefined;
+      if (!sid) continue;
+      const parts = sname.split("-|-");
+      if (parts.length < 3) continue;
+      const dt = parseMikhmonDate(parts[0], parts[1]);
+      if (!dt) continue;
+      if (dt.getTime() >= cutoff.getTime()) continue;
+      const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      candidates.push({ id: sid, date: dt, ym });
+    }
+
+    // Oldest first
+    candidates.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const total = candidates.length;
+    const batch = options.limit && options.limit > 0
+      ? candidates.slice(0, options.limit)
+      : candidates;
+
+    let removed = 0;
+    let failed = 0;
+    const byMonthMap = new Map<string, number>();
+
+    for (const c of batch) {
+      try {
+        await api.write("/system/script/remove", [`=.id=${c.id}`]);
+        removed++;
+        byMonthMap.set(c.ym, (byMonthMap.get(c.ym) ?? 0) + 1);
+      } catch {
+        failed++;
+      }
+    }
+
+    const byMonth = Array.from(byMonthMap.entries())
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([yearMonth, count]) => ({ yearMonth, count }));
+
+    return { removed, failed, scanned: total, byMonth };
+  }, 120_000);
 }
 
 // ─── Character sets (MikHMon-compatible) ─────────────────────────────────────
@@ -1149,34 +1636,53 @@ export async function generateVouchers(
   },
 ): Promise<GeneratedVoucher[]> {
   return withRouter(conn, async (api) => {
-    const generated: GeneratedVoucher[] = [];
     const length = Math.min(Math.max(opts.userLength ?? (opts.prefix ? 5 : 8), 3), 8);
     const charType: CharType = opts.charType ?? "mix";
 
-    for (let i = 0; i < opts.qty; i++) {
-      const { username, password } = generateCode(length, opts.prefix, opts.passwordMode ?? "same", charType);
+    // Pre-encode text fields that may contain accented characters so MikroTik /
+    // WinBox sees Windows-1252 bytes, matching node-routeros's internal encoding.
+    const encodedPrefix  = opts.prefix  ? toWin1252(opts.prefix)  : opts.prefix;
+    const encodedComment = opts.comment ? toWin1252(opts.comment) : opts.comment;
+    const encodedProfile = toWin1252(opts.profile);
+
+    // Step 1 – Generate all username/password pairs locally (pure JS, instant).
+    // Ensure uniqueness within this batch by tracking already-generated codes.
+    const seen = new Set<string>();
+    const vouchers: Array<{ username: string; password: string; addParams: string[] }> = [];
+    while (vouchers.length < opts.qty) {
+      const { username, password } = generateCode(length, encodedPrefix, opts.passwordMode ?? "same", charType);
+      if (seen.has(username)) continue;
+      seen.add(username);
+
       const addParams: string[] = [
         `=name=${username}`,
         `=password=${password}`,
-        `=profile=${opts.profile}`,
+        `=profile=${encodedProfile}`,
       ];
-      if (opts.comment)   addParams.push(`=comment=${opts.comment}`);
+      if (encodedComment) addParams.push(`=comment=${encodedComment}`);
       if (opts.server)    addParams.push(`=server=${opts.server}`);
       if (opts.timelimit) addParams.push(`=limit-uptime=${opts.timelimit}`);
       if (opts.datalimit) addParams.push(`=limit-bytes-total=${opts.datalimit}`);
 
-      await api.write("/ip/hotspot/user/add", addParams);
-
-      generated.push({
-        username,
-        password,
-        profile: opts.profile,
-        price: opts.price,
-        validity: opts.validity,
-        comment: opts.comment ?? "",
-      });
+      vouchers.push({ username, password, addParams });
     }
 
-    return generated;
+    // Step 2 – Send writes in parallel batches.
+    // node-routeros opens a separate tagged channel per api.write() call, so
+    // concurrent calls are fully safe over a single connection.
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < vouchers.length; i += BATCH_SIZE) {
+      const batch = vouchers.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(({ addParams }) => api.write("/ip/hotspot/user/add", addParams)));
+    }
+
+    return vouchers.map(({ username, password }) => ({
+      username,
+      password,
+      profile: opts.profile,
+      price: opts.price,
+      validity: opts.validity,
+      comment: opts.comment ?? "",
+    }));
   }, 120_000);
 }

@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "1da17be4-5a49-40e0-b356-ac5e22e449f5"
+      }
+    },
+    "android": {
+      "package": "com.nanovouchers.workspace"
+    }
+  }
+}

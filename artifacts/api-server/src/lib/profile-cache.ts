@@ -36,11 +36,11 @@ export async function getCachedProfilePrices(
  */
 export function getCachedProfilePricesSync(
   routerId: number,
-  conn: RouterConnection,
+  conn?: RouterConnection,
 ): Map<string, string> {
   const cached = profileCache.get(routerId);
-  // Background refresh if stale or missing
-  if (!cached || Date.now() >= cached.expiresAt) {
+  // Background refresh if stale or missing (only if connection info is available)
+  if (conn && (!cached || Date.now() >= cached.expiresAt)) {
     void getCachedProfilePrices(routerId, conn).catch(() => {});
   }
   return cached?.priceMap ?? new Map();

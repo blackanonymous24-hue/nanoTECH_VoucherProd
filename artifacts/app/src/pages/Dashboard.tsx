@@ -10,6 +10,18 @@ import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOu
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// Module-level cache: persists across React unmount/remount (navigating away and back to the Dashboard).
+// Provides instant display by acting as initialData for React Query — bypasses the staleTime/gcTime window.
+const _liveCache: Record<number, {
+  sessions?: number; sessionTs?: number;
+  users?: { total: number; available: number; used: number }; usersTs?: number;
+}> = {};
+
+// Dashboard-level (router-agnostic) cache — stores last successful dashboard API response.
+// Used as fallback display value while data refetches in background.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _dashboardCache: { data?: any; ts?: number } = {};
+
 type LogEntry = { id: string; time: string; topics: string; message: string };
 
 interface RouterInfo {
@@ -53,6 +65,41 @@ function formatMemory(bytes: string | null): string | null {
 function formatAmount(amount: number): string {
   if (amount === 0) return "";
   return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " FCFA";
+}
+
+/**
+ * Parse a MikroTik hotspot log message into its semantic parts.
+ * Typical raw formats:
+ *   "->: 1mfih2id (172.16.3.126): logged in"
+ *   "1mfih2id (172.16.3.126): trying to log in by mac-cookie"
+ *   "1sm6k76j (172.16.0.15): logged out: keepalive timeout"
+ *   "1sm6k76j (172.16.0.15): login failed: invalid username or password"
+ */
+function parseHotspotMessage(raw: string): { user: string | null; ip: string | null; action: string } {
+  const stripped = raw.replace(/^->:\s*/, "").trim();
+  // Allow ANY characters (incl. spaces and accents) for the username, then a
+  // strict IPv4 in parens, then ":" + action. Examples that must parse:
+  //   "1mfih2id (172.16.3.126): logged in"
+  //   "Famille Koné (172.16.4.163): logged out: keepalive timeout"
+  const m = stripped.match(/^(.+?)\s*\(((?:\d{1,3}\.){3}\d{1,3})\):\s*(.*)$/);
+  if (m) return { user: m[1].trim(), ip: m[2], action: normalizeAction(m[3] || stripped) };
+  return { user: null, ip: null, action: normalizeAction(stripped) };
+}
+
+/**
+ * Normalise an action substring to the MikHmon-style wording the user expects:
+ *   "trying to log in by mac-cookie" → "log in by mac-cookie"
+ *   "logged in"                       → "log in"
+ *   "logged out: keepalive timeout"   → "logged out keepalive timeout"
+ *   "login failed: invalid username..."→ "login failed invalid username..."
+ */
+function normalizeAction(action: string): string {
+  let a = action.trim();
+  a = a.replace(/^trying to log in by\s+/i, "log in by ");
+  a = a.replace(/^logged out:\s*/i, "logged out ");
+  a = a.replace(/^login failed:\s*/i, "login failed ");
+  if (/^logged in$/i.test(a)) a = "log in";
+  return a;
 }
 
 function classifyLog(entry: LogEntry): {
@@ -124,19 +171,19 @@ function yTickFmt(v: number) {
   return `${parseFloat((v / Math.pow(1024, i)).toFixed(2))} ${sizes[i]}`;
 }
 
-function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
+function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | null; enabled?: boolean }) {
   const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
   const [selectedIface, setSelectedIface] = useState<string>("");
 
   // Fetch interface list when router changes
   const { data: ifaceList } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
     queryKey: ["interfaces", routerId],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`);
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`, { signal });
       if (!res.ok) throw new Error("interfaces unavailable");
       return res.json();
     },
-    enabled: !!routerId,
+    enabled: !!routerId && enabled,
     staleTime: 60_000,
     retry: false,
     throwOnError: false,
@@ -157,13 +204,14 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
 
   const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
     queryKey: ["traffic", routerId, selectedIface],
-    queryFn: async () => {
-      const res = await fetch(trafficUrl);
+    queryFn: async ({ signal }) => {
+      const res = await fetch(trafficUrl, { signal });
       if (!res.ok) throw new Error("traffic unavailable");
       return res.json();
     },
-    enabled: !!routerId && !!selectedIface,
+    enabled: !!routerId && !!selectedIface && enabled,
     refetchInterval: 3_000,
+    refetchIntervalInBackground: false,
     staleTime: 2_500,
     retry: false,
     throwOnError: false,
@@ -184,7 +232,7 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
   const yTicks = [0, yTop * 0.333, yTop * 0.667, yTop];
 
   return (
-    <Card className="flex flex-col flex-1 min-w-0">
+    <Card className="flex flex-col flex-1 min-w-0 min-h-[300px]">
       <CardHeader className="pb-2 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
@@ -285,9 +333,23 @@ function TrafficMonitorCard({ routerId }: { routerId: number | null }) {
 }
 
 export default function Dashboard() {
-  const { data, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
-    query: { refetchInterval: 10_000, staleTime: 9_000 },
+  const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
+    query: {
+      refetchInterval: 10_000,
+      staleTime: 9_000,
+      gcTime: 30 * 60_000,
+      refetchIntervalInBackground: false,
+    },
   });
+
+  // Update module cache whenever fresh data arrives
+  useEffect(() => {
+    if (_freshData) { _dashboardCache.data = _freshData; _dashboardCache.ts = Date.now(); }
+  }, [_freshData]);
+
+  // Display data: fresh from React Query OR last cached value — never undefined after first load
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = _freshData ?? _dashboardCache.data;
   const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity } = useRouterContext();
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
@@ -299,43 +361,59 @@ export default function Dashboard() {
     dataUpdatedAt: sessionsUpdatedAt,
     refetch: refetchSessions,
   } = useQuery({
-    queryKey: ["router-sessions", selectedRouterId],
-    queryFn: async (): Promise<number> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions`);
+    queryKey: ["router-sessions-count", selectedRouterId],
+    queryFn: async ({ signal }): Promise<number> => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sessions/count`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: unknown = await res.json();
-      return Array.isArray(data) ? data.length : 0;
+      const d = await res.json() as { count: number };
+      const count = d.count ?? 0;
+      if (selectedRouterId) {
+        _liveCache[selectedRouterId] = { ..._liveCache[selectedRouterId], sessions: count, sessionTs: Date.now() };
+      }
+      return count;
     },
     enabled: !!selectedRouterId,
     refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
     staleTime: 9_000,
+    gcTime: 30 * 60_000, // keep in React Query cache for 30 min
+    initialData: selectedRouterId != null ? _liveCache[selectedRouterId]?.sessions : undefined,
+    initialDataUpdatedAt: selectedRouterId != null ? _liveCache[selectedRouterId]?.sessionTs : undefined,
     throwOnError: false,
     retry: false,
   });
 
   const {
-    data: hotspotUserCount,
+    data: usersStats,
     isFetching: usersFetching,
     refetch: refetchUsers,
   } = useQuery({
     queryKey: ["router-users-count", selectedRouterId],
-    queryFn: async (): Promise<number> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`);
-      if (!res.ok) return 0;
-      const data: unknown = await res.json();
-      if (Array.isArray(data)) return data.length;
-      if (data && typeof data === "object") {
-        const d = data as Record<string, unknown>;
-        if (typeof d.total === "number") return d.total;
-        if (Array.isArray(d.users)) return d.users.length;
+    queryFn: async ({ signal }): Promise<{ total: number; available: number; used: number }> => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users/count`, { signal });
+      if (!res.ok) return { total: 0, available: 0, used: 0 };
+      const d = await res.json() as { total?: number; available?: number; used?: number };
+      const stats = {
+        total:     d.total     ?? 0,
+        available: d.available ?? 0,
+        used:      d.used      ?? 0,
+      };
+      if (selectedRouterId) {
+        _liveCache[selectedRouterId] = { ..._liveCache[selectedRouterId], users: stats, usersTs: Date.now() };
       }
-      return 0;
+      return stats;
     },
     enabled: !!selectedRouterId,
-    refetchInterval: 10_000,
-    staleTime: 9_000,
+    refetchInterval: 20_000,
+    refetchIntervalInBackground: false,
+    staleTime: 15_000,
+    gcTime: 30 * 60_000,
+    initialData: selectedRouterId != null ? _liveCache[selectedRouterId]?.users : undefined,
+    initialDataUpdatedAt: selectedRouterId != null ? _liveCache[selectedRouterId]?.usersTs : undefined,
     throwOnError: false,
+    retry: false,
   });
+  const hotspotUserCount = usersStats?.available ?? usersStats?.total;
 
   const {
     data: sales,
@@ -347,10 +425,22 @@ export default function Dashboard() {
       query: {
         enabled: !!selectedRouterId,
         refetchInterval: 10_000,
+        refetchIntervalInBackground: false,
         staleTime: 9_000,
       },
     },
   );
+  // Server returns zeros + `_cachedAt: null` when its in-memory cache is cold and the
+  // background MikroTik fetch hasn't returned yet. Treat that as "still loading" so
+  // the user never sees a misleading "0 FCFA" before real data arrives.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const salesFresh = !!sales && (sales as any)._cachedAt != null;
+
+  // Mikhmon-style: fire every dashboard fetch in parallel immediately, no
+  // gating. Priority cards (info / sessions / sales / tickets) are served
+  // stale-while-revalidate by the API so they paint instantly from the last
+  // known value, exactly like Mikhmon v3.
+  const secondariesReady = !!selectedRouterId;
 
   const {
     data: logs = [],
@@ -363,8 +453,9 @@ export default function Dashboard() {
     { limit: 80, topics: "hotspot" },
     {
       query: {
-        enabled: !!selectedRouterId,
+        enabled: !!selectedRouterId && secondariesReady,
         refetchInterval: 5_000,
+        refetchIntervalInBackground: false,
         staleTime: 4_000,
       },
     },
@@ -424,13 +515,15 @@ export default function Dashboard() {
     refetch: refetchInfo,
   } = useQuery<RouterInfo>({
     queryKey: ["router-info", selectedRouterId],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/info`);
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/info`, { signal });
       if (!res.ok) throw new Error("info unavailable");
       return res.json() as Promise<RouterInfo>;
     },
     enabled: !!selectedRouterId,
-    staleTime: 60_000,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
+    staleTime: 9_000,
     retry: false,
     throwOnError: false,
   });
@@ -554,26 +647,26 @@ export default function Dashboard() {
         />
         <StatCard
           title="Vente journalière"
-          label={sales ? formatAmount(sales.dailyAmount) : undefined}
-          sub={sales ? `${sales.dailyCount.toLocaleString()} tickets vendus` : undefined}
+          label={salesFresh ? formatAmount(sales!.dailyAmount) : undefined}
+          sub={salesFresh ? `${sales!.dailyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
-          loading={!sales && !!selectedRouterId}
+          loading={!!selectedRouterId && !salesFresh}
           href="/sales/daily"
         />
         <StatCard
           title="Vente mensuelle"
-          label={sales ? formatAmount(sales.monthlyAmount) : undefined}
-          sub={sales ? `${sales.monthlyCount.toLocaleString()} tickets vendus` : undefined}
+          label={salesFresh ? formatAmount(sales!.monthlyAmount) : undefined}
+          sub={salesFresh ? `${sales!.monthlyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
-          loading={!sales && !!selectedRouterId}
+          loading={!!selectedRouterId && !salesFresh}
           href="/sales/monthly"
         />
         <StatCard
-          title="Total Vouchers"
+          title="Tickets disponibles"
           value={selectedRouterId ? (hotspotUserCount ?? 0) : (data?.totalVouchers ?? 0)}
           live={!!selectedRouterId}
           fetching={usersFetching}
@@ -584,7 +677,7 @@ export default function Dashboard() {
       </div>
 
       <div className="traffic-logs-layout flex flex-col gap-4 items-stretch">
-      <TrafficMonitorCard routerId={selectedRouterId} />
+      <TrafficMonitorCard routerId={selectedRouterId} enabled={secondariesReady} />
       <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
@@ -626,24 +719,91 @@ export default function Dashboard() {
           ) : (
             <div
               ref={listRef}
-              className="divide-y divide-gray-50 max-h-[210px] overflow-y-auto"
+              className="max-h-[320px] overflow-auto"
             >
-              {logs.map((entry, i) => {
-                const { icon, rowClass, timeClass } = classifyLog(entry);
-                const isNew = entry.id ? newIds.has(entry.id) : false;
-                return (
-                  <div
-                    key={entry.id || i}
-                    className={`flex items-start gap-2.5 px-4 py-2 font-mono text-xs transition-colors duration-500 ${rowClass} ${isNew ? "bg-blue-50/60" : ""}`}
-                  >
-                    {icon}
-                    <span className={`whitespace-nowrap flex-shrink-0 w-24 ${timeClass}`}>
-                      {entry.time}
-                    </span>
-                    <span className="text-gray-700 break-all leading-5">{entry.message}</span>
-                  </div>
-                );
-              })}
+              <table className="w-full table-fixed text-xs">
+                <colgroup>
+                  <col style={{ width: 88 }} />
+                  <col style={{ width: 170 }} />
+                  <col />
+                </colgroup>
+                <thead className="sticky top-0 z-10 bg-gray-100 text-[11px] uppercase tracking-wide text-gray-600">
+                  <tr className="border-b border-gray-200">
+                    <th className="px-3 py-2 text-left font-semibold">Time</th>
+                    <th className="px-3 py-2 text-left font-semibold">Users (IP)</th>
+                    <th className="px-3 py-2 text-left font-semibold">Messages</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    // MikroTik émet chaque évènement plusieurs fois pour la même session :
+                    //   ligne 1: "trying to log in by mac-cookie"  (IP négociée)
+                    //   ligne 2: "logged in"                       (IP finale, parfois différente)
+                    //   + chaque ligne dupliquée avec préfixe "->:".
+                    // On dédoublonne par (heure + user) — l'IP peut varier entre les deux
+                    // lignes — et on garde l'action la plus informative.
+                    const score = (a: string) => {
+                      if (/^log in by /i.test(a)) return 3;
+                      if (/^logged out .+/i.test(a)) return 3;
+                      if (/^login failed /i.test(a)) return 3;
+                      if (/^log in$/i.test(a)) return 1;
+                      return 2;
+                    };
+                    const groups = new Map<string, LogEntry>();
+                    for (const e of logs) {
+                      const p = parseHotspotMessage(e.message);
+                      const key = `${e.time}|${p.user ?? ""}`;
+                      const prev = groups.get(key);
+                      if (!prev) { groups.set(key, e); continue; }
+                      const prevAction = parseHotspotMessage(prev.message).action;
+                      if (score(p.action) > score(prevAction)) groups.set(key, e);
+                    }
+                    // Conserver l'ordre d'apparition d'origine
+                    const seen = new Set<string>();
+                    const dedup: LogEntry[] = [];
+                    for (const e of logs) {
+                      const p = parseHotspotMessage(e.message);
+                      const key = `${e.time}|${p.user ?? ""}`;
+                      if (seen.has(key)) continue;
+                      seen.add(key);
+                      const winner = groups.get(key);
+                      if (winner) dedup.push(winner);
+                    }
+                    return dedup.map((entry, i) => {
+                      const { icon, rowClass, timeClass } = classifyLog(entry);
+                      const isNew = entry.id ? newIds.has(entry.id) : false;
+                      const { user, ip, action } = parseHotspotMessage(entry.message);
+                      return (
+                        <tr
+                          key={entry.id || i}
+                          className={`border-b border-gray-100 transition-colors duration-500 ${rowClass} ${isNew ? "bg-blue-50/60" : ""}`}
+                          title={`[${entry.topics}]  ${entry.message}`}
+                        >
+                          <td className={`px-3 py-2 align-top whitespace-nowrap font-mono ${timeClass}`}>
+                            {entry.time}
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            {user ? (
+                              <div className="leading-tight">
+                                <div className="font-mono text-gray-800 truncate">{user}</div>
+                                {ip && <div className="font-mono text-[11px] text-gray-500 truncate">({ip})</div>}
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 italic">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            <div className="flex items-start gap-2">
+                              <span className="mt-0.5 shrink-0">{icon}</span>
+                              <span className="text-gray-700 break-words leading-snug">{action}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>
@@ -698,13 +858,13 @@ function StatCard({
                 </>
               ) : label !== undefined ? (
                 <>
-                  <p className="fit-price font-bold text-gray-900 leading-tight">{label || "0 FCFA"}</p>
-                  {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+                  <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
+                  {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
                 </>
               ) : (
                 <>
-                  <p className="fit-price font-bold text-gray-900">{(value ?? 0).toLocaleString()}</p>
-                  {sub && <p className="text-xs text-gray-400 -mt-0.5">{sub}</p>}
+                  <p className="fit-price font-bold text-gray-900 truncate">{(value ?? 0).toLocaleString()}</p>
+                  {sub && <p className="text-xs text-gray-400 -mt-0.5 truncate">{sub}</p>}
                 </>
               )}
             </div>

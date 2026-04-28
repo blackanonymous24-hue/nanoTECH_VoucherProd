@@ -2,9 +2,12 @@ import { pgTable, serial, text, boolean, timestamp, integer } from "drizzle-orm/
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { routersTable } from "./routers.js";
+import { adminSettingsTable } from "./admin-settings.js";
 
 export const vendorsTable = pgTable("vendors", {
   id: serial("id").primaryKey(),
+  // Tenant owner. Nullable during migration; backfilled to the original super-admin.
+  ownerAdminId: integer("owner_admin_id").references(() => adminSettingsTable.id, { onDelete: "cascade" }),
   routerId: integer("router_id").references(() => routersTable.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   phone: text("phone"),

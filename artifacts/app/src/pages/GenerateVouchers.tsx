@@ -21,16 +21,48 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown } from "lucide-react";
+import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
+import { printTickets } from "@/lib/print";
+
+const LS_KEY = "vouchernet-last-lot";
+
+type LastLot = {
+  vouchers: Voucher[];
+  comment: string;
+  routerName: string;
+  routerId: number;
+  profileName: string;
+  price: string;
+  validity: string;
+  vendorName: string;
+  generatedAt: string;
+};
+
+function loadLastLot(): LastLot | null {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? (JSON.parse(raw) as LastLot) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastLot(lot: LastLot) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(lot)); } catch { /* noop */ }
+}
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 /** "3h"→"3H", "1d"→"1J", "30m"→"30M", "1w"→"1S" */
 function validityCode(validity: string | null | undefined): string {
   if (!validity) return "";
-  const m = validity.trim().match(/^(\d+)([a-zA-Z]+)$/);
+  const s = validity.trim();
+  // Conversions spéciales : 30 jours = 1 mois, 7 jours = 1 semaine
+  if (/^30d$/i.test(s)) return "1M";
+  if (/^7d$/i.test(s))  return "1S";
+  const m = s.match(/^(\d+)([a-zA-Z]+)$/);
   if (!m) return "";
   const map: Record<string, string> = { h: "H", d: "J", m: "M", w: "S" };
   return m[1] + (map[m[2].toLowerCase()] ?? m[2].toUpperCase());
@@ -60,6 +92,50 @@ const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
 
 const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2"];
 
+/** Détecte si l'erreur correspond à un routeur inaccessible (502 ou réseau). */
+function isRouterUnreachable(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as Record<string, unknown>;
+  const response = e.response as Record<string, unknown> | undefined;
+  if (response?.status === 502) return true;
+  const msg = String(e.message ?? "").toLowerCase();
+  return msg.includes("502") || msg.includes("contacter") || msg.includes("unreachable") || msg.includes("network error");
+}
+
+/** Attend que le routeur soit à nouveau accessible (ping toutes les 4s). */
+async function waitForRouter(routerId: number, base: string): Promise<void> {
+  for (;;) {
+    await new Promise<void>((r) => setTimeout(r, 4000));
+    try {
+      const res = await fetch(`${base}/api/routers/${routerId}/ping?force=1`);
+      if (res.ok) {
+        const data = await res.json() as { success: boolean };
+        if (data.success) return;
+      }
+    } catch { /* réseau encore indisponible, on réessaie */ }
+  }
+}
+
+/**
+ * Réconcilie l'état du lot avec le routeur après une erreur réseau ou un
+ * timeout : un batch peut avoir abouti sur MikroTik sans que la réponse HTTP
+ * nous parvienne. Sans ça, on régénérerait 50 vouchers de plus à chaque
+ * tentative — d'où des lots qui finissent à 1050+ alors qu'on en a demandé
+ * 1000. Renvoie la liste réelle des utilisateurs MikroTik portant ce
+ * commentaire (cache invalidé côté serveur via `refresh=1`).
+ */
+async function fetchLotUsers(
+  routerId: number,
+  comment: string,
+  base: string,
+): Promise<Array<{ username: string; password: string; profile: string; comment: string | null }>> {
+  const url = `${base}/api/routers/${routerId}/users?comment=${encodeURIComponent(comment)}&limit=5000&refresh=1`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { users?: Array<{ username: string; password: string; profile: string; comment: string | null }> };
+  return data.users ?? [];
+}
+
 function makeBatchId(mode: "vc" | "up" = "vc"): string {
   const now = new Date();
   const M = String(now.getMonth() + 1).padStart(2, "0");
@@ -75,7 +151,7 @@ export default function GenerateVouchers() {
   const queryClient = useQueryClient();
 
   const [profile, setProfile] = useState<string>("");
-  const [qty, setQty] = useState("10");
+  const [qty, setQty] = useState("1");
   const [prefix, setPrefix] = useState("");
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
   const [charType, setCharType] = useState<CharType>("mix");
@@ -85,11 +161,14 @@ export default function GenerateVouchers() {
   const [mbgb, setMbgb] = useState<number>(1048576);
   const [comment, setComment] = useState(() => makeBatchId("vc"));
   const [vendorId, setVendorId] = useState<string>("");
-  const [generatedVouchers, setGeneratedVouchers] = useState<Voucher[]>([]);
-  const [lastLotName, setLastLotName] = useState<string>("");
+  const [lastLot, setLastLot] = useState<LastLot | null>(() => loadLastLot());
+  const [loadingLastLot, setLoadingLastLot] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [genPaused, setGenPaused] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
+  const autoLoadAttempted = useState(() => new Set<number>())[0];
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
   useEffect(() => {
@@ -101,11 +180,11 @@ export default function GenerateVouchers() {
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null }[]>({
     queryKey: ["vendors", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const url = selectedRouterId
         ? `${GEN_BASE}/api/vendors?routerId=${selectedRouterId}`
         : `${GEN_BASE}/api/vendors`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal });
       if (!res.ok) return [];
       return res.json() as Promise<{ id: number; name: string }[]>;
     },
@@ -121,30 +200,6 @@ export default function GenerateVouchers() {
 
   useEffect(() => {
     setProfile("");
-  }, [selectedRouterId]);
-
-  // Restore last generated lot card when reopening Generate tab.
-  useEffect(() => {
-    if (!selectedRouterId) {
-      setGeneratedVouchers([]);
-      setLastLotName("");
-      return;
-    }
-    try {
-      const raw = localStorage.getItem(`generate-last-lot:${selectedRouterId}`);
-      if (!raw) {
-        setGeneratedVouchers([]);
-        setLastLotName("");
-        return;
-      }
-      const parsed = JSON.parse(raw) as { lotName?: string; vouchers?: Voucher[] };
-      setGeneratedVouchers(Array.isArray(parsed.vouchers) ? parsed.vouchers : []);
-      setLastLotName(parsed.lotName ?? "");
-      if (parsed.lotName) setComment(parsed.lotName);
-    } catch {
-      setGeneratedVouchers([]);
-      setLastLotName("");
-    }
   }, [selectedRouterId]);
 
   // On page load (Generate tab), force a MikroTik profile sync once per router
@@ -171,6 +226,74 @@ export default function GenerateVouchers() {
     };
   }, [selectedRouterId, queryClient]);
 
+  // Auto-load the most recent lot from API when localStorage is empty
+  useEffect(() => {
+    if (lastLot !== null) return;
+    if (!selectedRouterId) return;
+    if (autoLoadAttempted.has(selectedRouterId)) return;
+    autoLoadAttempted.add(selectedRouterId);
+
+    const controller = new AbortController();
+    setLoadingLastLot(true);
+
+    void (async () => {
+      try {
+        const lotsRes = await fetch(
+          `${GEN_BASE}/api/routers/${selectedRouterId}/lots`,
+          { signal: controller.signal },
+        );
+        if (!lotsRes.ok) return;
+        const { lots: apiLots } = await lotsRes.json() as {
+          lots: Array<{ name: string; count: number; profile: string | null }>;
+        };
+        if (!apiLots.length) return;
+
+        const firstLot = apiLots[0];
+
+        const usersRes = await fetch(
+          `${GEN_BASE}/api/routers/${selectedRouterId}/users?comment=${encodeURIComponent(firstLot.name)}&limit=5000`,
+          { signal: controller.signal },
+        );
+        if (!usersRes.ok) return;
+        const { users } = await usersRes.json() as { users: Array<{ username: string; password: string; profile: string }> };
+        if (!users.length) return;
+
+        // Cross-reference profile metadata (prices/validity) from already-loaded profiles
+        const prof = profiles.find((p) => p.name === firstLot.profile);
+
+        const lot: LastLot = {
+          vouchers: users.map((u, i) => ({
+            id: i,
+            routerId: selectedRouterId,
+            username: u.username,
+            password: u.password,
+            profileName: u.profile ?? firstLot.profile ?? "",
+            price: prof?.price ?? "",
+            validity: prof?.validity ?? "",
+            createdAt: new Date().toISOString(),
+          })),
+          comment: firstLot.name,
+          routerName: selectedRouter?.name ?? "",
+          routerId: selectedRouterId,
+          profileName: firstLot.profile ?? "",
+          price: prof?.price ?? "",
+          validity: prof?.validity ?? "",
+          vendorName: "",
+          generatedAt: new Date().toISOString(),
+        };
+
+        setLastLot(lot);
+        saveLastLot(lot);
+      } catch {
+        // Router offline or aborted — keep "Aucun lot" state, user can generate
+      } finally {
+        setLoadingLastLot(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [selectedRouterId, lastLot, profiles, selectedRouter, autoLoadAttempted]);
+
   const selectedProfile = profiles.find((p) => p.name === profile);
 
   // If a profile was renamed in MikroTik, clear stale selected value.
@@ -196,83 +319,216 @@ export default function GenerateVouchers() {
 
     const total = parseInt(qty, 10);
     setProgress({ done: 0, total });
+    setGenPaused(false);
 
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
     const profilePrice = selectedProfile?.price ?? "";
     const profileValidity = selectedProfile?.validity ?? "";
-    const BATCH_SIZE = 50; // requested fixed lot size for clearer progress
-    const MAX_CONCURRENCY = total >= 400 ? 3 : 2; // parallel batches for speed
+    const BATCH_SIZE = 50;
     const allVouchers: Voucher[] = [];
     let done = 0;
-    let cursor = 0;
-
-    const runOneBatch = async () => {
-      while (cursor < total) {
-        const start = cursor;
-        cursor += BATCH_SIZE;
-        const qtyBatch = Math.min(BATCH_SIZE, total - start);
-        if (qtyBatch <= 0) return;
-        const generated = await generateMutation.mutateAsync({
-          data: {
-            routerId: selectedRouterId,
-            profile,
-            qty: qtyBatch,
-            prefix: prefix || null,
-            comment: effectiveComment || null,
-            vendorId: vendorId ? parseInt(vendorId, 10) : null,
-            passwordMode,
-            charType,
-            userLength: parseInt(userLength, 10),
-            timelimit: timelimit || undefined,
-            datalimit: dlBytes,
-            profilePrice,
-            profileValidity,
-          },
-        });
-        allVouchers.push(...generated);
-        done += generated.length;
-        setProgress({ done, total });
-      }
-    };
+    // Verrouille le routeur pour toute la session : la sync background
+    // (vendor + usage) saute automatiquement les routeurs verrouillés.
+    await fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "POST" });
 
     try {
-      const workers = Array.from({ length: Math.min(MAX_CONCURRENCY, Math.ceil(total / BATCH_SIZE)) }, () => runOneBatch());
-      await Promise.all(workers);
+      while (done < total) {
+        const qtyBatch = Math.min(BATCH_SIZE, total - done);
 
-      setGeneratedVouchers(allVouchers);
-      setLastLotName(effectiveComment);
-      try {
-        localStorage.setItem(
-          `generate-last-lot:${selectedRouterId}`,
-          JSON.stringify({ lotName: effectiveComment, vouchers: allVouchers }),
-        );
-      } catch {
-        // ignore storage quota errors
+        // Retry automatique si le routeur est temporairement inaccessible.
+        let batchOk = false;
+        while (!batchOk) {
+          try {
+            const generated = await generateMutation.mutateAsync({
+              data: {
+                routerId: selectedRouterId,
+                profile,
+                qty: qtyBatch,
+                prefix: prefix || null,
+                comment: effectiveComment || null,
+                vendorId: vendorId ? parseInt(vendorId, 10) : null,
+                passwordMode,
+                charType,
+                userLength: parseInt(userLength, 10),
+                timelimit: timelimit || undefined,
+                datalimit: dlBytes,
+                profilePrice,
+                profileValidity,
+              },
+            });
+            allVouchers.push(...generated);
+            done += generated.length;
+            setProgress({ done, total });
+            batchOk = true;
+          } catch (err) {
+            if (isRouterUnreachable(err)) {
+              // Routeur inaccessible : on met en pause et on attend le retour.
+              setGenPaused(true);
+              await waitForRouter(selectedRouterId, BASE);
+
+              // ── Réconciliation anti-doublons ────────────────────────────
+              // Le batch peut avoir été appliqué côté MikroTik avant la
+              // coupure : si on retentait à l'aveugle, on créerait un
+              // 2ᵉ jeu de 50 utilisateurs (avec des noms différents) sous
+              // le même commentaire de lot. On interroge donc MikroTik
+              // pour obtenir l'état réel et on synchronise `done` /
+              // `allVouchers` en conséquence avant de poursuivre.
+              try {
+                if (effectiveComment) {
+                  const onRouter = await fetchLotUsers(selectedRouterId, effectiveComment, BASE);
+                  if (onRouter.length > done) {
+                    const knownNames = new Set(allVouchers.map((v) => v.username));
+                    const missing = onRouter
+                      .filter((u) => !knownNames.has(u.username))
+                      .map<Voucher>((u) => ({
+                        id: 0,
+                        routerId: selectedRouterId,
+                        vendorId: vendorId ? parseInt(vendorId, 10) : null,
+                        username: u.username,
+                        password: u.password,
+                        profileName: u.profile,
+                        price: profilePrice,
+                        validity: profileValidity,
+                        comment: u.comment ?? effectiveComment,
+                        createdAt: new Date().toISOString(),
+                        printedAt: null,
+                        usedAt: null,
+                        soldAt: null,
+                      } as unknown as Voucher));
+                    allVouchers.push(...missing);
+                    done = allVouchers.length;
+                    setProgress({ done, total });
+                  }
+                }
+              } catch {
+                // Réconciliation best-effort : si elle échoue on retente
+                // simplement le batch comme avant.
+              }
+
+              setGenPaused(false);
+              // Le même batch sera retenté (avec un qty ajusté au tour
+              // suivant grâce au `done` mis à jour).
+            } else {
+              throw err; // Erreur non-retriable → on sort.
+            }
+          }
+        }
+    try {
+      while (done < total) {
+        const qtyBatch = Math.min(BATCH_SIZE, total - done);
+        let batchOk = false;
+        while (!batchOk) {
+          try {
+            const generated = await generateMutation.mutateAsync({
+              data: {
+                routerId: selectedRouterId,
+                profile,
+                qty: qtyBatch,
+                prefix: prefix || null,
+                comment: effectiveComment || null,
+                vendorId: vendorId ? parseInt(vendorId, 10) : null,
+                passwordMode,
+                charType,
+                userLength: parseInt(userLength, 10),
+                timelimit: timelimit || undefined,
+                datalimit: dlBytes,
+                profilePrice,
+                profileValidity,
+              },
+            });
+            allVouchers.push(...generated);
+            done += generated.length;
+            setProgress({ done, total });
+            batchOk = true;
+          } catch (err) {
+            if (isRouterUnreachable(err)) {
+              setGenPaused(true);
+              await waitForRouter(selectedRouterId, BASE);
+              try {
+                if (effectiveComment) {
+                  const onRouter = await fetchLotUsers(selectedRouterId, effectiveComment, BASE);
+                  if (onRouter.length > done) {
+                    const knownNames = new Set(allVouchers.map((v) => v.username));
+                    const missing = onRouter
+                      .filter((u) => !knownNames.has(u.username))
+                      .map<Voucher>((u) => ({
+                        id: 0,
+                        routerId: selectedRouterId,
+                        vendorId: vendorId ? parseInt(vendorId, 10) : null,
+                        username: u.username,
+                        password: u.password,
+                        profileName: u.profile,
+                        price: profilePrice,
+                        validity: profileValidity,
+                        comment: u.comment ?? effectiveComment,
+                        createdAt: new Date().toISOString(),
+                        printedAt: null,
+                        usedAt: null,
+                        soldAt: null,
+                      } as unknown as Voucher));
+                    allVouchers.push(...missing);
+                    done = allVouchers.length;
+                    setProgress({ done, total });
+                  }
+                }
+              } catch {
+                // keep retrying current batch
+              }
+              setGenPaused(false);
+            } else {
+              throw err;
+            }
+          }
+        }
       }
+
+      const lot: LastLot = {
+        vouchers: allVouchers,
+        comment: effectiveComment,
+        routerName: selectedRouter?.name ?? "",
+        routerId: selectedRouterId,
+        profileName: selectedProfile?.name ?? profile,
+        price: selectedProfile?.price ?? "",
+        validity: selectedProfile?.validity ?? "",
+        vendorName: selectedVendor?.name ?? "",
+        generatedAt: new Date().toISOString(),
+      };
+      setLastLot(lot);
+      saveLastLot(lot);
       queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
       toast({ title: `${allVouchers.length} voucher(s) généré(s) avec succès !` });
+
+      // Réinitialiser les paramètres de génération pour le prochain lot
+      setComment(makeBatchId(passwordMode === "random" ? "up" : "vc"));
+      setQty("1");
+      setPrefix("");
+      setTimelimit("");
+      setDatalimit("");
+      setVendorId("");
     } finally {
+      // Toujours relâcher le verrou — même en cas d'erreur.
+      void fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "DELETE" });
       setProgress(null);
+      setGenPaused(false);
     }
   };
 
-  const handlePrint = async () => {
-    const win = window.open("", "_blank", "noopener,noreferrer");
-    if (!win) {
-      toast({ title: "Erreur impression PHP", description: "Le navigateur a bloqué l'ouverture du nouvel onglet.", variant: "destructive" });
+  const handlePrint = async (lot: LastLot) => {
+    const php = getStoredPHP();
+    if (!php) {
+      toast({
+        title: "Aucun modèle de ticket configuré",
+        description: "Allez dans Modèle de ticket pour charger votre template PHP.",
+        variant: "destructive",
+      });
       return;
     }
-    win.document.open();
-    win.document.write("<!doctype html><html><body style='font-family:Arial,sans-serif;padding:16px;color:#444'>Préparation de l'impression...</body></html>");
-    win.document.close();
-
-    const php = getStoredPHP()!;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
     };
-    const vouchers = generatedVouchers.map((v, idx) => ({
-      hotspotname: selectedRouter?.name ?? "",
+    const vouchers = lot.vouchers.map((v, idx) => ({
+      hotspotname: (selectedRouter as any)?.hotspotName || lot.routerName,
       dnsname: (selectedRouter as any)?.contact ?? "",
       username: v.username,
       password: v.password,
@@ -284,6 +540,7 @@ export default function GenerateVouchers() {
       num: idx + 1,
       color: PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD",
     }));
+    setIsPrinting(true);
     try {
       const resp = await fetch(`${BASE}/api/render-tickets`, {
         method: "POST",
@@ -292,49 +549,27 @@ export default function GenerateVouchers() {
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
-      const content = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Voucher-${selectedRouter?.name ?? "router"}</title>
-    <style>
-      body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-      table.voucher { display:inline-block; border:2px solid black; margin:2px; }
-      #num { float:right; display:inline-block; }
-      @page { size:auto; margin-left:7mm; margin-right:3mm; margin-top:9mm; margin-bottom:3mm; }
-      @media print {
-        table { page-break-after:auto; }
-        tr { page-break-inside:avoid; page-break-after:auto; }
-        td { page-break-inside:avoid; page-break-after:auto; }
-        thead { display:table-header-group; }
-        tfoot { display:table-footer-group; }
-      }
-    </style>
-  </head>
-  <body>
-    ${(data.html as string[]).join("")}
-    <script>
-      window.addEventListener("load", function () {
-        setTimeout(function () { window.print(); }, 60);
-      });
-    </script>
-  </body>
-</html>`;
-      win.document.open();
-      win.document.write(content);
-      win.document.close();
+      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
+      const toFileValidity = (v: string) => {
+        const s = v.trim();
+        const mk = s.match(/^(\d+)(h|d|m|w)$/i);
+        if (mk) {
+          const map: Record<string, string> = { h: "Heure", d: "Jour", m: "Minute", w: "Semaine" };
+          return mk[1] + (map[mk[2].toLowerCase()] ?? mk[2].toUpperCase());
+        }
+        return s.replace(/[\s-]+/g, "");
+      };
+      const rawValidity = lot.validity || lot.vouchers[0]?.validity || "";
+      const compactValidity = toFileValidity(rawValidity);
+      const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
+      const profileSlug = lot.profileName.trim().split(/\s+/)[0] ?? lot.profileName;
+      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
+      printTickets(data.html as string[], printParts.join("-"));
     } catch (err: unknown) {
-      try { win.close(); } catch { /* ignore */ }
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
+    } finally {
+      setIsPrinting(false);
     }
-  };
-
-  const handleCopyAll = () => {
-    const text = generatedVouchers
-      .map((v) => `${v.username} / ${v.password}`)
-      .join("\n");
-    navigator.clipboard.writeText(text);
-    toast({ title: "Codes copiés dans le presse-papier" });
   };
 
   const downloadFile = (content: string, filename: string, mime: string) => {
@@ -345,21 +580,25 @@ export default function GenerateVouchers() {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportTxt = () => {
-    const lines = generatedVouchers.map((v, i) =>
-      `${i + 1}. ${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
-    );
-    const lotName = lastLotName || comment;
-    downloadFile(`Lot: ${lotName}\n\n${lines.join("\n")}`, `${lotName}.txt`, "text/plain");
+  const handleCopyAll = (lot: LastLot) => {
+    const text = lot.vouchers.map((v) => `${v.username} / ${v.password}`).join("\n");
+    navigator.clipboard.writeText(text);
+    toast({ title: "Codes copiés dans le presse-papier" });
   };
 
-  const handleExportCsv = () => {
+  const handleExportTxt = (lot: LastLot) => {
+    const lines = lot.vouchers.map((v, i) =>
+      `${i + 1}. ${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
+    );
+    downloadFile(`Lot: ${lot.comment}\n\n${lines.join("\n")}`, `${lot.comment}.txt`, "text/plain");
+  };
+
+  const handleExportCsv = (lot: LastLot) => {
     const header = "N°,Username,Password,Profil,Validité,Prix\n";
-    const rows = generatedVouchers.map((v, i) =>
+    const rows = lot.vouchers.map((v, i) =>
       `${i + 1},"${v.username}","${v.password}","${v.profileName ?? ""}","${v.validity ?? ""}","${v.price ?? ""}"`
     ).join("\n");
-    const lotName = lastLotName || comment;
-    downloadFile(header + rows, `${lotName}.csv`, "text/csv");
+    downloadFile(header + rows, `${lot.comment}.csv`, "text/csv");
   };
 
   return (
@@ -673,19 +912,41 @@ export default function GenerateVouchers() {
                   {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
                 </Button>
                 {progress && (
-                  <div className="flex items-center justify-end gap-2 mt-1.5">
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="mt-2 space-y-1.5">
+                    <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-orange-500 rounded-full transition-all duration-300"
+                        className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${genPaused ? "bg-amber-400" : "bg-orange-500"}`}
                         style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
                       />
+                      {!genPaused && (
+                        <div
+                          className="absolute inset-0 animate-shimmer"
+                          style={{
+                            background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
+                            backgroundSize: "200% 100%",
+                          }}
+                        />
+                      )}
                     </div>
-                    <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">
-                      {progress.done} / {progress.total}
-                    </span>
-                    <span className="text-xs text-gray-400 tabular-nums whitespace-nowrap">
-                      Restants: {Math.max(0, progress.total - progress.done)}
-                    </span>
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      {genPaused ? (
+                        <span className="flex items-center gap-1 text-amber-600 font-medium">
+                          <WifiOff className="h-3 w-3" />
+                          Routeur inaccessible — reprise automatique…
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin text-orange-500" />
+                          Envoi vers MikroTik…
+                        </span>
+                      )}
+                      <span className="tabular-nums font-medium">
+                        {progress.done} / {progress.total}
+                        <span className="text-gray-400 font-normal ml-1">
+                          ({Math.round((progress.done / progress.total) * 100)}%)
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -700,58 +961,83 @@ export default function GenerateVouchers() {
         </Card>
 
         <div>
-          {generatedVouchers.length > 0 && (
+          {lastLot ? (
             <Card className="overflow-hidden">
-              {/* ── Lot header — styled like Tous les lots ── */}
-              <div className="flex flex-wrap items-start justify-between gap-3 px-4 sm:px-5 py-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="font-mono font-semibold text-gray-900 text-sm break-all">{lastLotName || comment}</p>
-                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                      <span className="text-xs text-green-600 font-medium">
-                        {generatedVouchers.length} voucher(s) générés
-                      </span>
-                      {generatedVouchers[0]?.profileName && (
-                        <>
-                          <span className="text-gray-300">·</span>
-                          <span className="text-xs text-gray-400">{generatedVouchers[0].profileName}</span>
-                        </>
-                      )}
-                      {generatedVouchers[0]?.price && (
-                        <>
-                          <span className="text-gray-300">·</span>
-                          <span className="text-xs text-gray-400">{generatedVouchers[0].price} FCFA</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
+              {/* ── En-tête lot ── */}
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100 px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Dernier lot généré</span>
+                  <span className="ml-auto text-xs text-gray-400 flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {new Date(lastLot.generatedAt).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}
+                  </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleExportTxt} title="Exporter en .txt">
-                    <FileText className="h-3.5 w-3.5" /> .txt
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleExportCsv} title="Exporter en .csv">
-                    <Table2 className="h-3.5 w-3.5" /> .csv
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleCopyAll} title="Copier tous les codes">
-                    <Copy className="h-3.5 w-3.5" /> Copier
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handlePrint} title="Imprimer les tickets">
-                    <Printer className="h-3.5 w-3.5" /> Imprimer
-                  </Button>
+                <p className="font-mono font-bold text-gray-900 text-sm break-all">{lastLot.comment}</p>
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 border-0">
+                    <Package className="h-3 w-3 mr-1" />{lastLot.vouchers.length} vouchers
+                  </Badge>
+                  {lastLot.profileName && (
+                    <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-700 border-0">
+                      {lastLot.profileName}
+                    </Badge>
+                  )}
+                  {lastLot.validity && (
+                    <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-700 border-0">
+                      ⏱ {lastLot.validity}
+                    </Badge>
+                  )}
+                  {lastLot.price && (
+                    <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-0">
+                      {lastLot.price} FCFA
+                    </Badge>
+                  )}
+                  {lastLot.vendorName && (
+                    <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600 border-0">
+                      {lastLot.vendorName}
+                    </Badge>
+                  )}
+                  {lastLot.routerName && (
+                    <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500 border-0">
+                      <RouterIcon className="h-3 w-3 mr-1" />{lastLot.routerName}
+                    </Badge>
+                  )}
                 </div>
               </div>
 
-              {/* ── Compact codes list ── */}
-              <div className="border-t border-gray-100 max-h-80 overflow-y-auto">
+              {/* ── Bouton Imprimer proéminent ── */}
+              <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap gap-2">
+                <Button
+                  className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={() => handlePrint(lastLot)}
+                  disabled={isPrinting}
+                >
+                  {isPrinting
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Printer className="h-4 w-4" />}
+                  {isPrinting ? "Impression en cours..." : "Imprimer les tickets"}
+                </Button>
+                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleCopyAll(lastLot)} title="Copier tous les codes">
+                  <Copy className="h-4 w-4" />
+                </Button>
+                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportTxt(lastLot)} title="Exporter .txt">
+                  <FileText className="h-4 w-4" />
+                </Button>
+                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
+                  <Table2 className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* ── Liste des codes ── */}
+              <div className="max-h-[420px] overflow-y-auto">
                 <div className="divide-y divide-gray-50">
-                  {generatedVouchers.map((v, i) => (
-                    <div key={v.id} className="flex items-center gap-3 px-5 py-2">
+                  {lastLot.vouchers.map((v, i) => (
+                    <div key={v.id ?? i} className="flex items-center gap-3 px-4 py-1.5 hover:bg-gray-50 transition-colors">
                       <span className="text-xs text-gray-300 w-6 text-right flex-shrink-0 tabular-nums">{i + 1}</span>
-                      <code className="font-mono text-sm font-semibold text-gray-900 flex-1">{v.username}</code>
+                      <code className="font-mono text-sm font-semibold text-gray-900 flex-1 select-all">{v.username}</code>
                       {v.username !== v.password && (
-                        <code className="font-mono text-xs text-gray-400 flex-shrink-0">{v.password}</code>
+                        <code className="font-mono text-xs text-gray-400 flex-shrink-0 select-all">{v.password}</code>
                       )}
                       {v.validity && (
                         <span className="text-xs text-blue-500 flex-shrink-0">{v.validity}</span>
@@ -761,6 +1047,17 @@ export default function GenerateVouchers() {
                 </div>
               </div>
             </Card>
+          ) : loadingLastLot ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+              <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
+              <p className="text-sm font-medium text-gray-400">Chargement du dernier lot…</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+              <Package className="h-10 w-10 text-gray-300 mb-3" />
+              <p className="text-sm font-medium text-gray-400">Aucun lot disponible</p>
+              <p className="text-xs text-gray-300 mt-1">Le dernier lot apparaîtra ici après la génération</p>
+            </div>
           )}
         </div>
       </div>

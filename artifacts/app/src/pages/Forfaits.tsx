@@ -32,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw, ArrowRightLeft } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 function formatValidity(v: string | null | undefined): string {
@@ -41,6 +41,29 @@ function formatValidity(v: string | null | undefined): string {
     .replace(/(\d+)h/, "$1 heure(s)")
     .replace(/(\d+)d/, "$1 jour(s)")
     .replace(/(\d+)w/, "$1 semaine(s)");
+}
+
+// Bidirectional mapping between MikroTik / MikhMon canonical values
+// and the dropdown labels used in the form.
+function expiredModeFromBackend(value: string | null | undefined): string {
+  if (value == null) return "None";
+  const raw = String(value).trim();
+  if (!raw) return "None";
+  // Pass-through dropdown labels (saved by VoucherNet itself).
+  if (
+    raw === "None" ||
+    raw === "Remove" ||
+    raw === "Notice" ||
+    raw === "Remove & Record" ||
+    raw === "Notice & Record"
+  ) return raw;
+  const v = raw.toLowerCase();
+  if (v === "nothing" || v === "none" || v === "-") return "None";
+  if (v === "rem" || v === "remove") return "Remove";
+  if (v === "ntf" || v === "notice" || v === "disable") return "Notice";
+  if (v === "remc" || v === "remove & record" || v === "remove and record") return "Remove & Record";
+  if (v === "ntfc" || v === "notice & record" || v === "notice and record") return "Notice & Record";
+  return "None";
 }
 
 const defaultForm = {
@@ -85,6 +108,8 @@ export default function Forfaits() {
   const [deletingName, setDeletingName] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [refreshingProfiles, setRefreshingProfiles] = useState(false);
+  const [syncingNames, setSyncingNames] = useState(false);
+  const [syncNamesMsg, setSyncNamesMsg] = useState<string | null>(null);
   const [localProfiles, setLocalProfiles] = useState<(typeof profiles)>([]);
 
   const localCacheKey = selectedRouterId ? `forfaits-cache:${selectedRouterId}` : null;
@@ -170,7 +195,7 @@ export default function Forfaits() {
       addrPool: p.addrPool ?? "",
       sharedUsers: p.sharedUsers ?? "1",
       rateLimit: p.rateLimit ?? "",
-      expiredMode: p.expiredMode ?? "None",
+      expiredMode: expiredModeFromBackend(p.expiredMode),
       price: p.price ?? "",
       sellingPrice: p.sellingPrice ?? "",
       lockMac: p.lockMac ?? false,
@@ -246,30 +271,69 @@ export default function Forfaits() {
     }
   }
 
+  async function handleSyncNames() {
+    if (!selectedRouterId) return;
+    setSyncingNames(true);
+    setSyncNamesMsg(null);
+    try {
+      const res = await fetch(`/api/routers/${selectedRouterId}/profiles/sync-names`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setSyncNamesMsg(`Erreur: ${(body as { error?: string }).error ?? res.statusText}`);
+      } else {
+        setSyncNamesMsg("Noms synchronisés avec succès");
+        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+        setTimeout(() => setSyncNamesMsg(null), 4000);
+      }
+    } catch (e) {
+      setSyncNamesMsg(`Erreur: ${String(e)}`);
+    } finally {
+      setSyncingNames(false);
+    }
+  }
+
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Forfaits</h1>
           <p className="text-sm text-gray-500">Profils hotspot disponibles sur vos routeurs MikroTik</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             onClick={handleForceRefreshProfiles}
             disabled={!selectedRouterId || refreshingProfiles}
-            className="flex-shrink-0"
+            className="gap-2"
+            title="Actualiser maintenant"
           >
-            <RefreshCw className={`h-4 w-4 mr-1.5 ${refreshingProfiles ? "animate-spin" : ""}`} />
-            {refreshingProfiles ? "Actualisation..." : "Actualiser maintenant"}
+            <RefreshCw className={`h-4 w-4 ${refreshingProfiles ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">{refreshingProfiles ? "Actualisation..." : "Actualiser maintenant"}</span>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleSyncNames}
+            disabled={!selectedRouterId || syncingNames}
+            className="gap-2"
+            title="Détecter et appliquer les renommages de forfaits MikroTik"
+          >
+            <ArrowRightLeft className={`h-4 w-4 ${syncingNames ? "animate-pulse" : ""}`} />
+            <span className="hidden sm:inline">{syncingNames ? "Sync noms..." : "Sync noms"}</span>
           </Button>
           {!isManager && (
-            <Button onClick={openCreate} disabled={!selectedRouterId} className="flex-shrink-0">
-              <Plus className="h-4 w-4 mr-1.5" /> Ajouter un forfait
+            <Button onClick={openCreate} disabled={!selectedRouterId} className="gap-2" title="Ajouter un forfait">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ajouter un forfait</span>
             </Button>
           )}
         </div>
       </div>
+
+      {syncNamesMsg && (
+        <div className={`mb-4 rounded-md px-4 py-2 text-sm font-medium ${syncNamesMsg.startsWith("Erreur") ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
+          {syncNamesMsg}
+        </div>
+      )}
 
       {!selectedRouterId && (
         <Card>

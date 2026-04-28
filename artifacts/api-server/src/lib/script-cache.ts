@@ -26,6 +26,55 @@ export interface CachedSaleDetail {
 /** In-memory flag: routers whose cache has been fully populated this process lifetime */
 const fullyPopulated = new Set<number>();
 
+/** Timestamp of last SUCCESSFUL full load per router — forces a new full load every 1 h */
+const lastFullLoadAt = new Map<number, number>();
+const FULL_RELOAD_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Last attempt timestamp (success OR failure) per router. Used to back off
+ * after a failed full-load so we don't hammer an unresponsive router every
+ * 20s tick (each failed full-load can hold a 120s timeout slot per vendor).
+ *
+ * Backoff is exponential: starts at FULL_LOAD_BACKOFF_MIN_MS, doubles after
+ * each consecutive failure, capped at FULL_LOAD_BACKOFF_MAX_MS. This way a
+ * router that recovers quickly (reboot/network flap) gets re-tried within
+ * ~1 min, while a chronically unreachable router is only retried every 10 min.
+ */
+const lastFullLoadAttemptAt = new Map<number, number>();
+const fullLoadFailStreak     = new Map<number, number>();
+const FULL_LOAD_BACKOFF_MIN_MS =      60 * 1000; // 1  min  (after 1 failure)
+const FULL_LOAD_BACKOFF_MAX_MS = 10 * 60 * 1000; // 10 min  (after many)
+/**
+ * Throttle for incremental syncs (per router). Prevents N vendors on the same
+ * router from each issuing the same incremental query within the same tick.
+ */
+const lastIncrementalAt = new Map<number, number>();
+const INCREMENTAL_MIN_GAP_MS = 60 * 1000; // 1 minute
+
+/**
+ * In-flight dedup: when several vendors on the same router call syncScriptCache
+ * concurrently, share a single promise instead of opening multiple MikroTik
+ * sessions for the same data.
+ */
+const inFlight = new Map<number, Promise<number>>();
+
+/**
+ * Force the next syncScriptCache call for this router to do a full reload
+ * regardless of whether it was already "fully populated".
+ */
+export function clearRouterScriptCache(routerId: number): void {
+  fullyPopulated.delete(routerId);
+  lastFullLoadAt.delete(routerId);
+  lastFullLoadAttemptAt.delete(routerId);
+  fullLoadFailStreak.delete(routerId);
+  lastIncrementalAt.delete(routerId);
+  // Note: we do NOT clear `inFlight` here. If a sync is already running for
+  // this router, the next caller will share that result (it's about to insert
+  // the latest data anyway). Clearing it would risk opening a parallel
+  // MikroTik session for the same router, which is exactly what we just
+  // hardened against.
+}
+
 /**
  * Synchronise the local script cache for a router.
  *
@@ -38,24 +87,64 @@ export async function syncScriptCache(
   routerId: number,
   conn: RouterConnection,
 ): Promise<number> {
-  try {
-    // Check if we already have data for this router
-    const [countRow] = await db
-      .select({ n: sql<number>`count(*)` })
-      .from(scriptSalesTable)
-      .where(eq(scriptSalesTable.routerId, routerId));
+  // ── In-flight dedup ──────────────────────────────────────────────────
+  // If another caller is already syncing this router, await its result
+  // instead of issuing a parallel MikroTik session for the same data.
+  const existing = inFlight.get(routerId);
+  if (existing) return existing;
 
-    const isEmpty = Number(countRow?.n ?? 0) === 0;
-    const needsFullLoad = isEmpty || !fullyPopulated.has(routerId);
+  const promise = (async () => {
+    try {
+      // Check if we already have data for this router
+      const [countRow] = await db
+        .select({ n: sql<number>`count(*)` })
+        .from(scriptSalesTable)
+        .where(eq(scriptSalesTable.routerId, routerId));
 
-    let entries: Awaited<ReturnType<typeof fetchScriptSales>>;
+      const isEmpty = Number(countRow?.n ?? 0) === 0;
+      const lastFull = lastFullLoadAt.get(routerId) ?? 0;
+      const fullLoadStale = Date.now() - lastFull > FULL_RELOAD_INTERVAL_MS;
+      const needsFullLoad = isEmpty || !fullyPopulated.has(routerId) || fullLoadStale;
+
+      let entries: Awaited<ReturnType<typeof fetchScriptSales>>;
 
     if (needsFullLoad) {
-      // Full load: all historical scripts — heavy but done only once
-      logger.info({ routerId }, "script cache: full load started (first run)");
-      entries = await fetchScriptSales(conn, { type: "all" }, 120_000);
+      // Back off after consecutive failures (exponential, capped at 10 min).
+      // Successful loads reset the streak so the next failure starts again at 1 min.
+      const failStreak  = fullLoadFailStreak.get(routerId) ?? 0;
+      const lastAttempt = lastFullLoadAttemptAt.get(routerId) ?? 0;
+      if (failStreak > 0 && lastAttempt > 0) {
+        const backoff = Math.min(
+          FULL_LOAD_BACKOFF_MIN_MS * 2 ** (failStreak - 1),
+          FULL_LOAD_BACKOFF_MAX_MS,
+        );
+        if (Date.now() - lastAttempt < backoff) {
+          return 0; // skip silently; will retry after backoff
+        }
+      }
+
+      // Full load: all historical scripts — heavy, done once per router then every 1 h
+      logger.info({ routerId, reason: isEmpty ? "empty" : fullLoadStale ? "stale(1h)" : "first-run" },
+        "script cache: full load started");
+      lastFullLoadAttemptAt.set(routerId, Date.now()); // mark BEFORE the call
+      try {
+        entries = await fetchScriptSales(conn, { type: "all" }, 120_000);
+      } catch (err) {
+        // Bump the consecutive-failure counter so the next attempt waits longer
+        fullLoadFailStreak.set(routerId, failStreak + 1);
+        throw err;
+      }
+      // Success: clear failure streak
+      fullLoadFailStreak.delete(routerId);
       fullyPopulated.add(routerId);
+      lastFullLoadAt.set(routerId, Date.now());
     } else {
+      // Throttle incremental syncs per router (multiple vendors share the same data)
+      const lastInc = lastIncrementalAt.get(routerId) ?? 0;
+      if (Date.now() - lastInc < INCREMENTAL_MIN_GAP_MS) {
+        return 0;
+      }
+      lastIncrementalAt.set(routerId, Date.now());
       // Incremental: fetch this month + last month only
       const now = new Date();
       const thisYear  = now.getFullYear();
@@ -102,14 +191,20 @@ export async function syncScriptCache(
       inserted += result.length;
     }
 
-    if (inserted > 0) {
-      logger.info({ routerId, total: entries.length, inserted }, "script cache: sync complete");
+      if (inserted > 0) {
+        logger.info({ routerId, total: entries.length, inserted }, "script cache: sync complete");
+      }
+      return inserted;
+    } catch (err) {
+      logger.warn({ routerId, err }, "script cache: sync failed (non-blocking)");
+      return 0;
+    } finally {
+      inFlight.delete(routerId);
     }
-    return inserted;
-  } catch (err) {
-    logger.warn({ routerId, err }, "script cache: sync failed (non-blocking)");
-    return 0;
-  }
+  })();
+
+  inFlight.set(routerId, promise);
+  return promise;
 }
 
 /**

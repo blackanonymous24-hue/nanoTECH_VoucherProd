@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "ek-AQGfr3WEZTtQi0f-iu"
+uri = "file://artifacts/mobile/assets/images/icon.png"
+type = "image"
+title = "nanotech-vouchers-icon"

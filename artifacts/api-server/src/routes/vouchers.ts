@@ -1,8 +1,10 @@
 import { Router } from "express";
-import { eq, and, isNotNull, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, desc, sql, or, ilike, gte } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
+import { invalidateUserCache } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
+import { withRouterLock } from "../lib/router-lock.js";
 
 /**
  * After inserting vouchers, attribute any with vendorId=null to the matching
@@ -74,6 +76,55 @@ router.get("/vouchers", async (req, res): Promise<void> => {
   res.json({ vouchers, total });
 });
 
+/* ── Sold-ticket lookup (admin/manager/collab) ─────────────────────────── */
+router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
+  const { routerId, q } = req.query as { routerId?: string; q?: string };
+  if (!routerId) { res.status(400).json({ error: "routerId requis" }); return; }
+
+  const rid = parseInt(routerId, 10);
+  const term = (q ?? "").trim();
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+  cutoff.setHours(0, 0, 0, 0);
+
+  const baseConditions = [
+    eq(vouchersTable.routerId, rid),
+    isNotNull(vouchersTable.printedAt),
+    gte(vouchersTable.printedAt, cutoff),
+  ];
+
+  const searchConditions = term.length >= 1
+    ? [or(
+        ilike(vouchersTable.username, `%${term}%`),
+        ilike(vouchersTable.macAddress, `%${term}%`),
+        ilike(vouchersTable.saleIp, `%${term}%`),
+      )]
+    : [];
+
+  const rows = await db
+    .select({
+      id:          vouchersTable.id,
+      username:    vouchersTable.username,
+      profileName: vouchersTable.profileName,
+      price:       vouchersTable.price,
+      salePrice:   vouchersTable.salePrice,
+      macAddress:  vouchersTable.macAddress,
+      saleIp:      vouchersTable.saleIp,
+      printedAt:   vouchersTable.printedAt,
+      usedAt:      vouchersTable.usedAt,
+      vendorId:    vouchersTable.vendorId,
+      vendorName:  vendorsTable.name,
+    })
+    .from(vouchersTable)
+    .leftJoin(vendorsTable, eq(vouchersTable.vendorId, vendorsTable.id))
+    .where(and(...baseConditions, ...searchConditions))
+    .orderBy(desc(vouchersTable.printedAt))
+    .limit(200);
+
+  res.json({ tickets: rows, total: rows.length });
+});
+
 router.post("/vouchers/generate", async (req, res): Promise<void> => {
   const { routerId, profile, qty, prefix, comment, server, vendorId, passwordMode, charType, userLength, timelimit, datalimit, profilePrice, profileValidity } = req.body as {
     routerId?: number;
@@ -131,31 +182,69 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
   }
 
   try {
-    const generated = await generateVouchers(
-      conn,
-      { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "same", charType, userLength, timelimit: timelimit || undefined, datalimit: datalimit || undefined },
-    );
+    // Lock this router for the duration of generation so background syncs
+    // don't open concurrent MikroTik connections and saturate the API limit.
+    const inserted = await withRouterLock(routerId, async () => {
+      const generated = await generateVouchers(
+        conn,
+        { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "same", charType, userLength, timelimit: timelimit || undefined, datalimit: datalimit || undefined },
+      );
+      return db
+        .insert(vouchersTable)
+        .values(
+          generated.map((v) => ({
+            routerId,
+            vendorId: vendorId ?? null,
+            username: v.username,
+            password: v.password,
+            profileName: v.profile,
+            price: v.price,
+            validity: v.validity,
+            comment: v.comment || null,
+          })),
+        )
+        .returning();
+    });
 
-    const inserted = await db
-      .insert(vouchersTable)
-      .values(
-        generated.map((v) => ({
-          routerId,
-          vendorId: vendorId ?? null,
-          username: v.username,
-          password: v.password,
-          profileName: v.profile,
-          price: v.price,
-          validity: v.validity,
-          comment: v.comment || null,
-        })),
-      )
-      .returning();
+    // Drop the cached MikroTik user list so any reconciliation read-back
+    // (e.g. the client checking how many users actually exist for a lot
+    // after a retry) sees the freshly-added users.
+    invalidateUserCache(routerId);
 
     res.status(201).json(inserted);
 
     // Background: auto-attribute vouchers without vendorId to the matching vendor by comment suffix
     void autoAttributeInserted(inserted.map((v) => v.id));
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// POST /vouchers/users-toggle — enable/disable a specific set of usernames
+router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
+  const { routerId, usernames, enable } = req.body as {
+    routerId?: number;
+    usernames?: string[];
+    enable?: boolean;
+  };
+  if (!routerId || !Array.isArray(usernames) || usernames.length === 0) {
+    res.status(400).json({ error: "routerId et usernames sont requis" });
+    return;
+  }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const result = await withRouterLock(routerId, () =>
+      enableDisableHotspotUsers(
+        { host: r.host, port: r.port, username: r.username, password: r.password },
+        usernames,
+        enable ?? false,
+      ),
+    );
+    invalidateUserCache(routerId);
+    res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
@@ -187,11 +276,14 @@ router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
 
   try {
     const usernames = vouchers.map((v) => v.username);
-    const result = await enableDisableHotspotUsers(
-      { host: r.host, port: r.port, username: r.username, password: r.password },
-      usernames,
-      enable ?? false,
+    const result = await withRouterLock(routerId, () =>
+      enableDisableHotspotUsers(
+        { host: r.host, port: r.port, username: r.username, password: r.password },
+        usernames,
+        enable ?? false,
+      ),
     );
+    invalidateUserCache(routerId);
     res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

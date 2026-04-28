@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { printReport } from "@/lib/print";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,11 +24,22 @@ import {
 } from "@/components/ui/select";
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
-  User, RefreshCw, Clock, ChevronLeft, Search, Banknote, Printer, LogIn,
-  PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X,
+  User, RefreshCw, Clock, ChevronLeft, ChevronRight, Search, Banknote, Printer, LogIn,
+  PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
+
+/* ── Module-level dashboard cache ──────────────────────────────────────
+   Survives React re-renders and component unmount/remount within the same
+   browser tab. Enables instant display (no spinner) when the user returns
+   to the portal or the component re-mounts with the same token.          */
+const _dc: {
+  token: string | null;
+  data: PortalData | null;
+  versData: VersementData | null;
+  arrearsData: DailyArrearsData | null;
+} = { token: null, data: null, versData: null, arrearsData: null };
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type VendorInfo = { id: number; name: string; email: string | null; username: string | null };
@@ -70,11 +83,35 @@ type VersementWeek = {
   amount: number;
   commission: number;
   commissionRate: number;
+  weeklyPaid?: number;       // lump-sum weekly payments only
+  dailyPaid?: number;        // daily payments only
+  weeklyExpected?: number;   // amount - commission - dailyPaid
   totalPaid: number;
   remaining: number;
   payments: { id: number; amount: number; paidAt: string; note: string | null }[];
 };
 type VersementData = { weeks: VersementWeek[] };
+type DailyArrearsDay = { date: string; count: number; amount: number; paid: number; remaining: number };
+type DailyArrearsData = { days: DailyArrearsDay[] };
+
+/** Consolidated arrears: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
+type ConsolidatableDailyArrearsDay = DailyArrearsDay & { __underlyingCount?: number };
+function consolidateDailyArrears(days: DailyArrearsDay[]): ConsolidatableDailyArrearsDay[] {
+  // Always return ascending (oldest first, most recent last)
+  const asc = [...days].sort((a, b) => a.date.localeCompare(b.date));
+  if (asc.length <= 3) return asc;
+  const older = asc.slice(0, asc.length - 2);
+  const recent = asc.slice(asc.length - 2);
+  const merged: ConsolidatableDailyArrearsDay = {
+    date: older[older.length - 1].date,
+    count:     older.reduce((s, d) => s + d.count, 0),
+    amount:    older.reduce((s, d) => s + d.amount, 0),
+    paid:      older.reduce((s, d) => s + d.paid, 0),
+    remaining: older.reduce((s, d) => s + d.remaining, 0),
+    __underlyingCount: older.length,
+  };
+  return [merged, ...recent];
+}
 type PeriodSalesData = {
   period: string;
   label: string;
@@ -109,11 +146,11 @@ function fmtFcfa(n: number): string {
 }
 
 function amountFontClass(formatted: string): string {
-  const len = formatted.replace(/\s/g, "").length;
-  if (len <= 5)  return "text-2xl";
-  if (len <= 7)  return "text-xl";
-  if (len <= 9)  return "text-lg";
-  return "text-base";
+  const len = formatted.replace(/[\s\u00A0]/g, "").length;
+  if (len <= 4)  return "text-xl";
+  if (len <= 6)  return "text-lg";
+  if (len <= 8)  return "text-base";
+  return "text-sm";
 }
 
 function StatCard({
@@ -129,19 +166,18 @@ function StatCard({
 }) {
   const formatted = fcfa ? fmtFcfa(value) : String(value);
   const inner = (
-    <CardContent className="p-4 flex items-center gap-4">
-      <div className={`h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
-        <Icon className="h-6 w-6 text-white" />
+    <CardContent className="p-3 flex items-center gap-2.5">
+      <div className={`h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
+        <Icon className="h-4 w-4 text-white" />
       </div>
-      <div>
-        <div className="flex items-baseline gap-1">
-          <p className={`${fcfa ? amountFontClass(formatted) : "text-2xl"} font-bold text-gray-900 tabular-nums`}>{formatted}</p>
-          {fcfa && <span className="text-xs font-medium text-gray-400">FCFA</span>}
-        </div>
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <p className={`${fcfa ? amountFontClass(formatted) : "text-xl"} font-bold text-gray-900 tabular-nums leading-tight truncate`}>
+          {formatted}{fcfa && <span className="text-[10px] font-medium text-gray-400 ml-0.5">F</span>}
+        </p>
         {sub !== undefined && (
-          <p className="text-xs text-gray-400">{sub} ticket{sub !== 1 ? "s" : ""}</p>
+          <p className="text-[10px] text-gray-400 truncate leading-tight">{sub} ticket{sub !== 1 ? "s" : ""}</p>
         )}
-        <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+        <p className="text-[10px] text-gray-500 truncate leading-tight">{label}</p>
       </div>
     </CardContent>
   );
@@ -187,7 +223,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
           <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-lg">
             <Wifi className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">VoucherNet</h1>
+          <h1 className="text-2xl font-bold text-white">nanoTECH Vouchers Bills</h1>
           <p className="text-sm text-gray-400 mt-1">Gestion Hotspot MikroTik</p>
         </div>
 
@@ -286,10 +322,12 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [vSearch, setVSearch] = useState("");
 
   useEffect(() => {
     setLoading(true);
     setError("");
+    setVSearch("");
     api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -318,7 +356,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
         {data && (
-          <Button size="sm" variant="outline" onClick={() => window.print()} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => printReport("Rapport de ventes")} className="gap-1.5">
             <Printer className="h-4 w-4" /> Imprimer
           </Button>
         )}
@@ -332,7 +370,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
           const byProfile = data.vouchers.reduce((acc, v) => {
             if (!acc[v.profileName]) acc[v.profileName] = { count: 0, revenue: 0 };
             acc[v.profileName].count++;
-            acc[v.profileName].revenue += parseFloat(v.price ?? "0") || 0;
+            acc[v.profileName].revenue += parseFloat(v.salePrice || v.price || "0") || 0;
             return acc;
           }, {} as Record<string, { count: number; revenue: number }>);
           return (
@@ -365,17 +403,47 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                 </div>
                 <Card>
                   <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-2">
                       <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
                       {data.vouchers.length > 0 && (
-                        <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">{data.vouchers.length}</span>
+                        <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">
+                          {vSearch.trim()
+                            ? `${data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase())).length}/${data.vouchers.length}`
+                            : data.vouchers.length}
+                        </span>
                       )}
                     </div>
+                    {data.vouchers.length > 0 && (
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Rechercher user, MAC ou IP…"
+                          value={vSearch}
+                          onChange={(e) => setVSearch(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-400"
+                        />
+                        {vSearch && (
+                          <button
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            onClick={() => setVSearch("")}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </CardHeader>
                   <CardContent className="p-0">
                     {data.vouchers.length === 0 ? (
                       <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente ce jour</p>
-                    ) : (
+                    ) : (() => {
+                      const vFiltered = vSearch.trim()
+                        ? data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase()))
+                        : data.vouchers;
+                      return vFiltered.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-6 px-4">Aucun résultat pour « {vSearch} »</p>
+                      ) : (
                       <div className="max-h-80 overflow-x-auto overflow-y-auto scroll-card">
                         <table className="w-full min-w-[620px] text-xs border-collapse">
                           <thead>
@@ -389,16 +457,16 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                             </tr>
                           </thead>
                           <tbody>
-                            {data.vouchers.map((v, i) => {
+                            {vFiltered.map((v, i) => {
                               const displayPrice = v.salePrice || v.price || "";
                               const dateObj = (() => {
                                 const raw = v.usedAt || v.printedAt;
                                 if (!raw) return null;
                                 const d = new Date(raw);
-                                const day = String(d.getDate()).padStart(2, "0");
+                                const dy = String(d.getDate()).padStart(2, "0");
                                 const hh = String(d.getHours()).padStart(2, "0");
                                 const mn = String(d.getMinutes()).padStart(2, "0");
-                                return { date: `${day} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
+                                return { date: `${dy} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
                               })();
                               return (
                                 <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
@@ -434,14 +502,15 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                           </tbody>
                         </table>
                       </div>
-                    )}
+                      );
+                    })()}
                   </CardContent>
                 </Card>
               </div>
 
               {/* ── Impression ── */}
               <div className="print-only">
-                <p className="report-print-title">{hotspotName || "VoucherNet"} — Rapport de ventes</p>
+                <p className="report-print-title">{hotspotName || "nanoTECH Vouchers Bills"} — Rapport de ventes</p>
                 <p className="report-print-meta">
                   {dateLabel} &nbsp;·&nbsp; Imprimé le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </p>
@@ -497,7 +566,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                         <td>{i + 1}</td>
                         <td style={{ fontFamily: "monospace" }}>{v.username}</td>
                         <td>{v.profileName}</td>
-                        <td>{v.price ?? "—"}</td>
+                        <td>{(v.salePrice || v.price) ?? "—"}</td>
                         <td>{v.printedAt ? new Date(v.printedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                       </tr>
                     ))}
@@ -512,17 +581,27 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
   );
 }
 
-function PeriodReport({ token, period, onBack, hotspotName }: {
+function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
   token: string;
   period: "today" | "yesterday" | "week" | "month";
   onBack: () => void;
   hotspotName?: string | null;
+  initialData?: PeriodSalesData | null;
 }) {
-  const [data, setData] = useState<PeriodSalesData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<PeriodSalesData | null>(initialData ?? null);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState("");
+  const [vSearch, setVSearch] = useState("");
 
   useEffect(() => {
+    setVSearch("");
+  }, [period]);
+
+  useEffect(() => {
+    // If we already have data from the prefetch cache, show it instantly.
+    // A background refresh will happen on the next prefetch cycle (every 15 s).
+    if (initialData) return;
+    let cancelled = false;
     setLoading(true);
     setError("");
     api(`/vendor-portal/me/period-sales?period=${period}`, {
@@ -532,10 +611,11 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
         if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
         return res.json();
       })
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [token, period]);
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [token, period, initialData]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -549,7 +629,7 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
         {data && (
-          <Button size="sm" variant="outline" onClick={() => window.print()} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => printReport("Rapport de ventes")} className="gap-1.5">
             <Printer className="h-4 w-4" /> Imprimer
           </Button>
         )}
@@ -609,18 +689,48 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-2">
                     <CardTitle className="text-base">Tickets vendus ({data.total})</CardTitle>
                     {data.vouchers.length > 0 && (
-                      <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">{data.vouchers.length}</span>
+                      <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">
+                        {vSearch.trim()
+                          ? `${data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase())).length}/${data.vouchers.length}`
+                          : data.vouchers.length}
+                      </span>
                     )}
                   </div>
+                  {data.vouchers.length > 0 && (
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Rechercher user, MAC ou IP…"
+                        value={vSearch}
+                        onChange={(e) => setVSearch(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-400"
+                      />
+                      {vSearch && (
+                        <button
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          onClick={() => setVSearch("")}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent className="p-0">
                   {data.vouchers.length === 0 ? (
                     <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente enregistrée</p>
-                  ) : (
-                    <div className="max-h-80 overflow-x-auto overflow-y-auto scroll-card">
+                  ) : (() => {
+                    const vFiltered = vSearch.trim()
+                      ? data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase()))
+                      : data.vouchers;
+                    return vFiltered.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-6 px-4">Aucun résultat pour « {vSearch} »</p>
+                    ) : (
+                    <div className="overflow-x-auto">
                       <table className="w-full min-w-[620px] text-xs border-collapse">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200">
@@ -633,16 +743,16 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
                           </tr>
                         </thead>
                         <tbody>
-                          {data.vouchers.map((v, i) => {
+                          {vFiltered.map((v, i) => {
                             const displayPrice = v.salePrice || v.price || "";
                             const dateObj = (() => {
                               const raw = v.usedAt || v.printedAt;
                               if (!raw) return null;
-                              const d = new Date(raw);
-                              const day = String(d.getDate()).padStart(2, "0");
-                              const hh = String(d.getHours()).padStart(2, "0");
-                              const mn = String(d.getMinutes()).padStart(2, "0");
-                              return { date: `${day} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
+                              const dt = new Date(raw);
+                              const dy = String(dt.getDate()).padStart(2, "0");
+                              const hh = String(dt.getHours()).padStart(2, "0");
+                              const mn = String(dt.getMinutes()).padStart(2, "0");
+                              return { date: `${dy} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`, time: `${hh}:${mn}` };
                             })();
                             return (
                               <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
@@ -678,14 +788,15 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
                         </tbody>
                       </table>
                     </div>
-                  )}
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </div>
 
             {/* ── Impression ── */}
             <div className="print-only">
-              <p className="report-print-title">{hotspotName || "VoucherNet"} — Rapport de ventes</p>
+              <p className="report-print-title">{hotspotName || "nanoTECH Vouchers Bills"} — Rapport de ventes</p>
               <p className="report-print-meta">
                 Période : <strong>{data.label}</strong> &nbsp;·&nbsp; Imprimé le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
               </p>
@@ -737,7 +848,7 @@ function PeriodReport({ token, period, onBack, hotspotName }: {
                       <td>{i + 1}</td>
                       <td style={{ fontFamily: "monospace" }}>{v.username}</td>
                       <td>{v.profileName}</td>
-                      <td>{v.price ?? "—"}</td>
+                      <td>{(v.salePrice || v.price) ?? "—"}</td>
                       <td>{v.printedAt ? new Date(v.printedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                     </tr>
                   ))}
@@ -756,9 +867,14 @@ function Dashboard({ token, vendor, onLogout }: {
   vendor: VendorInfo;
   onLogout: () => void;
 }) {
-  const [data, setData] = useState<PortalData | null>(null);
-  const [versData, setVersData] = useState<VersementData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // ── Use module-level cache for instant display on mount ─────────────────
+  // hadCacheRef stays stable so fetchData dependency array never changes.
+  const hadCacheRef = useRef(_dc.token === token && _dc.data !== null);
+  const [data, setData] = useState<PortalData | null>(hadCacheRef.current ? _dc.data : null);
+  const [versData, setVersData] = useState<VersementData | null>(hadCacheRef.current ? _dc.versData : null);
+  const [arrearsData, setArrearsData] = useState<DailyArrearsData | null>(hadCacheRef.current ? _dc.arrearsData : null);
+  const [loading, setLoading] = useState(!hadCacheRef.current);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
   const [recentSearch, setRecentSearch] = useState("");
@@ -806,32 +922,85 @@ function Dashboard({ token, vendor, onLogout }: {
   const [periodView,  setPeriodView]  = useState<"today" | "yesterday" | "week" | "month" | null>(null);
 
   const notifiedProfilesRef = useRef<Set<string>>(new Set());
+  const periodCacheRef = useRef<Map<string, PeriodSalesData>>(new Map());
 
   const fetchData = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true);
+    // Spinner skeleton uniquement si on n'a aucune donnée à afficher
+    if (showLoading && !hadCacheRef.current) setLoading(true);
     setError("");
+    setIsRefreshing(true);
+    const headers = { Authorization: `Bearer ${token}` };
+    let logoutTriggered = false;
+
+    // Les 3 endpoints partent en parallèle. Chacun met à jour son propre
+    // morceau d'état dès qu'il revient — le tableau de bord se peint au
+    // fur et à mesure au lieu d'attendre le plus lent.
+    const dashPromise = api("/vendor-portal/me", { headers })
+      .then(async (res) => {
+        if (res.status === 401 || res.status === 403) {
+          if (!logoutTriggered) { logoutTriggered = true; onLogout(); }
+          return;
+        }
+        if (!res.ok) throw new Error("dashboard");
+        const d = await res.json() as PortalData;
+        setData(d);
+        _dc.token = token;
+        _dc.data  = d;
+        // Dès que le coeur du dashboard arrive, on cache la skeleton
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!hadCacheRef.current) setError("Erreur lors du chargement des données");
+      });
+
+    const paymentsPromise = api("/vendor-portal/me/payments", { headers })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const v = await res.json() as VersementData;
+        setVersData(v);
+        _dc.versData = v;
+      })
+      .catch(() => { /* non-bloquant */ });
+
+    const arrearsPromise = api("/vendor-portal/me/daily-arrears", { headers })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const a = await res.json() as DailyArrearsData;
+        setArrearsData(a);
+        _dc.arrearsData = a;
+      })
+      .catch(() => { /* non-bloquant */ });
+
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [res, versRes] = await Promise.all([
-        api("/vendor-portal/me", { headers }),
-        api("/vendor-portal/me/payments", { headers }),
-      ]);
-      if (res.status === 401 || res.status === 403) { onLogout(); return; }
-      setData(await res.json());
-      if (versRes.ok) setVersData(await versRes.json());
-    } catch {
-      setError("Erreur lors du chargement des données");
+      await Promise.allSettled([dashPromise, paymentsPromise, arrearsPromise]);
     } finally {
-      if (showLoading) setLoading(false);
+      setLoading(false);
+      setIsRefreshing(false);
     }
   }, [token, onLogout]);
 
+  const prefetchPeriods = useCallback(() => {
+    const periods = ["today", "yesterday", "week", "month"] as const;
+    periods.forEach(async (p) => {
+      try {
+        const res = await api(`/vendor-portal/me/period-sales?period=${p}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) periodCacheRef.current.set(p, await res.json());
+      } catch { /* ignore — best effort */ }
+    });
+  }, [token]);
+
   useEffect(() => {
-    fetchData(true);
-    // Silent background refresh every 15s — no loading spinner shown
-    const id = setInterval(() => fetchData(false), 15_000);
-    return () => clearInterval(id);
-  }, [fetchData]);
+    fetchData(true).then(() => { prefetchPeriods(); });
+    // Refresh discret toutes les 8 s pour un ressenti temps réel.
+    // Côté serveur, le cache TTL=20 s + stale-while-revalidate font que la
+    // plupart des requêtes sont servies instantanément (pure mémoire).
+    const id = setInterval(() => { fetchData(false); }, 8_000);
+    // Le prefetch des rapports périodes reste à 30 s (plus lourd, change peu).
+    const idPeriod = setInterval(() => { prefetchPeriods(); }, 30_000);
+    return () => { clearInterval(id); clearInterval(idPeriod); };
+  }, [fetchData, prefetchPeriods]);
 
   // Demander la permission de notification au montage
   useEffect(() => {
@@ -848,7 +1017,7 @@ function Dashboard({ token, vendor, onLogout }: {
       if (available < 100 && !notifiedProfilesRef.current.has(p.profileName)) {
         notifiedProfilesRef.current.add(p.profileName);
         if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("⚠️ Stock faible — VoucherNet", {
+          new Notification("⚠️ Stock faible — nanoTECH Vouchers Bills", {
             body: `Forfait « ${p.profileName} » : seulement ${available} ticket(s) disponible(s).`,
             icon: "/favicon.ico",
           });
@@ -858,7 +1027,7 @@ function Dashboard({ token, vendor, onLogout }: {
   }, [data]);
 
   if (periodView) {
-    return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} hotspotName={data?.hotspotName} />;
+    return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} hotspotName={data?.hotspotName} initialData={periodCacheRef.current.get(periodView)} />;
   }
 
   if (reportView) {
@@ -894,7 +1063,7 @@ function Dashboard({ token, vendor, onLogout }: {
             <Wifi className="h-5 w-5 text-white" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-900">VoucherNet</p>
+            <p className="text-sm font-semibold text-gray-900">nanoTECH Vouchers Bills</p>
             <p className="text-xs text-gray-500">Espace vendeur</p>
           </div>
         </div>
@@ -903,19 +1072,28 @@ function Dashboard({ token, vendor, onLogout }: {
             <User className="h-4 w-4" />
             {vendor.name}
           </div>
-          <Button size="sm" variant="ghost" onClick={() => fetchData(true)} title="Actualiser">
-            <RefreshCw className="h-4 w-4" />
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => fetchData(true)}
+            disabled={isRefreshing}
+            title={isRefreshing ? "Synchronisation en cours…" : "Actualiser"}
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-blue-600" : ""}`} />
           </Button>
           <Button
             size="sm"
             variant="ghost"
             className="gap-1.5"
+            title="Modifier mot de passe"
             onClick={() => { setPwdCurrent(""); setPwdNew(""); setPwdConfirm(""); setPwdError(""); setPwdSuccess(false); setShowChangePwd(true); }}
           >
-            <KeyRound className="h-4 w-4" /> Modifier mot de passe
+            <KeyRound className="h-4 w-4" />
+            <span className="hidden sm:inline">Modifier mot de passe</span>
           </Button>
-          <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300" onClick={onLogout}>
-            <LogOut className="h-4 w-4" /> Se déconnecter
+          <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300" title="Se déconnecter" onClick={onLogout}>
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Se déconnecter</span>
           </Button>
         </div>
       </header>
@@ -926,8 +1104,23 @@ function Dashboard({ token, vendor, onLogout }: {
           <p className="text-sm text-gray-500">Bienvenue, {vendor.name}</p>
         </div>
 
-        {loading && !data && <div className="text-center py-12 text-gray-400">Chargement...</div>}
-        {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
+        {loading && !data && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 animate-pulse" aria-label="Chargement du tableau de bord">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i}>
+                <CardContent className="p-3 flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-xl bg-gray-200 flex-shrink-0" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="h-5 bg-gray-200 rounded w-2/3" />
+                    <div className="h-2.5 bg-gray-100 rounded w-1/2" />
+                    <div className="h-2.5 bg-gray-100 rounded w-3/4" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+        {error && !data && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
         {data && (
           <>
@@ -983,6 +1176,57 @@ function Dashboard({ token, vendor, onLogout }: {
               </Card>
             </div>
 
+            {/* ── Arriérés journaliers ──────────────────────────────── */}
+            {arrearsData && arrearsData.days.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-orange-500" />
+                  <h3 className="text-sm font-semibold text-gray-700">Mes versements non effectués</h3>
+                </div>
+                <Card className="border border-orange-200 bg-orange-50/20">
+                  <CardContent className="p-0">
+                    <div className="divide-y divide-orange-100">
+                      {consolidateDailyArrears(arrearsData.days.slice().sort((a, b) => a.date.localeCompare(b.date))).map((d) => {
+                        const dateObj = new Date(d.date + "T00:00:00Z");
+                        const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+                        const weekday  = cap(dateObj.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" }));
+                        const dayNum   = String(dateObj.getUTCDate());
+                        const monthNum = String(dateObj.getUTCMonth() + 1);
+                        const yearNum  = String(dateObj.getUTCFullYear());
+                        const monthLabel = cap(dateObj.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
+                        const label    = d.__underlyingCount
+                          ? `Arriérés cumulés (${d.__underlyingCount} jours, dernier : ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum})`
+                          : `Arriéré du ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum}`;
+                        return (
+                          <button
+                            key={d.date}
+                            type="button"
+                            onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
+                            className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer"
+                          >
+                            <span className="text-[11px] font-semibold text-orange-700 whitespace-nowrap truncate flex-1 min-w-0 flex items-center gap-1.5">
+                              {label}
+                              <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0" />
+                            </span>
+                            <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
+                              <span className="text-[10px] text-gray-400 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
+                              <span className="text-[11px] font-bold text-orange-700 tabular-nums">{fmtFcfa(d.remaining)} FCFA</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="border-t border-orange-200 bg-orange-50 flex items-center justify-between px-4 py-2 rounded-b-lg">
+                      <span className="text-xs font-semibold text-orange-700">Total arriérés</span>
+                      <span className="text-sm font-bold text-orange-700 tabular-nums">
+                        {fmtFcfa(arrearsData.days.reduce((s, d) => s + d.remaining, 0))} FCFA
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
             {/* ── Versements ───────────────────────────────────────── */}
             {versData && versData.weeks.some((w) => w.count > 0 || w.payments.length > 0) && (
               <div className="space-y-3">
@@ -1034,6 +1278,25 @@ function Dashboard({ token, vendor, onLogout }: {
                               <p className="text-[9px] text-gray-400">Reste</p>
                             </div>
                           </div>
+
+                          {/* Versements détaillés — uniquement la part hebdomadaire.
+                              Le détail "Journalier" n'est jamais affiché. */}
+                          {(w.weeklyPaid ?? 0) > 0 && (
+                            <div className="grid grid-cols-1 gap-1.5 text-[10px]">
+                              <div className="rounded bg-emerald-50 border border-emerald-100 px-2 py-1 flex items-center justify-between">
+                                <span className="text-emerald-600">Hebdo.</span>
+                                <span className="font-bold text-emerald-700 tabular-nums">{fmtFcfa(w.weeklyPaid!)}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Hebdomadaire à régler après déduction des journaliers */}
+                          {(w.dailyPaid ?? 0) > 0 && (w.weeklyExpected ?? 0) > 0 && (
+                            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-blue-700">Hebdo. à régler</span>
+                              <span className="text-sm font-bold text-blue-700 tabular-nums">{fmtFcfa(w.weeklyExpected!)} FCFA</span>
+                            </div>
+                          )}
 
                           {/* Commission row — only if rate is configured */}
                           {w.commissionRate > 0 && (
@@ -1172,7 +1435,7 @@ function Dashboard({ token, vendor, onLogout }: {
             {data.byProfile.length > 0 && (
               <Card>
                 <CardHeader className="pb-2 border-b border-gray-100">
-                  <CardTitle className="text-base">Par forfait — ce mois</CardTitle>
+                  <CardTitle className="text-base">Vendus par forfait (ce mois)</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-3">
                   <div className="space-y-2">
@@ -1199,11 +1462,11 @@ function Dashboard({ token, vendor, onLogout }: {
             <Card className="flex flex-col overflow-hidden">
               <CardHeader className="pb-2 flex-shrink-0">
                 <div className="flex items-center justify-between mb-2">
-                  <CardTitle className="text-base">Ventes récentes</CardTitle>
+                  <CardTitle className="text-base">Ventes récentes <span className="text-[10px] font-normal text-gray-400">(90 jours)</span></CardTitle>
                   {data.recentSales.length > 0 && (
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full tabular-nums">
                       {recentSearch.trim()
-                        ? `${data.recentSales.filter(v => `${v.username} ${v.profileName}`.toLowerCase().includes(recentSearch.toLowerCase())).length}/${data.recentSales.length}`
+                        ? `${data.recentSales.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(recentSearch.toLowerCase())).length}/${data.recentSales.length}`
                         : data.recentSales.length}
                     </span>
                   )}
@@ -1213,7 +1476,7 @@ function Dashboard({ token, vendor, onLogout }: {
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="Rechercher par utilisateur ou forfait…"
+                      placeholder="Rechercher user, MAC ou IP…"
                       value={recentSearch}
                       onChange={(e) => setRecentSearch(e.target.value)}
                       className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-400"
@@ -1235,7 +1498,7 @@ function Dashboard({ token, vendor, onLogout }: {
                 ) : (() => {
                   const filtered = recentSearch.trim()
                     ? data.recentSales.filter(v =>
-                        `${v.username} ${v.profileName}`.toLowerCase().includes(recentSearch.toLowerCase())
+                        `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(recentSearch.toLowerCase())
                       )
                     : data.recentSales;
                   return filtered.length === 0 ? (
@@ -1256,8 +1519,8 @@ function Dashboard({ token, vendor, onLogout }: {
                       <tbody>
                         {filtered.map((v, i) => {
                           const displayPrice = v.salePrice || v.price || "";
-                          const dateStr = v.usedAt ? (() => {
-                            const d = new Date(v.usedAt);
+                          const dateStr = v.printedAt ? (() => {
+                            const d = new Date(v.printedAt);
                             const day = String(d.getDate()).padStart(2, "0");
                             const month = MONTHS[d.getMonth()];
                             const hh = String(d.getHours()).padStart(2, "0");
@@ -1399,6 +1662,7 @@ function Dashboard({ token, vendor, onLogout }: {
 
 export default function VendorPortal() {
   const { token, vendorInfo, logout } = useAuth();
+  const appNavigate = useAppNavigate();
 
   if (!token || !vendorInfo) return null;
 
@@ -1409,5 +1673,10 @@ export default function VendorPortal() {
     username: vendorInfo.username,
   };
 
-  return <Dashboard token={token} vendor={vendor} onLogout={logout} />;
+  const handleLogout = () => {
+    logout();
+    appNavigate("/vendeur");
+  };
+
+  return <Dashboard token={token} vendor={vendor} onLogout={handleLogout} />;
 }

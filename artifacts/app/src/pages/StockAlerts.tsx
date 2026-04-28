@@ -41,10 +41,11 @@ export default function StockAlerts() {
     alerts: Alert[];
   }>({
     queryKey: ["stock-alerts", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = selectedRouterId ? `?routerId=${selectedRouterId}` : "";
       const res = await fetch(`${BASE}/api/vendors/stock-alerts${params}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal,
       });
       if (!res.ok) throw new Error("stock-alerts failed");
       return res.json();
@@ -52,6 +53,7 @@ export default function StockAlerts() {
     staleTime: 60_000,
     enabled: !!token,
     refetchInterval: 120_000,
+    refetchIntervalInBackground: true,
   });
 
   const alerts = data?.alerts ?? [];
@@ -95,9 +97,10 @@ export default function StockAlerts() {
             onClick={() => void refetch()}
             disabled={isFetching}
             className="gap-2"
+            title="Actualiser"
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-            Actualiser
+            <span className="hidden sm:inline">Actualiser</span>
           </Button>
         </div>
       </div>
@@ -130,11 +133,11 @@ export default function StockAlerts() {
         <Card key={name} className="overflow-hidden shadow-sm">
           <CardHeader className="py-3 px-4 border-b bg-gray-50">
             <CardTitle className="text-sm font-semibold text-gray-800 flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 min-w-0">
                 <AlertTriangle className="h-4 w-4 text-orange-500 flex-shrink-0" />
-                {name}
+                <span className="truncate">{name}</span>
               </span>
-              <span className="text-xs font-normal text-gray-500">
+              <span className="text-xs font-normal text-gray-500 flex-shrink-0">
                 {items.length} forfait{items.length !== 1 ? "s" : ""} en alerte
               </span>
             </CardTitle>
@@ -144,12 +147,12 @@ export default function StockAlerts() {
               {items.map((alert, i) => (
                 <div
                   key={i}
-                  className={`flex items-center justify-between px-4 py-3 border-l-4 ${urgencyColor(alert.available)}`}
+                  className={`flex items-center justify-between gap-2 px-4 py-3 border-l-4 ${urgencyColor(alert.available)}`}
                 >
-                  <span className="text-sm font-medium text-gray-800">
+                  <span className="text-sm font-medium text-gray-800 truncate min-w-0">
                     {alert.profileName}
                   </span>
-                  <StockBadge available={alert.available} />
+                  <div className="flex-shrink-0"><StockBadge available={alert.available} /></div>
                 </div>
               ))}
             </div>

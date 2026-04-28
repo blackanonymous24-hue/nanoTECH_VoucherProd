@@ -331,11 +331,11 @@ export default function Vendors() {
 
   const { data: vendors = [], isLoading, refetch: refetchVendors } = useQuery<Vendor[]>({
     queryKey: ["vendors", selectedRouterId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const url = selectedRouterId
         ? `${BASE}/api/vendors?routerId=${selectedRouterId}`
         : `${BASE}/api/vendors`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<Vendor[]>;
     },
@@ -481,26 +481,32 @@ export default function Vendors() {
           <Button
             variant="outline"
             className="gap-2"
-            onClick={() => window.open(`${portalBase}/vendor-portal`, "_blank")}
+            title="Portail vendeur"
+            onClick={() => window.open(`${portalBase}/vendeur`, "_blank")}
           >
-            <ExternalLink className="h-4 w-4" /> Portail vendeur
+            <ExternalLink className="h-4 w-4" />
+            <span className="hidden sm:inline">Portail vendeur</span>
           </Button>
           {!isManager && selectedRouterId && vendors.length > 0 && (
             <Button
               variant="outline"
               className="gap-2"
+              title="Taux groupé"
               onClick={() => { setBulkCommissionRate("0"); setShowBulkCommission(true); }}
             >
-              <Percent className="h-4 w-4" /> Taux groupé
+              <Percent className="h-4 w-4" />
+              <span className="hidden sm:inline">Taux groupé</span>
             </Button>
           )}
           {!isManager && (
             <Button
               onClick={() => { setCreateError(""); setShowCreate(true); }}
               className="gap-2"
+              title="Ajouter un vendeur"
               disabled={!selectedRouterId}
             >
-              <Plus className="h-4 w-4" /> Ajouter un vendeur
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ajouter un vendeur</span>
             </Button>
           )}
         </div>
@@ -541,31 +547,31 @@ export default function Vendors() {
                       <Users className="h-5 w-5 text-blue-600" />
                     </div>
                     <div className="min-w-0">
-                      <CardTitle className="text-base group-hover:text-blue-700 transition-colors">
+                      <CardTitle className="text-base group-hover:text-blue-700 transition-colors truncate">
                         {vendor.name}
                       </CardTitle>
                       {vendor.phone && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5 min-w-0">
                           <Phone className="h-3 w-3 flex-shrink-0" />
-                          {vendor.phone}
+                          <span className="truncate">{vendor.phone}</span>
                         </div>
                       )}
                       {(vendor as any).email && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5 min-w-0">
                           <Mail className="h-3 w-3 flex-shrink-0" />
-                          {(vendor as any).email}
+                          <span className="truncate">{(vendor as any).email}</span>
                         </div>
                       )}
                       {(vendor as any).username && (
-                        <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5">
+                        <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5 min-w-0">
                           <KeyRound className="h-3 w-3 flex-shrink-0" />
-                          @{(vendor as any).username}
+                          <span className="truncate">@{(vendor as any).username}</span>
                         </div>
                       )}
                       {((vendor as any).commentSuffix || (vendor as any).commentSuffix2) && (
-                        <div className="flex items-center gap-1 text-xs text-orange-500 mt-0.5">
+                        <div className="flex items-center gap-1 text-xs text-orange-500 mt-0.5 min-w-0">
                           <Tag className="h-3 w-3 flex-shrink-0" />
-                          <span className="font-mono">
+                          <span className="font-mono truncate">
                             {[(vendor as any).commentSuffix, (vendor as any).commentSuffix2]
                               .filter(Boolean)
                               .join(" · ")}

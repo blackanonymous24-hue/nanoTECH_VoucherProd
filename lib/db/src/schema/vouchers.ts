@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { routersTable } from "./routers.js";
@@ -20,7 +20,9 @@ export const vouchersTable = pgTable("vouchers", {
   salePrice: text("sale_price"),
   saleIp: text("sale_ip"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  uniqueIndex("vouchers_username_router_id_unique").on(t.username, t.routerId),
+]);
 
 export const insertVoucherSchema = createInsertSchema(vouchersTable).omit({
   id: true,

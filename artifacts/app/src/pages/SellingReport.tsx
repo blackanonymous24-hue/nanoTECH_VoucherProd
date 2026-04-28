@@ -74,13 +74,13 @@ export default function SellingReport() {
 
   const { data, isLoading, isError, error } = useQuery<SaleEntry[]>({
     queryKey,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
       const params = new URLSearchParams();
       if (appliedYear)  params.set("year",  appliedYear);
       if (appliedMonth) params.set("month", appliedMonth);
       if (appliedDay)   params.set("day",   appliedDay);
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`);
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

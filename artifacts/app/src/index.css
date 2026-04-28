@@ -218,6 +218,11 @@
     @apply border-border;
   }
 
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
@@ -323,6 +328,13 @@
 .sidebar-nav::-webkit-scrollbar-thumb:hover { background: #334155; }
 .sidebar-nav { scrollbar-width: thin; scrollbar-color: #1e293b transparent; }
 
+/* ── Sidebar outer scrollbar — slim blue-tinted accent ── */
+.sidebar-scroll::-webkit-scrollbar { width: 4px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: #0d1117; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 999px; }
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #2563eb55; }
+.sidebar-scroll { scrollbar-width: thin; scrollbar-color: #1e3a5f #0d1117; }
+
 /* ── Scrollable card — thin styled scrollbar ── */
 .scroll-card::-webkit-scrollbar { width: 4px; }
 .scroll-card::-webkit-scrollbar-track { background: transparent; }
@@ -331,6 +343,7 @@
 .scroll-card { scrollbar-width: thin; scrollbar-color: #1f2937 transparent; }
 
 @media print {
+  @page { margin: 0; }
   body * { visibility: hidden !important; }
   #voucher-print-section,
   #voucher-print-section * { visibility: visible !important; }
@@ -350,10 +363,12 @@
   #report-print-section,
   #report-print-section * { visibility: visible !important; }
   #report-print-section {
-    position: fixed !important;
+    position: absolute !important;
     top: 0 !important;
     left: 0 !important;
     width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
     background: white !important;
     padding: 20px 28px !important;
     font-family: Arial, sans-serif !important;
@@ -393,4 +408,26 @@
   .traffic-logs-layout {
     flex-direction: row;
   }
+}
+
+
+/* ── Skeleton shimmer ──────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 600px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+/* ── Progress bar shimmer (white glow sweep) ───────────────── */
+@keyframes shimmer-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-shimmer {
+  animation: shimmer-sweep 1.6s ease-in-out infinite;
 }

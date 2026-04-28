@@ -1,15 +1,22 @@
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
-import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
+import { db, routersTable, vouchersTable, vendorsTable, profilesCacheTable } from "@workspace/db";
 import { listHotspotUsers, listProfiles, type RouterConnection } from "./mikrotik.js";
 import { runUsageSync } from "./usage-sync.js";
-import { syncScriptCache, getCachedSalesByBatch } from "./script-cache.js";
+import { syncScriptCache, getCachedSalesByBatch, clearRouterScriptCache } from "./script-cache.js";
 import { logger } from "./logger.js";
+import { isRouterLocked } from "./router-lock.js";
 
 /** Throttle: don't sync the same vendor more than once every 2 minutes */
 const SYNC_TTL = 2 * 60_000;
 const lastSyncAt = new Map<number, number>();
 let realtimeTimer: ReturnType<typeof setInterval> | null = null;
 let realtimeRunning = false;
+
+/** Optional callback fired after each vendor sync completes (e.g. to invalidate caches). */
+let _onVendorSyncComplete: ((vendorId: number) => void) | null = null;
+export function setOnVendorSyncComplete(cb: (vendorId: number) => void): void {
+  _onVendorSyncComplete = cb;
+}
 
 /**
  * Step 3 of vendor sync — reads historical sales from the LOCAL SCRIPT CACHE
@@ -36,16 +43,18 @@ async function syncHistoricalScriptSalesToVendor(
 
     // Fetch existing voucher records for this router
     const existing = await db
-      .select({ username: vouchersTable.username, id: vouchersTable.id, vendorId: vouchersTable.vendorId })
+      .select({ username: vouchersTable.username, id: vouchersTable.id, vendorId: vouchersTable.vendorId, printedAt: vouchersTable.printedAt, price: vouchersTable.price })
       .from(vouchersTable)
       .where(eq(vouchersTable.routerId, routerId));
 
-    const existingMap = new Map<string, { username: string; id: number; vendorId: number | null }>(
+    const existingMap = new Map<string, { username: string; id: number; vendorId: number | null; printedAt: Date | null; price: string | null }>(
       existing.map((e) => [e.username.toLowerCase(), e]),
     );
 
     const toInsert: (typeof vouchersTable.$inferInsert)[] = [];
     const toReattribute: number[] = [];
+    const toFix: { id: number; printedAt: Date; usedAt: Date; price: string; salePrice: string | null }[] = [];
+    const toPriceUpdate: { id: number; price: string; salePrice: string | null }[] = [];
 
     for (const entry of matched) {
       const key = entry.username.toLowerCase();
@@ -71,6 +80,22 @@ async function syncHistoricalScriptSalesToVendor(
         });
       } else if (found.vendorId !== vendorId) {
         toReattribute.push(found.id);
+      } else if (found.printedAt === null && !isNaN(entry.saleDate.getTime())) {
+        // Ticket exists but has no printedAt — fill it from the script cache
+        toFix.push({
+          id:        found.id,
+          printedAt: entry.saleDate,
+          usedAt:    entry.saleDate,
+          price:     entry.price || "",
+          salePrice: entry.price || null,
+        });
+      } else if (found.printedAt !== null && (!found.price || found.price === "") && entry.price) {
+        // Ticket exists with printedAt but price is missing — fill price from script cache
+        toPriceUpdate.push({
+          id:        found.id,
+          price:     entry.price,
+          salePrice: entry.price,
+        });
       }
     }
 
@@ -90,13 +115,111 @@ async function syncHistoricalScriptSalesToVendor(
       reattributed += Math.min(200, toReattribute.length - i);
     }
 
-    logger.info({ vendorId, routerId, matched: matched.length, created, reattributed },
+    // Repair vouchers that exist but are missing printedAt (previously untracked sales)
+    for (const fix of toFix) {
+      await db
+        .update(vouchersTable)
+        .set({ printedAt: fix.printedAt, usedAt: fix.usedAt, price: fix.price, salePrice: fix.salePrice })
+        .where(eq(vouchersTable.id, fix.id));
+      created++;
+    }
+
+    // Repair vouchers that have printedAt but are missing price (fill from script cache)
+    for (const fix of toPriceUpdate) {
+      await db
+        .update(vouchersTable)
+        .set({ price: fix.price, salePrice: fix.salePrice })
+        .where(eq(vouchersTable.id, fix.id));
+    }
+
+    logger.info({ vendorId, routerId, matched: matched.length, created, reattributed, priceFixed: toPriceUpdate.length },
       "vendor sync: historical script sales backfill complete");
   } catch (err) {
     logger.warn({ vendorId, routerId, err }, "vendor sync: historical script sales backfill failed (non-blocking)");
   }
 
   return { created, reattributed };
+}
+
+/**
+ * Detects profile renames in MikroTik by comparing the persisted mikrotikId→name
+ * mapping with the current MikroTik profiles list.
+ *
+ * MikroTik profile .id (e.g. "*1") is IMMUTABLE even across renames.
+ * When a rename is detected we bulk-update ALL vouchers (including sold ones)
+ * for this router so every report, tracking view, and report page shows the
+ * current name immediately.
+ *
+ * Should be called once per router per sync cycle, before per-vendor syncs.
+ */
+export async function syncProfileRenames(routerId: number, conn: RouterConnection): Promise<void> {
+  try {
+    const allProfiles = await listProfiles(conn).catch(() => [] as Awaited<ReturnType<typeof listProfiles>>);
+    if (allProfiles.length === 0) return; // safety: don't act on an empty list (connection failure)
+
+    // Load what we last knew for this router
+    const cached = await db
+      .select({ mikrotikId: profilesCacheTable.mikrotikId, profileName: profilesCacheTable.profileName })
+      .from(profilesCacheTable)
+      .where(eq(profilesCacheTable.routerId, routerId));
+
+    const cacheMap = new Map(cached.map((c) => [c.mikrotikId, c.profileName]));
+    const currentIds = new Set(allProfiles.map((p) => p.mikrotikId).filter(Boolean));
+
+    const renames: Array<{ oldName: string; newName: string }> = [];
+    const toUpsert: Array<{ routerId: number; mikrotikId: string; profileName: string }> = [];
+
+    for (const p of allProfiles) {
+      if (!p.mikrotikId) continue;
+      const knownName = cacheMap.get(p.mikrotikId);
+      if (knownName === undefined) {
+        // New profile — add to cache
+        toUpsert.push({ routerId, mikrotikId: p.mikrotikId, profileName: p.name });
+      } else if (knownName !== p.name) {
+        // Same MikroTik ID, different name → RENAME detected
+        renames.push({ oldName: knownName, newName: p.name });
+        toUpsert.push({ routerId, mikrotikId: p.mikrotikId, profileName: p.name });
+      }
+    }
+
+    // Apply renames to ALL vouchers on this router (sold + unsold, all vendors)
+    for (const { oldName, newName } of renames) {
+      await db
+        .update(vouchersTable)
+        .set({ profileName: newName })
+        .where(and(
+          eq(vouchersTable.routerId, routerId),
+          eq(vouchersTable.profileName, oldName),
+        ));
+      logger.info({ routerId, oldName, newName }, "profile-sync: renamed profile propagated to all vouchers");
+    }
+
+    // Upsert cache entries
+    if (toUpsert.length > 0) {
+      await db
+        .insert(profilesCacheTable)
+        .values(toUpsert.map((r) => ({ ...r, updatedAt: new Date() })))
+        .onConflictDoUpdate({
+          target: [profilesCacheTable.routerId, profilesCacheTable.mikrotikId],
+          set: { profileName: sql`excluded.profile_name`, updatedAt: sql`now()` },
+        });
+    }
+
+    // Remove cache entries for profiles that no longer exist in MikroTik
+    for (const cached of cacheMap) {
+      const [mkId] = cached;
+      if (!currentIds.has(mkId)) {
+        await db
+          .delete(profilesCacheTable)
+          .where(and(
+            eq(profilesCacheTable.routerId, routerId),
+            eq(profilesCacheTable.mikrotikId, mkId),
+          ));
+      }
+    }
+  } catch (err) {
+    logger.warn({ routerId, err }, "profile-sync: syncProfileRenames failed (non-blocking)");
+  }
 }
 
 /**
@@ -329,10 +452,174 @@ export async function syncMikrotikUsersToVendor(
     } catch (syncErr) {
       logger.warn({ vendorId, routerId, err: syncErr }, "vendor sync: usage backfill failed (non-blocking)");
     }
+
+    // ── Step 6: purge unsold vouchers absent from MikroTik ───────────────
+    // After step 5, any voucher still with usedAt IS NULL that doesn't appear
+    // on MikroTik was admin-deleted without going through a sale.
+    // Safety guard: only run when MikroTik returned at least 1 user total
+    // (avoids wiping DB if the connection returned an empty list silently).
+    if (allUsers.length > 0) {
+      const matchedUsernames = new Set(matched.map((u) => u.username.toLowerCase()));
+
+      // Re-query unsold vouchers after step 5 so usedAt is up-to-date
+      const suffixConds = activeSuffixes.map((s) => sql`${vouchersTable.comment} LIKE ${"%" + s}`);
+      const unsoldInDb = await db
+        .select({ id: vouchersTable.id, username: vouchersTable.username })
+        .from(vouchersTable)
+        .where(and(
+          eq(vouchersTable.vendorId, vendorId),
+          eq(vouchersTable.routerId, routerId),
+          isNull(vouchersTable.usedAt),
+          sql`(${sql.join(suffixConds, sql` OR `)})`,
+        ));
+
+      const toPurge = unsoldInDb.filter((v) => !matchedUsernames.has(v.username.toLowerCase()));
+
+      if (toPurge.length > 0) {
+        const CHUNK = 200;
+        let deleted = 0;
+        for (let i = 0; i < toPurge.length; i += CHUNK) {
+          const rows = await db
+            .delete(vouchersTable)
+            .where(inArray(vouchersTable.id, toPurge.slice(i, i + CHUNK).map((v) => v.id)))
+            .returning({ id: vouchersTable.id });
+          deleted += rows.length;
+        }
+        if (deleted > 0) {
+          logger.info({ vendorId, routerId, deleted }, "vendor sync: purged unsold vouchers absent from MikroTik");
+        }
+      }
+    }
   } catch (err) {
     lastSyncAt.delete(vendorId); // reset on error so next call retries
     logger.warn({ vendorId, routerId, err }, "vendor sync: failed (non-blocking)");
   }
+}
+
+/**
+ * Purges unsold DB vouchers (usedAt IS NULL) whose username is NOT present
+ * in the live MikroTik hotspot user list for the given router.
+ *
+ * Safety guards:
+ *  - Skips entirely if MikroTik returns 0 users (router unreachable / empty)
+ *  - Only touches vouchers with usedAt IS NULL (never modifies sold records)
+ *  - Deletes in chunks of 200 to avoid large IN clauses
+ */
+export async function purgePhantomVouchers(routerId: number): Promise<{
+  routerId: number;
+  routerHost: string;
+  skipped: boolean;
+  reason?: string;
+  activeUsersCount: number;
+  unsoldInDb: number;
+  deleted: number;
+}> {
+  const [router] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!router) {
+    return { routerId, routerHost: "unknown", skipped: true, reason: "Routeur introuvable", activeUsersCount: 0, unsoldInDb: 0, deleted: 0 };
+  }
+
+  const conn: RouterConnection = { host: router.host, port: router.port, username: router.username, password: router.password };
+
+  let allUsers: Awaited<ReturnType<typeof listHotspotUsers>>;
+  try {
+    allUsers = await listHotspotUsers(conn, 30_000);
+  } catch (err) {
+    logger.warn({ routerId, err }, "purge-phantoms: impossible de joindre MikroTik — ignoré");
+    return { routerId, routerHost: router.host, skipped: true, reason: "Connexion MikroTik échouée", activeUsersCount: 0, unsoldInDb: 0, deleted: 0 };
+  }
+
+  if (allUsers.length === 0) {
+    logger.warn({ routerId }, "purge-phantoms: MikroTik a retourné 0 users — garde de sécurité activée");
+    return { routerId, routerHost: router.host, skipped: true, reason: "MikroTik a retourné 0 utilisateurs (garde de sécurité)", activeUsersCount: 0, unsoldInDb: 0, deleted: 0 };
+  }
+
+  const activeUsernames = new Set(allUsers.map((u) => u.username.toLowerCase()));
+
+  const unsoldRows = await db
+    .select({ id: vouchersTable.id, username: vouchersTable.username })
+    .from(vouchersTable)
+    .where(and(eq(vouchersTable.routerId, routerId), isNull(vouchersTable.usedAt)));
+
+  const phantomIds = unsoldRows
+    .filter((v) => !activeUsernames.has(v.username.toLowerCase()))
+    .map((v) => v.id);
+
+  if (phantomIds.length === 0) {
+    logger.info({ routerId, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length }, "purge-phantoms: aucun fantôme trouvé");
+    return { routerId, routerHost: router.host, skipped: false, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length, deleted: 0 };
+  }
+
+  const CHUNK = 200;
+  let deleted = 0;
+  for (let i = 0; i < phantomIds.length; i += CHUNK) {
+    const rows = await db
+      .delete(vouchersTable)
+      .where(inArray(vouchersTable.id, phantomIds.slice(i, i + CHUNK)))
+      .returning({ id: vouchersTable.id });
+    deleted += rows.length;
+  }
+
+  logger.info({ routerId, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length, deleted }, "purge-phantoms: vouchers fantômes supprimés");
+  return { routerId, routerHost: router.host, skipped: false, activeUsersCount: allUsers.length, unsoldInDb: unsoldRows.length, deleted };
+}
+
+/**
+ * Forces a complete resync for a specific router:
+ *  1. Clears the in-memory script-cache flag → next call does a FULL reload
+ *  2. Fetches ALL scripts fresh from MikroTik (heavy, one-time)
+ *  3. Runs the historical backfill for every active vendor on this router
+ *
+ * Used by the admin "force-sync" endpoint to recover from missed-ticket scenarios
+ * caused by router timeouts or connection gaps.
+ */
+export async function forceRouterFullSync(routerId: number): Promise<{
+  scriptInserted: number;
+  vendorsProcessed: number;
+  vouchersCreated: number;
+}> {
+  const [router] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!router) throw new Error(`Routeur ${routerId} introuvable`);
+
+  const conn: RouterConnection = {
+    host: router.host, port: router.port,
+    username: router.username, password: router.password,
+  };
+
+  // 1. Clear cache flag → forces full reload
+  clearRouterScriptCache(routerId);
+
+  // Also reset vendor throttle for all vendors on this router so they re-sync immediately
+  const vendors = await db
+    .select({
+      id: vendorsTable.id,
+      commentSuffix: vendorsTable.commentSuffix,
+      commentSuffix2: vendorsTable.commentSuffix2,
+      isActive: vendorsTable.isActive,
+    })
+    .from(vendorsTable)
+    .where(eq(vendorsTable.routerId, routerId));
+
+  for (const v of vendors) lastSyncAt.delete(v.id);
+
+  // 2. Full script cache reload (blocking — this is intentional for admin action)
+  const scriptInserted = await syncScriptCache(routerId, conn);
+  logger.info({ routerId, scriptInserted }, "force-sync: script cache refreshed");
+
+  // 3. Historical backfill for every active vendor on this router
+  let vouchersCreated = 0;
+  const activeVendors = vendors.filter((v) => v.isActive);
+  for (const v of activeVendors) {
+    const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
+    if (suffixes.length === 0) continue;
+    const { created } = await syncHistoricalScriptSalesToVendor(v.id, routerId, suffixes);
+    vouchersCreated += created;
+  }
+
+  logger.info({ routerId, vendorsProcessed: activeVendors.length, vouchersCreated },
+    "force-sync: complete");
+
+  return { scriptInserted, vendorsProcessed: activeVendors.length, vouchersCreated };
 }
 
 /**
@@ -342,28 +629,64 @@ export async function syncMikrotikUsersToVendor(
 export function startRealtimeVendorSync(): void {
   if (realtimeTimer) return;
 
-  const intervalMs = Math.max(10_000, parseInt(process.env.VENDOR_SYNC_INTERVAL_MS ?? "30000", 10) || 30000);
+  const intervalMs = Math.max(10_000, parseInt(process.env.VENDOR_SYNC_INTERVAL_MS ?? "20000", 10) || 20000);
 
   const tick = async () => {
     if (realtimeRunning) return;
     realtimeRunning = true;
     try {
-      const vendors = await db
-        .select({
+      const [vendors, routers] = await Promise.all([
+        db.select({
           id: vendorsTable.id,
           routerId: vendorsTable.routerId,
           commentSuffix: vendorsTable.commentSuffix,
           commentSuffix2: vendorsTable.commentSuffix2,
           isActive: vendorsTable.isActive,
-        })
-        .from(vendorsTable);
+        }).from(vendorsTable),
+        db.select().from(routersTable),
+      ]);
 
-      const active = vendors.filter((v) => v.isActive && v.routerId);
+      // ── Phase 1: sync profile renames once per router ──────────────────
+      // Must run before per-vendor syncs so vendor stats already reflect new names.
+      // Skip routers that are locked by an active user operation (e.g. generation).
+      const activeRouterIds = new Set(
+        vendors.filter((v) => v.isActive && v.routerId).map((v) => v.routerId!),
+      );
       await Promise.allSettled(
-        active.map((v) => {
-          const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
-          if (suffixes.length === 0) return Promise.resolve();
-          return syncMikrotikUsersToVendor(v.id, v.routerId!, suffixes, true);
+        routers
+          .filter((r) => activeRouterIds.has(r.id) && !isRouterLocked(r.id))
+          .map((r) => {
+            const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+            return syncProfileRenames(r.id, conn);
+          }),
+      );
+
+      // ── Phase 2: per-vendor sync (hotspot users, history, usage) ───────
+      // Group vendors by routerId so vendors sharing the same router are processed
+      // sequentially — avoids opening multiple API connections to the same MikroTik
+      // router simultaneously (which saturates the connection limit and blocks
+      // concurrent operations like voucher generation).
+      // Vendors on *different* routers still run in parallel.
+      const active = vendors.filter((v) => v.isActive && v.routerId);
+      const byRouter = new Map<number, typeof active>();
+      for (const v of active) {
+        const rid = v.routerId!;
+        if (!byRouter.has(rid)) byRouter.set(rid, []);
+        byRouter.get(rid)!.push(v);
+      }
+      await Promise.allSettled(
+        Array.from(byRouter.values()).map(async (group) => {
+          for (const v of group) {
+            // Skip if an active user operation (e.g. voucher generation) has locked this router
+            if (isRouterLocked(v.routerId!)) continue;
+            const suffixes = [v.commentSuffix, v.commentSuffix2].filter(Boolean) as string[];
+            if (suffixes.length === 0) continue;
+            try {
+              await syncMikrotikUsersToVendor(v.id, v.routerId!, suffixes, true);
+              // Notify listeners so they can invalidate stale caches (e.g. vendor portal)
+              try { _onVendorSyncComplete?.(v.id); } catch (_) { /* ignore */ }
+            } catch { /* keep going for next vendor in this router group */ }
+          }
         }),
       );
     } catch (err) {

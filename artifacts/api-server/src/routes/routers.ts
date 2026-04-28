@@ -1,9 +1,15 @@
 import { Router } from "express";
-import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
-import { db, routersTable, vouchersTable } from "@workspace/db";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { eq, and, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
+import { verifyAdminTokenFull } from "../lib/admin-auth.js";
+import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
+import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
+import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
+import { syncProfileRenames } from "../lib/vendor-sync.js";
+import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 
 const router = Router();
 
@@ -46,8 +52,172 @@ async function fetchProfilesWithCache(routerId: number, conn: RouterConnection) 
   return task;
 }
 
-router.get("/routers", async (_req, res): Promise<void> => {
-  const routers = await db
+/* ── Generic in-memory TTL cache for MikroTik live-data endpoints ───────
+ *
+ * Key format: "<type>:<routerId>"  or  "<type>:<routerId>:<extra>"
+ * TTLs are chosen so the UI feels instant while data stays acceptably fresh.
+ *
+ *   ping        30 s  — status probe, polled often by dashboard
+ *   info        60 s  — uptime/resources, 1 min staleness acceptable
+ *   pools        5 min — address pools rarely change
+ *   sessions    15 s  — active hotspot sessions
+ *   interfaces   5 min — interface list rarely changes
+ *   traffic      8 s  — live bandwidth; cache prevents burst calls
+ *   logs        10 s  — system log tail
+ */
+const _mik = new Map<string, { data: unknown; exp: number }>();
+function mGet(k: string) { const e = _mik.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
+/** Returns cached data even if expired (stale-while-revalidate pattern). */
+function mGetStale(k: string) { return _mik.get(k)?.data ?? null; }
+function mSet(k: string, ttl: number, d: unknown) { _mik.set(k, { data: d, exp: Date.now() + ttl }); }
+
+const MIK_TTL = {
+  ping:       30_000,
+  info:        8_000,
+  pools:     300_000,
+  sessions:   15_000,
+  interfaces:300_000,
+  traffic:     8_000,
+  logs:       10_000,
+} as const;
+
+/**
+ * Decode the admin token (if present and valid) so we can scope this request
+ * to the caller's tenant. Returns null when there is no admin token (e.g. a
+ * manager / vendor / collaborateur is calling). The endpoints that strictly
+ * require an admin handle the auth refusal themselves.
+ */
+function getAdminScopeFromHeader(req: { headers: { authorization?: string } }): { adminId: number; isSuperAdmin: boolean } | null {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return null;
+  return verifyAdminTokenFull(auth.slice(7));
+}
+
+/**
+ * Resolve the caller into a list of routerIds they are permitted to access
+ * AND the tenant (ownerAdminId) they belong to. Returns null when the request
+ * carries no recognized token at all.
+ *
+ *   - super-admin           → { kind: "super" }                (all routers)
+ *   - regular admin         → { kind: "admin",   adminId,    routerIds }
+ *   - manager/vendor/collab → { kind: "<role>",  adminId?,   routerIds }
+ *
+ * `adminId` for non-super callers is the tenant they belong to.
+ * `routerIds` is the exact set of routers the caller is allowed to touch.
+ */
+type CallerScope =
+  | { kind: "super" }
+  | { kind: "admin"; adminId: number; routerIds: number[] }
+  | { kind: "manager"; adminId: number | null; routerIds: number[] }
+  | { kind: "vendor"; adminId: number | null; routerIds: number[] }
+  | { kind: "collaborateur"; adminId: number | null; routerIds: number[] };
+
+async function resolveCallerScope(req: { headers: { authorization?: string } }): Promise<CallerScope | null> {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return null;
+  const token = auth.slice(7);
+
+  // Try admin token first (super-admin or regular admin).
+  const adminScope = verifyAdminTokenFull(token);
+  if (adminScope) {
+    if (adminScope.isSuperAdmin) return { kind: "super" };
+    const ownedRouters = await db
+      .select({ id: routersTable.id })
+      .from(routersTable)
+      .where(eq(routersTable.ownerAdminId, adminScope.adminId));
+    return {
+      kind: "admin",
+      adminId: adminScope.adminId,
+      routerIds: ownedRouters.map((r) => r.id),
+    };
+  }
+
+  // Try manager token.
+  const mgr = verifyManagerToken(token);
+  if (mgr) {
+    const [row] = await db
+      .select({
+        ownerAdminId: managersTable.ownerAdminId,
+        routerId:     managersTable.routerId,
+        isActive:     managersTable.isActive,
+      })
+      .from(managersTable)
+      .where(eq(managersTable.id, mgr.managerId));
+    if (!row || !row.isActive) return null;
+    // Locked manager → only the assigned router.
+    // Unlocked manager (routerId == null) → all routers in their tenant.
+    let routerIds: number[];
+    if (row.routerId !== null) {
+      routerIds = [row.routerId];
+    } else if (row.ownerAdminId !== null) {
+      const ownerRouters = await db
+        .select({ id: routersTable.id })
+        .from(routersTable)
+        .where(eq(routersTable.ownerAdminId, row.ownerAdminId));
+      routerIds = ownerRouters.map((r) => r.id);
+    } else {
+      routerIds = [];
+    }
+    return {
+      kind: "manager",
+      adminId: row.ownerAdminId,
+      routerIds,
+    };
+  }
+
+  // Try vendor token.
+  const vnd = verifyVendorToken(token);
+  if (vnd) {
+    const [row] = await db
+      .select({
+        ownerAdminId: vendorsTable.ownerAdminId,
+        routerId:     vendorsTable.routerId,
+        isActive:     vendorsTable.isActive,
+      })
+      .from(vendorsTable)
+      .where(eq(vendorsTable.id, vnd.vendorId));
+    if (!row || !row.isActive) return null;
+    return {
+      kind: "vendor",
+      adminId: row.ownerAdminId,
+      routerIds: row.routerId !== null ? [row.routerId] : [],
+    };
+  }
+
+  // Try collaborateur token.
+  const col = verifyCollaborateurToken(token);
+  if (col) {
+    // Refuse disabled collaborateurs even if their token is still valid.
+    const [colRow] = await db
+      .select({
+        ownerAdminId: collaborateursTable.ownerAdminId,
+        isActive:     collaborateursTable.isActive,
+      })
+      .from(collaborateursTable)
+      .where(eq(collaborateursTable.id, col.collaborateurId));
+    if (!colRow || !colRow.isActive) return null;
+    // Re-derive the assignment from the DB — never trust the token-embedded
+    // routerIds without a sanity check against current assignments.
+    const rows = await db
+      .select({ routerId: collaborateurRoutersTable.routerId })
+      .from(collaborateurRoutersTable)
+      .where(eq(collaborateurRoutersTable.collaborateurId, col.collaborateurId));
+    const dbRouterIds = rows.map((r) => r.routerId);
+    return {
+      kind: "collaborateur",
+      adminId: colRow.ownerAdminId,
+      routerIds: dbRouterIds,
+    };
+  }
+
+  return null;
+}
+
+router.get("/routers", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+
+  const baseSelect = db
     .select({
       id: routersTable.id,
       name: routersTable.name,
@@ -57,15 +227,29 @@ router.get("/routers", async (_req, res): Promise<void> => {
       port: routersTable.port,
       username: routersTable.username,
       isActive: routersTable.isActive,
+      ownerAdminId: routersTable.ownerAdminId,
       createdAt: routersTable.createdAt,
       updatedAt: routersTable.updatedAt,
     })
-    .from(routersTable)
-    .orderBy(routersTable.name);
-  res.json(routers);
+    .from(routersTable);
+
+  if (scope.kind === "super") {
+    res.json(await baseSelect.orderBy(routersTable.name));
+    return;
+  }
+  if (scope.kind === "admin") {
+    res.json(await baseSelect.where(eq(routersTable.ownerAdminId, scope.adminId)).orderBy(routersTable.name));
+    return;
+  }
+  // manager / vendor / collaborateur: only the routers they're assigned to.
+  if (scope.routerIds.length === 0) { res.json([]); return; }
+  res.json(await baseSelect.where(inArray(routersTable.id, scope.routerIds)).orderBy(routersTable.name));
 });
 
 router.post("/routers", async (req, res): Promise<void> => {
+  const scope = getAdminScopeFromHeader(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+
   const { name, hotspotName, contact, host, port, username, password, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
@@ -82,9 +266,40 @@ router.post("/routers", async (req, res): Promise<void> => {
     return;
   }
 
+  // Quota enforcement (regular admins only). The super-admin bypasses the
+  // limit because they manage all tenants.
+  if (!scope.isSuperAdmin) {
+    const [adminRow] = await db
+      .select({
+        extraRouterSlots: adminSettingsTable.extraRouterSlots,
+        isActive:         adminSettingsTable.isActive,
+      })
+      .from(adminSettingsTable)
+      .where(eq(adminSettingsTable.id, scope.adminId));
+    if (!adminRow || !adminRow.isActive) {
+      res.status(403).json({ error: "Compte désactivé" });
+      return;
+    }
+    const limit = 5 + adminRow.extraRouterSlots;
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(routersTable)
+      .where(eq(routersTable.ownerAdminId, scope.adminId));
+    if (Number(count) >= limit) {
+      res.status(402).json({
+        error: `Limite atteinte (${limit} routeur${limit > 1 ? "s" : ""}). Achetez un pack de 5 routeurs supplémentaires (50 crédits).`,
+        routerCount: Number(count),
+        routerLimit: limit,
+      });
+      return;
+    }
+  }
+
   const [created] = await db
     .insert(routersTable)
     .values({
+      // Super-admin-created routers default to the super-admin's tenant.
+      ownerAdminId: scope.adminId,
       name,
       hotspotName: hotspotName ?? null,
       contact: contact ?? null,
@@ -103,11 +318,53 @@ router.post("/routers", async (req, res): Promise<void> => {
       port: routersTable.port,
       username: routersTable.username,
       isActive: routersTable.isActive,
+      ownerAdminId: routersTable.ownerAdminId,
       createdAt: routersTable.createdAt,
       updatedAt: routersTable.updatedAt,
     });
 
   res.status(201).json(created);
+});
+
+/**
+ * Tenant-isolation middleware for every /routers/:id and /routers/:id/* route.
+ *
+ * Rules:
+ *   - No recognized token  → 401
+ *   - Super-admin          → allowed
+ *   - Regular admin        → router must belong to their tenant (ownerAdminId)
+ *   - Manager / vendor     → router id must equal their assigned routerId
+ *   - Collaborateur        → router id must be in their assigned routerIds set
+ */
+router.use("/routers/:id", async (req, res, next) => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind === "super") { next(); return; }
+
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (Number.isNaN(id)) { next(); return; } // let the handler report a clean 400
+
+  if (scope.kind === "admin") {
+    const [r] = await db
+      .select({ owner: routersTable.ownerAdminId })
+      .from(routersTable)
+      .where(eq(routersTable.id, id));
+    if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+    if (r.owner !== scope.adminId) {
+      res.status(403).json({ error: "Accès refusé à ce routeur" });
+      return;
+    }
+    next();
+    return;
+  }
+
+  // manager / vendor / collaborateur — must be in their assigned set.
+  if (!scope.routerIds.includes(id)) {
+    res.status(403).json({ error: "Accès refusé à ce routeur" });
+    return;
+  }
+  next();
 });
 
 router.get("/routers/:id", async (req, res): Promise<void> => {
@@ -214,11 +471,48 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `ping:${id}`;
+  const force = req.query.force === "1";
+  if (!force) {
+    const hit = mGet(ck);
+    if (hit) { res.json(hit); return; }
+  }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   const online = await pingRouter({ host: r.host, port: r.port, username: r.username, password: r.password });
-  res.json({ success: online });
+  const payload = { success: online };
+  mSet(ck, MIK_TTL.ping, payload);
+  res.json(payload);
+});
+
+/* ── Generation session lock ──────────────────────────────────────────────
+ * Holds the router lock for the entire generation session (all batches).
+ * Background sync (vendor/usage) skips locked routers automatically.
+ * Auto-releases after 30 min as a safety net against client disconnects. */
+const _genLockTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
+
+router.post("/routers/:id/generation-lock", (req, res): void => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  lockRouter(id);
+  const existing = _genLockTimeouts.get(id);
+  if (existing) clearTimeout(existing);
+  _genLockTimeouts.set(id, setTimeout(() => {
+    unlockRouter(id);
+    _genLockTimeouts.delete(id);
+  }, 30 * 60_000));
+  res.json({ ok: true });
+});
+
+router.delete("/routers/:id/generation-lock", (req, res): void => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  unlockRouter(id);
+  const t = _genLockTimeouts.get(id);
+  if (t) { clearTimeout(t); _genLockTimeouts.delete(id); }
+  res.json({ ok: true });
 });
 
 router.get("/routers/:id/info", async (req, res): Promise<void> => {
@@ -226,11 +520,32 @@ router.get("/routers/:id/info", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `info:${id}`;
+
+  // Fresh hit — return immediately
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
+  // Stale hit — return immediately, refresh in background (stale-while-revalidate)
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    setImmediate(async () => {
+      try {
+        const info = await getRouterInfo({ host: r.host, port: r.port, username: r.username, password: r.password });
+        mSet(ck, MIK_TTL.info, info);
+      } catch { /* ignore */ }
+    });
+    return;
+  }
+
+  // No cache at all — blocking call (first request only)
   try {
     const info = await getRouterInfo({ host: r.host, port: r.port, username: r.username, password: r.password });
+    mSet(ck, MIK_TTL.info, info);
     res.json(info);
   } catch (err) {
     res.status(503).json({ error: err instanceof Error ? err.message : "Erreur" });
@@ -248,28 +563,54 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
   const freshCached = getFreshProfileCache(id);
   const forceRefresh = String(req.query.refresh ?? "") === "1";
+  const staleCached = profileListCache.get(id)?.profiles ?? null;
 
-  if (freshCached && !forceRefresh) {
+  /** Persist a successful fetch to DB so it survives server restarts. */
+  async function saveSnapshot(profiles: typeof freshCached) {
+    if (!profiles) return;
+    try {
+      await db.insert(routerProfilesSnapshotTable)
+        .values({ routerId: id, profilesJson: JSON.stringify(profiles) })
+        .onConflictDoUpdate({
+          target: routerProfilesSnapshotTable.routerId,
+          set: { profilesJson: JSON.stringify(profiles), updatedAt: new Date() },
+        });
+    } catch { /* non-blocking */ }
+  }
+
+  /** Load the last persisted snapshot from DB. */
+  async function loadSnapshot() {
+    try {
+      const [row] = await db.select().from(routerProfilesSnapshotTable)
+        .where(eq(routerProfilesSnapshotTable.routerId, id));
+      if (!row) return null;
+      return JSON.parse(row.profilesJson) as typeof freshCached;
+    } catch { return null; }
+  }
+
+  // Always return cached data immediately when available (even if ?refresh=1).
+  // Refresh in background so the caller never has to wait for MikroTik.
+  if (freshCached) {
+    if (forceRefresh) void fetchProfilesWithCache(id, conn).then(saveSnapshot).catch(() => undefined);
     res.json(freshCached);
     return;
   }
-
-  const staleCached = profileListCache.get(id)?.profiles ?? null;
-  if (staleCached && !forceRefresh) {
+  if (staleCached) {
     // Stale-while-revalidate: return instantly, refresh in background.
-    void fetchProfilesWithCache(id, conn).catch(() => undefined);
+    void fetchProfilesWithCache(id, conn).then(saveSnapshot).catch(() => undefined);
     res.json(staleCached);
     return;
   }
 
+  // Cache is empty (first request after server start).
+  // Try MikroTik; on failure fall back to DB snapshot so the UI is never blank.
   try {
     const fetched = await fetchProfilesWithCache(id, conn);
+    void saveSnapshot(fetched);
     res.json(fetched);
   } catch (err) {
-    if (staleCached) {
-      res.json(staleCached);
-      return;
-    }
+    const snapshot = await loadSnapshot();
+    if (snapshot) { res.json(snapshot); return; }
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
 });
@@ -394,6 +735,29 @@ router.post("/routers/:id/profiles/merge", async (req, res): Promise<void> => {
   res.json({ ok: true, updated: result.length });
 });
 
+/**
+ * POST /routers/:id/profiles/sync-names
+ * Manually trigger the profile rename detection for a specific router.
+ * Fetches current profiles from MikroTik, compares with the persisted
+ * mikrotikId→name cache, and bulk-updates ALL vouchers (sold + unsold)
+ * when a rename is detected.
+ */
+router.post("/routers/:id/profiles/sync-names", async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    await syncProfileRenames(id, { host: r.host, port: r.port, username: r.username, password: r.password });
+    invalidateProfileListCache(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 router.delete("/routers/:id/profiles/:profileName", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
@@ -420,11 +784,16 @@ router.get("/routers/:id/pools", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `pools:${id}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
     const pools = await listAddressPools({ host: r.host, port: r.port, username: r.username, password: r.password });
+    mSet(ck, MIK_TTL.pools, pools);
     res.json(pools);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -436,12 +805,60 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `sessions:${id}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
     const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+    mSet(ck, MIK_TTL.sessions, sessions);
     res.json(sessions);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// GET /routers/:id/sessions/count — Mikhmon-style: returns the last known
+// count instantly (stale-while-revalidate). Never blocks on MikroTik when a
+// previous value (even expired) is available; refreshes in background.
+const _sessionsRefreshing = new Set<number>();
+router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const ck = `sessions:${id}`;
+  const fresh = mGet(ck) as unknown[] | null;
+  if (fresh) { res.json({ count: fresh.length, cached: true }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  // Stale hit — return immediately, refresh in background (Mikhmon-style)
+  const stale = mGetStale(ck) as unknown[] | null;
+  if (stale) {
+    res.json({ count: stale.length, cached: true, stale: true });
+    if (!_sessionsRefreshing.has(id)) {
+      _sessionsRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+          mSet(ck, MIK_TTL.sessions, sessions);
+        } catch { /* keep stale */ }
+        finally { _sessionsRefreshing.delete(id); }
+      });
+    }
+    return;
+  }
+
+  // No cache at all — blocking call (first ever request only)
+  try {
+    const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+    mSet(ck, MIK_TTL.sessions, sessions);
+    res.json({ count: sessions.length, cached: false });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
@@ -451,21 +868,158 @@ interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expir
 const userCache = new Map<number, UserCache>();
 const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expires first
 
-async function getCachedUsers(id: number, conn: Parameters<typeof listHotspotUsers>[0]) {
+async function getCachedUsers(
+  id: number,
+  conn: Parameters<typeof listHotspotUsers>[0],
+  opts: { force?: boolean } = {},
+) {
   const cached = userCache.get(id);
-  if (cached && Date.now() < cached.expiresAt) return cached.users;
+  if (!opts.force && cached && Date.now() < cached.expiresAt) return cached.users;
   const users = await listHotspotUsers(conn, 60_000);
   userCache.set(id, { users, expiresAt: Date.now() + USER_CACHE_TTL });
   return users;
 }
+
+/** Call this after any action that modifies hotspot users (disable/enable/reset/delete/rename). */
+export function invalidateUserCache(routerId: number) {
+  userCache.delete(routerId);
+  _usersCountCache.delete(routerId);
+}
+
+/**
+ * Surgically patch a single user in the cache instead of invalidating it.
+ * Used by reset/rename to avoid a full re-fetch of thousands of users.
+ * Returns true if a row was patched.
+ */
+function patchCachedUser(
+  routerId: number,
+  username: string,
+  patch: Partial<Awaited<ReturnType<typeof listHotspotUsers>>[number]>,
+): boolean {
+  const cached = userCache.get(routerId);
+  if (!cached) return false;
+  const target = username.toLowerCase();
+  for (const u of cached.users) {
+    if (u.username.toLowerCase() === target) {
+      Object.assign(u, patch);
+      // The /count payload depends on usedSet from DB, not on user fields we
+      // just patched, so leave it alone — but we do bump cachedAt so it
+      // doesn't look "stale" to the next reader.
+      const cnt = _usersCountCache.get(routerId);
+      if (cnt) cnt.cachedAt = Date.now();
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * GET /routers/:id/users/count
+ * Lightweight: returns just `{ total, available, used, disabled, cachedAt }`.
+ * Mikhmon-style stale-while-revalidate: as long as we have a previous user
+ * snapshot (even past TTL), we serve it instantly and refresh in background.
+ */
+const _usersRefreshing = new Set<number>();
+type UsersCountPayload = {
+  total: number;
+  available: number;
+  used: number;
+  disabled: number;
+  cachedAt: number;
+  cached: boolean;
+  stale?: boolean;
+};
+const _usersCountCache = new Map<number, UsersCountPayload>();
+
+async function computeUsersCount(
+  routerId: number,
+  conn: Parameters<typeof listHotspotUsers>[0],
+  users: Awaited<ReturnType<typeof listHotspotUsers>>,
+): Promise<UsersCountPayload> {
+  const usedRows = await db
+    .select({ username: vouchersTable.username })
+    .from(vouchersTable)
+    .where(and(eq(vouchersTable.routerId, routerId), isNotNull(vouchersTable.usedAt)));
+  const usedSet = new Set(usedRows.map((v) => v.username.toLowerCase()));
+  let available = 0;
+  let disabled  = 0;
+  for (const u of users) {
+    if (u.disabled) { disabled++; continue; }
+    const prof = (u.profile ?? "").toLowerCase();
+    if (prof === "trial" || prof === "default-trial") continue;
+    if (u.macAddress) continue;
+    if (usedSet.has(u.username.toLowerCase())) continue;
+    available++;
+  }
+  void conn; // signature kept for future use
+  return {
+    total: users.length,
+    available,
+    used: usedSet.size,
+    disabled,
+    cachedAt: Date.now(),
+    cached: false,
+  };
+}
+
+router.get("/routers/:id/users/count", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+
+  const userHit = userCache.get(id);
+  const userFresh = !!userHit && Date.now() < userHit.expiresAt;
+  const cachedPayload = _usersCountCache.get(id);
+
+  // Counts go stale much faster than the user-list snapshot (the DB-derived
+  // `used`/`available` numbers depend on usage sync, which runs every ~30s).
+  // Keep the count payload "fresh" only for ~20s so we re-query DB regularly,
+  // while still serving older payloads instantly via the stale path below.
+  const COUNT_FRESH_MS = 20_000;
+  if (userFresh && cachedPayload && (Date.now() - cachedPayload.cachedAt) < COUNT_FRESH_MS) {
+    res.json({ ...cachedPayload, cached: true });
+    return;
+  }
+
+  // Stale path — we have *some* previous payload: serve it + refresh in bg
+  if (cachedPayload) {
+    res.json({ ...cachedPayload, cached: true, stale: true });
+    if (!_usersRefreshing.has(id)) {
+      _usersRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const users = await getCachedUsers(id, conn, { force: !userFresh });
+          const payload = await computeUsersCount(id, conn, users);
+          _usersCountCache.set(id, payload);
+        } catch { /* keep stale */ }
+        finally { _usersRefreshing.delete(id); }
+      });
+    }
+    return;
+  }
+
+  // Cold start — must block to compute the very first payload
+  try {
+    const users = await getCachedUsers(id, conn);
+    const payload = await computeUsersCount(id, conn, users);
+    _usersCountCache.set(id, payload);
+    res.json(payload);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
 
 router.get("/routers/:id/users", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { search, profile, comment: commentFilter, limit: limitStr, offset: offsetStr } = req.query as {
-    search?: string; profile?: string; comment?: string; limit?: string; offset?: string;
+  const { search, profile, comment: commentFilter, limit: limitStr, offset: offsetStr, refresh } = req.query as {
+    search?: string; profile?: string; comment?: string; limit?: string; offset?: string; refresh?: string;
   };
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
@@ -473,7 +1027,7 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    let users = await getCachedUsers(id, conn);
+    let users = await getCachedUsers(id, conn, { force: refresh === "1" || refresh === "true" });
 
     if (search) {
       const q = search.toLowerCase();
@@ -500,6 +1054,44 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
     res.json({ users: paged, total });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// POST /routers/:id/hotspot-users — add a single MikroTik hotspot user
+router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const { name, password, profile, comment, server, limitUptime, limitBytesTotal, macAddress } = req.body as {
+    name?: string; password?: string; profile?: string; comment?: string;
+    server?: string; limitUptime?: string; limitBytesTotal?: string; macAddress?: string;
+  };
+
+  if (!name?.trim())     { res.status(400).json({ error: "Le nom d'utilisateur est requis" }); return; }
+  if (!password?.trim()) { res.status(400).json({ error: "Le mot de passe est requis" }); return; }
+  if (!profile?.trim())  { res.status(400).json({ error: "Le profil est requis" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  try {
+    await withRouterLock(id, () => addHotspotUser(conn, {
+      name: name.trim(),
+      password: password.trim(),
+      profile: profile.trim(),
+      comment: comment?.trim() || undefined,
+      server: server?.trim() || undefined,
+      limitUptime: limitUptime?.trim() || undefined,
+      limitBytesTotal: limitBytesTotal?.trim() || undefined,
+      macAddress: macAddress?.trim() || undefined,
+    }));
+    // Invalidate user/list/count caches so subsequent reads see the new user immediately
+    invalidateUserCache(id);
+    res.status(201).json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Erreur MikroTik";
+    res.status(502).json({ error: msg });
   }
 });
 
@@ -592,21 +1184,325 @@ router.delete("/routers/:id/users", async (req, res): Promise<void> => {
   const { comment: commentFilter } = req.query as { comment?: string };
   const { usernames } = (req.body ?? {}) as { usernames?: string[] };
 
+  if (!commentFilter && !(Array.isArray(usernames) && usernames.length > 0)) {
+    res.status(400).json({ error: "Fournir comment ou usernames" });
+    return;
+  }
   try {
-    let deleted = 0;
-    if (commentFilter) {
-      deleted = await deleteHotspotUsersByComment(conn, commentFilter);
-    } else if (Array.isArray(usernames) && usernames.length > 0) {
-      deleted = await deleteHotspotUsersByNames(conn, usernames);
-    } else {
-      res.status(400).json({ error: "Fournir comment ou usernames" });
-      return;
-    }
+    const deleted = await withRouterLock(id, async () => {
+      if (commentFilter) return deleteHotspotUsersByComment(conn, commentFilter);
+      return deleteHotspotUsersByNames(conn, usernames!);
+    });
     // Invalidate cache so subsequent requests get fresh data
     userCache.delete(id);
     res.json({ deleted });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// PATCH /routers/:id/users/:username — rename a hotspot user
+const AUTO_BYPASS_PREFIX = "auto-bypass:user:";
+
+function parseExpiryFromComment(comment: string | null | undefined): Date | null {
+  if (!comment) return null;
+  const m1 = comment.match(/([a-z]{3}\/\d{1,2}\/\d{4})\s+(\d{1,2}:\d{2}(?::\d{2})?)/i);
+  if (m1) {
+    const d = new Date(`${m1[1]} ${m1[2]}`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  const m2 = comment.match(/(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2}(?::\d{2})?)/);
+  if (m2) {
+    const d = new Date(`${m2[1]}T${m2[2]}`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+async function upsertLinkedBypass(
+  conn: RouterConnection,
+  username: string,
+  macAddress: string,
+  comment: string | null,
+) {
+  const tag = `${AUTO_BYPASS_PREFIX}${username.toLowerCase()}`;
+  const expired = (() => {
+    const exp = parseExpiryFromComment(comment);
+    return exp ? exp.getTime() <= Date.now() : false;
+  })();
+
+  const all = await listIpBindings(conn);
+  const existing = all.find((b) => (b.comment ?? "").toLowerCase() === tag);
+  const payload = {
+    macAddress: macAddress.trim().toUpperCase(),
+    type: "bypassed" as const,
+    comment: tag,
+    disabled: expired,
+  };
+  if (existing) {
+    await updateIpBinding(conn, existing.id, payload);
+  } else {
+    await addIpBinding(conn, payload);
+  }
+}
+
+router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const oldUsername = decodeURIComponent(req.params.username as string);
+  const { newUsername, password, profile, bypassMacAddress, linkBypass } = (req.body ?? {}) as {
+    newUsername?: string;
+    password?: string;
+    profile?: string;
+    bypassMacAddress?: string;
+    linkBypass?: boolean;
+  };
+  if (newUsername !== undefined && (!newUsername || !newUsername.trim())) {
+    res.status(400).json({ error: "newUsername invalide" });
+    return;
+  }
+  if (password !== undefined && (!password || !password.trim())) {
+    res.status(400).json({ error: "password invalide" });
+    return;
+  }
+  if (profile !== undefined && (!profile || !profile.trim())) {
+    res.status(400).json({ error: "profile invalide" });
+    return;
+  }
+  if (linkBypass && (!bypassMacAddress || !bypassMacAddress.trim())) {
+    res.status(400).json({ error: "bypassMacAddress requis si linkBypass=true" });
+    return;
+  }
+  const trimmed = newUsername?.trim();
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+  try {
+    const updated = await updateHotspotUser(conn, oldUsername, {
+      newUsername: trimmed,
+      password: password?.trim(),
+      profile: profile?.trim(),
+    });
+    if (!updated.found) { res.status(404).json({ error: "Utilisateur introuvable sur le routeur" }); return; }
+    const finalUsername = updated.username;
+
+    if (linkBypass && bypassMacAddress) {
+      await upsertLinkedBypass(conn, finalUsername, bypassMacAddress, updated.comment);
+    }
+
+    userCache.delete(id);
+    if (finalUsername !== oldUsername) {
+      await db
+        .update(vouchersTable)
+        .set({ username: finalUsername })
+        .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.username, oldUsername)));
+    }
+    res.json({ ok: true, oldUsername, newUsername: finalUsername });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const username = decodeURIComponent(req.params.username as string);
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+  try {
+    const result = await withRouterLock(id, async () => {
+      const r2 = await resetHotspotUser(conn, username);
+      if (!r2.found) return r2;
+
+      // Clear usedAt + sale fields in DB so the voucher is marked unsold again.
+      // Username column is case-insensitive matched (lower) to align with the
+      // sync logic which compares with toLowerCase().
+      await db
+        .update(vouchersTable)
+        .set({ usedAt: null, salePrice: null, macAddress: null, saleIp: null })
+        .where(and(
+          eq(vouchersTable.routerId, id),
+          sql`lower(${vouchersTable.username}) = lower(${username})`,
+        ));
+
+      // Purge local script-sales cache rows (case-insensitive) so the
+      // background usage-sync does not immediately re-mark the voucher as used.
+      await db
+        .delete(scriptSalesTable)
+        .where(and(
+          eq(scriptSalesTable.routerId, id),
+          sql`lower(${scriptSalesTable.username}) = lower(${username})`,
+        ));
+
+      return r2;
+    });
+
+    if (!result.found) {
+      console.warn(`[reset] user not found on router id=${id} username=${JSON.stringify(username)} (len=${username.length})`);
+      res.status(404).json({ error: `Utilisateur "${username}" introuvable sur le routeur` });
+      return;
+    }
+
+    // Surgically patch the cached snapshot so the next list call returns the
+    // post-reset state instantly (no MikroTik round-trip for thousands of
+    // users). The fields below mirror what `resetHotspotUser` writes back:
+    // a pristine voucher with no comment, no quota override, no MAC binding.
+    const patched = patchCachedUser(id, username, {
+      comment: null,
+      limitUptime: null,
+      limitBytesTotal: null,
+      macAddress: null,
+    });
+    if (!patched) userCache.delete(id);
+    res.json({
+      ok: true,
+      username,
+      sessionKicked: result.sessionKicked,
+      salesScriptsRemoved: result.salesScriptsRemoved,
+      salesScriptsFailed: result.salesScriptsFailed,
+    });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// ─── Hotspot IP-bindings (MAC bypass) ────────────────────────────────────────
+//
+// Direct passthrough to MikroTik /ip/hotspot/ip-binding (no caching — list
+// is small and changes are admin-driven, not high-frequency).
+
+router.get("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const bindings = await listIpBindings(conn);
+    res.json({ bindings });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// List Hotspot servers (instances) — used by IP-binding UI to populate the
+// "Server" dropdown. Light-weight passthrough, no caching needed.
+router.get("/routers/:id/hotspot-servers", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const servers = await listHotspotServers(conn);
+    res.json({ servers });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+// Shared payload validation for POST/PATCH ip-binding requests.
+// Returns either a sanitized opts object or an { error } message.
+const VALID_BINDING_TYPES = new Set(["bypassed", "blocked", "regular"]);
+const MAC_RE = /^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/;
+function parseBindingPayload(body: unknown, opts: { partial: boolean }):
+  | { error: string }
+  | {
+      macAddress?: string; address?: string; toAddress?: string;
+      type?: "bypassed" | "blocked" | "regular"; server?: string;
+      comment?: string; disabled?: boolean;
+    }
+{
+  if (!body || typeof body !== "object") return { error: "Corps de requête invalide" };
+  const b = body as Record<string, unknown>;
+  const out: {
+    macAddress?: string; address?: string; toAddress?: string;
+    type?: "bypassed" | "blocked" | "regular"; server?: string;
+    comment?: string; disabled?: boolean;
+  } = {};
+  // String fields — accept undefined; validate type when present.
+  for (const k of ["macAddress", "address", "toAddress", "server", "comment"] as const) {
+    if (b[k] !== undefined) {
+      if (typeof b[k] !== "string") return { error: `Champ ${k} invalide` };
+      out[k] = b[k] as string;
+    }
+  }
+  if (b.type !== undefined) {
+    if (typeof b.type !== "string" || !VALID_BINDING_TYPES.has(b.type)) {
+      return { error: "Type invalide (bypassed|blocked|regular)" };
+    }
+    out.type = b.type as "bypassed" | "blocked" | "regular";
+  }
+  if (b.disabled !== undefined) {
+    if (typeof b.disabled !== "boolean") return { error: "Champ disabled doit être booléen" };
+    out.disabled = b.disabled;
+  }
+  // Create requires at least MAC or IP; partial updates may touch a single field.
+  if (!opts.partial) {
+    if (!out.macAddress?.trim() && !out.address?.trim()) {
+      return { error: "Adresse MAC ou IP requise" };
+    }
+  }
+  if (out.macAddress !== undefined && out.macAddress !== "" && !MAC_RE.test(out.macAddress.trim())) {
+    return { error: "Adresse MAC invalide (format attendu : AA:BB:CC:DD:EE:FF)" };
+  }
+  return out;
+}
+
+router.post("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  const parsed = parseBindingPayload(req.body, { partial: false });
+  if ("error" in parsed) { res.status(400).json(parsed); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    await withRouterLock(id, () => addIpBinding(conn, parsed));
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
+  }
+});
+
+router.patch("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  // Express already URL-decodes route params, so use the raw value.
+  const bindingId = req.params.bindingId as string;
+  if (isNaN(id) || !bindingId) { res.status(400).json({ error: "Paramètre invalide" }); return; }
+  const parsed = parseBindingPayload(req.body, { partial: true });
+  if ("error" in parsed) { res.status(400).json(parsed); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    await withRouterLock(id, () => updateIpBinding(conn, bindingId, parsed));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
+  }
+});
+
+router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  // Express already URL-decodes route params, so use the raw value.
+  const bindingId = req.params.bindingId as string;
+  if (isNaN(id) || !bindingId) { res.status(400).json({ error: "Paramètre invalide" }); return; }
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    await withRouterLock(id, () => deleteIpBinding(conn, bindingId));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
   }
 });
 
@@ -641,6 +1537,13 @@ const USAGE_SYNC_INTERVAL = 30_000; // 30 seconds
 /** Background auto-sync — self-reschedules every USAGE_SYNC_INTERVAL */
 async function scheduleUsageSync(routerId: number, conn: RouterConnection) {
   if (usageSyncActive.has(routerId)) return;
+  // If a user-initiated operation has locked this router, skip this cycle
+  // and come back next interval rather than fighting for a connection.
+  if (isRouterLocked(routerId)) {
+    const timer = setTimeout(() => scheduleUsageSync(routerId, conn), USAGE_SYNC_INTERVAL);
+    usageSyncTimer.set(routerId, timer);
+    return;
+  }
   usageSyncActive.add(routerId);
   try {
     // Refresh the script cache first (incremental — only current + last month),
@@ -751,39 +1654,50 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
 
 /**
  * GET /routers/:id/sales-report
- * Reads MikHMon sales scripts directly — mirrors selling.php filter logic.
+ * Serves MikHMon sales data from the local DB cache (mikrotik_script_sales).
  * Query params:
- *   ?year=2026&month=3       → monthly (owner filter)
- *   ?year=2026&month=3&day=5 → daily (owner + JS day filter)
- *   (none)                   → all history (?comment=mikhmon)
+ *   ?year=2026&month=3       → monthly
+ *   ?year=2026&month=3&day=5 → daily
+ *   (none)                   → all history
  */
 router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
-
-  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-
   const yearRaw  = req.query.year  ? parseInt(req.query.year  as string, 10) : null;
   const monthRaw = req.query.month ? parseInt(req.query.month as string, 10) : null;
   const dayRaw   = req.query.day   ? parseInt(req.query.day   as string, 10) : null;
 
-  let filter: Parameters<typeof fetchScriptSales>[1];
-  if (yearRaw && monthRaw && dayRaw) {
-    filter = { type: "day",   year: yearRaw, month: monthRaw, day: dayRaw };
-  } else if (yearRaw && monthRaw) {
-    filter = { type: "month", year: yearRaw, month: monthRaw };
-  } else {
-    filter = { type: "all" };
-  }
-
   try {
-    const entries = await fetchScriptSales(conn, filter, 60_000);
+    const conditions: ReturnType<typeof eq>[] = [eq(scriptSalesTable.routerId, id) as any];
+    if (yearRaw)  conditions.push(sql`EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yearRaw}` as any);
+    if (monthRaw) conditions.push(sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${monthRaw}` as any);
+    if (dayRaw)   conditions.push(sql`EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dayRaw}` as any);
+
+    const rows = await db
+      .select({
+        date:     sql<string>`to_char(${scriptSalesTable.saleDate} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+        time:     sql<string>`to_char(${scriptSalesTable.saleDate} AT TIME ZONE 'UTC', 'HH24:MI:SS')`,
+        username: scriptSalesTable.username,
+        price:    scriptSalesTable.price,
+        ip:       scriptSalesTable.ip,
+        mac:      scriptSalesTable.mac,
+        validity: scriptSalesTable.validity,
+        label:    scriptSalesTable.label,
+        batch:    scriptSalesTable.batch,
+      })
+      .from(scriptSalesTable)
+      .where(and(...conditions))
+      .orderBy(sql`${scriptSalesTable.saleDate} DESC`);
+
+    const entries = rows.map(({ price, ...rest }) => ({
+      ...rest,
+      price: parseFloat(price) || 0,
+    }));
+
     res.json(entries);
   } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Erreur MikroTik" });
+    res.status(500).json({ error: err?.message ?? "Erreur base de données" });
   }
 });
 
@@ -791,30 +1705,58 @@ router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ck = `interfaces:${id}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     const ifaces = await listInterfaces(conn);
+    mSet(ck, MIK_TTL.interfaces, ifaces);
     res.json(ifaces);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
 });
 
+// Per-key in-flight refresh guard for short-lived caches (logs/traffic) — Mikhmon-style.
+const _swrRefreshing = new Set<string>();
+
 router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : "";
+  const ck = `traffic:${id}:${ifaceName}`;
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
+
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
 
-  const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : undefined;
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    if (!_swrRefreshing.has(ck)) {
+      _swrRefreshing.add(ck);
+      setImmediate(async () => {
+        try {
+          const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
+          mSet(ck, MIK_TTL.traffic, traffic);
+        } catch { /* keep stale */ }
+        finally { _swrRefreshing.delete(ck); }
+      });
+    }
+    return;
+  }
 
   try {
-    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const traffic = await fetchInterfaceTraffic(conn, ifaceName);
+    const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
+    mSet(ck, MIK_TTL.traffic, traffic);
     res.json(traffic);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -826,15 +1768,35 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+  const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : 50;
+  const topics = (req.query.topics as string | undefined) ?? "";
+  const ck = `logs:${id}:${topics}:${limit}`;
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    if (!_swrRefreshing.has(ck)) {
+      _swrRefreshing.add(ck);
+      setImmediate(async () => {
+        try {
+          const logs = await listLogs(conn, limit, topics || undefined);
+          mSet(ck, MIK_TTL.logs, logs);
+        } catch { /* keep stale */ }
+        finally { _swrRefreshing.delete(ck); }
+      });
+    }
+    return;
+  }
 
   try {
-    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const topics = req.query.topics as string | undefined;
-    const logs = await listLogs(conn, limit, topics);
+    const logs = await listLogs(conn, limit, topics || undefined);
+    mSet(ck, MIK_TTL.logs, logs);
     res.json(logs);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -959,6 +1921,35 @@ router.post("/routers/:id/sync-usage", async (req, res): Promise<void> => {
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
+});
+
+/* ── Startup cache warm-up ──────────────────────────────────────────────
+ * Proactively fetch /info for all active routers right after the server
+ * boots so the very first dashboard request is served from cache.
+ * Failures are silently ignored — the endpoint falls back to a live call.
+ */
+setImmediate(async () => {
+  try {
+    const activeRouters = await db
+      .select()
+      .from(routersTable)
+      .where(eq(routersTable.isActive, true));
+    await Promise.all(
+      activeRouters.map(async (r) => {
+        const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+        // Warm the /info cache
+        const ck = `info:${r.id}`;
+        if (!mGet(ck)) {
+          try {
+            const info = await getRouterInfo(conn);
+            mSet(ck, MIK_TTL.info, info);
+          } catch { /* ignore individual router failures */ }
+        }
+        // Auto-start usage sync so per-vendor stats are fresh from the first request
+        ensureUsageSyncScheduled(r.id, conn);
+      }),
+    );
+  } catch { /* ignore DB errors at startup */ }
 });
 
 export default router;

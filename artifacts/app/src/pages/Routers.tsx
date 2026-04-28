@@ -10,7 +10,7 @@ import {
   getListRoutersQueryKey,
 } from "@workspace/api-client-react";
 import type { Router as RouterType } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, TestTube, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 import {
@@ -336,9 +336,49 @@ export default function Routers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { setSelectedRouterId, selectedRouterId } = useRouterContext();
-  const { role } = useAuth();
+  const { role, token, isSuperAdmin } = useAuth();
   const isManager = role === "manager";
   const [, navigate] = useLocation();
+
+  /* ── Quota & credits (admin only, regular admins see the banner) ─── */
+  interface AdminMe {
+    isSuperAdmin: boolean;
+    credits: number;
+    routerCount: number;
+    routerLimit: number;
+    forfaitEndsAt: string | null;
+  }
+  const { data: adminMe } = useQuery<AdminMe>({
+    queryKey: ["admin", "me"],
+    enabled: !!token && role === "admin",
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/admin/me`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error("Échec de chargement du profil");
+      return r.json();
+    },
+  });
+  const buyRoutersM = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`${BASE}/api/admin/buy-routers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const data = await r.json().catch(() => ({} as { error?: string }));
+      if (!r.ok) throw new Error(data?.error ?? "Achat impossible");
+      return data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin", "me"] });
+      toast({ title: "Pack acquis", description: "+5 routeurs ajoutés à votre quota." });
+    },
+    onError: (err) => {
+      toast({
+        title: "Achat impossible",
+        description: err instanceof Error ? err.message : "Crédits insuffisants",
+        variant: "destructive",
+      });
+    },
+  });
 
   const [showForm, setShowForm] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
@@ -346,6 +386,7 @@ export default function Routers() {
   const [form, setForm] = useState<RouterFormData>(emptyForm);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
   const [profileMergeRouterId, setProfileMergeRouterId] = useState<number | null>(null);
+  const [forceSyncingId, setForceSyncingId] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
 
@@ -411,6 +452,26 @@ export default function Routers() {
     }
   };
 
+  const handleForceSync = async (id: number) => {
+    setForceSyncingId(id);
+    try {
+      const res = await fetch(`/api/admin/routers/${id}/force-sync`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erreur");
+      toast({
+        title: "Resync complet terminé",
+        description: `${data.scriptInserted} nouvelles entrées script · ${data.vouchersCreated} ticket(s) récupéré(s)`,
+      });
+    } catch (err) {
+      toast({ title: "Resync échoué", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setForceSyncingId(null);
+    }
+  };
+
   const handleSelect = (id: number) => {
     setSelectedRouterId(id);
     navigate("/");
@@ -425,17 +486,56 @@ export default function Routers() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!isManager && (
-            <Button variant="outline" className="gap-2" onClick={() => setShowCredentials(true)}>
-              <KeyRound className="h-4 w-4" /> Identifiants admin
+            <Button variant="outline" className="gap-2" title="Identifiants admin" onClick={() => setShowCredentials(true)}>
+              <KeyRound className="h-4 w-4" />
+              <span className="hidden sm:inline">Identifiants admin</span>
             </Button>
           )}
           {!isManager && (
-            <Button onClick={openCreate} className="gap-2">
-              <Plus className="h-4 w-4" /> Ajouter un routeur
+            <Button onClick={openCreate} className="gap-2" title="Ajouter un routeur">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ajouter un routeur</span>
             </Button>
           )}
         </div>
       </div>
+
+      {role === "admin" && !isSuperAdmin && adminMe && (() => {
+        const used = adminMe.routerCount;
+        const limit = adminMe.routerLimit;
+        const remaining = Math.max(0, limit - used);
+        const isFull = used >= limit;
+        const isWarn = remaining <= 1;
+        if (!isFull && !isWarn) return null;
+        return (
+          <Card className={`mb-4 border ${isFull ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+            <CardContent className="py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-2 min-w-0">
+                <AlertTriangle className={`h-5 w-5 flex-shrink-0 ${isFull ? "text-red-500" : "text-amber-500"}`} />
+                <div className="text-sm">
+                  <div className={`font-medium ${isFull ? "text-red-900" : "text-amber-900"}`}>
+                    {isFull
+                      ? `Quota atteint : ${used}/${limit} routeurs`
+                      : `Bientôt à la limite : ${used}/${limit} routeurs`}
+                  </div>
+                  <div className={`text-xs ${isFull ? "text-red-700" : "text-amber-700"}`}>
+                    Crédits disponibles : {adminMe.credits}. Un pack +5 routeurs coûte 50 crédits.
+                  </div>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => buyRoutersM.mutate()}
+                disabled={buyRoutersM.isPending || adminMe.credits < 50}
+                className="gap-1"
+              >
+                <Plus className="h-4 w-4" />
+                Acheter +5 routeurs (50 crédits)
+              </Button>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {isLoading ? (
         <div className="text-gray-400 text-sm">Chargement...</div>
@@ -457,60 +557,69 @@ export default function Routers() {
             return (
               <Card key={r.id} className={isSelected ? "ring-2 ring-blue-500" : ""}>
                 <CardContent className="py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={`p-2 rounded-lg ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <div className={`p-2 rounded-lg flex-shrink-0 ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
                         <Wifi className={`h-5 w-5 ${isSelected ? "text-white" : "text-blue-500"}`} />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-semibold text-gray-900">{r.name}</span>
                           {(r as any).hotspotName && (
-                            <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono">{(r as any).hotspotName}</span>
+                            <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono truncate max-w-[100px]">{(r as any).hotspotName}</span>
                           )}
                           {isSelected && (
-                            <Badge className="bg-blue-100 text-blue-700 border-blue-300 gap-1">
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-300 gap-1 flex-shrink-0">
                               <CheckCircle2 className="h-3 w-3" /> Actif
                             </Badge>
                           )}
                           <Badge
                             variant="outline"
-                            className={r.isActive ? "text-green-600 border-green-200" : "text-gray-400"}
+                            className={`flex-shrink-0 ${r.isActive ? "text-green-600 border-green-200" : "text-gray-400"}`}
                           >
                             {r.isActive ? "Connecté" : "Inactif"}
                           </Badge>
                           {testResults[r.id] && (
                             <Badge
                               variant="outline"
-                              className={testResults[r.id].success ? "text-green-600 border-green-200" : "text-red-500 border-red-200"}
+                              className={`flex-shrink-0 ${testResults[r.id].success ? "text-green-600 border-green-200" : "text-red-500 border-red-200"}`}
                             >
                               {testResults[r.id].success ? "✓ En ligne" : "✗ Hors ligne"}
                             </Badge>
                           )}
                         </div>
-                        <p className="text-sm text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-500 mt-0.5 truncate">
                           {r.host}:{r.port} · {r.username}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap gap-1 flex-shrink-0 w-[68px] justify-end">
                       {!isSelected && (
                         <Button
-                          size="sm"
-                          className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                          size="icon"
+                          className="h-8 w-8 bg-blue-600 hover:bg-blue-700 text-white"
                           onClick={() => handleSelect(r.id)}
+                          title="Sélectionner"
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Sélectionner
+                          <CheckCircle2 className="h-4 w-4" />
                         </Button>
                       )}
                       <Button
-                        size="sm"
                         variant="outline"
-                        className="gap-1.5 text-blue-600"
+                        className="h-8 w-8 text-blue-600 text-xs font-medium p-0"
                         onClick={() => handleTest(r.id)}
                         disabled={testMutation.isPending}
                       >
-                        <TestTube className="h-3.5 w-3.5" /> Tester
+                        Ping
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-gray-400 hover:text-gray-700"
+                        onClick={() => openEdit(r)}
+                        title="Modifier"
+                      >
+                        <Edit className="h-4 w-4" />
                       </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -519,11 +628,17 @@ export default function Routers() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="py-1.5 text-sm" onClick={() => openEdit(r)}>
-                            <Edit className="h-3.5 w-3.5 mr-2" /> Modifier
-                          </DropdownMenuItem>
                           <DropdownMenuItem className="py-1.5 text-sm" onClick={() => setProfileMergeRouterId(r.id)}>
                             <Layers className="h-3.5 w-3.5 mr-2" /> Profils en base
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="py-1.5 text-sm text-blue-600 focus:text-blue-600 focus:bg-blue-50"
+                            onClick={() => handleForceSync(r.id)}
+                            disabled={forceSyncingId === r.id}
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 mr-2 ${forceSyncingId === r.id ? "animate-spin" : ""}`} />
+                            {forceSyncingId === r.id ? "Resync en cours…" : "Resync complet"}
                           </DropdownMenuItem>
                           {!isManager && (
                             <>

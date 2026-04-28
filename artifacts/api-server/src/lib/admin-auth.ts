@@ -23,29 +23,61 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   });
 }
 
-export function createAdminToken(): string {
-  const payload = Buffer.from(
-    JSON.stringify({ admin: true, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 })
-  ).toString("base64url");
-  const sig = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
-  return `${payload}.${sig}`;
+interface AdminTokenPayload {
+  // Identifies the admin row in admin_settings.
+  adminId: number;
+  // True iff this admin can manage other admins (super-admin tier).
+  isSuperAdmin: boolean;
+  // Legacy flag still embedded for backward compatibility with the old
+  // boolean check; always `true` for any admin token we issue.
+  admin: true;
+  exp: number;
 }
 
-export function verifyAdminToken(token: string): boolean {
+export function createAdminToken(adminId: number, isSuperAdmin: boolean): string {
+  const payload: AdminTokenPayload = {
+    adminId,
+    isSuperAdmin,
+    admin: true,
+    exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = crypto.createHmac("sha256", SECRET).update(encoded).digest("base64url");
+  return `${encoded}.${sig}`;
+}
+
+/**
+ * Decode and verify an admin token. Returns the embedded claims when valid,
+ * or null when the signature, expiry, or shape is wrong.
+ *
+ * Use this when a route needs to know WHO the admin is (e.g. for tenant
+ * scoping or super-admin gating). For a simple yes/no check, see
+ * `verifyAdminToken` which preserves the original boolean API.
+ */
+export function verifyAdminTokenFull(token: string): { adminId: number; isSuperAdmin: boolean } | null {
   try {
     const dot = token.lastIndexOf(".");
-    if (dot === -1) return false;
+    if (dot === -1) return null;
     const payload = token.slice(0, dot);
     const sig = token.slice(dot + 1);
     const expectedSig = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
-    if (sig !== expectedSig) return false;
-    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
-      admin: boolean;
-      exp: number;
-    };
-    if (!data.admin || data.exp < Date.now()) return false;
-    return true;
+    if (sig !== expectedSig) return null;
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Partial<AdminTokenPayload>;
+    if (!data.admin || typeof data.exp !== "number" || data.exp < Date.now()) return null;
+    // adminId is required for new tokens; older tokens (issued before this
+    // release) won't carry it and are treated as invalid so users re-login.
+    if (typeof data.adminId !== "number") return null;
+    return { adminId: data.adminId, isSuperAdmin: !!data.isSuperAdmin };
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Boolean-only admin token check. Kept for backward compatibility with the
+ * many existing routes that just need to confirm "this is an admin token".
+ * New code should prefer `verifyAdminTokenFull` to also access claims.
+ */
+export function verifyAdminToken(token: string): boolean {
+  return verifyAdminTokenFull(token) !== null;
 }
