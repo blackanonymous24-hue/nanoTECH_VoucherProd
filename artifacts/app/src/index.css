@@ -241,6 +241,12 @@
   body[data-scroll-locked] {
     margin-right: 0 !important;
     padding-right: 0 !important;
+    --removed-body-scroll-bar-size: 0px !important;
+  }
+
+  html[data-scroll-locked],
+  body[data-scroll-locked] {
+    scrollbar-gutter: stable both-edges !important;
   }
 }
 
