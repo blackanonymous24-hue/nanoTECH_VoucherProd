@@ -1339,7 +1339,7 @@ function Dashboard({ token, vendor, onLogout }: {
                           )}
 
                           {/* Payments list */}
-                          {w.payments.length > 0 && (
+                          {!isSolde && w.payments.length > 0 && (
                             <div className="space-y-1 pt-1 border-t border-gray-100">
                               {w.payments.map((p) => (
                                 <div key={p.id} className="flex items-center gap-2 text-[11px]">
