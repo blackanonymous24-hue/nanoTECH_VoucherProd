@@ -107,13 +107,12 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " FCFA";
 }
 
-function amountTextSizeClass(amount: number): string {
-  const len = Math.abs(Math.trunc(amount)).toLocaleString("fr-FR").replace(/\s/g, "").length;
-  if (len <= 4) return "text-2xl";
-  if (len <= 6) return "text-xl";
-  if (len <= 8) return "text-lg";
-  if (len <= 10) return "text-base";
-  return "text-xs";
+function amountTextStyle(amount: number, currency = "FCFA"): React.CSSProperties {
+  const amountStr = amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+  const len = `${amountStr} ${currency}`.length;
+  // Shrink aggressively from 24px down to 8px to always show full text.
+  const size = Math.max(8, 24 - (len - 8) * 1.15);
+  return { fontSize: `${size}px`, lineHeight: 1.15 };
 }
 
 /**
@@ -909,7 +908,10 @@ function StatCard({
               ) : label !== undefined ? (
                 <>
                   {amountValue !== undefined ? (
-                    <p className={`fit-price font-bold text-gray-900 leading-tight truncate whitespace-nowrap ${amountTextSizeClass(amountValue)}`}>
+                    <p
+                      className="font-bold text-gray-900 whitespace-nowrap leading-tight tracking-tight"
+                      style={amountTextStyle(amountValue, currency || "FCFA")}
+                    >
                       {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
                     </p>
                   ) : (
