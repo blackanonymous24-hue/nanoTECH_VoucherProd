@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Activity, RefreshCw, Wifi, Users, Search, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { foldText } from "@/lib/text";
 
 // Module-level cache — persists across component unmount/remount (navigating away and back).
 // Provides instant display via initialData so the session list never shows a loading skeleton on re-visit.
@@ -100,12 +101,12 @@ export default function Sessions() {
 
   const filtered = sessions.filter((s) => {
     if (!search.trim()) return true;
-    const q = search.toLowerCase();
+    const q = foldText(search);
     return (
-      s.user.toLowerCase().includes(q) ||
-      (s.address ?? "").toLowerCase().includes(q) ||
-      (s.macAddress ?? "").toLowerCase().includes(q) ||
-      (s.server ?? "").toLowerCase().includes(q)
+      foldText(s.user).includes(q) ||
+      foldText(s.address ?? "").includes(q) ||
+      foldText(s.macAddress ?? "").includes(q) ||
+      foldText(s.server ?? "").includes(q)
     );
   });
 

@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
-import { useListRouters } from "@workspace/api-client-react";
+import { getListRouterProfilesQueryKey, useListRouters } from "@workspace/api-client-react";
 import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { queryClient } from "@/lib/queryClient";
 
 interface RouterContextValue {
   selectedRouterId: number | null;
@@ -32,6 +33,27 @@ const RouterContext = createContext<RouterContextValue>({
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
+const IP_BINDINGS_CACHE_KEY = "ip-bindings-cache:v1";
+
+type BootstrapPayload = {
+  priority?: unknown;
+  profiles?: unknown[];
+  usersCount?: {
+    total?: number;
+    available?: number;
+    used?: number;
+    disabled?: number;
+    cachedAt?: number;
+    cached?: boolean;
+    stale?: boolean;
+  } | null;
+  sessions?: unknown[];
+  ipBindings?: unknown[];
+  interfaces?: unknown[];
+  logs?: unknown[];
+};
 
 export function RouterProvider({ children }: { children: ReactNode }) {
   const { managerRouterId, role, collaborateurRouterIds, isAuthenticated } = useAuth();
@@ -105,6 +127,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
   const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
 
+  const prewarmAbortRef = useRef<AbortController | null>(null);
+
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
     setSelectedRouterIdState(id);
@@ -130,6 +154,94 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       didInitialTrigger.current = true;
       setPingTrigger((n) => n + 1);
     }
+  }, [selectedRouterId]);
+
+  // Prewarm critical router endpoints right after selection so target pages feel
+  // instant when opened (Mikhmon-like).
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    prewarmAbortRef.current?.abort();
+    const controller = new AbortController();
+    prewarmAbortRef.current = controller;
+    void (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/bootstrap`, { signal: controller.signal });
+        if (!res.ok) return;
+        const data = await res.json() as BootstrapPayload;
+        if (controller.signal.aborted) return;
+
+        if (data.priority) {
+          queryClient.setQueryData(["router-dashboard-priority", selectedRouterId], data.priority);
+          try {
+            localStorage.setItem(`${PRIORITY_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(data.priority));
+          } catch {
+            // ignore storage quota/private mode
+          }
+        }
+
+        if (Array.isArray(data.profiles)) {
+          queryClient.setQueryData(getListRouterProfilesQueryKey(selectedRouterId), data.profiles);
+          queryClient.setQueryData(
+            ["router-profiles-dialog", selectedRouterId],
+            data.profiles.map((p) => {
+              const row = (p ?? {}) as Record<string, unknown>;
+              return {
+                name: String(row.name ?? ""),
+                price: row.price == null ? null : String(row.price),
+                validity: row.validity == null ? null : String(row.validity),
+              };
+            }),
+          );
+        }
+
+        const total = Number(data.usersCount?.total ?? NaN);
+        if (Number.isFinite(total)) {
+          queryClient.setQueryData(["router-users-count", selectedRouterId], total);
+          queryClient.setQueryData([`/routers/${selectedRouterId}/users/count`], data.usersCount);
+        }
+
+        if (Array.isArray(data.sessions)) {
+          queryClient.setQueriesData(
+            {
+              predicate: (q) => {
+                const k = JSON.stringify(q.queryKey);
+                return k.includes(String(selectedRouterId)) && k.includes("sessions");
+              },
+            },
+            data.sessions,
+          );
+        }
+
+        if (Array.isArray(data.ipBindings)) {
+          queryClient.setQueryData(["router-ip-bindings", selectedRouterId], data.ipBindings);
+          try {
+            localStorage.setItem(`${IP_BINDINGS_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(data.ipBindings));
+          } catch {
+            // ignore storage quota/private mode
+          }
+        }
+
+        if (Array.isArray(data.interfaces)) {
+          queryClient.setQueryData(["interfaces", selectedRouterId], data.interfaces);
+        }
+
+        if (Array.isArray(data.logs)) {
+          queryClient.setQueriesData(
+            {
+              predicate: (q) => {
+                const k = JSON.stringify(q.queryKey);
+                return k.includes(String(selectedRouterId)) && k.includes("logs");
+              },
+            },
+            data.logs,
+          );
+        }
+      } catch {
+        // keep silent prewarm behavior
+      }
+    })();
+
+    return () => controller.abort();
   }, [selectedRouterId]);
 
   // When the router list arrives from the DB, immediately seed routerIdentity

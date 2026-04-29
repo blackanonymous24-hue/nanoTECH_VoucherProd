@@ -68,6 +68,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
+import { foldText } from "@/lib/text";
 
 type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
 
@@ -250,13 +251,13 @@ export default function Vouchers() {
     if (lotsFilterVendor !== "all")
       result = result.filter((l) => extractVendorFromLot(l.name) === lotsFilterVendor);
     if (debouncedLotsSearch.trim()) {
-      const q = debouncedLotsSearch.toLowerCase().trim();
+      const q = foldText(debouncedLotsSearch).trim();
       result = result.filter(
         (l) =>
-          l.name.toLowerCase().includes(q) ||
-          (l.profile ?? "").toLowerCase().includes(q) ||
-          (extractVendorFromLot(l.name) ?? "").toLowerCase().includes(q) ||
-          l.preview.some((u) => u.username.toLowerCase().includes(q)),
+          foldText(l.name).includes(q) ||
+          foldText(l.profile ?? "").includes(q) ||
+          foldText(extractVendorFromLot(l.name) ?? "").includes(q) ||
+          l.preview.some((u) => foldText(u.username).includes(q)),
       );
     }
     return result;

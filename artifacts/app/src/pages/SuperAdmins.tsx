@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const VALID_MONTHS = [1, 2, 3, 4, 5, 6, 12] as const;
@@ -228,7 +229,7 @@ export default function SuperAdmins() {
   }
 
   const filteredAdmins = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = foldText(search).trim();
     return admins.filter((a) => {
       if (statusFilter === "active" && !a.isActive) return false;
       if (statusFilter === "inactive" && a.isActive) return false;
@@ -237,7 +238,7 @@ export default function SuperAdmins() {
         if (new Date(a.forfaitEndsAt).getTime() >= Date.now()) return false;
       }
       if (!q) return true;
-      const hay = `${a.login} ${a.displayName ?? ""}`.toLowerCase();
+      const hay = foldText(`${a.login} ${a.displayName ?? ""}`);
       return hay.includes(q);
     });
   }, [admins, search, statusFilter]);

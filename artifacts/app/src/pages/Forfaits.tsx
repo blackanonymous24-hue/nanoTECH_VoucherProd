@@ -79,6 +79,8 @@ const defaultForm = {
   validity: "",
 };
 
+const _poolsCache: Record<number, string[]> = {};
+
 export default function Forfaits() {
   const { role } = useAuth();
   const isManager = role === "manager";
@@ -167,12 +169,23 @@ export default function Forfaits() {
     setForm((f) => ({ ...f, [key]: val }));
   }
 
-  async function fetchPools() {
+  async function fetchPools(force = false) {
     if (!selectedRouterId) return;
+    if (!force) {
+      const cached = _poolsCache[selectedRouterId];
+      if (cached && cached.length > 0) {
+        setPools(cached);
+        return;
+      }
+    }
     setLoadingPools(true);
     try {
       const res = await fetch(`/api/routers/${selectedRouterId}/pools`);
-      if (res.ok) setPools(await res.json());
+      if (res.ok) {
+        const next = await res.json() as string[];
+        setPools(next);
+        _poolsCache[selectedRouterId] = next;
+      }
     } catch { /* ignore */ } finally {
       setLoadingPools(false);
     }
@@ -182,9 +195,9 @@ export default function Forfaits() {
     setError(null);
     setEditingName(null);
     setForm(defaultForm);
-    setPools([]);
+    if (selectedRouterId && _poolsCache[selectedRouterId]) setPools(_poolsCache[selectedRouterId]);
     setShowDialog(true);
-    fetchPools();
+    void fetchPools();
   }
 
   function openEdit(p: (typeof profiles)[0]) {
@@ -202,9 +215,9 @@ export default function Forfaits() {
       parentQueue: p.parentQueue ?? "",
       validity: p.validity ?? "",
     });
-    setPools([]);
+    if (selectedRouterId && _poolsCache[selectedRouterId]) setPools(_poolsCache[selectedRouterId]);
     setShowDialog(true);
-    fetchPools();
+    void fetchPools();
   }
 
   async function handleSave() {
@@ -229,7 +242,9 @@ export default function Forfaits() {
       setShowDialog(false);
       setForm(defaultForm);
       setEditingName(null);
-      queryClient.invalidateQueries({ queryKey: getListRouterProfilesQueryKey(selectedRouterId) });
+      const qk = getListRouterProfilesQueryKey(selectedRouterId);
+      queryClient.invalidateQueries({ queryKey: qk });
+      void queryClient.refetchQueries({ queryKey: qk, type: "active" });
     } catch {
       setError("Impossible de contacter le serveur.");
     } finally {
@@ -246,8 +261,15 @@ export default function Forfaits() {
         { method: "DELETE" },
       );
       if (res.ok) {
+        const qk = getListRouterProfilesQueryKey(selectedRouterId);
+        queryClient.setQueryData(qk, (old: unknown) => {
+          const arr = Array.isArray(old) ? old as Array<{ name?: string }> : [];
+          return arr.filter((p) => p?.name !== deletingName);
+        });
+        setLocalProfiles((cur) => cur.filter((p) => p.name !== deletingName));
         setDeletingName(null);
-        queryClient.invalidateQueries({ queryKey: getListRouterProfilesQueryKey(selectedRouterId) });
+        queryClient.invalidateQueries({ queryKey: qk });
+        void queryClient.refetchQueries({ queryKey: qk, type: "active" });
       }
     } catch { /* ignore */ } finally {
       setDeleting(false);
@@ -282,7 +304,8 @@ export default function Forfaits() {
         setSyncNamesMsg(`Erreur: ${(body as { error?: string }).error ?? res.statusText}`);
       } else {
         setSyncNamesMsg("Noms synchronisés avec succès");
-        queryClient.invalidateQueries({ queryKey: ["listRouterProfiles", selectedRouterId] });
+        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
+        queryClient.invalidateQueries({ queryKey: profileKey });
         setTimeout(() => setSyncNamesMsg(null), 4000);
       }
     } catch (e) {
@@ -291,6 +314,16 @@ export default function Forfaits() {
       setSyncingNames(false);
     }
   }
+
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    if (_poolsCache[selectedRouterId]?.length) {
+      setPools(_poolsCache[selectedRouterId]);
+      return;
+    }
+    void fetchPools();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRouterId]);
 
   return (
     <div>

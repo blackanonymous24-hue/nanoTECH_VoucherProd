@@ -27,6 +27,7 @@ import {
   User, RefreshCw, Clock, ChevronLeft, ChevronRight, Search, Banknote, Printer, LogIn,
   PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
+import { foldText } from "@/lib/text";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
 
@@ -408,7 +409,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                       {data.vouchers.length > 0 && (
                         <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">
                           {vSearch.trim()
-                            ? `${data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase())).length}/${data.vouchers.length}`
+                            ? `${data.vouchers.filter(v => foldText(`${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`).includes(foldText(vSearch))).length}/${data.vouchers.length}`
                             : data.vouchers.length}
                         </span>
                       )}
@@ -439,7 +440,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                       <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente ce jour</p>
                     ) : (() => {
                       const vFiltered = vSearch.trim()
-                        ? data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase()))
+                        ? data.vouchers.filter(v => foldText(`${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`).includes(foldText(vSearch)))
                         : data.vouchers;
                       return vFiltered.length === 0 ? (
                         <p className="text-sm text-gray-400 text-center py-6 px-4">Aucun résultat pour « {vSearch} »</p>
@@ -694,7 +695,7 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                     {data.vouchers.length > 0 && (
                       <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">
                         {vSearch.trim()
-                          ? `${data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase())).length}/${data.vouchers.length}`
+                          ? `${data.vouchers.filter(v => foldText(`${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`).includes(foldText(vSearch))).length}/${data.vouchers.length}`
                           : data.vouchers.length}
                       </span>
                     )}
@@ -725,7 +726,7 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                     <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente enregistrée</p>
                   ) : (() => {
                     const vFiltered = vSearch.trim()
-                      ? data.vouchers.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(vSearch.toLowerCase()))
+                      ? data.vouchers.filter(v => foldText(`${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`).includes(foldText(vSearch)))
                       : data.vouchers;
                     return vFiltered.length === 0 ? (
                       <p className="text-sm text-gray-400 text-center py-6 px-4">Aucun résultat pour « {vSearch} »</p>
@@ -1466,7 +1467,7 @@ function Dashboard({ token, vendor, onLogout }: {
                   {data.recentSales.length > 0 && (
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full tabular-nums">
                       {recentSearch.trim()
-                        ? `${data.recentSales.filter(v => `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(recentSearch.toLowerCase())).length}/${data.recentSales.length}`
+                        ? `${data.recentSales.filter(v => foldText(`${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`).includes(foldText(recentSearch))).length}/${data.recentSales.length}`
                         : data.recentSales.length}
                     </span>
                   )}
@@ -1498,7 +1499,7 @@ function Dashboard({ token, vendor, onLogout }: {
                 ) : (() => {
                   const filtered = recentSearch.trim()
                     ? data.recentSales.filter(v =>
-                        `${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`.toLowerCase().includes(recentSearch.toLowerCase())
+                        foldText(`${v.username} ${v.macAddress ?? ""} ${v.saleIp ?? ""}`).includes(foldText(recentSearch))
                       )
                     : data.recentSales;
                   return filtered.length === 0 ? (

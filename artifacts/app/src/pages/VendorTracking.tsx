@@ -9,6 +9,7 @@ import {
   Printer, Search, RotateCcw, Users, Loader2, AlertCircle,
   CalendarDays, ImageDown, AlertTriangle, CalendarRange,
 } from "lucide-react";
+import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -157,12 +158,13 @@ function pct(paid: number, expected: number): string {
 /* ── Print helper: daily ─────────────────────────────────────── */
 function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: DailyArrearsResponse) {
   const dateFr = fmtDateFr(data.date);
+  const q = foldText(search);
   const vouchers = search.trim()
     ? data.vouchers.filter(
         (v) =>
-          v.username.toLowerCase().includes(search.toLowerCase()) ||
-          v.profileName.toLowerCase().includes(search.toLowerCase()) ||
-          v.vendorName.toLowerCase().includes(search.toLowerCase()),
+          foldText(v.username).includes(q) ||
+          foldText(v.profileName).includes(q) ||
+          foldText(v.vendorName).includes(q),
       )
     : data.vouchers;
 
@@ -649,12 +651,12 @@ export default function VendorTracking() {
 
   const filtered = useMemo(() => {
     if (!search.trim()) return vouchers;
-    const q = search.toLowerCase();
+    const q = foldText(search);
     return vouchers.filter(
       (v) =>
-        v.username.toLowerCase().includes(q) ||
-        v.profileName.toLowerCase().includes(q) ||
-        v.vendorName.toLowerCase().includes(q),
+        foldText(v.username).includes(q) ||
+        foldText(v.profileName).includes(q) ||
+        foldText(v.vendorName).includes(q),
     );
   }, [vouchers, search]);
 

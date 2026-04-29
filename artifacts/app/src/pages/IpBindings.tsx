@@ -41,8 +41,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ShieldCheck, RefreshCw, Plus, Search, Trash2, Pencil, ShieldOff, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const IP_BINDINGS_CACHE_KEY = "ip-bindings-cache:v1";
 
 type BindingType = "bypassed" | "blocked" | "regular";
 
@@ -185,6 +187,11 @@ export default function IpBindings() {
       }
       const data = (await res.json()) as { bindings: IpBinding[] };
       setBindings(data.bindings);
+      try {
+        localStorage.setItem(`${IP_BINDINGS_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(data.bindings));
+      } catch {
+        // ignore storage issues
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -194,6 +201,14 @@ export default function IpBindings() {
 
   useEffect(() => {
     setBindings(null);
+    if (selectedRouterId) {
+      try {
+        const raw = localStorage.getItem(`${IP_BINDINGS_CACHE_KEY}:${selectedRouterId}`);
+        if (raw) setBindings(JSON.parse(raw) as IpBinding[]);
+      } catch {
+        // ignore invalid cache
+      }
+    }
     if (selectedRouterId) void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRouterId]);
@@ -201,13 +216,13 @@ export default function IpBindings() {
   const filtered = useMemo(() => {
     if (!bindings) return [];
     if (!search.trim()) return bindings;
-    const q = search.toLowerCase();
+    const q = foldText(search);
     return bindings.filter(
       (b) =>
-        b.macAddress.toLowerCase().includes(q) ||
-        b.address.toLowerCase().includes(q) ||
-        b.toAddress.toLowerCase().includes(q) ||
-        b.comment.toLowerCase().includes(q),
+        foldText(b.macAddress).includes(q) ||
+        foldText(b.address).includes(q) ||
+        foldText(b.toAddress).includes(q) ||
+        foldText(b.comment).includes(q),
     );
   }, [bindings, search]);
 

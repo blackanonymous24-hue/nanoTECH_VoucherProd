@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import {
   FileDown, Search, RotateCcw, Receipt, Loader2, AlertCircle,
 } from "lucide-react";
+import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const ALL = "_all"; // sentinel for "no filter" in Select (empty string not allowed)
@@ -92,13 +93,13 @@ export default function SellingReport() {
 
   const filtered = useMemo(() => {
     if (!search.trim()) return entries;
-    const q = search.toLowerCase();
+    const q = foldText(search);
     return entries.filter(
       (e) =>
-        e.username.toLowerCase().includes(q) ||
-        e.label.toLowerCase().includes(q) ||
-        e.batch.toLowerCase().includes(q) ||
-        e.date.toLowerCase().includes(q),
+        foldText(e.username).includes(q) ||
+        foldText(e.label).includes(q) ||
+        foldText(e.batch).includes(q) ||
+        foldText(e.date).includes(q),
     );
   }, [entries, search]);
 

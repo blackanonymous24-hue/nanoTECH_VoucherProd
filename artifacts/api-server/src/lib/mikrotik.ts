@@ -418,14 +418,39 @@ export async function updateProfile(conn: RouterConnection, originalName: string
 
 export async function deleteProfile(conn: RouterConnection, name: string): Promise<void> {
   return withRouter(conn, async (api) => {
-    const found = await api.write("/ip/hotspot/user/profile/print", [`?name=${name}`]);
-    if (!found.length) throw new Error(`Profil "${name}" introuvable`);
+    const target = (name ?? "").trim();
+    if (!target) throw new Error("Nom de profil vide");
+
+    const findByName = async (candidate: string) =>
+      api.write("/ip/hotspot/user/profile/print", [`?name=${candidate}`]).catch(() => []);
+
+    let found = await findByName(target);
+    if (!found.length) {
+      // Fallback for encoding mismatch (UTF-8/Win1252)
+      found = await findByName(toWin1252(target));
+    }
+    if (!found.length) {
+      // Last fallback: scan and match by normalized display name
+      const all = await api.write("/ip/hotspot/user/profile/print");
+      found = all.filter((p) => {
+        const raw = (p["name"] as string) ?? "";
+        return raw === target || fixEncoding(raw) === target || fromWin1252(raw) === target;
+      });
+    }
+    if (!found.length) throw new Error(`Profil "${name}" introuvable sur MikroTik`);
+
     const id = found[0][".id"] as string;
     await api.write("/ip/hotspot/user/profile/remove", [`=.id=${id}`]);
     const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
     for (const s of schedulers) {
       const sid = s[".id"] as string | undefined;
       if (sid) await api.write("/system/scheduler/remove", [`=.id=${sid}`]).catch(() => undefined);
+    }
+
+    // Hard verification: ensure profile is really gone on MikroTik
+    const stillThere = await findByName(target);
+    if (stillThere.length > 0) {
+      throw new Error(`Suppression non confirmée sur MikroTik pour le profil "${name}"`);
     }
   });
 }

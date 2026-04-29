@@ -81,6 +81,13 @@ const MIK_TTL = {
   logs:       10_000,
 } as const;
 
+function foldText(value: string | null | undefined): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 /**
  * Decode the admin token (if present and valid) so we can scope this request
  * to the caller's tenant. Returns null when there is no admin token (e.g. a
@@ -1031,13 +1038,13 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
     let users = await getCachedUsers(id, conn, { force: refresh === "1" || refresh === "true" });
 
     if (search) {
-      const q = search.toLowerCase();
+      const q = foldText(search);
       users = users.filter(
         (u) =>
-          u.username.toLowerCase().includes(q) ||
-          u.password.toLowerCase().includes(q) ||
-          (u.comment ?? "").toLowerCase().includes(q) ||
-          u.profile.toLowerCase().includes(q),
+          foldText(u.username).includes(q) ||
+          foldText(u.password).includes(q) ||
+          foldText(u.comment ?? "").includes(q) ||
+          foldText(u.profile).includes(q),
       );
     }
     if (profile) {
@@ -1418,17 +1425,35 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
 
 // ─── Hotspot IP-bindings (MAC bypass) ────────────────────────────────────────
 //
-// Direct passthrough to MikroTik /ip/hotspot/ip-binding (no caching — list
-// is small and changes are admin-driven, not high-frequency).
+// Kept in a short-lived cache for instant bootstrap/page-open response.
+const ipBindingsCache = new Map<number, { bindings: Awaited<ReturnType<typeof listIpBindings>>; exp: number }>();
+const IP_BINDINGS_TTL = 30_000;
+function getIpBindingsCached(routerId: number) {
+  const hit = ipBindingsCache.get(routerId);
+  if (hit && Date.now() < hit.exp) return hit.bindings;
+  return null;
+}
+function getIpBindingsStale(routerId: number) {
+  return ipBindingsCache.get(routerId)?.bindings ?? null;
+}
+function setIpBindingsCache(routerId: number, bindings: Awaited<ReturnType<typeof listIpBindings>>) {
+  ipBindingsCache.set(routerId, { bindings, exp: Date.now() + IP_BINDINGS_TTL });
+}
+function invalidateIpBindingsCache(routerId: number) {
+  ipBindingsCache.delete(routerId);
+}
 
 router.get("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  const hit = getIpBindingsCached(id);
+  if (hit) { res.json({ bindings: hit }); return; }
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     const bindings = await listIpBindings(conn);
+    setIpBindingsCache(id, bindings);
     res.json({ bindings });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -1509,6 +1534,7 @@ router.post("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await withRouterLock(id, () => addIpBinding(conn, parsed));
+    invalidateIpBindingsCache(id);
     res.status(201).json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
@@ -1527,6 +1553,7 @@ router.patch("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<vo
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await withRouterLock(id, () => updateIpBinding(conn, bindingId, parsed));
+    invalidateIpBindingsCache(id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
@@ -1543,6 +1570,7 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await withRouterLock(id, () => deleteIpBinding(conn, bindingId));
+    invalidateIpBindingsCache(id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
@@ -1826,6 +1854,144 @@ router.get("/routers/:id/dashboard-priority", async (req, res): Promise<void> =>
       return;
     }
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur routeur" });
+  }
+});
+
+/**
+ * GET /routers/:id/bootstrap
+ * Single-call startup payload to make first page loads feel instant (Mikhmon-style):
+ * - returns what is already known from in-memory caches
+ * - triggers missing parts to warm in background without blocking response
+ */
+router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+
+    // Always include the priority snapshot (it already uses stale-while-revalidate internally).
+    const priority = await buildDashboardPrioritySnapshot(id);
+
+    const profilesFresh = getFreshProfileCache(id);
+    const profilesStale = profileListCache.get(id)?.profiles ?? null;
+    const profiles = profilesFresh ?? profilesStale ?? [];
+    const profilesKnown = !!(profilesFresh || profilesStale);
+    if (!profilesKnown) {
+      void fetchProfilesWithCache(id, conn).catch(() => undefined);
+    }
+
+    const poolsKey = `pools:${id}`;
+    const poolsFresh = mGet(poolsKey) as string[] | null;
+    const poolsStale = mGetStale(poolsKey) as string[] | null;
+    const pools = poolsFresh ?? poolsStale ?? [];
+    const poolsKnown = !!(poolsFresh || poolsStale);
+    if (!poolsKnown) {
+      setImmediate(async () => {
+        try {
+          const next = await listAddressPools(conn);
+          mSet(poolsKey, MIK_TTL.pools, next);
+        } catch { /* keep empty snapshot */ }
+      });
+    }
+
+    const usersCount = _usersCountCache.get(id) ?? null;
+    if (!usersCount && !_usersRefreshing.has(id)) {
+      _usersRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const users = await getCachedUsers(id, conn);
+          const payload = await computeUsersCount(id, conn, users);
+          _usersCountCache.set(id, payload);
+        } catch { /* keep empty snapshot */ }
+        finally { _usersRefreshing.delete(id); }
+      });
+    }
+
+    const sessionsKey = `sessions:${id}`;
+    const sessionsFresh = mGet(sessionsKey) as Awaited<ReturnType<typeof listSessions>> | null;
+    const sessionsStale = mGetStale(sessionsKey) as Awaited<ReturnType<typeof listSessions>> | null;
+    const sessions = sessionsFresh ?? sessionsStale ?? [];
+    const sessionsKnown = !!(sessionsFresh || sessionsStale);
+    if (!sessionsKnown && !_sessionsRefreshing.has(id)) {
+      _sessionsRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const list = await listSessions(conn);
+          mSet(sessionsKey, MIK_TTL.sessions, list);
+        } catch { /* keep empty snapshot */ }
+        finally { _sessionsRefreshing.delete(id); }
+      });
+    }
+
+    const ipBindingsFresh = getIpBindingsCached(id);
+    const ipBindingsStale = getIpBindingsStale(id);
+    const ipBindings = ipBindingsFresh ?? ipBindingsStale ?? [];
+    const ipBindingsKnown = !!(ipBindingsFresh || ipBindingsStale);
+    if (!ipBindingsKnown) {
+      setImmediate(async () => {
+        try {
+          const list = await listIpBindings(conn);
+          setIpBindingsCache(id, list);
+        } catch { /* keep empty snapshot */ }
+      });
+    }
+
+    const interfacesKey = `interfaces:${id}`;
+    const interfacesFresh = mGet(interfacesKey) as Awaited<ReturnType<typeof listInterfaces>> | null;
+    const interfacesStale = mGetStale(interfacesKey) as Awaited<ReturnType<typeof listInterfaces>> | null;
+    const interfaces = interfacesFresh ?? interfacesStale ?? [];
+    const interfacesKnown = !!(interfacesFresh || interfacesStale);
+    if (!interfacesKnown) {
+      setImmediate(async () => {
+        try {
+          const list = await listInterfaces(conn);
+          mSet(interfacesKey, MIK_TTL.interfaces, list);
+        } catch { /* keep empty snapshot */ }
+      });
+    }
+
+    const logsKey = `logs:${id}:hotspot:80`;
+    const logsFresh = mGet(logsKey) as Awaited<ReturnType<typeof listLogs>> | null;
+    const logsStale = mGetStale(logsKey) as Awaited<ReturnType<typeof listLogs>> | null;
+    const logs = logsFresh ?? logsStale ?? [];
+    const logsKnown = !!(logsFresh || logsStale);
+    if (!logsKnown) {
+      setImmediate(async () => {
+        try {
+          const list = await listLogs(conn, "hotspot", 80);
+          mSet(logsKey, MIK_TTL.logs, list);
+        } catch { /* keep empty snapshot */ }
+      });
+    }
+
+    res.json({
+      serverTs: Date.now(),
+      priority,
+      profiles,
+      pools,
+      usersCount,
+      sessions,
+      ipBindings,
+      interfaces,
+      logs,
+      availability: {
+        priorityKnown: true,
+        profilesKnown,
+        poolsKnown,
+        usersCountKnown: !!usersCount,
+        sessionsKnown,
+        ipBindingsKnown,
+        interfacesKnown,
+        logsKnown,
+      },
+    });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Erreur bootstrap" });
   }
 });
 
