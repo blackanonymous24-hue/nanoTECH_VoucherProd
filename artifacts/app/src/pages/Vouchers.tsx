@@ -263,6 +263,14 @@ export default function Vouchers() {
     .filter((l) => filterProfile === "all" || l.profile === filterProfile)
     .filter((l) => filterVendor === "all" || canonicalVendorFromLot(l.name) === filterVendor);
   const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
+  const lotVendorByComment = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const l of lots) {
+      const v = canonicalVendorFromLot(l.name);
+      if (v) map.set(String(l.name ?? ""), v);
+    }
+    return map;
+  }, [lots, vendorAliasMap]);
 
   // Unique vendor list for the list-view vendor filter (reuses same extraction)
   const uniqueVendors = useMemo(() => {
@@ -372,13 +380,18 @@ export default function Vouchers() {
   const filtered = useMemo(() => {
     let base = allUsersData?.users ?? [];
     if (filterVendor !== "all") {
-      base = base.filter((u) => canonicalVendorFromLot(u.comment ?? "") === filterVendor);
+      base = base.filter((u) => {
+        const comment = String(u.comment ?? "");
+        const byLotMap = lotVendorByComment.get(comment);
+        if (byLotMap) return byLotMap === filterVendor;
+        return canonicalVendorFromLot(comment) === filterVendor;
+      });
     }
     if (filterStatus === "all") return base;
     if (filterStatus === "disabled") return base.filter((u) => !!u.disabled);
     if (filterStatus === "active") return base.filter((u) => !u.disabled);
     return base.filter((u) => !u.disabled && userIsExpired(u));
-  }, [allUsersData?.users, filterVendor, filterStatus, profileExpiryModeByName, vendorAliasMap]);
+  }, [allUsersData?.users, filterVendor, filterStatus, profileExpiryModeByName, vendorAliasMap, lotVendorByComment]);
   const filteredTotal = filtered.length;
 
   // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
@@ -1053,11 +1066,11 @@ export default function Vouchers() {
               ) : (
               <><Card className="mb-4">
                 <CardContent className="py-3">
-                  <div className="flex items-center gap-3 whitespace-nowrap overflow-x-auto">
-                    <div className="relative w-72 min-w-[18rem] flex-shrink-0">
+                  <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-1 md:overflow-hidden">
+                    <div className="relative w-full md:w-[21%] min-w-0">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                       <Input
-                        className="pl-8"
+                        className="pl-8 h-9 md:h-8 text-sm md:text-xs"
                         placeholder="Rechercher par code, nom, commentaire..."
                         value={search}
                         onChange={(e) => handleSearchChange(e.target.value)}
@@ -1070,7 +1083,7 @@ export default function Vouchers() {
                           variant="outline"
                           role="combobox"
                           aria-expanded={profilePopoverOpen}
-                          className="w-48 justify-between font-normal"
+                          className="w-full md:w-[14%] min-w-0 justify-between font-normal text-sm md:text-[11px] h-9 md:h-8 px-1.5"
                         >
                           <span className="truncate whitespace-nowrap">
                             {filterProfile === "all" ? "Tous les forfaits" : filterProfile}
@@ -1104,7 +1117,7 @@ export default function Vouchers() {
                           variant="outline"
                           role="combobox"
                           aria-expanded={commentPopoverOpen}
-                          className="w-52 justify-between font-normal"
+                          className="w-full md:w-[17%] min-w-0 justify-between font-normal text-sm md:text-[11px] h-9 md:h-8 px-1.5"
                         >
                           <span className="font-mono text-xs truncate">
                             {filterComment === "all" ? "Tous les lots" : filterComment}
@@ -1146,7 +1159,7 @@ export default function Vouchers() {
                           variant="outline"
                           role="combobox"
                           aria-expanded={vendorPopoverOpen}
-                          className={`w-44 justify-between font-normal ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                          className={`w-full md:w-[15%] min-w-0 justify-between font-normal text-sm md:text-[11px] h-9 md:h-8 px-1.5 ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                         >
                           <span className="truncate whitespace-nowrap">
                             {filterVendor === "all" ? "Tous les vendeurs" : filterVendor}
@@ -1188,7 +1201,7 @@ export default function Vouchers() {
                           variant="outline"
                           role="combobox"
                           aria-expanded={statusPopoverOpen}
-                          className={`w-40 justify-between font-normal ${filterStatus !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                          className={`w-full md:w-[13%] min-w-0 justify-between font-normal text-sm md:text-[11px] h-9 md:h-8 px-1.5 ${filterStatus !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                         >
                           <span className="truncate whitespace-nowrap">
                             {filterStatus === "all"
@@ -1223,7 +1236,7 @@ export default function Vouchers() {
                       </PopoverContent>
                     </Popover>
 
-                    <span className="text-xs text-gray-400">↻ 30s</span>
+                    <span className="w-full md:w-[7%] text-right text-[11px] text-gray-400">↻ 30s</span>
                   </div>
                 </CardContent>
               </Card>
