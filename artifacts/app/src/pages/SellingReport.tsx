@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useDeferredValue } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +59,7 @@ export default function SellingReport() {
   const [filterMonth, setFilterMonth] = useState<string>(String(now.getMonth() + 1));
   const [filterYear,  setFilterYear]  = useState<string>(String(now.getFullYear()));
   const [search,      setSearch]      = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [applied,     setApplied]     = useState<{ day: string; month: string; year: string }>({
     day: ALL, month: String(now.getMonth() + 1), year: String(now.getFullYear()),
   });
@@ -93,8 +94,8 @@ export default function SellingReport() {
   const entries = data ?? [];
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return entries;
-    const q = foldText(search);
+    if (!deferredSearch.trim()) return entries;
+    const q = foldText(deferredSearch);
     return entries.filter(
       (e) =>
         foldText(e.username).includes(q) ||
@@ -102,9 +103,28 @@ export default function SellingReport() {
         foldText(e.batch).includes(q) ||
         foldText(e.date).includes(q),
     );
-  }, [entries, search]);
+  }, [entries, deferredSearch]);
 
   const totalAmount = useMemo(() => filtered.reduce((s, e) => s + e.price, 0), [filtered]);
+  const tableRows = useMemo(
+    () => filtered.map((e, i) => (
+      <tr
+        key={`${e.date}-${e.time}-${e.username}`}
+        className="border-b border-gray-50 hover:bg-gray-50 transition-colors"
+      >
+        <td className="px-3 py-2 text-gray-400 tabular-nums">{i + 1}</td>
+        <td className="px-3 py-2 font-mono text-gray-600">{e.date}</td>
+        <td className="px-3 py-2 font-mono text-gray-500">{e.time}</td>
+        <td className="px-3 py-2 font-medium text-gray-800">{e.username}</td>
+        <td className="px-3 py-2 text-gray-600">{e.label || "—"}</td>
+        <td className="px-3 py-2 text-gray-500">{e.batch || "—"}</td>
+        <td className="px-3 py-2 text-right font-semibold text-gray-800 tabular-nums">
+          {fmtAmount(e.price)}
+        </td>
+      </tr>
+    )),
+    [filtered],
+  );
 
   const yearOptions = useMemo(() => {
     const years = [];
@@ -293,24 +313,7 @@ export default function SellingReport() {
                         Aucune vente trouvée
                       </td>
                     </tr>
-                  ) : (
-                    filtered.map((e, i) => (
-                      <tr
-                        key={`${e.date}-${e.time}-${e.username}`}
-                        className="border-b border-gray-50 hover:bg-gray-50 transition-colors"
-                      >
-                        <td className="px-3 py-2 text-gray-400 tabular-nums">{i + 1}</td>
-                        <td className="px-3 py-2 font-mono text-gray-600">{e.date}</td>
-                        <td className="px-3 py-2 font-mono text-gray-500">{e.time}</td>
-                        <td className="px-3 py-2 font-medium text-gray-800">{e.username}</td>
-                        <td className="px-3 py-2 text-gray-600">{e.label || "—"}</td>
-                        <td className="px-3 py-2 text-gray-500">{e.batch || "—"}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-gray-800 tabular-nums">
-                          {fmtAmount(e.price)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  ) : tableRows}
                 </tbody>
                 {filtered.length > 0 && (
                   <tfoot>
