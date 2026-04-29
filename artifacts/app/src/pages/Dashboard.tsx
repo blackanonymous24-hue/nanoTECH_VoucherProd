@@ -113,7 +113,7 @@ function amountTextSizeClass(amount: number): string {
   if (len <= 6) return "text-xl";
   if (len <= 8) return "text-lg";
   if (len <= 10) return "text-base";
-  return "text-sm";
+  return "text-xs";
 }
 
 /**
@@ -909,12 +909,9 @@ function StatCard({
               ) : label !== undefined ? (
                 <>
                   {amountValue !== undefined ? (
-                    <>
-                      <p className={`fit-price font-bold text-gray-900 leading-tight ${amountTextSizeClass(amountValue)}`}>
-                        {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
-                      </p>
-                      <p className="text-[10px] font-medium text-gray-400 -mt-0.5">{currency || "FCFA"}</p>
-                    </>
+                    <p className={`fit-price font-bold text-gray-900 leading-tight truncate whitespace-nowrap ${amountTextSizeClass(amountValue)}`}>
+                      {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
+                    </p>
                   ) : (
                     <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
                   )}
