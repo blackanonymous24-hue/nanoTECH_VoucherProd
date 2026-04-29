@@ -2263,13 +2263,35 @@ function UserRow({
 }) {
   return (
     <div
-      className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 group ${selected ? "bg-blue-50" : ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={onEdit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onEdit();
+        }
+      }}
+      className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 group cursor-pointer ${selected ? "bg-blue-50" : ""}`}
     >
       <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-        <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded flex-shrink-0" />
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          onClick={(e) => e.stopPropagation()}
+          className="h-4 w-4 rounded flex-shrink-0"
+        />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-mono font-semibold text-sm">{user.username}</span>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="font-mono font-semibold text-sm text-left hover:text-blue-600 hover:underline underline-offset-2"
+              title="Modifier cet utilisateur"
+            >
+              {user.username}
+            </button>
             {expired && (
               <span className="text-[10px] uppercase tracking-wide font-semibold bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
                 Expiré
