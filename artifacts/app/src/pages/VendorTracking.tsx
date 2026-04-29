@@ -41,6 +41,11 @@ function fmtAmount(n: number) {
   return n.toLocaleString("fr-FR");
 }
 
+/** Libellé singulier/pluriel selon le nombre de semaines antérieures avec reliquat (somme affichée = carryOverAmount). */
+function carryOverWeekLabel(priorWeeksWithBalance: number): string {
+  return priorWeeksWithBalance > 1 ? "Restes semaines antérieures" : "Reste semaine antérieure";
+}
+
 function yesterdayLocal(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
@@ -83,7 +88,8 @@ interface VendorSummaryEntry {
   dailyPaid?: number;         // daily payments only
   weeklyExpected?: number;    // amount - commission - dailyPaid
   remainingAmount?: number;
-  carryOverAmount?: number;   // unpaid net from previous weeks
+  carryOverAmount?: number;   // unpaid net from previous weeks (somme des reliquats)
+  carryOverWeekCount?: number; // nombre de semaines antérieures avec reliquat > 0
   totalToPay?: number;        // carryOver + current week net - paid in current week
   commission?: number;
   commissionRate?: number;
@@ -268,6 +274,11 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
     const commRate = (s.commissionRate ?? 0);
     const toPay = s.totalToPay ?? s.remainingAmount ?? 0;
     const resteColor = toPay > 0 ? "#991b1b" : "inherit";
+    const coAmt = s.carryOverAmount ?? 0;
+    const coWeeks = s.carryOverWeekCount ?? (coAmt > 0 ? 1 : 0);
+    const coRow = coAmt > 0
+      ? `<tr><td>${carryOverWeekLabel(coWeeks)}</td><td class="val" style="color:#991b1b;font-weight:700">${fmtAmount(coAmt)} FCFA</td></tr>`
+      : "";
     const statusIcon = s.paymentStatus === "none"
       ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="0.5" fill="${sColor}"/></svg>`
       : s.paymentStatus === "full"
@@ -281,7 +292,7 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   <table>
     <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
     <tr><td>Versé</td><td class="val">${fmtAmount(s.paidAmount ?? 0)} FCFA</td></tr>
-    <tr><td>Reste semaine antérieure</td><td class="val">${fmtAmount(s.carryOverAmount ?? 0)} FCFA</td></tr>
+    ${coRow}
     <tr><td>Total à verser</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(toPay)} FCFA</td></tr>
     <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
     <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"}</td></tr>
@@ -523,10 +534,14 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
       t(sTxt, cx + cw - badgeW / 2 - 6, cy + 14, { size: 8, bold: true, color: sColor, align: "center" });
 
       // Rows
+      const coAmt = s.carryOverAmount ?? 0;
+      const coWeeks = s.carryOverWeekCount ?? (coAmt > 0 ? 1 : 0);
       const rows: [string, string, string?][] = [
         ["Montant vendu", fmtAmount(s.amount) + " FCFA"],
         ["Versé",         fmtAmount(s.paidAmount ?? 0) + " FCFA"],
-        ["Reste semaine antérieure", fmtAmount(s.carryOverAmount ?? 0) + " FCFA", (s.carryOverAmount ?? 0) > 0 ? "#b45309" : "#6b7280"],
+        ...(coAmt > 0
+          ? [[carryOverWeekLabel(coWeeks), fmtAmount(coAmt) + " FCFA", "#991b1b"]] as [string, string, string?][]
+          : []),
         ["Total à verser", fmtAmount(s.totalToPay ?? s.remainingAmount ?? 0) + " FCFA", (s.totalToPay ?? s.remainingAmount ?? 0) > 0 ? "#b91c1c" : "#6b7280"],
         ["Commission",    commRate > 0 ? commRate + "%" : "—"],
         ["Rémunération",  (s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"],
@@ -1097,12 +1112,16 @@ export default function VendorTracking() {
                                 <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.weeklyExpected!)} FCFA</td>
                               </tr>
                             )}
-                            <tr className="border-b border-gray-50">
-                              <td className="px-3 py-1.5 text-gray-500">Reste semaine antérieure</td>
-                              <td className={`px-3 py-1.5 text-right font-semibold tabular-nums ${(s.carryOverAmount ?? 0) > 0 ? "text-amber-800" : "text-gray-400"}`}>
-                                {fmtAmount(s.carryOverAmount ?? 0)} FCFA
-                              </td>
-                            </tr>
+                            {(s.carryOverAmount ?? 0) > 0 && (
+                              <tr className="border-b border-gray-50">
+                                <td className="px-3 py-1.5 text-gray-500">
+                                  {carryOverWeekLabel(s.carryOverWeekCount ?? 1)}
+                                </td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-red-600 tabular-nums">
+                                  {fmtAmount(s.carryOverAmount!)} FCFA
+                                </td>
+                              </tr>
+                            )}
                             <tr className="border-b border-gray-50">
                               <td className="px-3 py-1.5 text-gray-500">Total à verser</td>
                               <td className={`px-3 py-1.5 text-right font-bold tabular-nums ${(s.totalToPay ?? s.remainingAmount ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>

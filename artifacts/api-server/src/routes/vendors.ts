@@ -1074,6 +1074,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
   }
 
   const carryOverByVendor = new Map<number, number>();
+  const carryOverWeekCountByVendor = new Map<number, number>();
   for (const s of historicalSalesRaw) {
     if (!s.vendorId || demoVendorIds.has(s.vendorId)) continue;
     const commRate = vendorMap.get(s.vendorId)?.commissionRate ?? 0;
@@ -1082,6 +1083,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     const missing = Math.max(0, Math.round(expected - paid));
     if (missing > 0) {
       carryOverByVendor.set(s.vendorId, (carryOverByVendor.get(s.vendorId) ?? 0) + missing);
+      carryOverWeekCountByVendor.set(s.vendorId, (carryOverWeekCountByVendor.get(s.vendorId) ?? 0) + 1);
     }
   }
 
@@ -1093,6 +1095,10 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
       const vendorCarryOver = (() => {
         if (!w.vendorId || !weekEndedForSummary) return 0;
         return carryOverByVendor.get(w.vendorId) ?? 0;
+      })();
+      const vendorCarryOverWeekCount = (() => {
+        if (!w.vendorId || !weekEndedForSummary) return 0;
+        return carryOverWeekCountByVendor.get(w.vendorId) ?? 0;
       })();
       const weeklyPaid = w.vendorId ? (weeklyPaidByVendor.get(w.vendorId) ?? 0) : 0;
       const dailyPaid  = w.vendorId ? (dailyPaidByVendor.get(w.vendorId) ?? 0) : 0;
@@ -1124,6 +1130,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
         weeklyExpected,
         remainingAmount,
         carryOverAmount: vendorCarryOver,
+        carryOverWeekCount: vendorCarryOverWeekCount,
         totalToPay,
         paymentStatus,
       };
