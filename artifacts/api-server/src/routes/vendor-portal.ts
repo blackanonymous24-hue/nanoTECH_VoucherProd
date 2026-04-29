@@ -627,6 +627,29 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   for (const monday of weeklyLumpMap.keys()) weekMondaysSet.add(monday);
   const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
 
+  // Apply the same weekly net logic as back-office pages:
+  // expected = gross - commission (only for ended weeks), then allocate by day.
+  const expectedByDay = new Map<string, number>();
+  const expectedByWeek = new Map<string, number>();
+  for (const monday of weekMondays) {
+    const ws = new Date(monday + "T00:00:00Z");
+    const we = new Date(ws.getTime() + 7 * 86_400_000);
+    const weekEnded = we.getTime() <= Date.now();
+    const rate = weekEnded ? Math.max(0, Number(vendor.commissionRate ?? 0)) : 0;
+    const weekDates = Array.from({ length: 7 }, (_, i) =>
+      new Date(ws.getTime() + i * 86_400_000).toISOString().slice(0, 10),
+    );
+    const weekGross = weekDates.reduce((s, d) => s + (salesMap.get(d) ?? 0), 0);
+    const weekCommission = rate > 0 ? Math.round(weekGross * rate) / 100 : 0;
+    const weekExpected = Math.max(0, weekGross - weekCommission);
+    expectedByWeek.set(monday, weekExpected);
+    const factor = weekGross > 0 ? (weekExpected / weekGross) : 1;
+    for (const d of weekDates) {
+      const gross = salesMap.get(d) ?? 0;
+      expectedByDay.set(d, Math.max(0, Math.round(gross * factor)));
+    }
+  }
+
   // Allouer les versements hebdomadaires (lump-sum) jour par jour en FIFO :
   // chaque versement hebdo solde d'abord les jours les plus anciens de SA
   // semaine. Sans ça, un versement hebdo partiel laisse les arriérés
@@ -638,7 +661,7 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     const weekStart = new Date(monday + "T00:00:00Z");
     for (let i = 0; i < 7 && lumpRemaining > 0; i++) {
       const d = new Date(weekStart.getTime() + i * 86_400_000).toISOString().slice(0, 10);
-      const sales      = salesMap.get(d) ?? 0;
+      const sales      = expectedByDay.get(d) ?? (salesMap.get(d) ?? 0);
       const dailyPaid  = paidMap.get(d)  ?? 0;
       const stillOwed  = Math.max(0, sales - dailyPaid);
       if (stillOwed === 0) continue;
@@ -648,12 +671,31 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     }
   }
 
+  // Hide all days for weeks fully settled (daily + weekly >= expected net).
+  const settledWeekMap = new Map<string, boolean>();
+  for (const monday of weekMondays) {
+    const ws = new Date(monday + "T00:00:00Z");
+    const weekDates = Array.from({ length: 7 }, (_, i) =>
+      new Date(ws.getTime() + i * 86_400_000).toISOString().slice(0, 10),
+    );
+    const expectedWeek = expectedByWeek.get(monday) ?? 0;
+    const dailyPaidWeek = weekDates.reduce((s, d) => s + (paidMap.get(d) ?? 0), 0);
+    const weeklyLump = weeklyLumpMap.get(monday) ?? 0;
+    const paidWeek = dailyPaidWeek + weeklyLump;
+    settledWeekMap.set(monday, paidWeek >= Math.max(0, expectedWeek - 1));
+  }
+
   const days = salesRows
     .map((d) => {
+      const monday = getMondayOf(d.date);
+      if (settledWeekMap.get(monday)) {
+        return { date: d.date, count: d.count, amount: d.amount, paid: d.amount, remaining: 0 };
+      }
       const dailyPaid    = paidMap.get(d.date) ?? 0;
       const lumpAllocated = lumpAllocatedPaid.get(d.date) ?? 0;
       const paid         = dailyPaid + lumpAllocated;
-      return { date: d.date, count: d.count, amount: d.amount, paid, remaining: Math.max(0, d.amount - paid) };
+      const expectedAmount = expectedByDay.get(d.date) ?? d.amount;
+      return { date: d.date, count: d.count, amount: expectedAmount, paid, remaining: Math.max(0, expectedAmount - paid) };
     })
     .filter((d) => d.remaining > 0);
 

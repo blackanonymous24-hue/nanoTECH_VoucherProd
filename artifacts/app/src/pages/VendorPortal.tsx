@@ -1297,7 +1297,7 @@ function Dashboard({ token, vendor, onLogout }: {
 
                           {/* Versements détaillés — uniquement la part hebdomadaire.
                               Le détail "Journalier" n'est jamais affiché. */}
-                          {(w.weeklyPaid ?? 0) > 0 && (
+                          {!isSolde && (w.weeklyPaid ?? 0) > 0 && (
                             <div className="grid grid-cols-1 gap-1.5 text-[10px]">
                               <div className="rounded bg-emerald-50 border border-emerald-100 px-2 py-1 flex items-center justify-between">
                                 <span className="text-emerald-600">Hebdo.</span>
@@ -1307,7 +1307,7 @@ function Dashboard({ token, vendor, onLogout }: {
                           )}
 
                           {/* Hebdomadaire à régler après déduction des journaliers */}
-                          {(w.dailyPaid ?? 0) > 0 && (w.weeklyExpected ?? 0) > 0 && (
+                          {!isSolde && (w.dailyPaid ?? 0) > 0 && (w.weeklyExpected ?? 0) > 0 && (
                             <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 flex items-center justify-between">
                               <span className="text-[11px] font-semibold text-blue-700">Hebdo. à régler</span>
                               <span className="text-sm font-bold text-blue-700 tabular-nums">{fmtFcfa(w.weeklyExpected!)} FCFA</span>
