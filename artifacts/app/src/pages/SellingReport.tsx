@@ -179,7 +179,7 @@ export default function SellingReport() {
                 <SelectTrigger className="h-8 w-[70px] text-xs">
                   <SelectValue placeholder="Tous" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto">
+                <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
                   <SelectItem value={ALL}>Tous</SelectItem>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
                     <SelectItem key={d} value={String(d)}>{String(d).padStart(2, "0")}</SelectItem>
@@ -195,7 +195,7 @@ export default function SellingReport() {
                 <SelectTrigger className="h-8 w-[130px] text-xs">
                   <SelectValue placeholder="Tous" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto">
+                <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
                   <SelectItem value={ALL}>Tous</SelectItem>
                   {MONTH_NAMES_FR.map((name, i) => (
                     <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
@@ -211,7 +211,7 @@ export default function SellingReport() {
                 <SelectTrigger className="h-8 w-[90px] text-xs">
                   <SelectValue placeholder="Toutes" />
                 </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto">
+                <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
                   <SelectItem value={ALL}>Toutes</SelectItem>
                   {yearOptions.map((y) => (
                     <SelectItem key={y} value={y}>{y}</SelectItem>
