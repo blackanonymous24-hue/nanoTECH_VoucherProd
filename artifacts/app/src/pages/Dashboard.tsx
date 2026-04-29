@@ -109,10 +109,11 @@ function formatAmount(amount: number): string {
 
 function amountTextSizeClass(amount: number): string {
   const len = Math.abs(Math.trunc(amount)).toLocaleString("fr-FR").replace(/\s/g, "").length;
-  if (len <= 5) return "text-2xl";
-  if (len <= 7) return "text-xl";
-  if (len <= 9) return "text-lg";
-  return "text-base";
+  if (len <= 4) return "text-2xl";
+  if (len <= 6) return "text-xl";
+  if (len <= 8) return "text-lg";
+  if (len <= 10) return "text-base";
+  return "text-sm";
 }
 
 /**
@@ -908,10 +909,12 @@ function StatCard({
               ) : label !== undefined ? (
                 <>
                   {amountValue !== undefined ? (
-                    <p className={`fit-price font-bold text-gray-900 leading-tight truncate ${amountTextSizeClass(amountValue)}`}>
-                      {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
-                      <span className="text-[10px] font-medium text-gray-400 ml-1">{currency || "FCFA"}</span>
-                    </p>
+                    <>
+                      <p className={`fit-price font-bold text-gray-900 leading-tight ${amountTextSizeClass(amountValue)}`}>
+                        {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
+                      </p>
+                      <p className="text-[10px] font-medium text-gray-400 -mt-0.5">{currency || "FCFA"}</p>
+                    </>
                   ) : (
                     <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
                   )}
