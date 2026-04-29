@@ -14,6 +14,28 @@ import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+async function deleteWithRetry(url: string, attempts = 3): Promise<Response> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { method: "DELETE" });
+      if (res.ok) return res;
+      if (res.status >= 500 && i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 250 * (i + 1)));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 250 * (i + 1)));
+        continue;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Échec réseau");
+}
+
 const MONTH_NAMES_FR = [
   "Janvier","Février","Mars","Avril","Mai","Juin",
   "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
@@ -168,23 +190,66 @@ function VendorRow({
   const deletePayment = async (id: number, amt: number, source: "weekly" | "daily" | undefined) => {
     if (deletingId !== null) return;
     if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} FCFA ?`)) return;
-    // Default to "weekly" si la source manque (ancien cache) — c'est l'endpoint historique.
-    const src = source ?? "weekly";
-    const url = src === "daily"
-      ? `${BASE}/api/vendors/daily-payments/${id}`
-      : `${BASE}/api/vendors/payments/${id}`;
     setDeletingId(id);
     try {
-      const res = await fetch(url, { method: "DELETE" });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        toast({ title: "Erreur", description: txt || `HTTP ${res.status}`, variant: "destructive" });
+      const tryDelete = async (src: "weekly" | "daily") => {
+        const url = src === "daily"
+          ? `${BASE}/api/vendors/daily-payments/${id}`
+          : `${BASE}/api/vendors/payments/${id}`;
+        const res = await deleteWithRetry(url);
+        return { src, res };
+      };
+
+      let chosen: "weekly" | "daily" | null = null;
+      if (source) {
+        const { src, res } = await tryDelete(source);
+        if (!res.ok) {
+          if (res.status === 404) {
+            onOptimisticDeletePayment(vendor.vendorId, id, src);
+            toast({ title: "Déjà supprimé", description: "Ce versement était déjà supprimé ou inexistant." });
+            void onMutated();
+            return;
+          }
+          const txt = await res.text().catch(() => "");
+          toast({ title: "Erreur", description: txt || `HTTP ${res.status}`, variant: "destructive" });
+          return;
+        }
+        chosen = src;
+      } else {
+        // Old cached entries may miss `source`; try daily first, then weekly.
+        const first = await tryDelete("daily");
+        if (first.res.ok) {
+          chosen = "daily";
+        } else if (first.res.status === 404) {
+          const second = await tryDelete("weekly");
+          if (!second.res.ok) {
+            if (second.res.status === 404) {
+              // Missing from both tables => remove stale row from UI anyway.
+              onOptimisticDeletePayment(vendor.vendorId, id, "weekly");
+              toast({ title: "Déjà supprimé", description: "Ce versement était déjà supprimé ou inexistant." });
+              void onMutated();
+              return;
+            }
+            const txt = await second.res.text().catch(() => "");
+            toast({ title: "Erreur", description: txt || `HTTP ${second.res.status}`, variant: "destructive" });
+            return;
+          }
+          chosen = "weekly";
+        } else {
+          const txt = await first.res.text().catch(() => "");
+          toast({ title: "Erreur", description: txt || `HTTP ${first.res.status}`, variant: "destructive" });
+          return;
+        }
+      }
+
+      if (!chosen) {
+        toast({ title: "Erreur", description: "Impossible de déterminer le type de versement.", variant: "destructive" });
         return;
       }
       // 1) Update optimiste : on retire le versement de l'affichage tout
       //    de suite, sans attendre le refetch (qui peut être lent quand
       //    l'API est sous charge MikroTik).
-      onOptimisticDeletePayment(vendor.vendorId, id, src);
+      onOptimisticDeletePayment(vendor.vendorId, id, chosen);
       toast({ title: "Versement annulé" });
       // 2) Refetch en arrière-plan pour resynchroniser totaux et arriérés.
       void onMutated();
@@ -512,8 +577,17 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
     if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} FCFA ?`)) return;
     setDeleting(id);
     try {
-      const res = await fetch(`${BASE}/api/vendors/daily-payments/${id}`, { method: "DELETE" });
+      const res = await deleteWithRetry(`${BASE}/api/vendors/daily-payments/${id}`);
       if (!res.ok) {
+        if (res.status === 404) {
+          queryClient.setQueryData<DailyPaymentWithVendor[]>(qk, (old) => {
+            if (!old) return old;
+            return old.filter((p) => p.id !== id);
+          });
+          toast({ title: "Déjà supprimé", description: "Ce versement était déjà supprimé ou inexistant." });
+          void invalidateAllPaymentQueries(queryClient, routerId);
+          return;
+        }
         const txt = await res.text().catch(() => "");
         toast({ title: "Erreur suppression", description: txt || `HTTP ${res.status}`, variant: "destructive" });
         return;

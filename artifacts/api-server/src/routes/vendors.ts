@@ -1180,7 +1180,8 @@ router.delete("/vendors/daily-payments/:id", async (req, res): Promise<void> => 
     .delete(vendorDailyPaymentsTable)
     .where(eq(vendorDailyPaymentsTable.id, id))
     .returning({ vendorId: vendorDailyPaymentsTable.vendorId });
-  if (deleted) invalidateVendorPortalCache(deleted.vendorId);
+  if (!deleted) { res.status(404).json({ error: "Versement déjà supprimé ou inexistant" }); return; }
+  invalidateVendorPortalCache(deleted.vendorId);
   res.json({ ok: true });
 });
 
@@ -1741,7 +1742,8 @@ router.delete("/vendors/payments/:id", async (req, res) => {
       .delete(vendorPaymentsTable)
       .where(eq(vendorPaymentsTable.id, id))
       .returning({ vendorId: vendorPaymentsTable.vendorId });
-    if (deleted) invalidateVendorPortalCache(deleted.vendorId);
+    if (!deleted) return res.status(404).json({ error: "Versement déjà supprimé ou inexistant" });
+    invalidateVendorPortalCache(deleted.vendorId);
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err }, "delete payment error");

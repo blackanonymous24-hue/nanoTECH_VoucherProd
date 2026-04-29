@@ -88,8 +88,21 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isStockAlertsPage = location.startsWith("/stock-alerts");
   const isVouchersPage = location.startsWith("/vouchers");
 
+  const isNavActive = (href: string) => {
+    // Keep vendor-related pages independent in sidebar highlighting.
+    const exactOnly = new Set([
+      "/vendors",
+      "/vendors/tracking",
+      "/vendors/versement-du-jour",
+      "/vendors/versements",
+    ]);
+    if (href === "/") return location === "/";
+    if (exactOnly.has(href)) return location === href;
+    return location.startsWith(href);
+  };
+
   const handleTabClick = (href: string, e: React.MouseEvent) => {
-    const isCurrentPage = href === "/" ? location === "/" : location.startsWith(href);
+    const isCurrentPage = isNavActive(href);
     if (isCurrentPage) {
       e.preventDefault();
       window.location.reload();
@@ -284,9 +297,9 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { href: "/vouchers",        label: "Mes Tickets",          icon: Ticket },
         { href: "/ticket-lookup",   label: "Vérifier un ticket",  icon: SearchCheck },
         { href: "/vendors",                   label: "Vendeurs",            icon: Users },
-        { href: "/vendors/tracking",          label: "Rapport par vendeur", icon: ListOrdered },
-        { href: "/vendors/versement-du-jour", label: "Versement du jour",   icon: CreditCard },
-        { href: "/vendors/versements",        label: "Versements",          icon: Wallet },
+        { href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard },
+        { href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet },
+        { href: "/vendors/tracking",          label: "Rapport par vendeur",  icon: ListOrdered },
         { href: "/sales/report",      label: "Rapport de vente",  icon: Receipt },
       ],
     },
@@ -394,7 +407,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             </p>
             <div className="space-y-0.5">
               {group.items.map(({ href, label, icon: Icon }) => {
-                const isActive = href === "/" ? location === "/" : location.startsWith(href);
+                const isActive = isNavActive(href);
                 const showVoucherBadge = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
                 return (
                   <div key={href}>
