@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, and, ne, count, sql, isNotNull, isNull, ilike, inArray, gte, lte } from "drizzle-orm";
+import { eq, desc, and, ne, count, sql, isNotNull, isNull, ilike, inArray, gte, lte, gt } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
@@ -764,6 +764,21 @@ async function autoSettleHistoricalWeeks(
     paidByVendorWeek.set(key, (paidByVendorWeek.get(key) ?? 0) + p.amount);
   }
 
+  // If a regularization week was explicitly removed by user, never auto-recreate it.
+  const skipRows = await db
+    .select({
+      vendorId: vendorPaymentsTable.vendorId,
+      weekStart: vendorPaymentsTable.weekStart,
+    })
+    .from(vendorPaymentsTable)
+    .where(and(
+      eq(vendorPaymentsTable.routerId, routerId),
+      inArray(vendorPaymentsTable.vendorId, vendorIds),
+      sql`${vendorPaymentsTable.weekStart} < ${cutoffWeekStart}`,
+      ilike(vendorPaymentsTable.note, "Suppression manuelle régularisation auto%"),
+    ));
+  const skipAutoRegularization = new Set(skipRows.map((r) => `${r.vendorId}|${r.weekStart}`));
+
   const toInsert: Array<{ vendorId: number; routerId: number; weekStart: string; amount: number; note: string }> = [];
   for (const s of salesRaw) {
     const vendorId = s.vendorId;
@@ -775,6 +790,7 @@ async function autoSettleHistoricalWeeks(
     const commission = commissionRate > 0 ? Math.round(Number(s.amount) * commissionRate) / 100 : 0;
     const expected = Math.max(0, Number(s.amount) - commission);
     const paid = paidByVendorWeek.get(`${vendorId}|${weekStart}`) ?? 0;
+    if (skipAutoRegularization.has(`${vendorId}|${weekStart}`)) continue;
     const missing = Math.max(0, Math.round(expected - paid));
     if (missing > 0) {
       toInsert.push({
@@ -1561,6 +1577,7 @@ router.get("/vendors/weekly-summary", async (req, res) => {
         and(
           eq(vendorPaymentsTable.routerId, routerId),
           eq(vendorPaymentsTable.weekStart, weekStart),
+          gt(vendorPaymentsTable.amount, 0),
         ),
       ).orderBy(vendorPaymentsTable.paidAt),
       db.select().from(vendorDailyPaymentsTable).where(
@@ -1741,8 +1758,38 @@ router.delete("/vendors/payments/:id", async (req, res) => {
     const [deleted] = await db
       .delete(vendorPaymentsTable)
       .where(eq(vendorPaymentsTable.id, id))
-      .returning({ vendorId: vendorPaymentsTable.vendorId });
+      .returning({
+        vendorId: vendorPaymentsTable.vendorId,
+        routerId: vendorPaymentsTable.routerId,
+        weekStart: vendorPaymentsTable.weekStart,
+        note: vendorPaymentsTable.note,
+      });
     if (!deleted) return res.status(404).json({ error: "Versement déjà supprimé ou inexistant" });
+    // If a weekly payment is removed, rollback auto-generated daily-settlement
+    // rows for that same week so arrears can reappear naturally.
+    const ws = deleted.weekStart;
+    const wsDate = new Date(ws + "T00:00:00Z");
+    const we = new Date(wsDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const weStr = new Date(we.getTime() - 1).toISOString().slice(0, 10);
+    await db
+      .delete(vendorDailyPaymentsTable)
+      .where(and(
+        eq(vendorDailyPaymentsTable.routerId, deleted.routerId),
+        eq(vendorDailyPaymentsTable.vendorId, deleted.vendorId),
+        gte(vendorDailyPaymentsTable.date, ws),
+        lte(vendorDailyPaymentsTable.date, weStr),
+        ilike(vendorDailyPaymentsTable.note, `Soldé auto via validation semaine ${ws}%`),
+      ));
+
+    if ((deleted.note ?? "").startsWith("Régularisation auto arriérés")) {
+      await db.insert(vendorPaymentsTable).values({
+        vendorId: deleted.vendorId,
+        routerId: deleted.routerId,
+        weekStart: deleted.weekStart,
+        amount: 0,
+        note: `Suppression manuelle régularisation auto (${new Date().toISOString()})`,
+      });
+    }
     invalidateVendorPortalCache(deleted.vendorId);
     res.json({ ok: true });
   } catch (err) {
