@@ -265,6 +265,23 @@
   .width-before-scroll-bar {
     margin-right: 0 !important;
   }
+
+  /* Last-resort guard: if any lib sets inline overflow hidden on body while
+     a dropdown is open, keep vertical scrollbar space stable anyway. */
+  html,
+  body {
+    overflow-y: scroll !important;
+  }
+
+  body[style*="overflow: hidden"] {
+    overflow-y: scroll !important;
+    padding-right: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  [style*="--removed-body-scroll-bar-size"] {
+    --removed-body-scroll-bar-size: 0px !important;
+  }
 }
 
 @layer utilities {
