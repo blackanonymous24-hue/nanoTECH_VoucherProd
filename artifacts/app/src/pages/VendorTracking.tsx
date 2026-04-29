@@ -83,6 +83,8 @@ interface VendorSummaryEntry {
   dailyPaid?: number;         // daily payments only
   weeklyExpected?: number;    // amount - commission - dailyPaid
   remainingAmount?: number;
+  carryOverAmount?: number;   // unpaid net from previous weeks
+  totalToPay?: number;        // carryOver + current week net - paid in current week
   commission?: number;
   commissionRate?: number;
   paymentStatus?: "none" | "partial" | "full";
@@ -255,7 +257,7 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
   const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
   const totalPaid   = ws.reduce((s, r) => s + (r.paidAmount ?? 0), 0);
-  const totalReste  = ws.reduce((s, r) => s + (r.remainingAmount ?? 0), 0);
+  const totalReste  = ws.reduce((s, r) => s + (r.totalToPay ?? r.remainingAmount ?? 0), 0);
   const totalComm   = ws.reduce((s, r) => s + (r.commission ?? 0), 0);
 
   const vendorCards = ws.map((s) => {
@@ -264,7 +266,8 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
     const sBg    = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
     const sBorder= s.paymentStatus === "full" ? "#6ee7b7" : s.paymentStatus === "partial" ? "#fcd34d" : "#fca5a5";
     const commRate = (s.commissionRate ?? 0);
-    const resteColor = (s.remainingAmount ?? 0) > 0 ? "#991b1b" : "inherit";
+    const toPay = s.totalToPay ?? s.remainingAmount ?? 0;
+    const resteColor = toPay > 0 ? "#991b1b" : "inherit";
     const statusIcon = s.paymentStatus === "none"
       ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="0.5" fill="${sColor}"/></svg>`
       : s.paymentStatus === "full"
@@ -278,7 +281,8 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   <table>
     <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
     <tr><td>Versé</td><td class="val">${fmtAmount(s.paidAmount ?? 0)} FCFA</td></tr>
-    <tr><td>Reste à verser</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(s.remainingAmount ?? 0)} FCFA</td></tr>
+    <tr><td>Reste semaine antérieure</td><td class="val">${fmtAmount(s.carryOverAmount ?? 0)} FCFA</td></tr>
+    <tr><td>Total à verser</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(toPay)} FCFA</td></tr>
     <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
     <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"}</td></tr>
   </table>
@@ -317,7 +321,7 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   <table>
     <tr><td>Montant total vendu</td><td class="tval">${fmtAmount(totalAmount)} FCFA</td></tr>
     <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} FCFA</td></tr>
-    <tr><td>Total reste</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
+    <tr><td>Total à verser</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
   </table>
 </div>
 <script>window.onload = function() { window.print(); };</script>
@@ -522,7 +526,8 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
       const rows: [string, string, string?][] = [
         ["Montant vendu", fmtAmount(s.amount) + " FCFA"],
         ["Versé",         fmtAmount(s.paidAmount ?? 0) + " FCFA"],
-        ["Reste à verser", fmtAmount(s.remainingAmount ?? 0) + " FCFA", (s.remainingAmount ?? 0) > 0 ? "#b91c1c" : "#6b7280"],
+        ["Reste semaine antérieure", fmtAmount(s.carryOverAmount ?? 0) + " FCFA", (s.carryOverAmount ?? 0) > 0 ? "#b45309" : "#6b7280"],
+        ["Total à verser", fmtAmount(s.totalToPay ?? s.remainingAmount ?? 0) + " FCFA", (s.totalToPay ?? s.remainingAmount ?? 0) > 0 ? "#b91c1c" : "#6b7280"],
         ["Commission",    commRate > 0 ? commRate + "%" : "—"],
         ["Rémunération",  (s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"],
       ];
@@ -540,7 +545,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
     // Totals section
     const totalAmount = ws.reduce((s, r2) => s + r2.amount, 0);
     const totalPaid   = ws.reduce((s, r2) => s + (r2.paidAmount ?? 0), 0);
-    const totalReste  = ws.reduce((s, r2) => s + (r2.remainingAmount ?? 0), 0);
+    const totalReste  = ws.reduce((s, r2) => s + (r2.totalToPay ?? r2.remainingAmount ?? 0), 0);
     const totalComm   = ws.reduce((s, r2) => s + (r2.commission ?? 0), 0);
     const ty = TITLE_H + ROW_COUNT * (CARD_H + CARD_GAP) + CARD_GAP;
     const tw = W - PAD * 2;
@@ -555,7 +560,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
     const totRows: [string, string, string?][] = [
       ["Montant total vendu", fmtAmount(totalAmount) + " FCFA"],
       ["Total versé",         fmtAmount(totalPaid + totalComm) + " FCFA"],
-      ["Total reste",         fmtAmount(totalReste) + " FCFA", totalReste > 0 ? "#b91c1c" : "#3730a3"],
+      ["Total à verser",      fmtAmount(totalReste) + " FCFA", totalReste > 0 ? "#b91c1c" : "#3730a3"],
     ];
     const totRowH = (TOTAL_SECTION_H - 34) / totRows.length;
     totRows.forEach(([label, val, vc], ri) => {
@@ -669,7 +674,7 @@ export default function VendorTracking() {
   const weekTotal_amount = useMemo(() => weekSummary.reduce((s, r) => s + r.amount, 0), [weekSummary]);
   const weekTotal_count  = useMemo(() => weekSummary.reduce((s, r) => s + r.count, 0), [weekSummary]);
   const weekTotal_paid   = useMemo(() => weekSummary.reduce((s, r) => s + (r.paidAmount ?? 0), 0), [weekSummary]);
-  const weekTotal_reste  = useMemo(() => weekSummary.reduce((s, r) => s + (r.remainingAmount ?? 0), 0), [weekSummary]);
+  const weekTotal_reste  = useMemo(() => weekSummary.reduce((s, r) => s + (r.totalToPay ?? r.remainingAmount ?? 0), 0), [weekSummary]);
   const weekTotal_comm   = useMemo(() => weekSummary.reduce((s, r) => s + (r.commission ?? 0), 0), [weekSummary]);
 
   const prevWeekLabel = weekLabelFromRange(prevWeekData?.weekStart, prevWeekData?.weekEnd);
@@ -1093,9 +1098,15 @@ export default function VendorTracking() {
                               </tr>
                             )}
                             <tr className="border-b border-gray-50">
-                              <td className="px-3 py-1.5 text-gray-500">Reste à verser</td>
-                              <td className={`px-3 py-1.5 text-right font-bold tabular-nums ${(s.remainingAmount ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
-                                {fmtAmount(s.remainingAmount ?? 0)} FCFA
+                              <td className="px-3 py-1.5 text-gray-500">Reste semaine antérieure</td>
+                              <td className={`px-3 py-1.5 text-right font-semibold tabular-nums ${(s.carryOverAmount ?? 0) > 0 ? "text-amber-800" : "text-gray-400"}`}>
+                                {fmtAmount(s.carryOverAmount ?? 0)} FCFA
+                              </td>
+                            </tr>
+                            <tr className="border-b border-gray-50">
+                              <td className="px-3 py-1.5 text-gray-500">Total à verser</td>
+                              <td className={`px-3 py-1.5 text-right font-bold tabular-nums ${(s.totalToPay ?? s.remainingAmount ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
+                                {fmtAmount(s.totalToPay ?? s.remainingAmount ?? 0)} FCFA
                               </td>
                             </tr>
                             <tr className="border-b border-gray-50 bg-gray-50/50">
