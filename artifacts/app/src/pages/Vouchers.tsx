@@ -316,6 +316,7 @@ export default function Vouchers() {
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   // For the default (unfiltered) case, use module-level cache so list shows instantly on re-visit.
   const isDefaultFilter = !debouncedSearch && filterProfile === "all" && filterComment === "all";
+  const usersLimit = filterVendor !== "all" ? 20_000 : 2_000;
   const {
     data: allUsersData,
     isLoading: usersLoading,
@@ -328,7 +329,7 @@ export default function Vouchers() {
       search: debouncedSearch || undefined,
       profile: filterProfile !== "all" ? filterProfile : undefined,
       comment: filterComment !== "all" ? filterComment : undefined,
-      limit: 2000,
+      limit: usersLimit,
     },
     {
       query: {
