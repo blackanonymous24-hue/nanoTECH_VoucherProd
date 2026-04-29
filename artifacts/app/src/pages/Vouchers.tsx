@@ -71,6 +71,7 @@ import { printTickets } from "@/lib/print";
 import { foldText } from "@/lib/text";
 
 type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
+type VendorAliasRow = { name: string; commentSuffix?: string | null; commentSuffix2?: string | null };
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -105,11 +106,25 @@ function optimisticSetDisabled(routerId: number, usernames: Set<string>, disable
 // Format after date: -{digits}{profile_letter(s)}{VENDOR_NAME}
 // Profile codes: 1J, 3J, 1S, 1M, 2S, 1H, 2H, 5H, etc.
 function extractVendorFromLot(name: string): string | null {
-  // Format: "vc-{qty}-{DD.MM.YY}-{digits}{1_profile_letter}{VENDORNAME}"
-  // e.g. "vc-991-04.08.26-3JEZECHIEL" → "EZECHIEL"
-  //       "vc-881-04.08.26-1SDIALLO"  → "DIALLO"
-  const m = name.match(/-\d{2}\.\d{2}\.\d{2}-\d+[A-Z]([A-Z]{2,})$/);
-  return m ? m[1] : null;
+  // Format: "vc-{qty}-{DD.MM.YY}-{count}{profileCode}{VENDORNAME}"
+  // We strip the leading profile code so all lots of the same vendor
+  // (e.g. 1J..., 1S..., 1M...) collapse under one vendor filter value.
+  const m = name.match(/-\d{2}\.\d{2}\.\d{2}-(\d+)([A-Za-z0-9_-]+)$/);
+  if (!m) return null;
+  const tail = (m[2] ?? "").toUpperCase();
+  if (!tail) return null;
+
+  const profilePrefixes = [
+    "30J", "15J", "12H", "10H",
+    "7J", "5H", "4H", "3H", "2H", "1H",
+    "3J", "2J", "1J",
+    "3S", "2S", "1S",
+    "3M", "2M", "1M",
+    "J", "S", "M", "H",
+  ];
+  const prefix = profilePrefixes.find((p) => tail.startsWith(p));
+  const rawVendor = (prefix ? tail.slice(prefix.length) : tail.slice(1)).replace(/^[-_]+/, "").trim();
+  return rawVendor.length >= 2 ? rawVendor : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,22 +230,49 @@ export default function Vouchers() {
 
   const lots: LotSummary[] = lotsData?.lots ?? [];
   const totalUsers = lotsData?.total ?? 0;
+  const { data: vendorsAlias = [] } = useQuery<VendorAliasRow[]>({
+    queryKey: ["vendors-aliases", activeRouterId],
+    enabled: !!activeRouterId,
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/vendors?routerId=${activeRouterId}`);
+      if (!res.ok) return [];
+      return await res.json() as VendorAliasRow[];
+    },
+    staleTime: 60_000,
+  });
+  const vendorAliasMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const v of vendorsAlias) {
+      const vendorName = String(v.name ?? "").trim();
+      if (!vendorName) continue;
+      for (const token of [vendorName, v.commentSuffix ?? "", v.commentSuffix2 ?? ""]) {
+        const key = foldText(String(token).trim());
+        if (key) map.set(key, vendorName);
+      }
+    }
+    return map;
+  }, [vendorsAlias]);
+  const canonicalVendorFromLot = (lotNameOrComment: string): string | null => {
+    const raw = extractVendorFromLot(lotNameOrComment);
+    if (!raw) return null;
+    return vendorAliasMap.get(foldText(raw)) ?? raw;
+  };
   // For the filter dropdown: derive from lots (server already sorted)
   // Apply both profile and vendor filters so lot dropdown is narrowed
   const lotsForCommentFilter = lots
     .filter((l) => filterProfile === "all" || l.profile === filterProfile)
-    .filter((l) => filterVendor === "all" || extractVendorFromLot(l.name) === filterVendor);
+    .filter((l) => filterVendor === "all" || canonicalVendorFromLot(l.name) === filterVendor);
   const uniqueComments = lotsForCommentFilter.map((l) => ({ name: l.name, count: l.count }));
 
   // Unique vendor list for the list-view vendor filter (reuses same extraction)
   const uniqueVendors = useMemo(() => {
     const set = new Set<string>();
     for (const l of lots) {
-      const v = extractVendorFromLot(l.name);
+      const v = canonicalVendorFromLot(l.name);
       if (v) set.add(v);
     }
     return [...set].sort();
-  }, [lots]);
+  }, [lots, vendorAliasMap]);
 
   // ── Lots view: local search + profile + vendor filters ───────────────────────
   const debouncedLotsSearch = useDebounce(lotsSearch, 200);
@@ -239,29 +281,29 @@ export default function Vouchers() {
   const lotsVendors = useMemo(() => {
     const set = new Set<string>();
     for (const l of lots) {
-      const v = extractVendorFromLot(l.name);
+      const v = canonicalVendorFromLot(l.name);
       if (v) set.add(v);
     }
     return [...set].sort();
-  }, [lots]);
+  }, [lots, vendorAliasMap]);
 
   const filteredLots = useMemo(() => {
     let result = lots;
     if (lotsFilterProfile !== "all") result = result.filter((l) => l.profile === lotsFilterProfile);
     if (lotsFilterVendor !== "all")
-      result = result.filter((l) => extractVendorFromLot(l.name) === lotsFilterVendor);
+      result = result.filter((l) => canonicalVendorFromLot(l.name) === lotsFilterVendor);
     if (debouncedLotsSearch.trim()) {
       const q = foldText(debouncedLotsSearch).trim();
       result = result.filter(
         (l) =>
           foldText(l.name).includes(q) ||
           foldText(l.profile ?? "").includes(q) ||
-          foldText(extractVendorFromLot(l.name) ?? "").includes(q) ||
+          foldText(canonicalVendorFromLot(l.name) ?? "").includes(q) ||
           l.preview.some((u) => foldText(u.username).includes(q)),
       );
     }
     return result;
-  }, [lots, lotsFilterProfile, lotsFilterVendor, debouncedLotsSearch]);
+  }, [lots, lotsFilterProfile, lotsFilterVendor, debouncedLotsSearch, vendorAliasMap]);
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   // For the default (unfiltered) case, use module-level cache so list shows instantly on re-visit.
@@ -328,12 +370,15 @@ export default function Vouchers() {
 
   // Filtered list = what the server returned (already filtered server-side)
   const filtered = useMemo(() => {
-    const base = allUsersData?.users ?? [];
+    let base = allUsersData?.users ?? [];
+    if (filterVendor !== "all") {
+      base = base.filter((u) => canonicalVendorFromLot(u.comment ?? "") === filterVendor);
+    }
     if (filterStatus === "all") return base;
     if (filterStatus === "disabled") return base.filter((u) => !!u.disabled);
     if (filterStatus === "active") return base.filter((u) => !u.disabled);
     return base.filter((u) => !u.disabled && userIsExpired(u));
-  }, [allUsersData?.users, filterStatus, profileExpiryModeByName]);
+  }, [allUsersData?.users, filterVendor, filterStatus, profileExpiryModeByName, vendorAliasMap]);
   const filteredTotal = filtered.length;
 
   // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
@@ -1008,8 +1053,8 @@ export default function Vouchers() {
               ) : (
               <><Card className="mb-4">
                 <CardContent className="py-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative flex-1 min-w-48">
+                  <div className="flex items-center gap-3 whitespace-nowrap overflow-x-auto">
+                    <div className="relative w-72 min-w-[18rem] flex-shrink-0">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                       <Input
                         className="pl-8"
@@ -1636,11 +1681,11 @@ export default function Vouchers() {
                                   <span className="text-xs text-gray-400">{lot.profile}</span>
                                 </>
                               )}
-                              {extractVendorFromLot(lot.name) && (
+                              {canonicalVendorFromLot(lot.name) && (
                                 <>
                                   <span className="text-gray-300">·</span>
                                   <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                                    {extractVendorFromLot(lot.name)}
+                                    {canonicalVendorFromLot(lot.name)}
                                   </span>
                                 </>
                               )}
