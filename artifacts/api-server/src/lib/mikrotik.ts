@@ -172,10 +172,17 @@ function parseProfileOnLogin(onLogin: string): {
     const sellingPrice = (parts[4] ?? "").trim();
     const lockField    = (parts[6] ?? "").trim();
     const lockMac      = lockField.toLowerCase() === "enable";
-    // Normalise expmode to VoucherNet terminology
-    const expiredMode  = field1 === "rem" || field1 === "remc" ? "remove"
-                       : field1 === "ntf" || field1 === "ntfc" ? "disable"
-                       : "nothing";
+    // Preserve MikhMon expmode semantics:
+    // rem  = Remove
+    // remc = Remove & Record
+    // ntf  = Notice
+    // ntfc = Notice & Record
+    // 0    = None
+    const expiredMode  = field1 === "remc" ? "remc"
+                       : field1 === "ntfc" ? "ntfc"
+                       : field1 === "rem"  ? "rem"
+                       : field1 === "ntf"  ? "ntf"
+                       : "none";
     return { price, validity, lockMac, sellingPrice, expiredMode, parentQueue: "" };
   }
 
@@ -381,7 +388,10 @@ export async function updateProfile(conn: RouterConnection, originalName: string
     const found = await api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]);
     if (!found.length) throw new Error(`Profil "${originalName}" introuvable`);
     const id = found[0][".id"] as string;
-    const onLogin = generateMikHmonOnLogin(opts);
+    const sys = await api.write("/system/resource/print");
+    const version = ((sys?.[0] as Record<string, unknown> | undefined)?.["version"] as string | undefined) ?? null;
+    const expmode = toMikhmonExpmode(opts.expiredMode);
+    const onLogin = generateMikHmonOnLogin(opts, version);
     const args = [
       `=.id=${id}`,
       `=name=${opts.name}`,
@@ -395,6 +405,14 @@ export async function updateProfile(conn: RouterConnection, originalName: string
     if (opts.parentQueue) args.push(`=parent-queue=${opts.parentQueue}`);
     else                  args.push(`=parent-queue=`);
     await api.write("/ip/hotspot/user/profile/set", args);
+    await upsertProfileScheduler(api, opts.name, expmode, version);
+    if (originalName !== opts.name) {
+      const oldSched = await api.write("/system/scheduler/print", [`?name=${originalName}`]).catch(() => []);
+      for (const s of oldSched) {
+        const sid = s[".id"] as string | undefined;
+        if (sid) await api.write("/system/scheduler/remove", [`=.id=${sid}`]).catch(() => undefined);
+      }
+    }
   });
 }
 
@@ -404,6 +422,11 @@ export async function deleteProfile(conn: RouterConnection, name: string): Promi
     if (!found.length) throw new Error(`Profil "${name}" introuvable`);
     const id = found[0][".id"] as string;
     await api.write("/ip/hotspot/user/profile/remove", [`=.id=${id}`]);
+    const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
+    for (const s of schedulers) {
+      const sid = s[".id"] as string | undefined;
+      if (sid) await api.write("/system/scheduler/remove", [`=.id=${sid}`]).catch(() => undefined);
+    }
   });
 }
 
@@ -543,26 +566,94 @@ export interface CreateProfileOptions {
   sharedUsers: string;
   addrPool: string;
   rateLimit: string;
-  expiredMode: string;   // "nothing" | "disable" | "remove"
+  expiredMode: string;   // "None" | "Remove" | "Notice" | "Remove & Record" | "Notice & Record"
   lockMac: boolean;
   parentQueue: string;
 }
 
-function generateMikHmonOnLogin(opts: CreateProfileOptions): string {
-  // Auto-generate short label from profile name (backend-only, not user-facing)
-  const label = opts.name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "profile";
+function toMikhmonExpmode(mode: string): string {
+  const m = mode.trim().toLowerCase();
+  if (m === "remc" || m === "remove & record" || m === "remove and record") return "remc";
+  if (m === "ntfc" || m === "notice & record" || m === "notice and record") return "ntfc";
+  if (m === "rem" || m === "remove") return "rem";
+  if (m === "ntf" || m === "notice" || m === "disable") return "ntf";
+  return "0";
+}
+
+function isRouterOsBefore710(version: string | null | undefined): boolean {
+  if (!version) return false;
+  const m = String(version).match(/(\d+)\.(\d+)/);
+  if (!m) return false;
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) return false;
+  return major < 7 || (major === 7 && minor <= 9);
+}
+
+function generateMikHmonOnLogin(opts: CreateProfileOptions, routerVersion?: string | null): string {
+  const expmode = toMikhmonExpmode(opts.expiredMode);
   const lockMacStr = opts.lockMac ? "Enable" : "Disable";
   const macLockPart = opts.lockMac
     ? ` :if ([/ip hotspot user get [find name=$user] mac-address]="") do={ /ip hotspot user set mac-address=[/ip hotspot active get [find user=$user] mac-address] [find where name="$user"];};`
     : "";
-  // :put config line format (MikHmon compatible):
-  // ,label,price,validity,sharedUsers,addrPool,lockMac,sellingPrice,expiredMode,parentQueue,
-  return `:put (",${label},${opts.price},${opts.validity},${opts.sharedUsers},${opts.addrPool},${lockMacStr},${opts.sellingPrice},${opts.expiredMode},${opts.parentQueue},"); {:local comment [ /ip hotspot user get [/ip hotspot user find where name="$user"] comment]; :local ucode [:pic $comment 0 2]; :if ($ucode = "vc" or $ucode = "up" or $comment = "") do={ :local date [ /system clock get date ];:local year [ :pick $date 0 4 ];:local month [ :pick $date 5 7 ]; /sys sch add name="$user" disable=no start-date=$date interval="${opts.validity}"; :delay 5s; :local exp [ /sys sch get [ /sys sch find where name="$user" ] next-run]; :local getxp [len $exp]; :if ($getxp = 15) do={ :local d [:pic $exp 0 6]; :local t [:pic $exp 7 16]; :local s ("/"); :local exp ("$d$s$year $t"); /ip hotspot user set comment="$exp" [find where name="$user"];}; :if ($getxp = 8) do={ /ip hotspot user set comment="$date $exp" [find where name="$user"];}; :if ($getxp > 15) do={ /ip hotspot user set comment="$exp" [find where name="$user"];};:delay 5s; /sys sch remove [find where name="$user"];${macLockPart} :local mac $"mac-address"; :local time [/system clock get time ]; /system script add name="$date-|-$time-|-$user-|-${opts.price}-|-$address-|-$mac-|-${opts.validity}-|-${opts.name}-|-$comment" owner="$month$year" source="$date" comment="mikhmon"}}`;
+  const legacyDate = isRouterOsBefore710(routerVersion);
+  const yearExpr = legacyDate ? `:local year [ :pick $date 7 11 ];` : `:local year [ :pick $date 0 4 ];`;
+  const monthExpr = legacyDate ? `:local month [ :pick $date 0 3 ];` : `:local month [ :pick $date 5 7 ];`;
+  // Mikhmon-compatible legacy format:
+  // :put(",expmode,price,validity,sprice,,lockunlock,")
+  return `:put (",${expmode},${opts.price},${opts.validity},${opts.sellingPrice},,${lockMacStr},"); {:local comment [ /ip hotspot user get [/ip hotspot user find where name="$user"] comment]; :local ucode [:pic $comment 0 2]; :if ($ucode = "vc" or $ucode = "up" or $comment = "") do={ :local date [ /system clock get date ];${yearExpr}${monthExpr} /sys sch add name="$user" disable=no start-date=$date interval="${opts.validity}"; :delay 5s; :local exp [ /sys sch get [ /sys sch find where name="$user" ] next-run]; :local getxp [len $exp]; :if ($getxp = 15) do={ :local d [:pic $exp 0 6]; :local t [:pic $exp 7 16]; :local s ("/"); :local exp ("$d$s$year $t"); /ip hotspot user set comment="$exp" [find where name="$user"];}; :if ($getxp = 8) do={ /ip hotspot user set comment="$date $exp" [find where name="$user"];}; :if ($getxp > 15) do={ /ip hotspot user set comment="$exp" [find where name="$user"];};:delay 5s; /sys sch remove [find where name="$user"];${macLockPart} :local mac $"mac-address"; :local time [/system clock get time ]; /system script add name="$date-|-$time-|-$user-|-${opts.price}-|-$address-|-$mac-|-${opts.validity}-|-${opts.name}-|-$comment" owner="$month$year" source="$date" comment="mikhmon"}}`;
+}
+
+function generateProfileSchedulerOnEvent(profileName: string, expmode: string, routerVersion?: string | null): string {
+  const action = expmode === "ntf" || expmode === "ntfc"
+    ? `[ /ip hotspot user disable $i ];`
+    : `[ /ip hotspot user remove $i ];`;
+  if (isRouterOsBefore710(routerVersion)) {
+    return `:local dateint do={:local montharray ( "jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec" );:local days [ :pick $d 4 6 ];:local month [ :pick $d 0 3 ];:local year [ :pick $d 7 11 ];:local monthint ([ :find $montharray $month]);:local month ($monthint + 1);:if ( [len $month] = 1) do={:local zero ("0");:return [:tonum ("$year$zero$month$days")];} else={:return [:tonum ("$year$month$days")];}}; :local timeint do={ :local hours [ :pick $t 0 2 ]; :local minutes [ :pick $t 3 5 ]; :return ($hours * 60 + $minutes) ; }; :local date [ /system clock get date ]; :local time [ /system clock get time ]; :local today [$dateint d=$date] ; :local curtime [$timeint t=$time] ; :foreach i in [ /ip hotspot user find where profile="${profileName}" ] do={ :local comment [ /ip hotspot user get $i comment]; :local name [ /ip hotspot user get $i name]; :local gettime [:pic $comment 12 20]; :if ([:pic $comment 3] = "/" and [:pic $comment 6] = "/") do={:local expd [$dateint d=$comment] ; :local expt [$timeint t=$gettime] ; :if (($expd < $today and $expt < $curtime) or ($expd < $today and $expt > $curtime) or ($expd = $today and $expt < $curtime)) do={ ${action} [ /ip hotspot active remove [find where user=$name] ];}}}`;
+  }
+  return `:local dateint do={:local montharray ( "01","02","03","04","05","06","07","08","09","10","11","12" );:local days [ :pick $d 8 10 ];:local month [ :pick $d 5 7 ];:local year [ :pick $d 0 4 ];:local monthint ([ :find $montharray $month]);:local month ($monthint + 1);:if ( [len $month] = 1) do={:local zero ("0");:return [:tonum ("$year$zero$month$days")];} else={:return [:tonum ("$year$month$days")];}}; :local timeint do={ :local hours [ :pick $t 0 2 ]; :local minutes [ :pick $t 3 5 ]; :return ($hours * 60 + $minutes) ; }; :local date [ /system clock get date ]; :local time [ /system clock get time ]; :local today [$dateint d=$date] ; :local curtime [$timeint t=$time] ; :foreach i in [ /ip hotspot user find where profile="${profileName}" ] do={ :local comment [ /ip hotspot user get $i comment]; :local name [ /ip hotspot user get $i name]; :local gettime [:pic $comment 11 19]; :if ([:pic $comment 4] = "-" and [:pic $comment 7] = "-") do={:local expd [$dateint d=$comment] ; :local expt [$timeint t=$gettime] ; :if (($expd < $today and $expt < $curtime) or ($expd < $today and $expt > $curtime) or ($expd = $today and $expt < $curtime)) do={ ${action} [ /ip hotspot active remove [find where user=$name] ];}}}`;
+}
+
+async function upsertProfileScheduler(
+  api: RouterOSAPI,
+  profileName: string,
+  expmode: string,
+  routerVersion?: string | null,
+): Promise<void> {
+  const existing = await api.write("/system/scheduler/print", [`?name=${profileName}`]).catch(() => []);
+  if (expmode === "0") {
+    for (const s of existing) {
+      const id = s[".id"] as string | undefined;
+      if (id) await api.write("/system/scheduler/remove", [`=.id=${id}`]).catch(() => undefined);
+    }
+    return;
+  }
+  const onEvent = generateProfileSchedulerOnEvent(profileName, expmode, routerVersion);
+  if (existing.length > 0) {
+    const id = existing[0][".id"] as string | undefined;
+    if (!id) return;
+    await api.write("/system/scheduler/set", [
+      `=.id=${id}`,
+      "=disabled=no",
+      "=interval=00:02:54",
+      `=on-event=${onEvent}`,
+    ]);
+    return;
+  }
+  await api.write("/system/scheduler/add", [
+    `=name=${profileName}`,
+    "=disabled=no",
+    "=interval=00:02:54",
+    `=on-event=${onEvent}`,
+  ]);
 }
 
 export async function createProfile(conn: RouterConnection, opts: CreateProfileOptions): Promise<void> {
   return withRouter(conn, async (api) => {
-    const onLogin = generateMikHmonOnLogin(opts);
+    const sys = await api.write("/system/resource/print");
+    const version = ((sys?.[0] as Record<string, unknown> | undefined)?.["version"] as string | undefined) ?? null;
+    const expmode = toMikhmonExpmode(opts.expiredMode);
+    const onLogin = generateMikHmonOnLogin(opts, version);
     const args = [
       `=name=${opts.name}`,
       `=on-login=${onLogin}`,
@@ -572,6 +663,7 @@ export async function createProfile(conn: RouterConnection, opts: CreateProfileO
     if (opts.addrPool)     args.push(`=address-pool=${opts.addrPool}`);
     if (opts.parentQueue)  args.push(`=parent-queue=${opts.parentQueue}`);
     await api.write("/ip/hotspot/user/profile/add", args);
+    await upsertProfileScheduler(api, opts.name, expmode, version);
   });
 }
 
