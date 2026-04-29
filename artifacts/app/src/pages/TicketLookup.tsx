@@ -28,11 +28,13 @@ type SoldTicket = {
   id: number;
   username: string;
   profileName: string;
+  comment: string | null;
   price: string;
   salePrice: string | null;
   macAddress: string | null;
   saleIp: string | null;
   printedAt: string | null;
+  createdAt: string;
   usedAt: string | null;
   vendorId: number | null;
   vendorName: string | null;
@@ -72,10 +74,10 @@ export default function TicketLookup() {
         </div>
         <div>
           <h1 className="text-lg font-bold text-gray-900 dark:text-white leading-tight">
-            Vérifier un ticket vendu
+            Vérifier un ticket
           </h1>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            90 derniers jours · tous vendeurs confondus · par nom d'utilisateur, adresse MAC ou IP
+            Vendu (scripts, 90 jours) + non vendu (stock disponible) · tous vendeurs confondus
           </p>
         </div>
       </div>
@@ -91,7 +93,7 @@ export default function TicketLookup() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher par utilisateur, MAC ou IP…"
+              placeholder="Rechercher par utilisateur, MAC, IP ou commentaire…"
               className="pl-9 pr-9 h-10 text-sm"
               autoFocus
             />
@@ -116,7 +118,7 @@ export default function TicketLookup() {
           <CardContent className="py-10 text-center">
             <Ticket className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Aucun ticket vendu trouvé pour <span className="font-medium">"{debouncedSearch}"</span>
+              Aucun ticket trouvé pour <span className="font-medium">"{debouncedSearch}"</span>
             </p>
           </CardContent>
         </Card>
@@ -141,10 +143,11 @@ export default function TicketLookup() {
                   <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-800/40">
                     <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">Utilisateur</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">Forfait</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">Commentaire</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">Prix</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">MAC</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">IP</th>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">Date vente</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">Date</th>
                     <th className="px-3 py-2 text-center font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">État</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">Vendeur</th>
                   </tr>
@@ -152,6 +155,7 @@ export default function TicketLookup() {
                 <tbody>
                   {tickets.map((v, i) => {
                     const displayPrice = v.salePrice || v.price || "";
+                    const isSold = !!v.usedAt;
                     return (
                       <tr
                         key={v.id}
@@ -168,6 +172,16 @@ export default function TicketLookup() {
                         {/* Forfait */}
                         <td className="px-3 py-2">
                           <span className="text-gray-600 dark:text-gray-300">{v.profileName}</span>
+                        </td>
+                        {/* Commentaire / Lot */}
+                        <td className="px-3 py-2">
+                          {v.comment ? (
+                            <span className="font-mono text-[10px] text-gray-500 dark:text-gray-400">
+                              {v.comment}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300 dark:text-gray-600">—</span>
+                          )}
                         </td>
                         {/* Prix */}
                         <td className="px-3 py-2 text-right tabular-nums">
@@ -203,14 +217,20 @@ export default function TicketLookup() {
                         {/* Date vente */}
                         <td className="px-3 py-2 whitespace-nowrap">
                           <span className="text-gray-600 dark:text-gray-300">
-                            {formatDate(v.printedAt)}
+                            {formatDate(isSold ? v.usedAt : (v.printedAt ?? v.createdAt))}
                           </span>
                         </td>
                         {/* État */}
                         <td className="px-3 py-2 text-center">
-                          <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-950/50 text-red-500 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800/50 whitespace-nowrap">
-                            Vendu
-                          </span>
+                          {isSold ? (
+                            <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 dark:bg-red-950/50 text-red-500 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800/50 whitespace-nowrap">
+                              Vendu
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-200 dark:ring-emerald-800/50 whitespace-nowrap">
+                              Non vendu
+                            </span>
+                          )}
                         </td>
                         {/* Vendeur */}
                         <td className="px-3 py-2">
@@ -248,7 +268,7 @@ export default function TicketLookup() {
               <Search className="w-5 h-5 text-gray-400" />
             </div>
             <p className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
-              Vérifiez n'importe quel ticket vendu
+              Vérifiez n'importe quel ticket
             </p>
             <p className="text-xs text-gray-400 dark:text-gray-500 max-w-xs mx-auto">
               Saisissez un nom d'utilisateur, une adresse MAC ou une IP pour retrouver le ticket et identifier le vendeur.

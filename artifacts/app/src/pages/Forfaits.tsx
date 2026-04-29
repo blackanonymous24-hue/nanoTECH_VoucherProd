@@ -338,11 +338,9 @@ export default function Forfaits() {
             variant="outline"
             onClick={handleForceRefreshProfiles}
             disabled={!selectedRouterId || refreshingProfiles}
-            className="gap-2"
-            title="Actualiser maintenant"
+            className=""
           >
             <RefreshCw className={`h-4 w-4 ${refreshingProfiles ? "animate-spin" : ""}`} />
-            <span className="hidden sm:inline">{refreshingProfiles ? "Actualisation..." : "Actualiser maintenant"}</span>
           </Button>
           <Button
             variant="outline"
@@ -521,7 +519,7 @@ export default function Forfaits() {
                 disabled={loadingPools}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={loadingPools ? "Chargement…" : "Sélectionner un pool"} />
+                  <SelectValue placeholder="Sélectionner un pool" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none">Aucun</SelectItem>

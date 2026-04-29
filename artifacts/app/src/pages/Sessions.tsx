@@ -142,11 +142,9 @@ export default function Sessions() {
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="gap-2 flex-shrink-0"
-            title="Actualiser"
+            className="flex-shrink-0"
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-            <span className="hidden sm:inline">Actualiser</span>
           </Button>
         )}
       </div>
@@ -169,9 +167,6 @@ export default function Sessions() {
             <Users className="h-3 w-3" />
             {search ? `${filtered.length} / ${sessions.length}` : sessions.length} client(s)
           </Badge>
-        )}
-        {selectedRouterId && (
-          <span className="text-xs text-gray-400">Rafraîchissement auto toutes les 30s</span>
         )}
       </div>
 

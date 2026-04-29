@@ -1093,7 +1093,7 @@ function Dashboard({ token, vendor, onLogout }: {
             variant="ghost"
             onClick={() => fetchData(true)}
             disabled={isRefreshing}
-            title={isRefreshing ? "Synchronisation en cours…" : "Actualiser"}
+            title={isRefreshing ? "Synchronisation en cours…" : ""}
           >
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin text-blue-600" : ""}`} />
           </Button>
@@ -1121,7 +1121,7 @@ function Dashboard({ token, vendor, onLogout }: {
         </div>
 
         {loading && !data && (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 animate-pulse" aria-label="Chargement du tableau de bord">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 animate-pulse" aria-label="Tableau de bord">
             {Array.from({ length: 6 }).map((_, i) => (
               <Card key={i}>
                 <CardContent className="p-3 flex items-center gap-2.5">

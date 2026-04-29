@@ -596,10 +596,9 @@ export default function Dashboard() {
           variant="ghost"
           size="sm"
           onClick={handleRefresh}
-          className="gap-1.5 text-gray-500"
+          className="text-gray-500"
         >
           <RefreshCw className={`h-4 w-4 ${(!sseConnected && priorityQueryFetching) ? "animate-spin" : ""}`} />
-          Actualiser
         </Button>
       </div>
 

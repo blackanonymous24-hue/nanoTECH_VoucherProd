@@ -8,6 +8,7 @@ import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client
 import { queryClient } from "@/lib/queryClient";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -998,11 +999,9 @@ export default function Vouchers() {
                 size="sm"
                 onClick={() => refetch()}
                 disabled={isFetching}
-                className="gap-2"
-                title="Actualiser"
+                className=""
               >
                 <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-                <span className="hidden sm:inline">Actualiser</span>
               </Button>
             )}
           </div>
@@ -1315,7 +1314,7 @@ export default function Vouchers() {
                         className="text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2 transition-colors disabled:opacity-50"
                       >
                         {isSelectingAll
-                          ? "Chargement..."
+                          ? "..."
                           : `Sélectionner tout (${filteredTotal.toLocaleString("fr")})`}
                       </button>
                     )
@@ -1480,9 +1479,11 @@ export default function Vouchers() {
                 </div>
                 <CardContent className="p-0">
                   {isLoading ? (
-                    <div className="py-12 text-center text-gray-400 text-sm">
-                      <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-3 text-gray-300" />
-                      Chargement depuis le routeur...
+                    <div className="py-6 px-4 space-y-2">
+                      <Skeleton className="h-5 w-40 mx-auto" />
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-11/12" />
                     </div>
                   ) : filteredTotal === 0 ? (
                     <div className="py-8 text-center text-gray-400 text-sm">
@@ -1651,9 +1652,10 @@ export default function Vouchers() {
 
               {lotsLoading ? (
                 <Card>
-                  <CardContent className="py-12 text-center text-gray-400 text-sm">
-                    <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-3 text-gray-300" />
-                    Chargement des lots...
+                  <CardContent className="py-6 px-4 space-y-2">
+                    <Skeleton className="h-5 w-28 mx-auto" />
+                    <Skeleton className="h-12 w-full" />
+                    <Skeleton className="h-12 w-full" />
                   </CardContent>
                 </Card>
               ) : lots.length === 0 ? (

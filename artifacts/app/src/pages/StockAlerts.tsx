@@ -97,11 +97,9 @@ export default function StockAlerts() {
             size="sm"
             onClick={() => void refetch()}
             disabled={isFetching}
-            className="gap-2"
-            title="Actualiser"
+            className=""
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-            <span className="hidden sm:inline">Actualiser</span>
           </Button>
         </div>
       </div>

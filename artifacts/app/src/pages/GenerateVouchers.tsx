@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -646,7 +647,7 @@ export default function GenerateVouchers() {
                     >
                       <span className="truncate">
                         {loadingProfiles
-                          ? "Chargement..."
+                          ? "..."
                           : profile
                             ? (profiles.find((p) => p.name === profile)?.name ?? profile)
                             : "Sélectionner un profil"}
@@ -1049,8 +1050,11 @@ export default function GenerateVouchers() {
             </Card>
           ) : loadingLastLot ? (
             <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
-              <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
-              <p className="text-sm font-medium text-gray-400">Chargement du dernier lot…</p>
+              <div className="w-full max-w-sm space-y-2 px-6">
+                <Skeleton className="h-5 w-40 mx-auto" />
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-5/6 mx-auto" />
+              </div>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">

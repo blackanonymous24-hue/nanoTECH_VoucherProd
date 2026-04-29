@@ -443,9 +443,10 @@ function WeekCard({
 
       <CardContent className="pt-1 pb-4 space-y-2">
         {isLoading && (
-          <div className="flex items-center justify-center py-8 gap-2 text-gray-400">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="text-xs">Chargement…</span>
+          <div className="py-4 space-y-2">
+            <Skeleton className="h-5 w-28 mx-auto" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-11/12" />
           </div>
         )}
         {isError && (

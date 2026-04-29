@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, isNotNull, isNull, desc, sql, or, ilike, gte } from "drizzle-orm";
+import { eq, and, isNull, desc, sql, or, ilike, gte } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
 import { invalidateUserCache } from "./routers.js";
@@ -76,7 +76,7 @@ router.get("/vouchers", async (req, res): Promise<void> => {
   res.json({ vouchers, total });
 });
 
-/* ── Sold-ticket lookup (admin/manager/collab) ─────────────────────────── */
+/* ── Ticket lookup (sold + unsold, 90 days) ────────────────────────────── */
 router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
   const { routerId, q } = req.query as { routerId?: string; q?: string };
   if (!routerId) { res.status(400).json({ error: "routerId requis" }); return; }
@@ -90,8 +90,12 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
 
   const baseConditions = [
     eq(vouchersTable.routerId, rid),
-    isNotNull(vouchersTable.printedAt),
-    gte(vouchersTable.printedAt, cutoff),
+    // Sold window: strictly based on script-backed sale date (usedAt) on 90 days.
+    // Unsold fallback: still searchable when voucher exists in available stock.
+    or(
+      gte(vouchersTable.usedAt, cutoff),
+      isNull(vouchersTable.usedAt),
+    ),
   ];
 
   const searchConditions = term.length >= 1
@@ -99,6 +103,7 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
         ilike(vouchersTable.username, `%${term}%`),
         ilike(vouchersTable.macAddress, `%${term}%`),
         ilike(vouchersTable.saleIp, `%${term}%`),
+        ilike(vouchersTable.comment, `%${term}%`),
       )]
     : [];
 
@@ -111,7 +116,9 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
       salePrice:   vouchersTable.salePrice,
       macAddress:  vouchersTable.macAddress,
       saleIp:      vouchersTable.saleIp,
+      comment:     vouchersTable.comment,
       printedAt:   vouchersTable.printedAt,
+      createdAt:   vouchersTable.createdAt,
       usedAt:      vouchersTable.usedAt,
       vendorId:    vouchersTable.vendorId,
       vendorName:  vendorsTable.name,
@@ -119,7 +126,7 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
     .from(vouchersTable)
     .leftJoin(vendorsTable, eq(vouchersTable.vendorId, vendorsTable.id))
     .where(and(...baseConditions, ...searchConditions))
-    .orderBy(desc(vouchersTable.printedAt))
+    .orderBy(desc(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt}, ${vouchersTable.createdAt})`))
     .limit(200);
 
   res.json({ tickets: rows, total: rows.length });

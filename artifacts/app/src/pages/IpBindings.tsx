@@ -475,9 +475,8 @@ export default function IpBindings() {
         </div>
         <div className="flex gap-2 flex-shrink-0">
           {selectedRouterId && (
-            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading} className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              <span className="hidden sm:inline">Actualiser</span>
             </Button>
           )}
           {selectedRouterId && (
@@ -690,7 +689,7 @@ export default function IpBindings() {
                 disabled={serversLoading}
               >
                 <SelectTrigger id="server">
-                  <SelectValue placeholder={serversLoading ? "Chargement…" : "Sélectionner un serveur"} />
+                  <SelectValue placeholder="Sélectionner un serveur" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={SERVER_ALL}>Tous (all)</SelectItem>
@@ -752,7 +751,7 @@ export default function IpBindings() {
                     macAddress: matched?.macAddress ? matched.macAddress : f.macAddress,
                   }));
                 }}
-                placeholder={usersLoading ? "Chargement des utilisateurs..." : "Tapez pour rechercher un username"}
+                placeholder="Tapez pour rechercher un username"
                 disabled={usersLoading}
               />
               <datalist id="hotspot-users-list">

@@ -424,7 +424,7 @@ export default function TicketTemplate() {
                     onClick={handlePhpPreview}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${tab === "preview" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
                   >
-                    <Eye className="h-3 w-3" /> {previewing ? "Chargement…" : "Aperçu"}
+                    <Eye className="h-3 w-3" /> {previewing ? "..." : "Aperçu"}
                   </button>
                 </div>
               </div>
