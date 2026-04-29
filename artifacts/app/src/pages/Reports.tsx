@@ -15,7 +15,7 @@ import {
 import {
   BarChart3, Users, Ticket,
   ArrowLeft, CalendarDays, CalendarClock, TrendingUp,
-  RefreshCw, CheckCircle2, ArrowDownUp, XCircle,
+  RefreshCw, CheckCircle2, ArrowDownUp, XCircle, Printer,
 } from "lucide-react";
 
 /* ─── 2-segment bar: vendu (green) | non vendu (gray) ─────────── */
@@ -137,6 +137,9 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
           <h1 className="text-xl font-bold text-gray-900 truncate">{data.vendor.name}</h1>
           <p className="text-sm text-gray-500">Rapport de vente détaillé</p>
         </div>
+        <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2 flex-shrink-0">
+          <Printer className="h-4 w-4" /> Imprimer
+        </Button>
         <Badge variant={data.vendor.isActive ? "default" : "secondary"} className="flex-shrink-0">
           {data.vendor.isActive ? "Actif" : "Inactif"}
         </Badge>

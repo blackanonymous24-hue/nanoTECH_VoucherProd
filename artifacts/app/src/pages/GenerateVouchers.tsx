@@ -22,7 +22,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Zap, Printer, Copy, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff } from "lucide-react";
+import { Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
@@ -52,6 +52,10 @@ function loadLastLot(): LastLot | null {
 
 function saveLastLot(lot: LastLot) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(lot)); } catch { /* noop */ }
+}
+
+function clearLastLot() {
+  try { localStorage.removeItem(LS_KEY); } catch { /* noop */ }
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -165,6 +169,7 @@ export default function GenerateVouchers() {
   const [lastLot, setLastLot] = useState<LastLot | null>(() => loadLastLot());
   const [loadingLastLot, setLoadingLastLot] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [genPaused, setGenPaused] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
@@ -507,10 +512,39 @@ export default function GenerateVouchers() {
     URL.revokeObjectURL(url);
   };
 
-  const handleCopyAll = (lot: LastLot) => {
-    const text = lot.vouchers.map((v) => `${v.username} / ${v.password}`).join("\n");
-    navigator.clipboard.writeText(text);
-    toast({ title: "Codes copiés dans le presse-papier" });
+  const handleDeleteLastLot = async (lot: LastLot) => {
+    if (!lot.routerId || !lot.comment) return;
+    const confirmed = window.confirm(
+      `Supprimer ce lot sur MikroTik ?\n\nLot: ${lot.comment}\nRouteur: ${lot.routerName || lot.routerId}\n\nCette action est irréversible.`,
+    );
+    if (!confirmed) return;
+    setIsDeletingLastLot(true);
+    try {
+      const resp = await fetch(
+        `${BASE}/api/routers/${lot.routerId}/users?comment=${encodeURIComponent(lot.comment)}`,
+        { method: "DELETE" },
+      );
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data?.error || "Suppression impossible sur le routeur.");
+      }
+
+      clearLastLot();
+      setLastLot(null);
+      queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
+      toast({
+        title: "Dernier lot supprimé",
+        description: `${Number(data?.deleted ?? 0)} utilisateur(s) supprimé(s) sur MikroTik.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Suppression échouée",
+        description: String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingLastLot(false);
+    }
   };
 
   const handleExportTxt = (lot: LastLot) => {
@@ -945,14 +979,21 @@ export default function GenerateVouchers() {
                     : <Printer className="h-4 w-4" />}
                   {isPrinting ? "Impression en cours..." : "Imprimer les tickets"}
                 </Button>
-                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleCopyAll(lastLot)} title="Copier tous les codes">
-                  <Copy className="h-4 w-4" />
-                </Button>
                 <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportTxt(lastLot)} title="Exporter .txt">
                   <FileText className="h-4 w-4" />
                 </Button>
                 <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
                   <Table2 className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="default"
+                  variant="outline"
+                  className="gap-1.5 text-red-600 hover:text-red-700"
+                  onClick={() => void handleDeleteLastLot(lastLot)}
+                  title="Supprimer ce lot"
+                  disabled={isDeletingLastLot}
+                >
+                  {isDeletingLastLot ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                 </Button>
               </div>
 
