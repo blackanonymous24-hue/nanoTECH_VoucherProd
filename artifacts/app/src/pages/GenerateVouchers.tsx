@@ -328,93 +328,17 @@ export default function GenerateVouchers() {
     const BATCH_SIZE = 50;
     const allVouchers: Voucher[] = [];
     let done = 0;
-    // Verrouille le routeur pour toute la session : la sync background
-    // (vendor + usage) saute automatiquement les routeurs verrouillés.
-    await fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "POST" });
-
+    let lockAcquired = false;
     try {
-      while (done < total) {
-        const qtyBatch = Math.min(BATCH_SIZE, total - done);
+      // Verrouille le routeur pour toute la session : la sync background
+      // (vendor + usage) saute automatiquement les routeurs verrouillés.
+      const lockResp = await fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "POST" });
+      if (!lockResp.ok) {
+        const lockReason = await lockResp.text().catch(() => "");
+        throw new Error(lockReason || "Impossible de démarrer la génération: routeur verrouillé.");
+      }
+      lockAcquired = true;
 
-        // Retry automatique si le routeur est temporairement inaccessible.
-        let batchOk = false;
-        while (!batchOk) {
-          try {
-            const generated = await generateMutation.mutateAsync({
-              data: {
-                routerId: selectedRouterId,
-                profile,
-                qty: qtyBatch,
-                prefix: prefix || null,
-                comment: effectiveComment || null,
-                vendorId: vendorId ? parseInt(vendorId, 10) : null,
-                passwordMode,
-                charType,
-                userLength: parseInt(userLength, 10),
-                timelimit: timelimit || undefined,
-                datalimit: dlBytes,
-                profilePrice,
-                profileValidity,
-              },
-            });
-            allVouchers.push(...generated);
-            done += generated.length;
-            setProgress({ done, total });
-            batchOk = true;
-          } catch (err) {
-            if (isRouterUnreachable(err)) {
-              // Routeur inaccessible : on met en pause et on attend le retour.
-              setGenPaused(true);
-              await waitForRouter(selectedRouterId, BASE);
-
-              // ── Réconciliation anti-doublons ────────────────────────────
-              // Le batch peut avoir été appliqué côté MikroTik avant la
-              // coupure : si on retentait à l'aveugle, on créerait un
-              // 2ᵉ jeu de 50 utilisateurs (avec des noms différents) sous
-              // le même commentaire de lot. On interroge donc MikroTik
-              // pour obtenir l'état réel et on synchronise `done` /
-              // `allVouchers` en conséquence avant de poursuivre.
-              try {
-                if (effectiveComment) {
-                  const onRouter = await fetchLotUsers(selectedRouterId, effectiveComment, BASE);
-                  if (onRouter.length > done) {
-                    const knownNames = new Set(allVouchers.map((v) => v.username));
-                    const missing = onRouter
-                      .filter((u) => !knownNames.has(u.username))
-                      .map<Voucher>((u) => ({
-                        id: 0,
-                        routerId: selectedRouterId,
-                        vendorId: vendorId ? parseInt(vendorId, 10) : null,
-                        username: u.username,
-                        password: u.password,
-                        profileName: u.profile,
-                        price: profilePrice,
-                        validity: profileValidity,
-                        comment: u.comment ?? effectiveComment,
-                        createdAt: new Date().toISOString(),
-                        printedAt: null,
-                        usedAt: null,
-                        soldAt: null,
-                      } as unknown as Voucher));
-                    allVouchers.push(...missing);
-                    done = allVouchers.length;
-                    setProgress({ done, total });
-                  }
-                }
-              } catch {
-                // Réconciliation best-effort : si elle échoue on retente
-                // simplement le batch comme avant.
-              }
-
-              setGenPaused(false);
-              // Le même batch sera retenté (avec un qty ajusté au tour
-              // suivant grâce au `done` mis à jour).
-            } else {
-              throw err; // Erreur non-retriable → on sort.
-            }
-          }
-        }
-    try {
       while (done < total) {
         const qtyBatch = Math.min(BATCH_SIZE, total - done);
         let batchOk = false;
@@ -508,7 +432,9 @@ export default function GenerateVouchers() {
       setVendorId("");
     } finally {
       // Toujours relâcher le verrou — même en cas d'erreur.
-      void fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "DELETE" });
+      if (lockAcquired) {
+        void fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "DELETE" });
+      }
       setProgress(null);
       setGenPaused(false);
     }
