@@ -34,6 +34,7 @@ import { foldText } from "@/lib/text";
 // Provides instant display via initialData so the session list never shows a loading skeleton on re-visit.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _sessionsCache: Record<number, { sessions?: any[]; ts?: number }> = {};
+const SESSIONS_CACHE_KEY = "sessions-cache:v1";
 
 function formatBytes(bytes: string | null | undefined): string {
   if (!bytes) return "—";
@@ -51,6 +52,16 @@ export default function Sessions() {
 
   const [search, setSearch] = useState("");
   const [disconnectUser, setDisconnectUser] = useState<string | null>(null);
+  const cachedSnapshot = selectedRouterId != null
+    ? (_sessionsCache[selectedRouterId] ?? (() => {
+      try {
+        const raw = localStorage.getItem(`${SESSIONS_CACHE_KEY}:${selectedRouterId}`);
+        return raw ? JSON.parse(raw) as { sessions?: unknown[]; ts?: number } : undefined;
+      } catch {
+        return undefined;
+      }
+    })())
+    : undefined;
 
   const { data: sessions = [], isLoading, refetch, isFetching, error } = useListRouterSessions(
     selectedRouterId ?? 0,
@@ -60,8 +71,8 @@ export default function Sessions() {
         refetchInterval: 30_000,
         staleTime: 14_000,       // juste sous le TTL serveur (15s) → pas de double-fetch inutile
         gcTime: 30 * 60_000,     // garde les données 30 min en mémoire React Query
-        initialData: selectedRouterId != null ? _sessionsCache[selectedRouterId]?.sessions : undefined,
-        initialDataUpdatedAt: selectedRouterId != null ? _sessionsCache[selectedRouterId]?.ts : undefined,
+        initialData: cachedSnapshot?.sessions,
+        initialDataUpdatedAt: cachedSnapshot?.ts,
       },
     },
   );
@@ -71,6 +82,14 @@ export default function Sessions() {
   useEffect(() => {
     if (selectedRouterId != null && !isLoading && !error) {
       _sessionsCache[selectedRouterId] = { sessions, ts: Date.now() };
+      try {
+        localStorage.setItem(
+          `${SESSIONS_CACHE_KEY}:${selectedRouterId}`,
+          JSON.stringify({ sessions, ts: Date.now() }),
+        );
+      } catch {
+        // ignore storage quota/private mode errors
+      }
     }
   }, [sessions, selectedRouterId, isLoading, error]);
 
@@ -164,10 +183,6 @@ export default function Sessions() {
             <p className="text-sm text-gray-400 mt-1">Les clients actifs s&apos;afficheront ici</p>
           </CardContent>
         </Card>
-      )}
-
-      {selectedRouterId && isLoading && (
-        <div className="text-sm text-gray-400">Chargement des clients actifs...</div>
       )}
 
       {selectedRouterId && error && (

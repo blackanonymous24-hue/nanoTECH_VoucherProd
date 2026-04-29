@@ -5,6 +5,7 @@ import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Printer, Search, RotateCcw, Users, Loader2, AlertCircle,
   CalendarDays, ImageDown, AlertTriangle, CalendarRange,
@@ -861,9 +862,11 @@ export default function VendorTracking() {
 
           {/* Loading */}
           {isLoading && (
-            <div className="flex items-center justify-center py-12 gap-2 text-gray-400">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="text-sm">Chargement…</span>
+            <div className="py-6 space-y-2">
+              <Skeleton className="h-6 w-44 mx-auto" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-10/12" />
             </div>
           )}
 

@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -288,8 +289,10 @@ export default function SuperAdmins() {
       {/* Table card */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="p-8 flex items-center justify-center gap-2 text-gray-500 text-sm">
-            <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
+          <div className="p-6 space-y-3">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-11/12" />
           </div>
         ) : filteredAdmins.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-500">

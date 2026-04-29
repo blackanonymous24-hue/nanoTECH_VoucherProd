@@ -11,6 +11,7 @@ import type { Vendor, VendorSummary } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -520,7 +521,13 @@ export default function Vendors() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-12 text-gray-400">Chargement...</div>
+        <Card>
+          <CardContent className="py-6 space-y-3">
+            <Skeleton className="h-5 w-40 mx-auto" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
+          </CardContent>
+        </Card>
       ) : vendors.length === 0 ? (
         <Card>
           <div className="flex flex-col items-center justify-center py-16 text-center">

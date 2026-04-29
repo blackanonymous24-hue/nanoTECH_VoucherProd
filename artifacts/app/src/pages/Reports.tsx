@@ -6,6 +6,7 @@ import {
 } from "@workspace/api-client-react";
 import type { VendorSummary } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -109,7 +110,17 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
   const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: 15_000 } });
 
-  if (isLoading || !data) return <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>;
+  if (isLoading || !data) {
+    return (
+      <Card>
+        <CardContent className="py-6 space-y-3">
+          <Skeleton className="h-5 w-48 mx-auto" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
 
   const nonSold   = data.totalAvailable ?? (data.totalVouchers - data.totalUsed);
   const ss        = data.salesStats;
@@ -504,7 +515,13 @@ export default function Reports() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-12 text-gray-400">Chargement des rapports...</div>
+        <Card>
+          <CardContent className="py-6 space-y-3">
+            <Skeleton className="h-5 w-44 mx-auto" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
+          </CardContent>
+        </Card>
       ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">

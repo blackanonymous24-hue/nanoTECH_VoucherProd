@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getListRouterProfilesQueryKey, useListRouterProfiles } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -379,7 +380,13 @@ export default function Forfaits() {
       )}
 
       {selectedRouterId && loadingProfiles && displayedProfiles.length === 0 && (
-        <div className="text-sm text-gray-400">Chargement des forfaits...</div>
+        <Card>
+          <CardContent className="py-6 space-y-3">
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </CardContent>
+        </Card>
       )}
 
       {selectedRouterId && !loadingProfiles && displayedProfiles.length === 0 && (

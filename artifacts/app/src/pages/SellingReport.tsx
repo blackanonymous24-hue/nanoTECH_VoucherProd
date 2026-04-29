@@ -8,6 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileDown, Search, RotateCcw, Receipt, Loader2, AlertCircle,
 } from "lucide-react";
@@ -253,9 +254,11 @@ export default function SellingReport() {
 
           {/* ── Loading ────────────────────────────────────────── */}
           {isLoading && (
-            <div className="flex items-center justify-center py-12 gap-2 text-gray-400">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="text-sm">Chargement depuis MikroTik…</span>
+            <div className="py-6 space-y-2">
+              <Skeleton className="h-6 w-56 mx-auto" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-11/12" />
             </div>
           )}
 

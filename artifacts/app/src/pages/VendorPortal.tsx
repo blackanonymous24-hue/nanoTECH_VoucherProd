@@ -6,6 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -364,7 +365,14 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
       </header>
 
       <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        {loading && <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>}
+        {loading && (
+          <div className="py-6 space-y-2">
+            <Skeleton className="h-6 w-44 mx-auto" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-10/12" />
+          </div>
+        )}
         {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
         {data && (() => {
@@ -637,7 +645,14 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
       </header>
 
       <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        {loading && <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>}
+        {loading && (
+          <div className="py-6 space-y-2">
+            <Skeleton className="h-6 w-44 mx-auto" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-10/12" />
+          </div>
+        )}
         {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
 
         {data && (

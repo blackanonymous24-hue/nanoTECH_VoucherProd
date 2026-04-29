@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { UserCog, Plus, Pencil, Trash2, Check, X, MoreHorizontal, KeyRound, Router as RouterIcon } from "lucide-react";
@@ -170,7 +171,13 @@ export default function Managers() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12 text-gray-400">Chargement...</div>
+        <Card>
+          <CardContent className="py-6 space-y-3">
+            <Skeleton className="h-5 w-44 mx-auto" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
+          </CardContent>
+        </Card>
       ) : managers.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-gray-400">

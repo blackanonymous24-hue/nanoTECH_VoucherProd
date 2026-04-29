@@ -12,6 +12,7 @@ import {
 import type { Router as RouterType } from "@workspace/api-client-react";
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -237,7 +238,11 @@ function ProfileMergeDialog({ routerId, onClose }: { routerId: number; onClose: 
         </DialogHeader>
 
         {loading ? (
-          <div className="py-8 text-center text-sm text-gray-400">Chargement...</div>
+          <div className="py-4 space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-11/12" />
+          </div>
         ) : (
           <div className="space-y-4">
             {orphaned.length > 0 && (
@@ -538,7 +543,10 @@ export default function Routers() {
       })()}
 
       {isLoading ? (
-        <div className="text-gray-400 text-sm">Chargement...</div>
+        <div className="space-y-2">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
       ) : routers.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">

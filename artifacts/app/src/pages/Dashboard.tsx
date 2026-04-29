@@ -6,6 +6,7 @@ import { useGetDashboard, useListRouterLogs } from "@workspace/api-client-react"
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -248,7 +249,9 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
       if (!res.ok) throw new Error("traffic unavailable");
       return res.json();
     },
-    enabled: !!routerId && !!selectedIface && enabled,
+    // Keep traffic visible even if interface list is delayed/unavailable:
+    // fetch router aggregate traffic as fallback (no iface query param).
+    enabled: !!routerId && enabled,
     refetchInterval: 3_000,
     refetchIntervalInBackground: false,
     staleTime: 2_500,
@@ -318,8 +321,9 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
             <p className="text-xs text-red-400">Indisponible</p>
           </div>
         ) : history.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center">
-            <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
+          <div className="flex-1 flex flex-col gap-2 justify-center px-2">
+            <Skeleton className="h-4 w-32 mx-auto" />
+            <Skeleton className="h-[220px] w-full rounded-md" />
           </div>
         ) : (
           <div className="flex flex-col flex-1" style={{ minHeight: 0 }}>
@@ -603,9 +607,10 @@ export default function Dashboard() {
       {selectedRouterId && (
         <div className="mb-6">
           {infoLoading ? (
-            <div className="flex items-center gap-2 text-xs text-gray-400">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              Récupération des informations routeur…
+            <div className="flex flex-wrap items-center gap-2">
+              <Skeleton className="h-6 w-36 rounded-full" />
+              <Skeleton className="h-6 w-28 rounded-full" />
+              <Skeleton className="h-6 w-32 rounded-full" />
             </div>
           ) : routerInfo ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -731,9 +736,11 @@ export default function Dashboard() {
               <p className="text-sm text-gray-400">Sélectionnez un routeur dans la barre de gauche</p>
             </div>
           ) : logsLoading ? (
-            <div className="py-10 text-center text-sm text-gray-400">
-              <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-gray-300" />
-              Connexion au routeur…
+            <div className="px-3 py-4 space-y-2">
+              <Skeleton className="h-5 w-full" />
+              <Skeleton className="h-5 w-full" />
+              <Skeleton className="h-5 w-11/12" />
+              <Skeleton className="h-5 w-10/12" />
             </div>
           ) : logsError ? (
             <div className="py-10 text-center text-sm text-red-400">

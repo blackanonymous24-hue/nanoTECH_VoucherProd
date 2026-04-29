@@ -3,6 +3,7 @@ import { Bell, PackageOpen, AlertTriangle, RefreshCw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -108,9 +109,10 @@ export default function StockAlerts() {
       {/* Loading */}
       {isLoading && (
         <Card>
-          <CardContent className="py-16 text-center text-gray-400 text-sm">
-            <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-3 text-gray-300" />
-            Chargement des alertes…
+          <CardContent className="py-6 space-y-3">
+            <Skeleton className="h-5 w-48 mx-auto" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
           </CardContent>
         </Card>
       )}

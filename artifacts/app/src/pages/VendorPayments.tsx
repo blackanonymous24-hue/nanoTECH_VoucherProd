@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -537,9 +538,10 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
   };
 
   if (isLoading) return (
-    <div className="flex items-center justify-center py-6 gap-2 text-gray-400">
-      <Loader2 className="h-4 w-4 animate-spin" />
-      <span className="text-xs">Chargement…</span>
+    <div className="py-4 space-y-2">
+      <Skeleton className="h-5 w-28 mx-auto" />
+      <Skeleton className="h-8 w-full" />
+      <Skeleton className="h-8 w-11/12" />
     </div>
   );
 
@@ -740,9 +742,10 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
   };
 
   if (isLoading) return (
-    <div className="flex items-center justify-center py-8 gap-2 text-gray-400">
-      <Loader2 className="h-4 w-4 animate-spin" />
-      <span className="text-xs">Chargement des arriérés…</span>
+    <div className="py-4 space-y-2">
+      <Skeleton className="h-5 w-36 mx-auto" />
+      <Skeleton className="h-8 w-full" />
+      <Skeleton className="h-8 w-10/12" />
     </div>
   );
 

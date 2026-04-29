@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useRouterContext } from "@/contexts/RouterContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -92,7 +93,13 @@ function VendorTodayReport({ vendorId, vendorName, onBack }: { vendorId: number;
 
       <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         {isLoading && (
-          <div className="text-center py-12 text-gray-400">Chargement du rapport...</div>
+          <Card>
+            <CardContent className="py-6 space-y-3">
+              <Skeleton className="h-5 w-44 mx-auto" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </CardContent>
+          </Card>
         )}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
