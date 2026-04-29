@@ -107,6 +107,14 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " FCFA";
 }
 
+function amountTextSizeClass(amount: number): string {
+  const len = Math.abs(Math.trunc(amount)).toLocaleString("fr-FR").replace(/\s/g, "").length;
+  if (len <= 5) return "text-2xl";
+  if (len <= 7) return "text-xl";
+  if (len <= 9) return "text-lg";
+  return "text-base";
+}
+
 /**
  * Parse a MikroTik hotspot log message into its semantic parts.
  * Typical raw formats:
@@ -677,8 +685,10 @@ export default function Dashboard() {
           href="/sessions"
         />
         <StatCard
-          title="Vente journalière"
+          title="Vendu aujourd'hui"
           label={salesFresh ? formatAmount(sales!.dailyAmount) : undefined}
+          amountValue={salesFresh ? sales!.dailyAmount : undefined}
+          currency="FCFA"
           sub={salesFresh ? `${sales!.dailyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
@@ -689,6 +699,8 @@ export default function Dashboard() {
         <StatCard
           title="Vente mensuelle"
           label={salesFresh ? formatAmount(sales!.monthlyAmount) : undefined}
+          amountValue={salesFresh ? sales!.monthlyAmount : undefined}
+          currency="FCFA"
           sub={salesFresh ? `${sales!.monthlyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
@@ -850,6 +862,8 @@ function StatCard({
   title,
   value,
   label,
+  amountValue,
+  currency,
   sub,
   icon,
   loading,
@@ -860,6 +874,8 @@ function StatCard({
   title: string;
   value?: number;
   label?: string;
+  amountValue?: number;
+  currency?: string;
   sub?: string;
   icon: React.ReactNode;
   loading: boolean;
@@ -891,7 +907,14 @@ function StatCard({
                 </>
               ) : label !== undefined ? (
                 <>
-                  <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
+                  {amountValue !== undefined ? (
+                    <p className={`fit-price font-bold text-gray-900 leading-tight truncate ${amountTextSizeClass(amountValue)}`}>
+                      {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
+                      <span className="text-[10px] font-medium text-gray-400 ml-1">{currency || "FCFA"}</span>
+                    </p>
+                  ) : (
+                    <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
+                  )}
                   {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
                 </>
               ) : (
