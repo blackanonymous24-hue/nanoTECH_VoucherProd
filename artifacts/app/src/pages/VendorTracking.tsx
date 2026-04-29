@@ -183,7 +183,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
     <tbody>${arr.map(a => `<tr><td>${fmtDateFr(a.date)}</td><td class="right">${fmtAmount(a.remaining)} FCFA</td></tr>`).join("")}</tbody>
   </table>
   <div class="total-du">
-    <span>Total dû (vendu + arriéré)</span><span>${fmtAmount(totalDu)} FCFA</span>
+    <span>Total à verser</span><span>${fmtAmount(totalDu)} FCFA</span>
   </div>` : "";
     const hasArr = arr.length > 0;
     const borderColor = hasArr ? "#fdba74" : pal.border;
@@ -409,9 +409,9 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
           ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#fee2e2");
           ry += ARR_ROW_H;
         });
-        // Total dû row
+        // Total à verser row
         rf(PAD, ry, CW, GRAND_ROW_H, "#1e3a8a", [0, 0, 6, 6]);
-        t("Total dû (vendu + arriéré)", C_PROF, ry + GRAND_ROW_H / 2, { size: 8, bold: true, color: "#bfdbfe" });
+        t("Total à verser", C_PROF, ry + GRAND_ROW_H / 2, { size: 8, bold: true, color: "#bfdbfe" });
         t(fmtAmount(totalDu) + " FCFA", C_AMT, ry + GRAND_ROW_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
         ry += GRAND_ROW_H;
       }
@@ -1006,13 +1006,13 @@ export default function VendorTracking() {
                                 </tr>
                               );
                             })}
-                            {/* ── Total dû (vendu + arriérés) ── */}
+                            {/* ── Total à verser ── */}
                             {hasArrears && (() => {
                               const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
                               const totalDu = s.amount + allArrearsTotal;
                               return (
                                 <tr className="border-t-2 border-blue-900 bg-blue-900">
-                                  <td className="px-3 py-2 font-bold text-white text-xs">Total dû <span className="font-normal text-blue-300">(vendu + arriéré)</span></td>
+                                  <td className="px-3 py-2 font-bold text-white text-xs">Total à verser</td>
                                   <td />
                                   <td className="px-3 py-2 text-right font-bold text-white text-sm tabular-nums">{fmtAmount(totalDu)} FCFA</td>
                                 </tr>

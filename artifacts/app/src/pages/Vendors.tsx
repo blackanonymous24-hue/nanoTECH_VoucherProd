@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw, Percent } from "lucide-react";
+import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw, Percent, Receipt } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -461,8 +461,14 @@ export default function Vendors() {
   };
 
   const handleViewReport = (vendorId: number) => {
-    sessionStorage.setItem("vouchernet_report_vendor_id", String(vendorId));
+    void vendorId; // keep signature; navigation is now always global first
+    sessionStorage.removeItem("vouchernet_report_vendor_id");
     navigate("/reports");
+  };
+
+  const handleViewDetailedSalesReport = (vendorName: string) => {
+    sessionStorage.setItem("vouchernet_sales_report_vendor_name", vendorName);
+    navigate("/sales/report");
   };
 
   const portalBase = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -633,6 +639,16 @@ export default function Vendors() {
               <CardContent className="pt-0">
                 <div className="flex flex-wrap gap-2">
                   <div className="flex flex-1 gap-2 min-w-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 gap-1.5 min-w-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                      onClick={() => handleViewDetailedSalesReport(vendor.name)}
+                      title="Ouvrir le rapport de vente détaillé"
+                    >
+                      <Receipt className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate">Rapport détaillé</span>
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"

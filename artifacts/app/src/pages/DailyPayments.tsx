@@ -325,7 +325,7 @@ export default function DailyPayments() {
       const total = arrears.reduce((s, a) => s + a.remaining, 0);
       rows.push({ vendorId: vId, vendorName: name, arrears, totalRemaining: total });
     }
-    rows.sort((a, b) => b.totalRemaining - a.totalRemaining);
+    rows.sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr", { sensitivity: "base" }));
   }
 
   const grandTotal = rows.reduce((s, r) => s + r.totalRemaining, 0);

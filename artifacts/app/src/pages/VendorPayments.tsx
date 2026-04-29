@@ -985,19 +985,7 @@ export default function VendorPayments() {
         </CardContent>
       </Card>
 
-      {/* Arriérés journaliers */}
-      <Card className="shadow-sm border-orange-100">
-        <CardHeader className="pb-2 pt-4">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-orange-500" />
-            Arriérés journaliers
-          </CardTitle>
-          <p className="text-xs text-gray-400">Jours passés avec versements partiels ou manquants</p>
-        </CardHeader>
-        <CardContent className="pt-1 pb-4">
-          <DailyArrearsSection routerId={selectedRouterId} />
-        </CardContent>
-      </Card>
+      {/* Arriérés journaliers masqués à la demande utilisateur */}
     </div>
   );
 }

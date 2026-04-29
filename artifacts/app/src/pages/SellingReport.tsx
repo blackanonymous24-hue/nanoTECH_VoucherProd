@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useDeferredValue } from "react";
+import { useState, useMemo, useRef, useDeferredValue, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,7 @@ interface SaleEntry {
   date: string;
   time: string;
   username: string;
+  vendorName?: string;
   price: number;
   ip: string;
   mac: string;
@@ -66,6 +67,14 @@ export default function SellingReport() {
 
   const isAll = applied.month === ALL && applied.year === ALL;
 
+  useEffect(() => {
+    const prefilledVendor = sessionStorage.getItem("vouchernet_sales_report_vendor_name");
+    if (prefilledVendor) {
+      setSearch(prefilledVendor);
+      sessionStorage.removeItem("vouchernet_sales_report_vendor_name");
+    }
+  }, []);
+
   // Convert ALL sentinel → empty string for API params
   const appliedDay   = applied.day   === ALL ? "" : applied.day;
   const appliedMonth = applied.month === ALL ? "" : applied.month;
@@ -101,7 +110,8 @@ export default function SellingReport() {
         foldText(e.username).includes(q) ||
         foldText(e.label).includes(q) ||
         foldText(e.batch).includes(q) ||
-        foldText(e.date).includes(q),
+        foldText(e.date).includes(q) ||
+        foldText(e.vendorName ?? "").includes(q),
     );
   }, [entries, deferredSearch]);
 
