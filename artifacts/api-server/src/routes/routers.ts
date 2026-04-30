@@ -10,6 +10,7 @@ import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -64,7 +65,7 @@ async function fetchProfilesWithCache(routerId: number, conn: RouterConnection) 
  *   pools        5 min — address pools rarely change
  *   sessions    15 s  — active hotspot sessions
  *   interfaces   5 min — interface list rarely changes
- *   traffic      1.5 s — near real-time bandwidth for live chart
+ *   traffic      10 s  — balanced refresh for live chart
  *   logs        10 s  — system log tail
  */
 const _mik = new Map<string, { data: unknown; exp: number }>();
@@ -79,7 +80,7 @@ const MIK_TTL = {
   pools:     300_000,
   sessions:   15_000,
   interfaces:300_000,
-  traffic:     1_500,
+  traffic:    10_000,
   logs:       10_000,
   leases:     20_000,
 } as const;
@@ -1257,11 +1258,23 @@ async function syncQueueForBinding(conn: RouterConnection, binding: Awaited<Retu
 }
 
 function triggerQueueSyncForBindingId(routerId: number, conn: RouterConnection, bindingId: string) {
-  void withRouterLock(routerId, async () => {
+  void (async () => {
+    const t0 = Date.now();
     const all = await listIpBindings(conn);
     const current = all.find((b) => b.id === bindingId);
     if (current) await syncQueueForBinding(conn, current);
-  }).catch(() => undefined);
+    logger.info({
+      scope: "queue-sync",
+      kind: "update",
+      routerId,
+      bindingId,
+      found: !!current,
+      elapsedMs: Date.now() - t0,
+    }, "queue sync completed");
+    void routerId;
+  })().catch((err) => {
+    logger.warn({ scope: "queue-sync", kind: "update", routerId, bindingId, err }, "queue sync failed");
+  });
 }
 
 function triggerQueueSyncForCreatedBinding(
@@ -1269,20 +1282,42 @@ function triggerQueueSyncForCreatedBinding(
   conn: RouterConnection,
   parsed: { macAddress?: string; address?: string },
 ) {
-  void withRouterLock(routerId, async () => {
+  void (async () => {
+    const t0 = Date.now();
     const all = await listIpBindings(conn);
     const created = all.find((b) =>
       (parsed.macAddress?.trim() ? (b.macAddress ?? "").trim().toUpperCase() === parsed.macAddress.trim().toUpperCase() : false)
       && (parsed.address?.trim() ? (b.address ?? "").trim() === parsed.address.trim() : true),
     ) ?? all[0];
     if (created) await syncQueueForBinding(conn, created);
-  }).catch(() => undefined);
+    logger.info({
+      scope: "queue-sync",
+      kind: "create",
+      routerId,
+      bindingId: created?.id ?? null,
+      elapsedMs: Date.now() - t0,
+    }, "queue sync completed");
+    void routerId;
+  })().catch((err) => {
+    logger.warn({ scope: "queue-sync", kind: "create", routerId, err }, "queue sync failed");
+  });
 }
 
 function triggerQueueDeleteForBinding(routerId: number, conn: RouterConnection, binding: Awaited<ReturnType<typeof listIpBindings>>[number]) {
-  void withRouterLock(routerId, async () => {
+  void (async () => {
+    const t0 = Date.now();
     await removeIpBindingQueue(conn, binding);
-  }).catch(() => undefined);
+    logger.info({
+      scope: "queue-sync",
+      kind: "delete",
+      routerId,
+      bindingId: binding.id,
+      elapsedMs: Date.now() - t0,
+    }, "queue sync completed");
+    void routerId;
+  })().catch((err) => {
+    logger.warn({ scope: "queue-sync", kind: "delete", routerId, bindingId: binding.id, err }, "queue sync failed");
+  });
 }
 
 function extractLinkedUsername(comment: string | null | undefined): string | null {
