@@ -198,16 +198,20 @@ function parseProfileOnLogin(onLogin: string): {
 // Per-router semaphore: max 2 concurrent API connections per router
 class Semaphore {
   private slots: number;
-  private readonly queue: Array<() => void> = [];
+  private readonly highQueue: Array<() => void> = [];
+  private readonly normalQueue: Array<() => void> = [];
   constructor(max: number) { this.slots = max; }
 
-  acquire(): Promise<void> {
+  acquire(priority: "high" | "normal" = "normal"): Promise<void> {
     if (this.slots > 0) { this.slots--; return Promise.resolve(); }
-    return new Promise((resolve) => this.queue.push(resolve));
+    return new Promise((resolve) => {
+      if (priority === "high") this.highQueue.push(resolve);
+      else this.normalQueue.push(resolve);
+    });
   }
 
   release(): void {
-    const next = this.queue.shift();
+    const next = this.highQueue.shift() ?? this.normalQueue.shift();
     if (next) { next(); } else { this.slots++; }
   }
 }
@@ -223,9 +227,10 @@ export async function withRouter<T>(
   conn: RouterConnection,
   fn: (api: RouterOSAPI) => Promise<T>,
   timeout = 15000,
+  priority: "high" | "normal" = "normal",
 ): Promise<T> {
   const sem = getRouterSemaphore(conn.host, conn.port);
-  await sem.acquire();
+  await sem.acquire(priority);
 
   const api = new RouterOSAPI({
     host: conn.host,
@@ -663,7 +668,7 @@ export async function upsertIpBindingQueue(
       `=max-limit=${maxLimit}`,
       `=disabled=${disabled}`,
     ]);
-  }, 7000);
+  }, 7000, "high");
 }
 
 export async function removeIpBindingQueue(conn: RouterConnection, binding: HotspotIpBinding): Promise<void> {
@@ -678,7 +683,7 @@ export async function removeIpBindingQueue(conn: RouterConnection, binding: Hots
       const exId = (list[0]?.[".id"] as string | undefined) ?? "";
       if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
     }
-  });
+  }, 7000, "high");
 }
 
 export async function listDhcpLeases(conn: RouterConnection): Promise<DhcpLease[]> {
@@ -749,7 +754,7 @@ export async function addIpBinding(conn: RouterConnection, opts: AddIpBindingOpt
     if (opts.comment)   args.push(`=comment=${toWin1252(opts.comment)}`);
     if (opts.disabled)  args.push(`=disabled=yes`);
     await api.write("/ip/hotspot/ip-binding/add", args);
-  }, 7000);
+  }, 4000, "high");
 }
 
 export async function updateIpBinding(
@@ -774,13 +779,13 @@ export async function updateIpBinding(
     if (opts.comment !== undefined) args.push(`=comment=${toWin1252(opts.comment)}`);
     if (opts.disabled   !== undefined) args.push(`=disabled=${opts.disabled ? "yes" : "no"}`);
     await api.write("/ip/hotspot/ip-binding/set", args);
-  }, 7000);
+  }, 4000, "high");
 }
 
 export async function deleteIpBinding(conn: RouterConnection, id: string): Promise<void> {
   return withRouter(conn, async (api) => {
     await api.write("/ip/hotspot/ip-binding/remove", [`=.id=${id}`]);
-  }, 7000);
+  }, 4000, "high");
 }
 
 // ─── Hotspot servers (instances) ────────────────────────────────────────────
@@ -975,7 +980,7 @@ export async function addHotspotUser(conn: RouterConnection, opts: AddHotspotUse
     if (opts.limitBytesTotal) params.push(`=limit-bytes-total=${opts.limitBytesTotal}`);
     if (opts.macAddress)      params.push(`=mac-address=${opts.macAddress}`);
     await api.write("/ip/hotspot/user/add", params);
-  }, 10_000);
+  }, 10_000, "high");
 }
 
 export async function listSessions(conn: RouterConnection): Promise<HotspotSession[]> {
@@ -1544,7 +1549,7 @@ export async function enableDisableHotspotUsers(
     }
 
     return { done: toSet.length, notFound };
-  }, 30_000);
+  }, 30_000, "high");
 }
 
 /**
@@ -1567,7 +1572,7 @@ export async function deleteHotspotUsersByComment(
       await api.write("/ip/hotspot/user/remove", [`=.id=${toDelete.join(",")}`]);
     }
     return toDelete.length;
-  }, 30_000);
+  }, 30_000, "high");
 }
 
 /**
@@ -1591,7 +1596,7 @@ export async function deleteHotspotUsersByNames(
       await api.write("/ip/hotspot/user/remove", [`=.id=${toDelete.join(",")}`]);
     }
     return toDelete.length;
-  }, 30_000);
+  }, 30_000, "high");
 }
 
 /**
@@ -1676,7 +1681,7 @@ export async function renameHotspotUser(
       `=name=${toWin1252(newUsername)}`,
     ]);
     return true;
-  }, 15_000);
+  }, 15_000, "high");
 }
 
 export interface UpdateHotspotUserOpts {
@@ -1708,7 +1713,7 @@ export async function updateHotspotUser(
       username: nextUsername,
       comment: fixEncoding((user["comment"] as string) || null) || null,
     };
-  }, 20_000);
+  }, 20_000, "high");
 }
 
 export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
@@ -1723,7 +1728,7 @@ export async function disconnectSession(conn: RouterConnection, username: string
       }
     }
     return removed;
-  });
+  }, 10_000, "high");
 }
 
 /**
@@ -1883,7 +1888,7 @@ export async function resetHotspotUser(
       cookiesRemoved,
       comment: comment || null,
     };
-  }, 30_000);
+  }, 30_000, "high");
 }
 
 /**

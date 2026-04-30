@@ -1755,9 +1755,7 @@ router.post("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    await withRouterLock(id, async () => {
-      await addIpBinding(conn, parsed);
-    });
+    await addIpBinding(conn, parsed);
     invalidateIpBindingsCache(id);
     res.status(201).json({ ok: true });
     triggerQueueSyncForCreatedBinding(id, conn, parsed);
@@ -1777,9 +1775,7 @@ router.patch("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<vo
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    await withRouterLock(id, async () => {
-      await updateIpBinding(conn, bindingId, parsed);
-    });
+    await updateIpBinding(conn, bindingId, parsed);
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
     triggerQueueSyncForBindingId(id, conn, bindingId);
@@ -1798,11 +1794,9 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     let current: Awaited<ReturnType<typeof listIpBindings>>[number] | undefined;
-    await withRouterLock(id, async () => {
-      const all = await listIpBindings(conn);
-      current = all.find((b) => b.id === bindingId);
-      await deleteIpBinding(conn, bindingId);
-    });
+    const all = await listIpBindings(conn);
+    current = all.find((b) => b.id === bindingId);
+    await deleteIpBinding(conn, bindingId);
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
     if (current) triggerQueueDeleteForBinding(id, conn, current);

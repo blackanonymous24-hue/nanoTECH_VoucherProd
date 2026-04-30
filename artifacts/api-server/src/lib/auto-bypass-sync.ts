@@ -189,7 +189,9 @@ async function syncRouter(routerId: number, conn: RouterConnection) {
       shouldDisable = false;
     }
 
-    if (b.disabled !== shouldDisable) {
+    // Do not auto-reenable a bypass that was manually disabled by an admin.
+    // Auto-sync only enforces disable when required (expired/missing user/etc).
+    if (!b.disabled && shouldDisable) {
       await updateIpBinding(conn, b.id, { disabled: shouldDisable });
       await upsertIpBindingQueue(
         conn,
