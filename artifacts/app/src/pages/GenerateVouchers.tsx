@@ -23,13 +23,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff } from "lucide-react";
+  Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
@@ -602,31 +597,21 @@ export default function GenerateVouchers() {
 
               <div>
                 <Label>Profil</Label>
-                <Select
-                  value={profile || "__none__"}
-                  onValueChange={(v) => setProfile(v === "__none__" ? "" : v)}
+                <select
+                  className="w-full h-9 mt-1 border border-input bg-background rounded-md px-3 text-sm"
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value)}
                   disabled={!selectedRouterId || loadingProfiles}
                 >
-                  <SelectTrigger className="w-full mt-1 font-normal">
-                    <SelectValue
-                      placeholder={
-                        loadingProfiles
-                          ? "Chargement des profils…"
-                          : "Sélectionner un profil"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-52">
-                    <SelectItem value="__none__" className="text-muted-foreground">
-                      — Choisir un profil —
-                    </SelectItem>
-                    {profiles.map((p) => (
-                      <SelectItem key={p.name} value={p.name}>
-                        {[p.name, [p.validity, p.price].filter(Boolean).join(" · ")].filter(Boolean).join(" — ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <option value="">
+                    {loadingProfiles ? "Chargement des profils…" : "Sélectionner un profil"}
+                  </option>
+                  {profiles.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
                 {selectedProfile && (
                   <div className="mt-2 p-2.5 bg-blue-50 rounded-lg text-xs text-blue-700 flex flex-wrap gap-2">
                     {selectedProfile.validity && (

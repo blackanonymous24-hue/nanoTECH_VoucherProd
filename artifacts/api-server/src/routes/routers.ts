@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -158,7 +158,7 @@ const MIK_TTL = {
   sessions:   15_000,
   interfaces:300_000,
   traffic:     2_000,
-  logs:        1_000,
+  logs:        2_000,
   leases:     20_000,
 } as const;
 
@@ -1327,15 +1327,13 @@ function extractQueueLimit(comment: string | null | undefined, kind: "up" | "dow
 async function syncQueueForBinding(conn: RouterConnection, binding: Awaited<ReturnType<typeof listIpBindings>>[number]) {
   const up = extractQueueLimit(binding.comment, "up");
   const down = extractQueueLimit(binding.comment, "down");
-  // Fast path: apply immediately from current binding state.
-  await Promise.race([
-    upsertIpBindingQueue(conn, binding, up, down),
-    new Promise<void>((resolve) => setTimeout(resolve, 1500)),
-  ]);
+  const hasLimit = !!(up || down);
+  // Apply immediately from current binding state (Mikhmon-like direct action).
+  await upsertIpBindingQueue(conn, binding, up, down);
 
   // Background reconcile: if DHCP IP changed (or was missing), update binding
   // and re-apply queue without blocking the user action.
-  if (!binding.macAddress?.trim()) return;
+  if (!hasLimit || !binding.macAddress?.trim()) return;
   const key = `${conn.host}:${conn.port}:${binding.id}`;
   if (queueReconcileInFlight.has(key)) return;
   queueReconcileInFlight.add(key);
@@ -1353,9 +1351,9 @@ async function syncQueueForBinding(conn: RouterConnection, binding: Awaited<Retu
   })();
 }
 
-function triggerQueueSyncForBindingId(routerId: number, conn: RouterConnection, bindingId: string) {
-  void (async () => {
-    const t0 = Date.now();
+async function triggerQueueSyncForBindingId(routerId: number, conn: RouterConnection, bindingId: string): Promise<void> {
+  const t0 = Date.now();
+  try {
     const current = await getIpBindingById(conn, bindingId);
     if (current) await syncQueueForBinding(conn, current);
     logger.info({
@@ -1366,19 +1364,18 @@ function triggerQueueSyncForBindingId(routerId: number, conn: RouterConnection, 
       found: !!current,
       elapsedMs: Date.now() - t0,
     }, "queue sync completed");
-    void routerId;
-  })().catch((err) => {
+  } catch (err) {
     logger.warn({ scope: "queue-sync", kind: "update", routerId, bindingId, err }, "queue sync failed");
-  });
+  }
 }
 
-function triggerQueueSyncForCreatedBinding(
+async function triggerQueueSyncForCreatedBinding(
   routerId: number,
   conn: RouterConnection,
   parsed: { macAddress?: string; address?: string },
-) {
-  void (async () => {
-    const t0 = Date.now();
+): Promise<void> {
+  const t0 = Date.now();
+  try {
     const created = await findIpBindingFast(conn, parsed);
     if (created) await syncQueueForBinding(conn, created);
     logger.info({
@@ -1388,15 +1385,18 @@ function triggerQueueSyncForCreatedBinding(
       bindingId: created?.id ?? null,
       elapsedMs: Date.now() - t0,
     }, "queue sync completed");
-    void routerId;
-  })().catch((err) => {
+  } catch (err) {
     logger.warn({ scope: "queue-sync", kind: "create", routerId, err }, "queue sync failed");
-  });
+  }
 }
 
-function triggerQueueDeleteForBinding(routerId: number, conn: RouterConnection, binding: Awaited<ReturnType<typeof listIpBindings>>[number]) {
-  void (async () => {
-    const t0 = Date.now();
+async function triggerQueueDeleteForBinding(
+  routerId: number,
+  conn: RouterConnection,
+  binding: { id: string },
+): Promise<void> {
+  const t0 = Date.now();
+  try {
     await removeIpBindingQueue(conn, binding);
     logger.info({
       scope: "queue-sync",
@@ -1405,10 +1405,9 @@ function triggerQueueDeleteForBinding(routerId: number, conn: RouterConnection, 
       bindingId: binding.id,
       elapsedMs: Date.now() - t0,
     }, "queue sync completed");
-    void routerId;
-  })().catch((err) => {
+  } catch (err) {
     logger.warn({ scope: "queue-sync", kind: "delete", routerId, bindingId: binding.id, err }, "queue sync failed");
-  });
+  }
 }
 
 function extractLinkedUsername(comment: string | null | undefined): string | null {
@@ -1771,9 +1770,9 @@ router.post("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await addIpBinding(conn, parsed);
+    await triggerQueueSyncForCreatedBinding(id, conn, parsed);
     invalidateIpBindingsCache(id);
     res.status(201).json({ ok: true });
-    triggerQueueSyncForCreatedBinding(id, conn, parsed);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
   }
@@ -1791,9 +1790,16 @@ router.patch("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<vo
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await updateIpBinding(conn, bindingId, parsed);
+    const parsedKeys = Object.keys(parsed);
+    if (parsedKeys.length === 1 && parsed.disabled !== undefined) {
+      // Fast toggle path: update queue disabled flag directly by marker
+      // without fetching/rebuilding the full binding state.
+      await setIpBindingQueueDisabledByBindingId(conn, bindingId, parsed.disabled);
+    } else {
+      await triggerQueueSyncForBindingId(id, conn, bindingId);
+    }
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
-    triggerQueueSyncForBindingId(id, conn, bindingId);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
   }
@@ -1808,11 +1814,10 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const current = await getIpBindingById(conn, bindingId) ?? undefined;
     await deleteIpBinding(conn, bindingId);
+    await triggerQueueDeleteForBinding(id, conn, { id: bindingId });
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
-    if (current) triggerQueueDeleteForBinding(id, conn, current);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
   }
@@ -1823,6 +1828,36 @@ interface SalesCacheEntry { data: SalesReport; updatedAt: number; }
 const salesCache = new Map<number, SalesCacheEntry>();
 const salesRefreshing = new Set<number>();
 const SALES_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function readSalesQuickFromDb(routerId: number): Promise<{
+  dailyCount: number;
+  dailyAmount: number;
+  monthlyCount: number;
+  monthlyAmount: number;
+} | null> {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  try {
+    const [row] = await db
+      .select({
+        dailyCount: sql<number>`cast(count(*) filter (where ${scriptSalesTable.saleDate} >= ${startOfDay}) as int)`,
+        dailyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where ${scriptSalesTable.saleDate} >= ${startOfDay}), 0)`,
+        monthlyCount: sql<number>`cast(count(*) filter (where ${scriptSalesTable.saleDate} >= ${startOfMonth}) as int)`,
+        monthlyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where ${scriptSalesTable.saleDate} >= ${startOfMonth}), 0)`,
+      })
+      .from(scriptSalesTable)
+      .where(eq(scriptSalesTable.routerId, routerId));
+    return {
+      dailyCount: Number(row?.dailyCount ?? 0),
+      dailyAmount: Number(row?.dailyAmount ?? 0),
+      monthlyCount: Number(row?.monthlyCount ?? 0),
+      monthlyAmount: Number(row?.monthlyAmount ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function triggerSalesRefresh(id: number, host: string, port: number, username: string, password: string) {
   if (salesRefreshing.has(id)) return;
@@ -1982,11 +2017,25 @@ async function buildDashboardPrioritySnapshot(id: number) {
 
   // Sales from dedicated cache (already refreshed above)
   const salesCached = salesCache.get(id);
+  const dbQuickSales = salesCached ? null : await readSalesQuickFromDb(id);
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
   const d = String(new Date().getDate()).padStart(2, "0");
   const sales: SalesReport & { _cachedAt: number | null } = salesCached
     ? { ...salesCached.data, _cachedAt: salesCached.updatedAt }
+    : dbQuickSales
+      ? {
+        dailyCount: dbQuickSales.dailyCount,
+        dailyAmount: dbQuickSales.dailyAmount,
+        yesterdayCount: 0, yesterdayAmount: 0,
+        weekCount: 0, weekAmount: 0,
+        lastWeekCount: 0, lastWeekAmount: 0,
+        monthlyCount: dbQuickSales.monthlyCount,
+        monthlyAmount: dbQuickSales.monthlyAmount,
+        lastMonthCount: 0, lastMonthAmount: 0,
+        totalCount: 0, totalAmount: 0,
+        dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`, _cachedAt: Date.now(),
+      }
     : {
       dailyCount: 0, dailyAmount: 0,
       yesterdayCount: 0, yesterdayAmount: 0,
@@ -2007,7 +2056,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
     availability: {
       sessionsKnown: !!(sessionsFresh || sessionsStale),
       usersKnown: !!usersCached,
-      salesKnown: !!salesCached,
+      salesKnown: !!(salesCached || dbQuickSales),
       infoKnown: !!(infoFresh || infoStale),
     },
   };

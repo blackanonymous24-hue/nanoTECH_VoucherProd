@@ -571,10 +571,10 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
   const byProfile = byProfileRaw
     .filter((row) => validProfileNames.size === 0 || validProfileNames.has(row.profileName))
     .map((row) => ({
-      ...row,
-      price:    priceMap.get(row.profileName) ?? "",
-      weekSold: weekCountMap.get(row.profileName) ?? 0,
-    }));
+    ...row,
+    price:    priceMap.get(row.profileName) ?? "",
+    weekSold: weekCountMap.get(row.profileName) ?? 0,
+  }));
 
   const totals = totalsRows[0];
   const salesStats = computeSalesStats(profilePeriodCounts, priceMap);

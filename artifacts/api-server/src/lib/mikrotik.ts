@@ -689,13 +689,30 @@ export async function upsertIpBindingQueue(
   }, 4000, "high");
 }
 
-export async function removeIpBindingQueue(conn: RouterConnection, binding: HotspotIpBinding): Promise<void> {
+export async function removeIpBindingQueue(
+  conn: RouterConnection,
+  binding: Pick<HotspotIpBinding, "id">,
+): Promise<void> {
   return withRouter(conn, async (api) => {
     const marker = `bpq:${binding.id}`;
     const existing = await api.write("/queue/simple/print", [`?comment=${marker}`]).catch(() => []);
     const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
     if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
   }, 4000, "high");
+}
+
+export async function setIpBindingQueueDisabledByBindingId(
+  conn: RouterConnection,
+  bindingId: string,
+  disabled: boolean,
+): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const marker = `bpq:${bindingId}`;
+    const existing = await api.write("/queue/simple/print", [`?comment=${marker}`]).catch(() => []);
+    const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
+    if (!exId) return;
+    await api.write("/queue/simple/set", [`=.id=${exId}`, `=disabled=${disabled ? "yes" : "no"}`]).catch(() => undefined);
+  }, 3000, "high");
 }
 
 export async function listDhcpLeases(conn: RouterConnection): Promise<DhcpLease[]> {
@@ -1246,9 +1263,12 @@ export async function listLogs(conn: RouterConnection, limit = 50, topicFilter?:
     const entries = await api.write("/log/print");
     let filtered = entries;
     if (topicFilter) {
-      const lc = topicFilter.toLowerCase();
+      const topics = topicFilter
+        .split(",")
+        .map((x) => x.trim().toLowerCase())
+        .filter(Boolean);
       filtered = entries.filter((e) =>
-        ((e["topics"] as string) ?? "").toLowerCase().includes(lc)
+        topics.some((t) => ((e["topics"] as string) ?? "").toLowerCase().includes(t))
       );
     }
     return filtered
@@ -1787,10 +1807,10 @@ export async function disconnectSession(conn: RouterConnection, username: string
 }
 
 /**
- * Reset a hotspot user — Mikhmon-style: kick session, delete user, recreate
- * with identical credentials (name, password, profile, comment, server,
- * mac-address, limit-uptime, limit-bytes-total).  This is the only reliable
- * way to zero all counters AND restore the full remaining quota on RouterOS.
+ * Reset a hotspot user — Mikhmon-style fast reset:
+ * 1) /ip/hotspot/user/set (limit-uptime=0, comment="")
+ * 2) /ip/hotspot/user/reset-counters
+ * 3) remove /system/scheduler entries by username
  */
 export async function resetHotspotUser(
   conn: RouterConnection,
@@ -1805,9 +1825,7 @@ export async function resetHotspotUser(
   comment: string | null;
 }> {
   return withRouter(conn, async (api) => {
-    // 1. Find user and capture all relevant fields. Use server-side query
-    //    with multiple encoding variants — scanning all users is slow and
-    //    fragile when names contain non-ASCII bytes that can't round-trip.
+    // 1) Find the user by name (same target as Mikhmon reset-hotspot-user)
     const user = await findHotspotUserByName(api, username);
     if (!user) {
       return {
@@ -1822,92 +1840,24 @@ export async function resetHotspotUser(
     }
 
     const id = user[".id"] as string | undefined;
-
-    // Snapshot fields we need to recreate the user
-    const name           = (user["name"]              as string) ?? username;
-    const password       = (user["password"]          as string) ?? "";
-    const profile        = (user["profile"]           as string) ?? "default";
-    const rawComment     = (user["comment"]           as string) ?? "";
-    // Strip any expiration timestamp written by the MikHmon on-login script —
-    // otherwise the recreated user inherits the past expiry date and stays
-    // marked as "Expiré" both in the UI and in the on-login script logic.
-    // Date formats handled (case-insensitive): "mmm/dd/yyyy HH:mm[:ss]" and
-    // "YYYY-MM-DD HH:mm[:ss]".  Any surrounding text (e.g. lot tag "vc-foo")
-    // is preserved.
-    const comment = rawComment
-      .replace(/[a-z]{3}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?/gi, "")
-      .replace(/\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}(?::\d{2})?/g, "")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-    const server         = (user["server"]            as string) ?? "";
-    // NOTE: mac-address, limit-uptime and limit-bytes-total are intentionally
-    // NOT preserved.  A reset must produce a fully blank voucher:
-    //   • limit-uptime / limit-bytes-total are decremented by the on-login
-    //     script as the voucher is consumed; preserving them would re-cap
-    //     the user at "1s" or near-zero quota.
-    //   • mac-address binds the voucher to the device that first logged in;
-    //     keeping it would prevent the voucher from being handed to anyone
-    //     else.  The on-login script will re-bind on next login if the
-    //     profile uses lockMac.
-    // By omitting all three, MikroTik recreates a pristine voucher whose
-    // quota and MAC binding will be set fresh on the next authentication.
-    const disabled       = (user["disabled"]          as string) === "true";
-
-    // 2. Kick active session(s) first
-    const sessions = await api.write("/ip/hotspot/active/print", [`?user=${name}`]);
-    let sessionKicked = 0;
-    for (const s of sessions) {
-      const sid = s[".id"] as string | undefined;
-      if (sid) {
-        await api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]);
-        sessionKicked++;
-      }
+    const name = (user["name"] as string) ?? username;
+    if (!id) {
+      return {
+        found: false,
+        sessionKicked: 0,
+        salesScriptsRemoved: 0,
+        salesScriptsFailed: 0,
+        schedulerRemoved: 0,
+        cookiesRemoved: 0,
+        comment: null,
+      };
     }
 
-    // 2.b Remove cookies for this user (Mikhmon-like clean reset)
-    let cookiesRemoved = 0;
-    const cookies = await api.write("/ip/hotspot/cookie/print", [`?user=${name}`]).catch(() => []);
-    for (const c of cookies) {
-      const cid = c[".id"] as string | undefined;
-      if (!cid) continue;
-      try {
-        await api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]);
-        cookiesRemoved++;
-      } catch {
-        // non-fatal
-      }
-    }
+    // 2) Reset quota marker exactly like Mikhmon does.
+    await api.write("/ip/hotspot/user/set", [`=.id=${id}`, "=limit-uptime=0", "=comment="]);
+    await api.write("/ip/hotspot/user/reset-counters", [`=.id=${id}`]);
 
-    // 3. Delete the user
-    if (id) {
-      await api.write("/ip/hotspot/user/remove", [`=.id=${id}`]);
-    }
-
-    // 4. Remove MikHmon sales scripts for this username so the background
-    //    usage-sync does not re-mark the voucher as used. Script names follow
-    //    the pattern "date-|-time-|-username-|-..." with comment "mikhmon".
-    let salesScriptsRemoved = 0;
-    let salesScriptsFailed = 0;
-    const usernameLower = username.toLowerCase();
-    const mikhmonScripts = await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []);
-    for (const s of mikhmonScripts) {
-      const sname = (s["name"] as string) ?? "";
-      const parts = sname.split("-|-");
-      if (parts.length >= 3 && parts[2].trim().toLowerCase() === usernameLower) {
-        const sid = s[".id"] as string | undefined;
-        if (sid) {
-          try {
-            await api.write("/system/script/remove", [`=.id=${sid}`]);
-            salesScriptsRemoved++;
-          } catch {
-            salesScriptsFailed++;
-          }
-        }
-      }
-    }
-
-    // 4.b Remove scheduler entries bound to this username so old expiry jobs
-    // cannot disable/remove the freshly reset voucher later.
+    // 3) Remove scheduler entries bound to this username.
     let schedulerRemoved = 0;
     const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
     for (const sch of schedulers) {
@@ -1921,29 +1871,16 @@ export async function resetHotspotUser(
       }
     }
 
-    // 5. Recreate as a pristine voucher — same identity (name/password/
-    //    profile/server) but no leftover quota, MAC binding or expiry.
-    const addParams: string[] = [
-      `=name=${toWin1252(name)}`,
-      `=password=${toWin1252(password)}`,
-      `=profile=${toWin1252(profile)}`,
-    ];
-    if (comment)  addParams.push(`=comment=${toWin1252(comment)}`);
-    if (server)   addParams.push(`=server=${server}`);
-    if (disabled) addParams.push(`=disabled=yes`);
-
-    await api.write("/ip/hotspot/user/add", addParams);
-
     return {
       found: true,
-      sessionKicked,
-      salesScriptsRemoved,
-      salesScriptsFailed,
+      sessionKicked: 0,
+      salesScriptsRemoved: 0,
+      salesScriptsFailed: 0,
       schedulerRemoved,
-      cookiesRemoved,
-      comment: comment || null,
+      cookiesRemoved: 0,
+      comment: null,
     };
-  }, 30_000, "high");
+  }, 12_000, "high");
 }
 
 /**
