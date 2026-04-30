@@ -43,11 +43,6 @@ import {
 import { ShieldCheck, RefreshCw, Plus, Search, Trash2, Pencil, ShieldOff, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
-import {
-  appendVnetexpTag,
-  extractVnetexpPayload,
-  parseVnetexpToMs,
-} from "@workspace/vnetexp";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const IP_BINDINGS_CACHE_KEY = "ip-bindings-cache:v1";
@@ -109,6 +104,62 @@ function stripLinkedSuffix(comment: string): string {
   if (/^auto-bypass:user:/i.test(comment.trim())) return "";
   let s = stripStructuralTags(comment);
   return s.replace(/\s*\([^()]+\)\s*$/, "").trim();
+}
+
+const VNETEXP_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"] as const;
+
+function formatExpirePayload(d: Date): string {
+  const m = VNETEXP_MONTHS[d.getMonth()];
+  const day = d.getDate();
+  const y = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${m}/${day}/${y} ${hh}:${mm}:${ss}`;
+}
+
+function extractVnetexpPayload(comment: string): string | null {
+  const mNew = comment.match(/\[Expire le:([^\]]+)\]/);
+  if (mNew?.[1]?.trim()) return mNew[1].trim();
+  const mLegacy = comment.match(/\[vnetexp:([^\]]+)\]/);
+  const p = mLegacy?.[1]?.trim();
+  return p || null;
+}
+
+function parseVnetexpToMs(raw: string): number | null {
+  const s = raw.trim();
+  if (!s) return null;
+  const fromIso = Date.parse(s);
+  if (!Number.isNaN(fromIso)) return fromIso;
+  const m1 = s.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/i);
+  if (!m1) return null;
+  const monStr = m1[1].toLowerCase();
+  const monthIdx = VNETEXP_MONTHS.findIndex((x) => x === monStr);
+  if (monthIdx < 0) return null;
+  const day = Number(m1[2]);
+  const year = Number(m1[3]);
+  const hh = Number(m1[4]);
+  const min = Number(m1[5]);
+  const sec = m1[6] !== undefined ? Number(m1[6]) : 0;
+  if (
+    [day, year, hh, min, sec].some((n) => Number.isNaN(n)) ||
+    day < 1 ||
+    day > 31 ||
+    hh > 23 ||
+    min > 59 ||
+    sec > 59
+  ) {
+    return null;
+  }
+  const d = new Date(year, monthIdx, day, hh, min, sec, 0);
+  const t = d.getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function appendVnetexpTag(commentSansTags: string, end: Date): string {
+  const t = commentSansTags.trim();
+  const payload = formatExpirePayload(end);
+  return `${t} [Expire le:${payload}]`.trim();
 }
 
 function extractLinkedUsername(comment: string): string {

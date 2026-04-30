@@ -15,7 +15,6 @@
     }
   },
   "references": [
-    { "path": "../../lib/api-client-react" },
-    { "path": "../../lib/vnetexp" }
+    { "path": "../../lib/api-client-react" }
   ]
 }

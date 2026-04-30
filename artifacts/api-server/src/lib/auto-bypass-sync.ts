@@ -1,5 +1,4 @@
 import { db, routersTable } from "@workspace/db";
-import { parseVnetexpFromComment } from "@workspace/vnetexp";
 import { listHotspotUsers, listIpBindings, listProfiles, updateIpBinding, type RouterConnection } from "./mikrotik.js";
 import { parseRouterDurationToMs } from "./router-duration.js";
 import { logger } from "./logger.js";
@@ -18,6 +17,53 @@ function extractVnetbpProfile(comment: string | null | undefined): string | null
   if (!comment) return null;
   const m = comment.match(/\[vnetbp:([^\]]+)\]/);
   return m?.[1]?.trim() ? m[1].trim() : null;
+}
+
+function extractVnetexpPayload(comment: string | null | undefined): string | null {
+  if (!comment) return null;
+  const mNew = comment.match(/\[Expire le:([^\]]+)\]/);
+  if (mNew?.[1]?.trim()) return mNew[1].trim();
+  const mLegacy = comment.match(/\[vnetexp:([^\]]+)\]/);
+  const p = mLegacy?.[1]?.trim();
+  return p || null;
+}
+
+const VNETEXP_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"] as const;
+
+function parseVnetexpToMs(raw: string): number | null {
+  const s = raw.trim();
+  if (!s) return null;
+  const fromIso = Date.parse(s);
+  if (!Number.isNaN(fromIso)) return fromIso;
+  const m1 = s.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/i);
+  if (!m1) return null;
+  const monStr = m1[1].toLowerCase();
+  const monthIdx = VNETEXP_MONTHS.findIndex((x) => x === monStr);
+  if (monthIdx < 0) return null;
+  const day = Number(m1[2]);
+  const year = Number(m1[3]);
+  const hh = Number(m1[4]);
+  const min = Number(m1[5]);
+  const sec = m1[6] !== undefined ? Number(m1[6]) : 0;
+  if (
+    [day, year, hh, min, sec].some((n) => Number.isNaN(n)) ||
+    day < 1 ||
+    day > 31 ||
+    hh > 23 ||
+    min > 59 ||
+    sec > 59
+  ) {
+    return null;
+  }
+  const d = new Date(year, monthIdx, day, hh, min, sec, 0);
+  const t = d.getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function parseVnetexpFromComment(comment: string | null | undefined): number | null {
+  const payload = extractVnetexpPayload(comment);
+  if (!payload) return null;
+  return parseVnetexpToMs(payload);
 }
 
 function extractLinkedUsername(comment: string | null | undefined): string | null {

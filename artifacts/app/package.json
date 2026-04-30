@@ -10,7 +10,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@workspace/vnetexp": "workspace:*",
     "@workspace/api-client-react": "workspace:*",
     "axios": "^1.9.0",
     "html2canvas": "^1.4.1"
