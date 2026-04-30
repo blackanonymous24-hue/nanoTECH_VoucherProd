@@ -477,6 +477,9 @@ export interface DhcpLease {
   id: string;
   address: string;
   macAddress: string;
+  activeAddress: string | null;
+  activeMacAddress: string | null;
+  activeHostName: string | null;
   hostName: string | null;
   status: string | null;
   expiresAfter: string | null;
@@ -510,58 +513,107 @@ function normalizeIpTarget(raw: string | null | undefined): string | null {
   return ip.includes("/") ? ip : `${ip}/32`;
 }
 
+function extractLinkedUsernameFromComment(comment: string | null | undefined): string | null {
+  if (!comment) return null;
+  const m = comment.match(/\(([^()]+)\)\s*$/);
+  const value = m?.[1]?.trim() ?? "";
+  return value || null;
+}
+
+function stripBindingStructuralTags(comment: string | null | undefined): string {
+  return String(comment ?? "")
+    .replace(/\s*\[Expire le:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetqu:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetqd:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
+    .trim();
+}
+
+function stripLinkedSuffix(comment: string): string {
+  return comment.replace(/\s*\([^()]+\)\s*$/, "").trim();
+}
+
+function buildLegacyBypassQueueName(binding: Pick<HotspotIpBinding, "macAddress" | "address" | "id">): string {
+  const key = (binding.macAddress || binding.address || binding.id || "binding")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `bpq-${key.slice(0, 40)}`;
+}
+
+function normalizeQueueLabelPart(value: string | null | undefined, fallback: string): string {
+  const v = String(value ?? "").trim().replace(/\s+/g, " ");
+  return v || fallback;
+}
+
+function buildPreferredBypassQueueName(
+  binding: Pick<HotspotIpBinding, "macAddress" | "comment">,
+  hostName: string | null,
+): string {
+  const baseComment = stripLinkedSuffix(stripBindingStructuralTags(binding.comment));
+  const device = normalizeQueueLabelPart(baseComment || hostName, "Bypass");
+  const username = extractLinkedUsernameFromComment(binding.comment);
+  const identity = normalizeQueueLabelPart(username, normalizeMac(binding.macAddress) || "Unknown");
+  // Keep names readable and bounded.
+  return `${device} (${identity})`.slice(0, 63);
+}
+
 async function resolveQueueTargetIp(
   api: RouterOSAPI,
   conn: RouterConnection,
   binding: Pick<HotspotIpBinding, "address" | "toAddress" | "macAddress">,
-): Promise<string | null> {
+): Promise<{ target: string | null; hostName: string | null }> {
   const direct = normalizeQueueTargetIp(binding);
-  if (direct) return direct;
+  if (direct) return { target: direct, hostName: null };
 
   const mac = normalizeMac(binding.macAddress);
-  if (!mac) return null;
+  if (!mac) return { target: null, hostName: null };
 
   const cacheKey = routerCacheKey(conn);
   const cached = dhcpLeaseCache.get(cacheKey);
   if (cached && Date.now() < cached.exp) {
     const bound = cached.rows.find((x) => normalizeMac(x.macAddress) === mac && x.status?.toLowerCase() === "bound");
     if (bound) {
-      const candidate = normalizeIpTarget(bound.address);
-      if (candidate) return candidate;
+      const candidate = normalizeIpTarget(bound.activeAddress || bound.address);
+      if (candidate) return { target: candidate, hostName: bound.activeHostName || bound.hostName || null };
     }
     const any = cached.rows.find((x) => normalizeMac(x.macAddress) === mac);
     if (any) {
-      const candidate = normalizeIpTarget(any.address);
-      if (candidate) return candidate;
+      const candidate = normalizeIpTarget(any.activeAddress || any.address);
+      if (candidate) return { target: candidate, hostName: any.activeHostName || any.hostName || null };
     }
   }
 
   const leaseRows = await api.write("/ip/dhcp-server/lease/print", [
     "?mac-address=" + mac,
-    "=.proplist=address,status",
+    "=.proplist=address,status,active-address,active-host-name,host-name",
   ]).catch(() => []);
   for (const row of leaseRows) {
     const status = String(row["status"] ?? "").toLowerCase();
-    const address = (row["address"] as string | undefined) ?? "";
+    const address = ((row["active-address"] as string | undefined) ?? (row["address"] as string | undefined) ?? "");
     // Prefer bound lease first, but fall back to any valid lease address.
     if (status === "bound") {
       const candidate = normalizeIpTarget(address);
-      if (candidate) return candidate;
+      if (candidate) {
+        return {
+          target: candidate,
+          hostName: ((row["active-host-name"] as string | undefined) ?? (row["host-name"] as string | undefined) ?? null),
+        };
+      }
     }
   }
   for (const row of leaseRows) {
-    const candidate = normalizeIpTarget((row["address"] as string | undefined) ?? "");
-    if (candidate) return candidate;
+    const candidate = normalizeIpTarget(
+      ((row["active-address"] as string | undefined) ?? (row["address"] as string | undefined) ?? ""),
+    );
+    if (candidate) {
+      return {
+        target: candidate,
+        hostName: ((row["active-host-name"] as string | undefined) ?? (row["host-name"] as string | undefined) ?? null),
+      };
+    }
   }
-  return null;
-}
-
-function buildBypassQueueName(binding: Pick<HotspotIpBinding, "macAddress" | "address" | "id">): string {
-  const key = (binding.macAddress || binding.address || binding.id || "binding")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return `bpq-${key.slice(0, 40)}`;
+  return { target: null, hostName: null };
 }
 
 export async function upsertIpBindingQueue(
@@ -573,23 +625,30 @@ export async function upsertIpBindingQueue(
   return withRouter(conn, async (api) => {
     const up = upLimit.trim();
     const down = downLimit.trim();
-    const name = buildBypassQueueName(binding);
-    const existing = await api.write("/queue/simple/print", [`?name=${name}`]).catch(() => []);
+    const legacyName = buildLegacyBypassQueueName(binding);
+    const resolved = await resolveQueueTargetIp(api, conn, binding);
+    const preferredName = buildPreferredBypassQueueName(binding, resolved.hostName);
+    const existingPreferred = await api.write("/queue/simple/print", [`?name=${preferredName}`]).catch(() => []);
+    const existingLegacy = preferredName === legacyName
+      ? []
+      : await api.write("/queue/simple/print", [`?name=${legacyName}`]).catch(() => []);
+    const existing = existingPreferred[0] ?? existingLegacy[0] ?? null;
 
     // No limits configured OR no usable target IP => remove existing queue.
-    const target = await resolveQueueTargetIp(api, conn, binding);
+    const target = resolved.target;
     if ((!up && !down) || !target) {
-      const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
+      const exId = (existing?.[".id"] as string | undefined) ?? "";
       if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
       return;
     }
 
     const maxLimit = `${up || "0"}/${down || "0"}`;
     const disabled = binding.disabled ? "yes" : "no";
-    const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
+    const exId = (existing?.[".id"] as string | undefined) ?? "";
     if (exId) {
       await api.write("/queue/simple/set", [
         `=.id=${exId}`,
+        `=name=${preferredName}`,
         `=target=${target}`,
         `=max-limit=${maxLimit}`,
         `=disabled=${disabled}`,
@@ -597,7 +656,7 @@ export async function upsertIpBindingQueue(
       return;
     }
     await api.write("/queue/simple/add", [
-      `=name=${name}`,
+      `=name=${preferredName}`,
       `=target=${target}`,
       `=max-limit=${maxLimit}`,
       `=disabled=${disabled}`,
@@ -607,10 +666,16 @@ export async function upsertIpBindingQueue(
 
 export async function removeIpBindingQueue(conn: RouterConnection, binding: HotspotIpBinding): Promise<void> {
   return withRouter(conn, async (api) => {
-    const name = buildBypassQueueName(binding);
-    const existing = await api.write("/queue/simple/print", [`?name=${name}`]).catch(() => []);
-    const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
-    if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
+    const legacyName = buildLegacyBypassQueueName(binding);
+    const preferredName = buildPreferredBypassQueueName(binding, null);
+    const rows = await Promise.all([
+      api.write("/queue/simple/print", [`?name=${preferredName}`]).catch(() => []),
+      preferredName === legacyName ? Promise.resolve([]) : api.write("/queue/simple/print", [`?name=${legacyName}`]).catch(() => []),
+    ]);
+    for (const list of rows) {
+      const exId = (list[0]?.[".id"] as string | undefined) ?? "";
+      if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
+    }
   });
 }
 
@@ -621,6 +686,9 @@ export async function listDhcpLeases(conn: RouterConnection): Promise<DhcpLease[
       id: (r[".id"] as string) ?? "",
       address: (r["address"] as string) ?? "",
       macAddress: normalizeMac((r["mac-address"] as string) ?? ""),
+      activeAddress: ((r["active-address"] as string) ?? "").trim() || null,
+      activeMacAddress: normalizeMac((r["active-mac-address"] as string) ?? "") || null,
+      activeHostName: ((r["active-host-name"] as string) ?? "").trim() || null,
       hostName: ((r["host-name"] as string) ?? "").trim() || null,
       status: ((r["status"] as string) ?? "").trim() || null,
       expiresAfter: ((r["expires-after"] as string) ?? "").trim() || null,

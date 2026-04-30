@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,9 @@ interface DhcpLease {
   id: string;
   address: string;
   macAddress: string;
+  activeAddress: string | null;
+  activeMacAddress: string | null;
+  activeHostName: string | null;
   hostName: string | null;
   status: string | null;
   expiresAfter: string | null;
@@ -37,11 +41,13 @@ export default function DhcpLeases() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   useEffect(() => {
     if (!selectedRouterId) {
       setLeases([]);
       setError(null);
+      setInitialLoadDone(false);
       return;
     }
     try {
@@ -69,6 +75,7 @@ export default function DhcpLeases() {
       const data = (await res.json()) as { leases?: DhcpLease[] };
       const next = Array.isArray(data.leases) ? data.leases : [];
       setLeases(next);
+      setInitialLoadDone(true);
       try {
         localStorage.setItem(`${LEASES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify({ leases: next, ts: Date.now() }));
       } catch {
@@ -76,6 +83,7 @@ export default function DhcpLeases() {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setInitialLoadDone(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -93,6 +101,9 @@ export default function DhcpLeases() {
     return leases.filter((x) =>
       foldText(x.address).includes(q) ||
       foldText(x.macAddress).includes(q) ||
+      foldText(x.activeAddress ?? "").includes(q) ||
+      foldText(x.activeMacAddress ?? "").includes(q) ||
+      foldText(x.activeHostName ?? "").includes(q) ||
       foldText(x.hostName ?? "").includes(q) ||
       foldText(x.server ?? "").includes(q) ||
       foldText(x.comment ?? "").includes(q),
@@ -150,31 +161,55 @@ export default function DhcpLeases() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Adresse</TableHead>
-                    <TableHead>MAC</TableHead>
+                    <TableHead>MAC Address</TableHead>
+                    <TableHead>Server</TableHead>
+                    <TableHead>Active Address</TableHead>
+                    <TableHead>Active MAC Address</TableHead>
+                    <TableHead>Active Host Name</TableHead>
                     <TableHead>Hostname</TableHead>
                     <TableHead>Statut</TableHead>
                     <TableHead>Expire</TableHead>
-                    <TableHead>Serveur</TableHead>
                     <TableHead>Commentaire</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {!initialLoadDone && (
+                    <>
+                      {[...Array(6)].map((_, idx) => (
+                        <TableRow key={`sk-${idx}`}>
+                          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                          <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                        </TableRow>
+                      ))}
+                    </>
+                  )}
                   {filtered.map((x) => (
                     <TableRow key={x.id}>
                       <TableCell className="font-mono text-xs">{x.address || "—"}</TableCell>
                       <TableCell className="font-mono text-xs">{x.macAddress || "—"}</TableCell>
+                      <TableCell>{x.server || "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">{x.activeAddress || "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">{x.activeMacAddress || "—"}</TableCell>
+                      <TableCell>{x.activeHostName || "—"}</TableCell>
                       <TableCell>{x.hostName || "—"}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{x.status || (x.dynamic ? "dynamic" : "—")}</Badge>
                       </TableCell>
                       <TableCell>{x.expiresAfter || "—"}</TableCell>
-                      <TableCell>{x.server || "—"}</TableCell>
                       <TableCell className="max-w-[260px] truncate" title={x.comment || ""}>{x.comment || "—"}</TableCell>
                     </TableRow>
                   ))}
-                  {!loading && filtered.length === 0 && (
+                  {initialLoadDone && !loading && filtered.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-sm text-gray-500 py-10">
+                      <TableCell colSpan={10} className="text-center text-sm text-gray-500 py-10">
                         Aucun lease DHCP trouvé.
                       </TableCell>
                     </TableRow>
