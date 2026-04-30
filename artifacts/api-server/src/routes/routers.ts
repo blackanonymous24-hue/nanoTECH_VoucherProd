@@ -1256,6 +1256,35 @@ async function syncQueueForBinding(conn: RouterConnection, binding: Awaited<Retu
   ]);
 }
 
+function triggerQueueSyncForBindingId(routerId: number, conn: RouterConnection, bindingId: string) {
+  void withRouterLock(routerId, async () => {
+    const all = await listIpBindings(conn);
+    const current = all.find((b) => b.id === bindingId);
+    if (current) await syncQueueForBinding(conn, current);
+  }).catch(() => undefined);
+}
+
+function triggerQueueSyncForCreatedBinding(
+  routerId: number,
+  conn: RouterConnection,
+  parsed: { macAddress?: string; address?: string },
+) {
+  void withRouterLock(routerId, async () => {
+    const all = await listIpBindings(conn);
+    const created = all.find((b) =>
+      (parsed.macAddress?.trim() ? (b.macAddress ?? "").trim().toUpperCase() === parsed.macAddress.trim().toUpperCase() : false)
+      && (parsed.address?.trim() ? (b.address ?? "").trim() === parsed.address.trim() : true),
+    ) ?? all[0];
+    if (created) await syncQueueForBinding(conn, created);
+  }).catch(() => undefined);
+}
+
+function triggerQueueDeleteForBinding(routerId: number, conn: RouterConnection, binding: Awaited<ReturnType<typeof listIpBindings>>[number]) {
+  void withRouterLock(routerId, async () => {
+    await removeIpBindingQueue(conn, binding);
+  }).catch(() => undefined);
+}
+
 function extractLinkedUsername(comment: string | null | undefined): string | null {
   if (!comment) return null;
   const cleaned = stripIpBindingStructuralTags(comment);
@@ -1617,15 +1646,10 @@ router.post("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await withRouterLock(id, async () => {
       await addIpBinding(conn, parsed);
-      const all = await listIpBindings(conn);
-      const created = all.find((b) =>
-        (parsed.macAddress?.trim() ? (b.macAddress ?? "").trim().toUpperCase() === parsed.macAddress.trim().toUpperCase() : false)
-        && (parsed.address?.trim() ? (b.address ?? "").trim() === parsed.address.trim() : true)
-      ) ?? all[0];
-      if (created) await syncQueueForBinding(conn, created);
     });
     invalidateIpBindingsCache(id);
     res.status(201).json({ ok: true });
+    triggerQueueSyncForCreatedBinding(id, conn, parsed);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
   }
@@ -1644,12 +1668,10 @@ router.patch("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<vo
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await withRouterLock(id, async () => {
       await updateIpBinding(conn, bindingId, parsed);
-      const all = await listIpBindings(conn);
-      const current = all.find((b) => b.id === bindingId);
-      if (current) await syncQueueForBinding(conn, current);
     });
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
+    triggerQueueSyncForBindingId(id, conn, bindingId);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
   }
@@ -1664,14 +1686,15 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    let current: Awaited<ReturnType<typeof listIpBindings>>[number] | undefined;
     await withRouterLock(id, async () => {
       const all = await listIpBindings(conn);
-      const current = all.find((b) => b.id === bindingId);
+      current = all.find((b) => b.id === bindingId);
       await deleteIpBinding(conn, bindingId);
-      if (current) await removeIpBindingQueue(conn, current);
     });
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
+    if (current) triggerQueueDeleteForBinding(id, conn, current);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
   }
