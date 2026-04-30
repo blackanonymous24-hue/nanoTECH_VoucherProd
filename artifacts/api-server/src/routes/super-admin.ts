@@ -3,8 +3,11 @@ import { eq, sql, and, ne } from "drizzle-orm";
 import { db, adminSettingsTable, routersTable } from "@workspace/db";
 import { hashPassword } from "../lib/admin-auth.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
+import { getAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 
 const router = Router();
+const BASE_ROUTER_SLOTS = 5;
+const CREDITS_PER_EXTRA_ROUTER = 10;
 
 // Allowed forfait durations, in months. Maps the user-facing labels
 // (1 mois … 6 mois, 1 an) to a single integer.
@@ -16,7 +19,22 @@ function addMonths(date: Date, months: number): Date {
   return d;
 }
 
+function addHours(date: Date, hours: number): Date {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
+
+type ForfaitDuration = { kind: "months"; months: number } | { kind: "test24h" };
+
+function parseForfaitDuration(body: unknown): ForfaitDuration | null {
+  const b = (body ?? {}) as { months?: unknown; test24h?: unknown };
+  if (b.test24h === true) return { kind: "test24h" };
+  const months = Number(b.months);
+  if (VALID_MONTHS.has(months)) return { kind: "months", months };
+  return null;
+}
+
 function publicAdminShape(a: typeof adminSettingsTable.$inferSelect, routerCount: number) {
+  const credentialPreview = getAdminCredentialPreview(a.id);
   return {
     id: a.id,
     login: a.login,
@@ -30,6 +48,7 @@ function publicAdminShape(a: typeof adminSettingsTable.$inferSelect, routerCount
     extraRouterSlots: a.extraRouterSlots,
     routerCount,
     routerLimit: 5 + a.extraRouterSlots,
+    credentialPreview,
     createdAt: a.createdAt,
     updatedAt: a.updatedAt,
   };
@@ -66,11 +85,12 @@ router.get("/super/admins", async (req, res): Promise<void> => {
 router.post("/super/admins", async (req, res): Promise<void> => {
   if (!requireSuperAdminScope(req, res)) return;
 
-  const { login, password, displayName, forfaitMonths, credits } = req.body as {
+  const { login, password, displayName, forfaitMonths, forfaitTest24h, credits } = req.body as {
     login?: string;
     password?: string;
     displayName?: string;
     forfaitMonths?: number;
+    forfaitTest24h?: boolean;
     credits?: number;
   };
 
@@ -90,13 +110,16 @@ router.post("/super/admins", async (req, res): Promise<void> => {
 
   let forfaitStartedAt: Date | null = null;
   let forfaitEndsAt: Date | null   = null;
-  if (forfaitMonths !== undefined && forfaitMonths !== null) {
+  if (forfaitTest24h === true) {
+    forfaitStartedAt = new Date();
+    forfaitEndsAt = addHours(forfaitStartedAt, 24);
+  } else if (forfaitMonths !== undefined && forfaitMonths !== null) {
     if (!VALID_MONTHS.has(forfaitMonths)) {
-      res.status(400).json({ error: "Durée de forfait invalide (1, 2, 3, 4, 5, 6 ou 12 mois)" });
+      res.status(400).json({ error: "Durée de forfait invalide (test 24h ou 1, 2, 3, 4, 5, 6, 12 mois)" });
       return;
     }
     forfaitStartedAt = new Date();
-    forfaitEndsAt    = addMonths(forfaitStartedAt, forfaitMonths);
+    forfaitEndsAt = addMonths(forfaitStartedAt, forfaitMonths);
   }
 
   const initialCredits = Math.max(0, Number.isFinite(credits) ? Math.trunc(credits as number) : 0);
@@ -222,7 +245,7 @@ router.delete("/super/admins/:id", async (req, res): Promise<void> => {
 
 // ---------------------------------------------------------------------------
 // POST /api/super/admins/:id/forfait — set / reset a forfait.
-// Body: { months: 1|2|3|4|5|6|12 }
+// Body: { months: 1|2|3|4|5|6|12 } OR { test24h: true }
 // Replaces any existing forfait. Starts now, ends now + N months.
 // ---------------------------------------------------------------------------
 router.post("/super/admins/:id/forfait", async (req, res): Promise<void> => {
@@ -230,9 +253,9 @@ router.post("/super/admins/:id/forfait", async (req, res): Promise<void> => {
 
   const id = parseInt(req.params.id, 10);
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  const months = Number((req.body ?? {}).months);
-  if (!VALID_MONTHS.has(months)) {
-    res.status(400).json({ error: "Durée invalide (1, 2, 3, 4, 5, 6 ou 12 mois)" });
+  const duration = parseForfaitDuration(req.body);
+  if (!duration) {
+    res.status(400).json({ error: "Durée invalide (test 24h ou 1, 2, 3, 4, 5, 6, 12 mois)" });
     return;
   }
 
@@ -244,7 +267,7 @@ router.post("/super/admins/:id/forfait", async (req, res): Promise<void> => {
   }
 
   const start = new Date();
-  const end   = addMonths(start, months);
+  const end = duration.kind === "test24h" ? addHours(start, 24) : addMonths(start, duration.months);
   const [updated] = await db
     .update(adminSettingsTable)
     .set({ forfaitStartedAt: start, forfaitEndsAt: end })
@@ -262,16 +285,16 @@ router.post("/super/admins/:id/forfait", async (req, res): Promise<void> => {
 // forfait by N months. If the current forfait is already expired (or never
 // existed) we extend from "now"; otherwise we extend from the existing end
 // date so days don't get lost.
-// Body: { months: 1|2|3|4|5|6|12 }
+// Body: { months: 1|2|3|4|5|6|12 } OR { test24h: true }
 // ---------------------------------------------------------------------------
 router.post("/super/admins/:id/forfait/extend", async (req, res): Promise<void> => {
   if (!requireSuperAdminScope(req, res)) return;
 
   const id = parseInt(req.params.id, 10);
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  const months = Number((req.body ?? {}).months);
-  if (!VALID_MONTHS.has(months)) {
-    res.status(400).json({ error: "Durée invalide (1, 2, 3, 4, 5, 6 ou 12 mois)" });
+  const duration = parseForfaitDuration(req.body);
+  if (!duration) {
+    res.status(400).json({ error: "Durée invalide (test 24h ou 1, 2, 3, 4, 5, 6, 12 mois)" });
     return;
   }
 
@@ -286,7 +309,7 @@ router.post("/super/admins/:id/forfait/extend", async (req, res): Promise<void> 
   const baseEnd  = target.forfaitEndsAt && target.forfaitEndsAt.getTime() > now.getTime()
     ? target.forfaitEndsAt
     : now;
-  const newEnd   = addMonths(baseEnd, months);
+  const newEnd = duration.kind === "test24h" ? addHours(baseEnd, 24) : addMonths(baseEnd, duration.months);
   // forfaitStartedAt stays as-is if the forfait is still active; otherwise
   // we reset it to "now" so the next billing window has a sane start.
   const newStart = target.forfaitStartedAt && target.forfaitEndsAt && target.forfaitEndsAt.getTime() > now.getTime()
@@ -372,14 +395,27 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
     return;
   }
 
-  const limit = 5 + target.extraRouterSlots;
+  const limit = BASE_ROUTER_SLOTS + target.extraRouterSlots;
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(routersTable)
     .where(eq(routersTable.ownerAdminId, adminId));
   if (Number(count) >= limit) {
-    res.status(402).json({ error: `Limite atteinte (${limit} routeurs)` });
-    return;
+    const autoExpanded = await db
+      .update(adminSettingsTable)
+      .set({
+        credits: sql`${adminSettingsTable.credits} - ${CREDITS_PER_EXTRA_ROUTER}`,
+        extraRouterSlots: sql`${adminSettingsTable.extraRouterSlots} + 1`,
+      })
+      .where(and(
+        eq(adminSettingsTable.id, adminId),
+        sql`${adminSettingsTable.credits} >= ${CREDITS_PER_EXTRA_ROUTER}`,
+      ))
+      .returning({ id: adminSettingsTable.id });
+    if (autoExpanded.length === 0) {
+      res.status(402).json({ error: `Limite atteinte (${limit} routeurs). Crédit insuffisant: ${CREDITS_PER_EXTRA_ROUTER} requis pour ajouter 1 routeur.` });
+      return;
+    }
   }
 
   const [created] = await db

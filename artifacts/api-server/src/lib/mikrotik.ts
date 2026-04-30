@@ -473,6 +473,109 @@ export interface HotspotIpBinding {
   disabled: boolean;
 }
 
+function normalizeQueueTargetIp(binding: Pick<HotspotIpBinding, "address" | "toAddress">): string | null {
+  const raw = (binding.address || binding.toAddress || "").trim();
+  if (!raw) return null;
+  return raw.includes("/") ? raw : `${raw}/32`;
+}
+
+function normalizeMac(mac: string | null | undefined): string {
+  return String(mac ?? "").trim().toUpperCase().replace(/-/g, ":");
+}
+
+function normalizeIpTarget(raw: string | null | undefined): string | null {
+  const ip = String(raw ?? "").trim();
+  if (!ip) return null;
+  // Skip invalid / dynamic placeholders we don't want in queue target.
+  if (ip === "0.0.0.0") return null;
+  return ip.includes("/") ? ip : `${ip}/32`;
+}
+
+async function resolveQueueTargetIp(
+  api: RouterOSAPI,
+  binding: Pick<HotspotIpBinding, "address" | "toAddress" | "macAddress">,
+): Promise<string | null> {
+  const direct = normalizeQueueTargetIp(binding);
+  if (direct) return direct;
+
+  const mac = normalizeMac(binding.macAddress);
+  if (!mac) return null;
+
+  const leaseRows = await api.write("/ip/dhcp-server/lease/print", [`?mac-address=${mac}`]).catch(() => []);
+  for (const row of leaseRows) {
+    const status = String(row["status"] ?? "").toLowerCase();
+    const address = (row["address"] as string | undefined) ?? "";
+    // Prefer bound lease first, but fall back to any valid lease address.
+    if (status === "bound") {
+      const candidate = normalizeIpTarget(address);
+      if (candidate) return candidate;
+    }
+  }
+  for (const row of leaseRows) {
+    const candidate = normalizeIpTarget((row["address"] as string | undefined) ?? "");
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+function buildBypassQueueName(binding: Pick<HotspotIpBinding, "macAddress" | "address" | "id">): string {
+  const key = (binding.macAddress || binding.address || binding.id || "binding")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `bpq-${key.slice(0, 40)}`;
+}
+
+export async function upsertIpBindingQueue(
+  conn: RouterConnection,
+  binding: HotspotIpBinding,
+  upLimit: string,
+  downLimit: string,
+): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const up = upLimit.trim();
+    const down = downLimit.trim();
+    const name = buildBypassQueueName(binding);
+    const existing = await api.write("/queue/simple/print", [`?name=${name}`]).catch(() => []);
+
+    // No limits configured OR no usable target IP => remove existing queue.
+    const target = await resolveQueueTargetIp(api, binding);
+    if ((!up && !down) || !target) {
+      const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
+      if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
+      return;
+    }
+
+    const maxLimit = `${up || "0"}/${down || "0"}`;
+    const disabled = binding.disabled ? "yes" : "no";
+    const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
+    if (exId) {
+      await api.write("/queue/simple/set", [
+        `=.id=${exId}`,
+        `=target=${target}`,
+        `=max-limit=${maxLimit}`,
+        `=disabled=${disabled}`,
+      ]);
+      return;
+    }
+    await api.write("/queue/simple/add", [
+      `=name=${name}`,
+      `=target=${target}`,
+      `=max-limit=${maxLimit}`,
+      `=disabled=${disabled}`,
+    ]);
+  });
+}
+
+export async function removeIpBindingQueue(conn: RouterConnection, binding: HotspotIpBinding): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const name = buildBypassQueueName(binding);
+    const existing = await api.write("/queue/simple/print", [`?name=${name}`]).catch(() => []);
+    const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
+    if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
+  });
+}
+
 export async function listIpBindings(conn: RouterConnection): Promise<HotspotIpBinding[]> {
   return withRouter(conn, async (api) => {
     const rows = await api.write("/ip/hotspot/ip-binding/print");

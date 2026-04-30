@@ -5,13 +5,15 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 
 const router = Router();
+const BASE_ROUTER_SLOTS = 5;
+const CREDITS_PER_EXTRA_ROUTER = 10;
 
 interface ProfileListCache {
   profiles: Awaited<ReturnType<typeof listProfiles>>;
@@ -288,18 +290,31 @@ router.post("/routers", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Compte désactivé" });
       return;
     }
-    const limit = 5 + adminRow.extraRouterSlots;
+    const limit = BASE_ROUTER_SLOTS + adminRow.extraRouterSlots;
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(routersTable)
       .where(eq(routersTable.ownerAdminId, scope.adminId));
     if (Number(count) >= limit) {
-      res.status(402).json({
-        error: `Limite atteinte (${limit} routeur${limit > 1 ? "s" : ""}). Achetez un pack de 5 routeurs supplémentaires (50 crédits).`,
-        routerCount: Number(count),
-        routerLimit: limit,
-      });
-      return;
+      const autoExpanded = await db
+        .update(adminSettingsTable)
+        .set({
+          credits: sql`${adminSettingsTable.credits} - ${CREDITS_PER_EXTRA_ROUTER}`,
+          extraRouterSlots: sql`${adminSettingsTable.extraRouterSlots} + 1`,
+        })
+        .where(and(
+          eq(adminSettingsTable.id, scope.adminId),
+          sql`${adminSettingsTable.credits} >= ${CREDITS_PER_EXTRA_ROUTER}`,
+        ))
+        .returning({ id: adminSettingsTable.id });
+      if (autoExpanded.length === 0) {
+        res.status(402).json({
+          error: `Limite atteinte (${limit} routeur${limit > 1 ? "s" : ""}). Crédit insuffisant: ${CREDITS_PER_EXTRA_ROUTER} requis pour ajouter 1 routeur.`,
+          routerCount: Number(count),
+          routerLimit: limit,
+        });
+        return;
+      }
     }
   }
 
@@ -1214,9 +1229,23 @@ router.delete("/routers/:id/users", async (req, res): Promise<void> => {
 function stripIpBindingStructuralTags(comment: string | null | undefined): string {
   if (!comment) return "";
   return comment
-    .replace(/\s*\[(?:Expire le|vnetexp):[^\]]+\]\s*/g, "")
+    .replace(/\s*\[Expire le:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetqu:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetqd:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
     .trim();
+}
+
+function extractQueueLimit(comment: string | null | undefined, kind: "up" | "down"): string {
+  if (!comment) return "";
+  const re = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
+  return comment.match(re)?.[1]?.trim() ?? "";
+}
+
+async function syncQueueForBinding(conn: RouterConnection, binding: Awaited<ReturnType<typeof listIpBindings>>[number]) {
+  const up = extractQueueLimit(binding.comment, "up");
+  const down = extractQueueLimit(binding.comment, "down");
+  await upsertIpBindingQueue(conn, binding, up, down);
 }
 
 function extractLinkedUsername(comment: string | null | undefined): string | null {
@@ -1543,7 +1572,15 @@ router.post("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    await withRouterLock(id, () => addIpBinding(conn, parsed));
+    await withRouterLock(id, async () => {
+      await addIpBinding(conn, parsed);
+      const all = await listIpBindings(conn);
+      const created = all.find((b) =>
+        (parsed.macAddress?.trim() ? (b.macAddress ?? "").trim().toUpperCase() === parsed.macAddress.trim().toUpperCase() : false)
+        && (parsed.address?.trim() ? (b.address ?? "").trim() === parsed.address.trim() : true)
+      ) ?? all[0];
+      if (created) await syncQueueForBinding(conn, created);
+    });
     invalidateIpBindingsCache(id);
     res.status(201).json({ ok: true });
   } catch (err) {
@@ -1562,7 +1599,12 @@ router.patch("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<vo
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    await withRouterLock(id, () => updateIpBinding(conn, bindingId, parsed));
+    await withRouterLock(id, async () => {
+      await updateIpBinding(conn, bindingId, parsed);
+      const all = await listIpBindings(conn);
+      const current = all.find((b) => b.id === bindingId);
+      if (current) await syncQueueForBinding(conn, current);
+    });
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
   } catch (err) {
@@ -1579,7 +1621,12 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    await withRouterLock(id, () => deleteIpBinding(conn, bindingId));
+    await withRouterLock(id, async () => {
+      const all = await listIpBindings(conn);
+      const current = all.find((b) => b.id === bindingId);
+      await deleteIpBinding(conn, bindingId);
+      if (current) await removeIpBindingQueue(conn, current);
+    });
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
   } catch (err) {

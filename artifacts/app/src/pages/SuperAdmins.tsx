@@ -23,6 +23,8 @@ import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const VALID_MONTHS = [1, 2, 3, 4, 5, 6, 12] as const;
+type ForfaitChoice = "24h" | `${(typeof VALID_MONTHS)[number]}`;
+type CreateForfaitChoice = "0" | ForfaitChoice;
 
 interface AdminRow {
   id: number;
@@ -35,6 +37,11 @@ interface AdminRow {
   credits: number;
   extraRouterSlots: number;
   routerCount: number;
+  credentialPreview?: {
+    login: string | null;
+    password: string | null;
+    updatedAt: string;
+  } | null;
   createdAt: string;
 }
 
@@ -114,7 +121,7 @@ export default function SuperAdmins() {
 
   /* ---------- mutations ---------- */
   const createM = useMutation({
-    mutationFn: async (v: { login: string; password: string; displayName?: string; forfaitMonths?: number }) => {
+    mutationFn: async (v: { login: string; password: string; displayName?: string; forfaitMonths?: number; forfaitTest24h?: boolean }) => {
       const r = await fetch(`${BASE}/api/super/admins`, { method: "POST", headers, body: JSON.stringify(v) });
       if (!r.ok) throw new Error((await r.json()).error ?? "Création impossible");
       return r.json();
@@ -144,11 +151,12 @@ export default function SuperAdmins() {
   });
 
   const forfaitM = useMutation({
-    mutationFn: async (v: { id: number; months: number; mode: "set" | "extend" }) => {
+    mutationFn: async (v: { id: number; duration: ForfaitChoice; mode: "set" | "extend" }) => {
       const url = v.mode === "extend"
         ? `${BASE}/api/super/admins/${v.id}/forfait/extend`
         : `${BASE}/api/super/admins/${v.id}/forfait`;
-      const r = await fetch(url, { method: "POST", headers, body: JSON.stringify({ months: v.months }) });
+      const payload = v.duration === "24h" ? { test24h: true } : { months: Number(v.duration) };
+      const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
       if (!r.ok) throw new Error((await r.json()).error ?? "Forfait non mis à jour");
       return r.json();
     },
@@ -334,6 +342,13 @@ export default function SuperAdmins() {
                           <div>
                             <p className="font-semibold text-gray-900">{a.displayName || a.login}</p>
                             <p className="text-xs text-gray-500">@{a.login}</p>
+                            {a.credentialPreview && (
+                              <p className="text-[11px] text-amber-700 mt-0.5">
+                                Nouveaux identifiants:{" "}
+                                {a.credentialPreview.login ? `login=${a.credentialPreview.login}` : ""}{" "}
+                                {a.credentialPreview.password ? `| mdp=${a.credentialPreview.password}` : ""}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -444,7 +459,7 @@ export default function SuperAdmins() {
           admin={forfaitTarget.admin}
           mode={forfaitTarget.mode}
           onClose={() => setForfaitTarget(null)}
-          onSubmit={(months) => forfaitM.mutate({ id: forfaitTarget.admin.id, months, mode: forfaitTarget.mode })}
+          onSubmit={(duration) => forfaitM.mutate({ id: forfaitTarget.admin.id, duration, mode: forfaitTarget.mode })}
           pending={forfaitM.isPending}
         />
       )}
@@ -531,13 +546,13 @@ function AddRouterForAdminDialog({
 function CreateDialog({ open, onClose, onSubmit, pending }: {
   open: boolean;
   onClose: () => void;
-  onSubmit: (v: { login: string; password: string; displayName?: string; forfaitMonths?: number }) => void;
+  onSubmit: (v: { login: string; password: string; displayName?: string; forfaitMonths?: number; forfaitTest24h?: boolean }) => void;
   pending: boolean;
 }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [months, setMonths] = useState<string>("1");
+  const [months, setMonths] = useState<CreateForfaitChoice>("1");
 
   const reset = () => { setLogin(""); setPassword(""); setDisplayName(""); setMonths("1"); };
 
@@ -567,6 +582,7 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="0">Aucun (login bloqué)</SelectItem>
+                <SelectItem value="24h">Test 24 heures</SelectItem>
                 {VALID_MONTHS.map((m) => (
                   <SelectItem key={m} value={String(m)}>
                     {m === 12 ? "1 an" : `${m} mois`}
@@ -584,7 +600,8 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
               login: login.trim(),
               password,
               displayName: displayName.trim() || undefined,
-              forfaitMonths: months === "0" ? undefined : Number(months),
+              forfaitMonths: months === "0" || months === "24h" ? undefined : Number(months),
+              ...(months === "24h" ? { forfaitTest24h: true } : {}),
             })}
           >
             {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -657,10 +674,10 @@ function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
   admin: AdminRow;
   mode: "set" | "extend";
   onClose: () => void;
-  onSubmit: (months: number) => void;
+  onSubmit: (duration: ForfaitChoice) => void;
   pending: boolean;
 }) {
-  const [months, setMonths] = useState<string>("1");
+  const [months, setMonths] = useState<ForfaitChoice>("1");
   const isExtend = mode === "extend";
 
   return (
@@ -691,6 +708,7 @@ function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
             <Select value={months} onValueChange={setMonths}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="24h">Test 24 heures</SelectItem>
                 {VALID_MONTHS.map((m) => (
                   <SelectItem key={m} value={String(m)}>
                     {m === 12 ? "1 an" : `${m} mois`}
@@ -702,7 +720,7 @@ function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button disabled={pending} onClick={() => onSubmit(Number(months))}>
+          <Button disabled={pending} onClick={() => onSubmit(months)}>
             {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {isExtend ? "Prolonger" : "Définir"}
           </Button>

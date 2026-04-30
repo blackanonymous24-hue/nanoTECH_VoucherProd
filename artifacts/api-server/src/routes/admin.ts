@@ -9,6 +9,7 @@ import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js
 import { purgeOldMikhmonScripts } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { clearRouterScriptCache } from "../lib/script-cache.js";
+import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 
 const router = Router();
 
@@ -240,6 +241,12 @@ router.put("/admin/credentials", async (req, res): Promise<void> => {
       displayName: adminSettingsTable.displayName,
       isSuperAdmin: adminSettingsTable.isSuperAdmin,
     });
+
+  setAdminCredentialPreview(updated.id, {
+    login: login !== undefined ? updated.login : null,
+    password: password !== undefined ? password : null,
+    updatedAt: new Date().toISOString(),
+  });
 
   res.json({ ok: true, admin: updated });
 });

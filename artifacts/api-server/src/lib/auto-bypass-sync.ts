@@ -1,5 +1,5 @@
 import { db, routersTable } from "@workspace/db";
-import { listHotspotUsers, listIpBindings, listProfiles, updateIpBinding, type RouterConnection } from "./mikrotik.js";
+import { listHotspotUsers, listIpBindings, listProfiles, updateIpBinding, upsertIpBindingQueue, type RouterConnection } from "./mikrotik.js";
 import { parseRouterDurationToMs } from "./router-duration.js";
 import { logger } from "./logger.js";
 
@@ -8,7 +8,7 @@ let timer: NodeJS.Timeout | null = null;
 
 function stripStructuralSuffixes(comment: string): string {
   return comment
-    .replace(/\s*\[(?:Expire le|vnetexp):[^\]]+\]\s*/g, "")
+    .replace(/\s*\[Expire le:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
     .trim();
 }
@@ -19,16 +19,37 @@ function extractVnetbpProfile(comment: string | null | undefined): string | null
   return m?.[1]?.trim() ? m[1].trim() : null;
 }
 
-function extractVnetexpPayload(comment: string | null | undefined): string | null {
+function extractExpirePayload(comment: string | null | undefined): string | null {
   if (!comment) return null;
   const mNew = comment.match(/\[Expire le:([^\]]+)\]/);
   if (mNew?.[1]?.trim()) return mNew[1].trim();
+  return null;
+}
+
+function extractLegacyVnetexpPayload(comment: string | null | undefined): string | null {
+  if (!comment) return null;
   const mLegacy = comment.match(/\[vnetexp:([^\]]+)\]/);
-  const p = mLegacy?.[1]?.trim();
-  return p || null;
+  const payload = mLegacy?.[1]?.trim();
+  return payload || null;
+}
+
+function extractQueueLimit(comment: string | null | undefined, kind: "up" | "down"): string {
+  if (!comment) return "";
+  const re = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
+  return comment.match(re)?.[1]?.trim() ?? "";
 }
 
 const VNETEXP_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"] as const;
+
+function formatExpirePayload(d: Date): string {
+  const m = VNETEXP_MONTHS[d.getMonth()];
+  const day = d.getDate();
+  const y = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${m}/${day}/${y} ${hh}:${mm}:${ss}`;
+}
 
 function parseVnetexpToMs(raw: string): number | null {
   const s = raw.trim();
@@ -61,7 +82,7 @@ function parseVnetexpToMs(raw: string): number | null {
 }
 
 function parseVnetexpFromComment(comment: string | null | undefined): number | null {
-  const payload = extractVnetexpPayload(comment);
+  const payload = extractExpirePayload(comment);
   if (!payload) return null;
   return parseVnetexpToMs(payload);
 }
@@ -102,18 +123,44 @@ async function syncRouter(routerId: number, conn: RouterConnection) {
   const now = Date.now();
 
   for (const b of bindings) {
-    const standaloneEndMs = parseVnetexpFromComment(b.comment);
+    const legacyPayload = extractLegacyVnetexpPayload(b.comment);
+    const legacyEndMs = legacyPayload ? parseVnetexpToMs(legacyPayload) : null;
+    const migratedComment =
+      legacyEndMs !== null && b.comment
+        ? b.comment.replace(/\[vnetexp:[^\]]+\]/, `[Expire le:${formatExpirePayload(new Date(legacyEndMs))}]`)
+        : null;
+    const standaloneEndMs = parseVnetexpFromComment(migratedComment ?? b.comment) ?? legacyEndMs;
     if (standaloneEndMs !== null) {
       if (now >= standaloneEndMs && !b.disabled) {
-        await updateIpBinding(conn, b.id, { disabled: true });
+        const finalComment = migratedComment ?? b.comment;
+        await updateIpBinding(conn, b.id, {
+          ...(migratedComment ? { comment: migratedComment } : {}),
+          disabled: true,
+        });
+        await upsertIpBindingQueue(
+          conn,
+          { ...b, comment: finalComment ?? b.comment, disabled: true },
+          extractQueueLimit(finalComment, "up"),
+          extractQueueLimit(finalComment, "down"),
+        );
         continue;
+      }
+      if (migratedComment) {
+        await updateIpBinding(conn, b.id, { comment: migratedComment });
+        await upsertIpBindingQueue(
+          conn,
+          { ...b, comment: migratedComment },
+          extractQueueLimit(migratedComment, "up"),
+          extractQueueLimit(migratedComment, "down"),
+        );
       }
     }
 
-    const uname = extractLinkedUsername(b.comment)?.toLowerCase() ?? "";
+    const workingComment = migratedComment ?? b.comment;
+    const uname = extractLinkedUsername(workingComment)?.toLowerCase() ?? "";
     if (!uname) continue;
     const user = usersByName.get(uname);
-    const profTag = extractVnetbpProfile(b.comment);
+    const profTag = extractVnetbpProfile(workingComment);
     const exp = parseExpiryFromComment(user?.comment);
 
     let shouldDisable: boolean;
@@ -143,6 +190,12 @@ async function syncRouter(routerId: number, conn: RouterConnection) {
 
     if (b.disabled !== shouldDisable) {
       await updateIpBinding(conn, b.id, { disabled: shouldDisable });
+      await upsertIpBindingQueue(
+        conn,
+        { ...b, comment: workingComment, disabled: shouldDisable },
+        extractQueueLimit(workingComment, "up"),
+        extractQueueLimit(workingComment, "down"),
+      );
     }
   }
 

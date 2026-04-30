@@ -23,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle, RefreshCw, Coins } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 import {
@@ -82,23 +82,34 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (form.password !== form.confirm) {
+    if (form.password && form.password !== form.confirm) {
       setError("Les mots de passe ne correspondent pas");
       return;
     }
-    if (!form.login.trim() || !form.password) {
-      setError("Tous les champs sont obligatoires");
+    if (!form.login.trim() && !form.password) {
+      setError("Renseignez au moins un champ à modifier");
+      return;
+    }
+    if (form.login.trim() && form.login.trim().length < 3) {
+      setError("Login trop court (min 3 caractères)");
+      return;
+    }
+    if (form.password && form.password.length < 4) {
+      setError("Mot de passe trop court (min 4 caractères)");
       return;
     }
     setLoading(true);
     try {
+      const payload: { login?: string; password?: string } = {};
+      if (form.login.trim()) payload.login = form.login.trim();
+      if (form.password) payload.password = form.password;
       const res = await fetch(`${BASE}/api/admin/credentials`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ login: form.login.trim(), password: form.password }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -126,10 +137,9 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
             <Label>Nouvel identifiant</Label>
             <Input
               className="mt-1"
-              placeholder="admin"
+              placeholder="Laisser vide pour conserver"
               value={form.login}
               onChange={(e) => setForm({ ...form, login: e.target.value })}
-              required
             />
           </div>
           <div>
@@ -137,10 +147,9 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
             <Input
               className="mt-1"
               type="password"
-              placeholder="••••••••"
+              placeholder="Laisser vide pour conserver"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              required
             />
           </div>
           <div>
@@ -151,7 +160,7 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
               placeholder="••••••••"
               value={form.confirm}
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-              required
+              disabled={!form.password}
             />
           </div>
           {error && (
@@ -362,29 +371,10 @@ export default function Routers() {
       return r.json();
     },
   });
-  const buyRoutersM = useMutation({
-    mutationFn: async () => {
-      const r = await fetch(`${BASE}/api/admin/buy-routers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      });
-      const data = await r.json().catch(() => ({} as { error?: string }));
-      if (!r.ok) throw new Error(data?.error ?? "Achat impossible");
-      return data;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "me"] });
-      toast({ title: "Pack acquis", description: "+5 routeurs ajoutés à votre quota." });
-    },
-    onError: (err) => {
-      toast({
-        title: "Achat impossible",
-        description: err instanceof Error ? err.message : "Crédits insuffisants",
-        variant: "destructive",
-      });
-    },
-  });
-
+  const adminCredits = Math.max(0, adminMe?.credits ?? 0);
+  const adminUsedRouters = adminMe?.routerCount ?? routers.length;
+  const adminRouterLimit = adminMe?.routerLimit ?? 5;
+  const adminRemainingRouters = Math.max(0, adminRouterLimit - adminUsedRouters);
   const [showForm, setShowForm] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
   const [editRouter, setEditRouter] = useState<RouterType | null>(null);
@@ -505,6 +495,28 @@ export default function Routers() {
         </div>
       </div>
 
+      {role === "admin" && !isSuperAdmin && (
+        <Card className="mb-4 border border-blue-200 bg-blue-50">
+          <CardContent className="py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Badge variant="outline" className="border-blue-300 text-blue-700 bg-white font-semibold">
+                Routeurs: {adminUsedRouters}/{adminRouterLimit}
+              </Badge>
+              <Badge variant="outline" className="border-emerald-300 text-emerald-700 bg-white font-semibold gap-1">
+                <Coins className="h-3.5 w-3.5" />
+                Crédits: {adminCredits}
+              </Badge>
+              <span className="text-xs text-blue-700">
+                Restants: {adminRemainingRouters}
+              </span>
+            </div>
+            <span className="text-xs text-blue-700">
+              Débit auto: 10 crédits quand la limite est atteinte et qu&apos;un routeur est ajouté.
+            </span>
+          </CardContent>
+        </Card>
+      )}
+
       {role === "admin" && !isSuperAdmin && adminMe && (() => {
         const used = adminMe.routerCount;
         const limit = adminMe.routerLimit;
@@ -524,19 +536,10 @@ export default function Routers() {
                       : `Bientôt à la limite : ${used}/${limit} routeurs`}
                   </div>
                   <div className={`text-xs ${isFull ? "text-red-700" : "text-amber-700"}`}>
-                    Crédits disponibles : {adminMe.credits}. Un pack +5 routeurs coûte 50 crédits.
+                    Crédits disponibles : {adminCredits}. Si vous ajoutez un routeur au-delà de la limite, 10 crédits sont débités automatiquement.
                   </div>
                 </div>
               </div>
-              <Button
-                size="sm"
-                onClick={() => buyRoutersM.mutate()}
-                disabled={buyRoutersM.isPending || adminMe.credits < 50}
-                className="gap-1"
-              >
-                <Plus className="h-4 w-4" />
-                Acheter +5 routeurs (50 crédits)
-              </Button>
             </CardContent>
           </Card>
         );

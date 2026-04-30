@@ -74,6 +74,8 @@ interface BindingFormState {
   /** Durée puis balise [Expire le:…] (date type commentaire) — ex. 30 + Jour = 30 j. (30d), désactivation auto ensuite */
   validityAmount: string;
   validityUnit: ValidityUnit;
+  queueUp: string;
+  queueDown: string;
   disabled: boolean;
 }
 
@@ -95,9 +97,16 @@ interface HotspotServer {
 const SERVER_ALL = "__all__";
 function stripStructuralTags(comment: string): string {
   return comment
-    .replace(/\s*\[(?:Expire le|vnetexp):[^\]]+\]\s*/g, "")
+    .replace(/\s*\[Expire le:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetqu:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetqd:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
     .trim();
+}
+
+function extractQueueLimit(comment: string, kind: "up" | "down"): string {
+  const re = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
+  return comment.match(re)?.[1]?.trim() ?? "";
 }
 
 function stripLinkedSuffix(comment: string): string {
@@ -121,9 +130,7 @@ function formatExpirePayload(d: Date): string {
 function extractVnetexpPayload(comment: string): string | null {
   const mNew = comment.match(/\[Expire le:([^\]]+)\]/);
   if (mNew?.[1]?.trim()) return mNew[1].trim();
-  const mLegacy = comment.match(/\[vnetexp:([^\]]+)\]/);
-  const p = mLegacy?.[1]?.trim();
-  return p || null;
+  return null;
 }
 
 function parseVnetexpToMs(raw: string): number | null {
@@ -219,6 +226,8 @@ const EMPTY_FORM: BindingFormState = {
   linkedUsername: "",
   validityAmount: "",
   validityUnit: "d",
+  queueUp: "",
+  queueDown: "",
   disabled: false,
 };
 
@@ -483,6 +492,8 @@ export default function IpBindings() {
       linkedUsername: linkedFromComment,
       validityAmount: "",
       validityUnit: "d",
+      queueUp: extractQueueLimit(b.comment, "up"),
+      queueDown: extractQueueLimit(b.comment, "down"),
       disabled:   b.disabled,
     });
     setFormOpen(true);
@@ -546,6 +557,10 @@ export default function IpBindings() {
           }
         }
       }
+      const queueUp = form.queueUp.trim();
+      const queueDown = form.queueDown.trim();
+      if (queueUp) computedComment = `${computedComment} [vnetqu:${queueUp}]`.trim();
+      if (queueDown) computedComment = `${computedComment} [vnetqd:${queueDown}]`.trim();
       const optimisticBinding: IpBinding = {
         id: editing?.id ?? `pending-${Date.now()}`,
         macAddress: mac,
@@ -988,6 +1003,32 @@ export default function IpBindings() {
                 </datalist>
                 <p className="text-xs text-gray-500 mt-1">
                   Le username est ajouté au commentaire entre parenthèses.
+                </p>
+              </div>
+              <div className="rounded-lg border border-sky-100 bg-sky-50/50 p-3 space-y-2">
+                <p className="text-[11px] font-medium text-sky-900">Limitation bande passante (queue)</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[11px] text-sky-900/90">Up</Label>
+                    <Input
+                      className="h-9 mt-1"
+                      placeholder="ex: 2M"
+                      value={form.queueUp}
+                      onChange={(e) => setForm((f) => ({ ...f, queueUp: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-sky-900/90">Down</Label>
+                    <Input
+                      className="h-9 mt-1"
+                      placeholder="ex: 10M"
+                      value={form.queueDown}
+                      onChange={(e) => setForm((f) => ({ ...f, queueDown: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-sky-800/90">
+                  Appliqué automatiquement côté routeur sur une simple queue liée au bypass (si IP disponible).
                 </p>
               </div>
               {!form.linkedUsername.trim() && (
