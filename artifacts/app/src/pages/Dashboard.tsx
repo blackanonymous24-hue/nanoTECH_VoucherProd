@@ -330,7 +330,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
           </div>
         ) : history.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2">
-            <Activity className="h-8 w-8 text-gray-200" />
+            <RefreshCw className="h-8 w-8 text-gray-300 animate-spin" />
             <p className="text-xs text-gray-400">Connexion au routeur…</p>
           </div>
         ) : (
@@ -747,7 +747,8 @@ export default function Dashboard() {
               <p className="text-sm text-gray-400">Sélectionnez un routeur dans la barre de gauche</p>
             </div>
           ) : logsLoading ? (
-            <div className="py-10 text-center text-sm text-gray-400">
+            <div className="py-10 text-center text-sm text-gray-400 flex items-center justify-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin" />
               Connexion au routeur…
             </div>
           ) : logsError ? (
