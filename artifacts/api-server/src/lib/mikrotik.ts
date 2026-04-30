@@ -644,14 +644,16 @@ export async function upsertIpBindingQueue(
   return withRouter(conn, async (api) => {
     const up = upLimit.trim();
     const down = downLimit.trim();
+    const marker = `bpq:${binding.id}`;
     const legacyName = buildLegacyBypassQueueName(binding);
     const resolved = await resolveQueueTargetIp(api, conn, binding);
     const preferredName = buildPreferredBypassQueueName(binding, resolved.hostName);
+    const existingByMarker = await api.write("/queue/simple/print", [`?comment=${marker}`]).catch(() => []);
     const existingPreferred = await api.write("/queue/simple/print", [`?name=${preferredName}`]).catch(() => []);
     const existingLegacy = preferredName === legacyName
       ? []
       : await api.write("/queue/simple/print", [`?name=${legacyName}`]).catch(() => []);
-    const existing = existingPreferred[0] ?? existingLegacy[0] ?? null;
+    const existing = existingByMarker[0] ?? existingPreferred[0] ?? existingLegacy[0] ?? null;
 
     // No limits configured OR no usable target IP => remove existing queue.
     const target = resolved.target;
@@ -671,6 +673,7 @@ export async function upsertIpBindingQueue(
         `=target=${target}`,
         `=max-limit=${maxLimit}`,
         `=disabled=${disabled}`,
+        `=comment=${marker}`,
       ]);
       return;
     }
@@ -679,15 +682,18 @@ export async function upsertIpBindingQueue(
       `=target=${target}`,
       `=max-limit=${maxLimit}`,
       `=disabled=${disabled}`,
+      `=comment=${marker}`,
     ]);
   }, 7000, "high");
 }
 
 export async function removeIpBindingQueue(conn: RouterConnection, binding: HotspotIpBinding): Promise<void> {
   return withRouter(conn, async (api) => {
+    const marker = `bpq:${binding.id}`;
     const legacyName = buildLegacyBypassQueueName(binding);
     const preferredName = buildPreferredBypassQueueName(binding, null);
     const rows = await Promise.all([
+      api.write("/queue/simple/print", [`?comment=${marker}`]).catch(() => []),
       api.write("/queue/simple/print", [`?name=${preferredName}`]).catch(() => []),
       preferredName === legacyName ? Promise.resolve([]) : api.write("/queue/simple/print", [`?name=${legacyName}`]).catch(() => []),
     ]);

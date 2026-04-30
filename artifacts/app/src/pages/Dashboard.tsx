@@ -260,7 +260,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     // Keep traffic visible even if interface list is delayed/unavailable:
     // fetch router aggregate traffic as fallback (no iface query param).
     enabled: !!routerId && enabled,
-    refetchInterval: 2_000,
+    refetchInterval: 3_000,
     refetchIntervalInBackground: false,
     staleTime: 1_500,
     retry: false,
@@ -312,7 +312,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
                 ))}
               </select>
             )}
-            <span className="text-xs text-gray-400">↻ 2s</span>
+            <span className="text-xs text-gray-400">↻ 3s</span>
           </div>
         </div>
       </CardHeader>
@@ -329,9 +329,9 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
             <p className="text-xs text-red-400">Indisponible</p>
           </div>
         ) : history.length === 0 ? (
-          <div className="flex-1 flex flex-col gap-2 justify-center px-2">
-            <Skeleton className="h-4 w-32 mx-auto" />
-            <Skeleton className="h-[220px] w-full rounded-md" />
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            <Activity className="h-8 w-8 text-gray-200" />
+            <p className="text-xs text-gray-400">Connexion au routeur…</p>
           </div>
         ) : (
           <div className="flex flex-col flex-1" style={{ minHeight: 0 }}>
@@ -677,7 +677,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
         <StatCard
           title="Clients actifs"
-          value={selectedRouterId ? (activeSessions ?? 0) : 0}
+          value={selectedRouterId ? activeSessions : 0}
           live={!!selectedRouterId}
           fetching={sessionsFetching}
           icon={<Wifi className="h-5 w-5 text-purple-500" />}
@@ -710,7 +710,7 @@ export default function Dashboard() {
         />
         <StatCard
           title="Tickets disponibles"
-          value={selectedRouterId ? (hotspotUserCount ?? 0) : (data?.totalVouchers ?? 0)}
+          value={selectedRouterId ? hotspotUserCount : (data?.totalVouchers ?? 0)}
           live={!!selectedRouterId}
           fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
@@ -747,11 +747,8 @@ export default function Dashboard() {
               <p className="text-sm text-gray-400">Sélectionnez un routeur dans la barre de gauche</p>
             </div>
           ) : logsLoading ? (
-            <div className="px-3 py-4 space-y-2">
-              <Skeleton className="h-5 w-full" />
-              <Skeleton className="h-5 w-full" />
-              <Skeleton className="h-5 w-11/12" />
-              <Skeleton className="h-5 w-10/12" />
+            <div className="py-10 text-center text-sm text-gray-400">
+              Connexion au routeur…
             </div>
           ) : logsError ? (
             <div className="py-10 text-center text-sm text-red-400">
@@ -921,7 +918,7 @@ function StatCard({
                 </>
               ) : (
                 <>
-                  <p className="fit-price font-bold text-gray-900 truncate">{(value ?? 0).toLocaleString()}</p>
+                  <p className="fit-price font-bold text-gray-900 truncate">{value === undefined ? "—" : value.toLocaleString()}</p>
                   {sub && <p className="text-xs text-gray-400 -mt-0.5 truncate">{sub}</p>}
                 </>
               )}

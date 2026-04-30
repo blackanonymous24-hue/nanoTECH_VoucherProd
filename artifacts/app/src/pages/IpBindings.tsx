@@ -96,6 +96,7 @@ interface DhcpLeaseLite {
   id: string;
   address: string;
   macAddress: string;
+  activeAddress?: string | null;
 }
 
 // Sentinel value used inside the Select component because Radix Select
@@ -522,12 +523,27 @@ export default function IpBindings() {
   const openEdit = (b: IpBinding) => {
     const linkedFromComment = extractLinkedUsername(b.comment);
     const expIso = extractVnetexpPayload(b.comment);
+    const fallbackAddress = (() => {
+      if (b.address.trim()) return b.address;
+      if (!selectedRouterId || !b.macAddress.trim()) return "";
+      try {
+        const raw = localStorage.getItem(`${DHCP_LEASES_CACHE_KEY}:${selectedRouterId}`);
+        if (!raw) return "";
+        const parsed = JSON.parse(raw) as { leases?: DhcpLeaseLite[] };
+        const leases = Array.isArray(parsed.leases) ? parsed.leases : [];
+        const targetMac = b.macAddress.trim().toUpperCase().replace(/-/g, ":");
+        const hit = leases.find((x) => (x.macAddress ?? "").trim().toUpperCase().replace(/-/g, ":") === targetMac);
+        return (hit?.activeAddress || hit?.address || "").trim();
+      } catch {
+        return "";
+      }
+    })();
     setEditing(b);
     setPreservedStandaloneIso(expIso);
     setValidityScheduleMode(expIso ? "extend" : "now");
     setForm({
       macAddress: b.macAddress,
-      address:    b.address,
+      address:    fallbackAddress,
       toAddress:  b.toAddress,
       // "all" est le placeholder MikroTik pour "tous les serveurs" → on l'efface
       // dans le formulaire pour ne pas l'envoyer comme une valeur explicite.
