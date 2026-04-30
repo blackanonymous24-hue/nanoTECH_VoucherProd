@@ -64,7 +64,7 @@ async function fetchProfilesWithCache(routerId: number, conn: RouterConnection) 
  *   pools        5 min — address pools rarely change
  *   sessions    15 s  — active hotspot sessions
  *   interfaces   5 min — interface list rarely changes
- *   traffic      8 s  — live bandwidth; cache prevents burst calls
+ *   traffic      1.5 s — near real-time bandwidth for live chart
  *   logs        10 s  — system log tail
  */
 const _mik = new Map<string, { data: unknown; exp: number }>();
@@ -79,7 +79,7 @@ const MIK_TTL = {
   pools:     300_000,
   sessions:   15_000,
   interfaces:300_000,
-  traffic:     8_000,
+  traffic:     1_500,
   logs:       10_000,
   leases:     20_000,
 } as const;

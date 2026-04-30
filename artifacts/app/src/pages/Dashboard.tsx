@@ -260,9 +260,9 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     // Keep traffic visible even if interface list is delayed/unavailable:
     // fetch router aggregate traffic as fallback (no iface query param).
     enabled: !!routerId && enabled,
-    refetchInterval: 3_000,
+    refetchInterval: 1_500,
     refetchIntervalInBackground: false,
-    staleTime: 2_500,
+    staleTime: 1_000,
     retry: false,
     throwOnError: false,
   });
@@ -312,7 +312,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
                 ))}
               </select>
             )}
-            <span className="text-xs text-gray-400">↻ 3s</span>
+            <span className="text-xs text-gray-400">↻ 1.5s</span>
           </div>
         </div>
       </CardHeader>

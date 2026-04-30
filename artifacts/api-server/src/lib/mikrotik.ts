@@ -749,7 +749,7 @@ export async function addIpBinding(conn: RouterConnection, opts: AddIpBindingOpt
     if (opts.comment)   args.push(`=comment=${toWin1252(opts.comment)}`);
     if (opts.disabled)  args.push(`=disabled=yes`);
     await api.write("/ip/hotspot/ip-binding/add", args);
-  });
+  }, 7000);
 }
 
 export async function updateIpBinding(
@@ -774,13 +774,13 @@ export async function updateIpBinding(
     if (opts.comment !== undefined) args.push(`=comment=${toWin1252(opts.comment)}`);
     if (opts.disabled   !== undefined) args.push(`=disabled=${opts.disabled ? "yes" : "no"}`);
     await api.write("/ip/hotspot/ip-binding/set", args);
-  });
+  }, 7000);
 }
 
 export async function deleteIpBinding(conn: RouterConnection, id: string): Promise<void> {
   return withRouter(conn, async (api) => {
     await api.write("/ip/hotspot/ip-binding/remove", [`=.id=${id}`]);
-  });
+  }, 7000);
 }
 
 // ─── Hotspot servers (instances) ────────────────────────────────────────────

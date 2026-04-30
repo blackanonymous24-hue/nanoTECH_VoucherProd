@@ -509,52 +509,64 @@ export default function Vouchers() {
   // ── Delete selected usernames ────────────────────────────────────────────────
   const handleDeleteSelected = async () => {
     if (!activeRouterId || selectedUsernames.size === 0) return;
-    setIsDeletingSelected(true);
-    try {
-      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usernames: [...selectedUsernames] }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { deleted: number };
-      toast({
-        title: `${data.deleted} voucher(s) supprimé(s)`,
-        description: `Profil : ${filterProfile}`,
-      });
-      setSelectedUsernames(new Set());
-      setConfirmDeleteSelected(false);
-      refetch();
-    } catch (err) {
-      toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
-    } finally {
-      setIsDeletingSelected(false);
-    }
+    const usernames = [...selectedUsernames];
+    const count = usernames.length;
+    setConfirmDeleteSelected(false);
+    setSelectedUsernames(new Set());
+    setIsDeletingSelected(false);
+    toast({
+      title: `${count} suppression(s) lancée(s)`,
+      description: "Synchronisation en arrière-plan...",
+    });
+    void (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usernames }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { deleted: number };
+        toast({
+          title: `${data.deleted} voucher(s) supprimé(s)`,
+          description: `Profil : ${filterProfile}`,
+        });
+      } catch (err) {
+        toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
+      } finally {
+        void refetch();
+      }
+    })();
   };
 
   // ── Lot delete — removes users from MikroTik ────────────────────────────────
   const handleDeleteLot = async (lotName: string) => {
     if (!activeRouterId) return;
-    setIsDeletingLot(true);
-    try {
-      const res = await fetch(
-        `${BASE}/api/routers/${activeRouterId}/users?comment=${encodeURIComponent(lotName)}`,
-        { method: "DELETE" },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { deleted: number };
-      toast({
-        title: `Lot « ${lotName} » supprimé`,
-        description: `${data.deleted} utilisateur(s) supprimé(s) de MikroTik`,
-      });
-      refetch();
-      setDeletingLot(null);
-      if (filterComment === lotName) setFilterComment("all");
-    } catch (err) {
-      toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
-    } finally {
-      setIsDeletingLot(false);
-    }
+    setDeletingLot(null);
+    if (filterComment === lotName) setFilterComment("all");
+    setIsDeletingLot(false);
+    toast({
+      title: `Suppression du lot « ${lotName} » lancée`,
+      description: "Synchronisation en arrière-plan...",
+    });
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${BASE}/api/routers/${activeRouterId}/users?comment=${encodeURIComponent(lotName)}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { deleted: number };
+        toast({
+          title: `Lot « ${lotName} » supprimé`,
+          description: `${data.deleted} utilisateur(s) supprimé(s) de MikroTik`,
+        });
+      } catch (err) {
+        toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
+      } finally {
+        void refetch();
+      }
+    })();
   };
 
   // ── Print ────────────────────────────────────────────────────────────────────
@@ -776,35 +788,39 @@ export default function Vouchers() {
       (!linkBypass || nextBypassMac === (editingUser.macAddress ?? ""));
     if (nothingChanged) { setEditingUser(null); return; }
 
-    setIsSavingRename(true);
-    try {
-      const res = await fetch(
-        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(editingUser.username)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            newUsername: nextUsername,
-            password: nextPassword,
-            profile: nextProfile,
-            linkBypass,
-            bypassMacAddress: linkBypass ? nextBypassMac : undefined,
-            bypassComment: linkBypass ? editBypassComment.trim() : undefined,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? `HTTP ${res.status}`);
+    const previousUsername = editingUser.username;
+    const payload = {
+      newUsername: nextUsername,
+      password: nextPassword,
+      profile: nextProfile,
+      linkBypass,
+      bypassMacAddress: linkBypass ? nextBypassMac : undefined,
+      bypassComment: linkBypass ? editBypassComment.trim() : undefined,
+    };
+    setEditingUser(null);
+    setIsSavingRename(false);
+    toast({ title: "Modification lancée", description: `${previousUsername} → ${nextUsername}` });
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(previousUsername)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json() as { error?: string };
+          throw new Error(err.error ?? `HTTP ${res.status}`);
+        }
+        toast({ title: "Utilisateur modifié", description: `${previousUsername} mis à jour.` });
+      } catch (err) {
+        toast({ title: "Erreur modification", description: String(err), variant: "destructive" });
+      } finally {
+        void Promise.all([refetchUsers(), refetchLots()]);
       }
-      toast({ title: "Utilisateur modifié", description: `${editingUser.username} mis à jour.` });
-      setEditingUser(null);
-      await Promise.all([refetchUsers(), refetchLots()]);
-    } catch (err) {
-      toast({ title: "Erreur modification", description: String(err), variant: "destructive" });
-    } finally {
-      setIsSavingRename(false);
-    }
+    })();
   };
 
   const handleResetUser = async () => {
@@ -909,44 +925,46 @@ export default function Vouchers() {
       return;
     }
 
-    setIsSavingUser(true);
-    try {
-      const body: Record<string, string> = {
-        name: addName.trim(),
-        password: addPassword.trim(),
-        profile: addProfile.trim(),
-      };
-      if (addServer && addServer !== "all") body.server = addServer.trim();
-      if (addTimeLimit.trim()) body.limitUptime = addTimeLimit.trim();
-      const bytes = bytesFromInput(addDataLimit, addDataUnit);
-      if (bytes) body.limitBytesTotal = bytes;
-      if (addComment.trim()) body.comment = addComment.trim();
+    const creatingName = addName.trim();
+    const body: Record<string, string> = {
+      name: creatingName,
+      password: addPassword.trim(),
+      profile: addProfile.trim(),
+    };
+    if (addServer && addServer !== "all") body.server = addServer.trim();
+    if (addTimeLimit.trim()) body.limitUptime = addTimeLimit.trim();
+    const bytes = bytesFromInput(addDataLimit, addDataUnit);
+    if (bytes) body.limitBytesTotal = bytes;
+    if (addComment.trim()) body.comment = addComment.trim();
 
-      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/hotspot-users`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error || `HTTP ${res.status}`);
+    resetAddUserForm();
+    setAddUserOpen(false);
+    setIsSavingUser(false);
+    toast({ title: "Création lancée", description: `${creatingName} en cours de création...` });
+    void (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/routers/${activeRouterId}/hotspot-users`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error || `HTTP ${res.status}`);
+        }
+        toast({ title: "Utilisateur ajouté", description: `${creatingName} créé sur MikroTik.` });
+      } catch (e) {
+        toast({
+          title: "Échec de la création",
+          description: e instanceof Error ? e.message : "Erreur inconnue",
+          variant: "destructive",
+        });
+      } finally {
+        void refetchUsers();
+        void refetchLots();
+        void queryClient.invalidateQueries({ queryKey: [`/routers/${activeRouterId}/users/count`] });
       }
-      toast({ title: "Utilisateur ajouté", description: `${addName.trim()} créé sur MikroTik.` });
-      // Refresh data
-      void refetchUsers();
-      void refetchLots();
-      queryClient.invalidateQueries({ queryKey: [`/routers/${activeRouterId}/users/count`] });
-      resetAddUserForm();
-      setAddUserOpen(false);
-    } catch (e) {
-      toast({
-        title: "Échec de la création",
-        description: e instanceof Error ? e.message : "Erreur inconnue",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSavingUser(false);
-    }
+    })();
   }
 
   const handleProfileChange = (v: string) => {

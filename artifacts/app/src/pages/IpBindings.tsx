@@ -614,27 +614,6 @@ export default function IpBindings() {
         comment: computedComment,
         disabled: form.disabled,
       };
-      const res = await fetch(url, {
-        method: editing ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          macAddress: mac,
-          address:    addr,
-          toAddress:  form.toAddress.trim(),
-          server:     serverPayload,  // vide → "all" côté MikroTik
-          type:       form.type,
-          comment:    computedComment,
-          disabled:   form.disabled,
-        }),
-      });
-      if (!res.ok) {
-        const err = (await res.json()) as { error?: string };
-        throw new Error(err.error ?? `HTTP ${res.status}`);
-      }
-      toast({
-        title: editing ? "Liaison modifiée" : "Liaison ajoutée",
-        description: mac || addr,
-      });
       setBindings((cur) => {
         if (editing) {
           return cur ? cur.map((x) => (x.id === editing.id ? optimisticBinding : x)) : [optimisticBinding];
@@ -643,7 +622,39 @@ export default function IpBindings() {
       });
       setFormOpen(false);
       setSaving(false);
-      void refresh();
+      toast({
+        title: editing ? "Liaison modifiée" : "Liaison ajoutée",
+        description: mac || addr,
+      });
+      void (async () => {
+        try {
+          const res = await fetch(url, {
+            method: editing ? "PATCH" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              macAddress: mac,
+              address:    addr,
+              toAddress:  form.toAddress.trim(),
+              server:     serverPayload,  // vide → "all" côté MikroTik
+              type:       form.type,
+              comment:    computedComment,
+              disabled:   form.disabled,
+            }),
+          });
+          if (!res.ok) {
+            const err = (await res.json()) as { error?: string };
+            throw new Error(err.error ?? `HTTP ${res.status}`);
+          }
+        } catch (e) {
+          toast({
+            title: editing ? "Sync modification en échec" : "Sync ajout en échec",
+            description: e instanceof Error ? e.message : String(e),
+            variant: "destructive",
+          });
+        } finally {
+          void refresh({ background: true });
+        }
+      })();
       return;
     } catch (e) {
       toast({
