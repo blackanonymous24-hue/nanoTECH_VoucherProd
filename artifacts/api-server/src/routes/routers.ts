@@ -158,7 +158,7 @@ const MIK_TTL = {
   sessions:   15_000,
   interfaces:300_000,
   traffic:     2_000,
-  logs:        1_000,
+  logs:        4_000,
   leases:     20_000,
 } as const;
 
@@ -1566,32 +1566,9 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
 
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
-    const result = await withRouterLock(id, async () => {
-      const r2 = await resetHotspotUser(conn, username);
-      if (!r2.found) return r2;
-
-      // Clear usedAt + sale fields in DB so the voucher is marked unsold again.
-      // Username column is case-insensitive matched (lower) to align with the
-      // sync logic which compares with toLowerCase().
-      await db
-        .update(vouchersTable)
-        .set({ usedAt: null, salePrice: null, macAddress: null, saleIp: null })
-        .where(and(
-          eq(vouchersTable.routerId, id),
-          sql`lower(${vouchersTable.username}) = lower(${username})`,
-        ));
-
-      // Purge local script-sales cache rows (case-insensitive) so the
-      // background usage-sync does not immediately re-mark the voucher as used.
-      await db
-        .delete(scriptSalesTable)
-        .where(and(
-          eq(scriptSalesTable.routerId, id),
-          sql`lower(${scriptSalesTable.username}) = lower(${username})`,
-        ));
-
-      return r2;
-    });
+    // Mikhmon-style fast path: execute reset on MikroTik immediately and
+    // respond without waiting for local DB cleanup.
+    const result = await resetHotspotUser(conn, username);
 
     if (!result.found) {
       console.warn(`[reset] user not found on router id=${id} username=${JSON.stringify(username)} (len=${username.length})`);
@@ -1610,6 +1587,29 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
       macAddress: null,
     });
     if (!patched) userCache.delete(id);
+
+    // DB consistency tasks are moved to background to keep reset instant.
+    void (async () => {
+      try {
+        await db
+          .update(vouchersTable)
+          .set({ usedAt: null, salePrice: null, macAddress: null, saleIp: null })
+          .where(and(
+            eq(vouchersTable.routerId, id),
+            sql`lower(${vouchersTable.username}) = lower(${username})`,
+          ));
+
+        await db
+          .delete(scriptSalesTable)
+          .where(and(
+            eq(scriptSalesTable.routerId, id),
+            sql`lower(${scriptSalesTable.username}) = lower(${username})`,
+          ));
+      } catch {
+        // non-blocking cleanup; next sync pass will reconcile if needed
+      }
+    })();
+
     res.json({
       ok: true,
       username,

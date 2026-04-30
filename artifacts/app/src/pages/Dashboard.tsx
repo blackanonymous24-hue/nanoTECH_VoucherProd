@@ -511,7 +511,7 @@ export default function Dashboard() {
     {
       query: {
         enabled: !!selectedRouterId && enableSecondaries,
-        refetchInterval: 1_000,
+        refetchInterval: 4_000,
         refetchIntervalInBackground: false,
         staleTime: 800,
       },
@@ -736,7 +736,7 @@ export default function Dashboard() {
                 </span>
               )}
             </CardTitle>
-                <span className="text-xs text-gray-400">↻ 1s</span>
+                <span className="text-xs text-gray-400">↻ 4s</span>
           </div>
         </CardHeader>
 

@@ -519,23 +519,23 @@ export default function Vouchers() {
       description: "Synchronisation en arrière-plan...",
     });
     void (async () => {
-      try {
-        const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
+    try {
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ usernames }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as { deleted: number };
-        toast({
-          title: `${data.deleted} voucher(s) supprimé(s)`,
-          description: `Profil : ${filterProfile}`,
-        });
-      } catch (err) {
-        toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
-      } finally {
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { deleted: number };
+      toast({
+        title: `${data.deleted} voucher(s) supprimé(s)`,
+        description: `Profil : ${filterProfile}`,
+      });
+    } catch (err) {
+      toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
+    } finally {
         void refetch();
-      }
+    }
     })();
   };
 
@@ -550,22 +550,22 @@ export default function Vouchers() {
       description: "Synchronisation en arrière-plan...",
     });
     void (async () => {
-      try {
-        const res = await fetch(
-          `${BASE}/api/routers/${activeRouterId}/users?comment=${encodeURIComponent(lotName)}`,
-          { method: "DELETE" },
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as { deleted: number };
-        toast({
-          title: `Lot « ${lotName} » supprimé`,
-          description: `${data.deleted} utilisateur(s) supprimé(s) de MikroTik`,
-        });
-      } catch (err) {
-        toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
-      } finally {
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users?comment=${encodeURIComponent(lotName)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { deleted: number };
+      toast({
+        title: `Lot « ${lotName} » supprimé`,
+        description: `${data.deleted} utilisateur(s) supprimé(s) de MikroTik`,
+      });
+    } catch (err) {
+      toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
+    } finally {
         void refetch();
-      }
+    }
     })();
   };
 
@@ -607,10 +607,10 @@ export default function Vouchers() {
       let resp: Response;
       try {
         resp = await fetch(`${BASE}/api/render-tickets`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ php, vouchers }),
-        });
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ php, vouchers }),
+      });
       } catch (netErr) {
         // Réseau coupé / serveur inaccessible
         // eslint-disable-next-line no-console
@@ -1948,7 +1948,7 @@ export default function Vouchers() {
 
       {/* ── Add User dialog (Mikhmon-style) ────────────────────────────────── */}
       <Dialog open={addUserOpen} onOpenChange={(o) => { if (!isSavingUser) setAddUserOpen(o); }}>
-        <DialogContent className="max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md">
+        <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[92vh]">
           {/* Header */}
           <DialogHeader className="px-4 pt-3 pb-2 border-b border-slate-600 bg-slate-700">
             <DialogTitle className="text-base font-semibold flex items-center gap-2 text-slate-100">
@@ -1984,9 +1984,9 @@ export default function Vouchers() {
           </div>
 
           {/* Form grid (label left, input right — Mikhmon layout) */}
-          <div className="px-4 pb-4 space-y-3 bg-slate-700">
+          <div className="px-4 pb-4 space-y-3 bg-slate-700 overflow-y-auto">
             {/* Server */}
-            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
               <Label className="text-sm text-slate-200 font-normal">Server</Label>
               <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
                 <PopoverTrigger asChild>
@@ -2016,7 +2016,7 @@ export default function Vouchers() {
             </div>
 
             {/* Name */}
-            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
               <Label className="text-sm text-slate-200 font-normal">Name</Label>
               <Input
                 value={addName}
@@ -2028,7 +2028,7 @@ export default function Vouchers() {
             </div>
 
             {/* Password (with eye toggle) */}
-            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
               <Label className="text-sm text-slate-200 font-normal">Password</Label>
               <div className="relative">
                 <Input
@@ -2052,7 +2052,7 @@ export default function Vouchers() {
             </div>
 
             {/* Profile */}
-            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
               <Label className="text-sm text-slate-200 font-normal">Profile</Label>
               <Popover open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
                 <PopoverTrigger asChild>
@@ -2085,7 +2085,7 @@ export default function Vouchers() {
             </div>
 
             {/* Time Limit */}
-            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
               <Label className="text-sm text-slate-200 font-normal">Time Limit</Label>
               <Input
                 value={addTimeLimit}
@@ -2097,7 +2097,7 @@ export default function Vouchers() {
             </div>
 
             {/* Data Limit (input + unit) */}
-            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
               <Label className="text-sm text-slate-200 font-normal">Data Limit</Label>
               <div className="flex gap-2">
                 <Input
@@ -2137,7 +2137,7 @@ export default function Vouchers() {
             </div>
 
             {/* Comment */}
-            <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
               <Label className="text-sm text-slate-200 font-normal">Comment</Label>
               <Input
                 value={addComment}

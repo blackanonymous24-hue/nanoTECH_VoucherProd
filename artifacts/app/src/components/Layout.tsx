@@ -143,6 +143,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [showAddUser, setShowAddUser]           = useState(false);
   const [addName, setAddName]                   = useState("");
   const [addPassword, setAddPassword]           = useState("");
+  const [addShowPassword, setAddShowPassword]   = useState(false);
+  const [addServer, setAddServer]               = useState("all");
   const [addProfile, setAddProfile]             = useState("");
   const [addComment, setAddComment]             = useState("");
   const [addLimitUptime, setAddLimitUptime]     = useState("");
@@ -166,9 +168,21 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     enabled: showAddUser && !!selectedRouterId,
     staleTime: 60_000,
   });
+  const { data: dialogServers } = useQuery<{ name: string; disabled?: boolean }[]>({
+    queryKey: ["router-hotspot-servers-dialog", selectedRouterId],
+    queryFn: async ({ signal }) => {
+      if (!selectedRouterId) return [];
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/hotspot-servers`, { signal });
+      if (!res.ok) return [];
+      const data = await res.json() as { servers?: { name: string; disabled?: boolean }[] };
+      return (data.servers ?? []).filter((s) => !!s.name && !s.disabled);
+    },
+    enabled: showAddUser && !!selectedRouterId,
+    staleTime: 60_000,
+  });
 
   function openAddUserDialog() {
-    setAddName(""); setAddPassword(""); setAddProfile("");
+    setAddName(""); setAddPassword(""); setAddShowPassword(false); setAddServer("all"); setAddProfile("");
     setAddComment(""); setAddLimitUptime(""); setAddLimitBytes("");
     setAddLimitBytesUnit("MB"); setAddMac("");
     setAddError(""); setAddSuccess(false);
@@ -197,10 +211,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           name: addName.trim(),
           password: addPassword.trim(),
           profile: addProfile,
+          server: addServer === "all" ? undefined : addServer,
           comment: addComment.trim() || undefined,
           limitUptime: addLimitUptime.trim() || undefined,
           limitBytesTotal,
-          macAddress: addMac.trim() || undefined,
         }),
       });
       if (!res.ok) {
@@ -437,11 +451,11 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                     {href === "/generate" && (isAdmin || isManager || isCollaborateur) && (
                       <button
                         onClick={openAddUserDialog}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100"
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:text-gray-100"
                         title="Ajouter un utilisateur hotspot"
                       >
                         <UserPlus className="h-4 w-4 flex-shrink-0 text-gray-500" />
-                        <span className="flex-1 truncate text-left">Ajouter</span>
+                        <span className="flex-1 truncate text-left">Ajouter un client</span>
                       </button>
                     )}
                   </div>
@@ -574,11 +588,11 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* ── Add hotspot user dialog (admin + manager) ── */}
       <Dialog open={showAddUser} onOpenChange={(v) => { if (!v) setShowAddUser(false); }}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-blue-500" />
-              Ajouter un utilisateur hotspot
+        <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden max-h-[92vh]">
+          <DialogHeader className="px-4 pt-3 pb-2 border-b border-gray-200 bg-white">
+            <DialogTitle className="text-base font-semibold flex items-center gap-2 text-gray-900">
+              <UserPlus className="h-4 w-4" />
+              Ajouter un client
             </DialogTitle>
           </DialogHeader>
 
@@ -601,76 +615,112 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             </div>
           ) : (
             <>
-              <div className="space-y-3 py-1">
+              <div className="flex items-center gap-2 px-4 pt-3 pb-3 bg-white">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setShowAddUser(false)}
+                  disabled={addLoading}
+                  variant="outline"
+                  className="gap-1.5"
+                >
+                  <X className="h-3.5 w-3.5" /> Annuler
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void handleAddHotspotUser()}
+                  disabled={addLoading || !selectedRouterId}
+                  className="gap-1.5"
+                >
+                  {addLoading ? "En cours..." : "Enregistrer"}
+                </Button>
+              </div>
 
-                {/* Username */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Nom d'utilisateur <span className="text-red-500">*</span></Label>
+              <div className="px-4 pb-4 space-y-3 bg-white overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+                  <Label className="text-sm text-gray-700 font-normal">Serveur</Label>
+                  <Select value={addServer} onValueChange={setAddServer}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tous (all)</SelectItem>
+                      {(dialogServers ?? []).map((s) => (
+                        <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+                  <Label className="text-sm text-gray-700 font-normal">Nom</Label>
                   <Input
                     value={addName}
                     onChange={(e) => setAddName(e.target.value)}
-                    placeholder="Ex: user123"
-                    className="h-9 text-sm font-mono"
+                    placeholder="client123"
+                    className="h-9"
                     autoComplete="off"
                   />
                 </div>
 
-                {/* Password */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Mot de passe <span className="text-red-500">*</span></Label>
-                  <Input
-                    value={addPassword}
-                    onChange={(e) => setAddPassword(e.target.value)}
-                    placeholder="Mot de passe"
-                    className="h-9 text-sm font-mono"
-                    autoComplete="new-password"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+                  <Label className="text-sm text-gray-700 font-normal">Mot de passe</Label>
+                  <div className="relative">
+                    <Input
+                      type={addShowPassword ? "text" : "password"}
+                      value={addPassword}
+                      onChange={(e) => setAddPassword(e.target.value)}
+                      placeholder="mot de passe"
+                      className="h-9 pr-10"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setAddShowPassword((v) => !v)}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-8 flex items-center justify-center rounded bg-white text-slate-700 hover:bg-slate-100"
+                    >
+                      {addShowPassword ? "Masquer" : "Afficher"}
+                    </button>
+                  </div>
                 </div>
 
-                {/* Profile */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Profil <span className="text-red-500">*</span></Label>
+                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+                  <Label className="text-sm text-gray-700 font-normal">Profil</Label>
                   <Select value={addProfile} onValueChange={setAddProfile}>
                     <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder={dialogProfiles ? "— Choisir un profil —" : "Chargement…"} />
+                      <SelectValue placeholder={dialogProfiles ? "—" : "Chargement…"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-56 overflow-y-auto">
                       {(dialogProfiles ?? []).map((p) => (
                         <SelectItem key={p.name} value={p.name}>
-                          <span className="font-medium">{p.name}</span>
-                          {(p.validity || p.price) && (
-                            <span className="ml-2 text-gray-400 text-[11px]">
-                              {[p.validity, p.price].filter(Boolean).join(" · ")}
-                            </span>
-                          )}
+                          {p.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                {/* Limit uptime */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Limite de temps <span className="text-gray-400">(optionnel)</span></Label>
+                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+                  <Label className="text-sm text-gray-700 font-normal">Limite de temps</Label>
                   <Input
                     value={addLimitUptime}
                     onChange={(e) => setAddLimitUptime(e.target.value)}
-                    placeholder="Ex: 1h30m, 2d, 00:30:00"
-                    className="h-9 text-sm font-mono"
+                    placeholder="ex: 30d, 12h"
+                    className="h-9"
                     autoComplete="off"
                   />
                 </div>
 
-                {/* Limit bytes total */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Limite de données <span className="text-gray-400">(optionnel)</span></Label>
+                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+                  <Label className="text-sm text-gray-700 font-normal">Limite de données</Label>
                   <div className="flex gap-2">
                     <Input
                       type="number"
                       min={0}
                       value={addLimitBytes}
                       onChange={(e) => setAddLimitBytes(e.target.value)}
-                      placeholder="Ex: 500"
+                      placeholder="500"
                       className="h-9 text-sm flex-1"
                     />
                     <Select value={addLimitBytesUnit} onValueChange={(v) => setAddLimitBytesUnit(v as "MB" | "GB")}>
@@ -685,28 +735,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   </div>
                 </div>
 
-                {/* Comment */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Commentaire <span className="text-gray-400">(optionnel)</span></Label>
+                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+                  <Label className="text-sm text-gray-700 font-normal">Commentaire</Label>
                   <Input
                     value={addComment}
                     onChange={(e) => setAddComment(e.target.value)}
-                    placeholder="Ex: Client spécial"
+                    placeholder="Commentaire..."
                     className="h-9 text-sm"
                     autoComplete="off"
-                  />
-                </div>
-
-                {/* MAC address */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Adresse MAC <span className="text-gray-400">(optionnel)</span></Label>
-                  <Input
-                    value={addMac}
-                    onChange={(e) => setAddMac(e.target.value)}
-                    placeholder="Ex: AA:BB:CC:DD:EE:FF"
-                    className="h-9 text-sm font-mono"
-                    autoComplete="off"
-                    onKeyDown={(e) => e.key === "Enter" && void handleAddHotspotUser()}
                   />
                 </div>
 
@@ -720,15 +756,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   </p>
                 )}
               </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowAddUser(false)} disabled={addLoading}>
-                  Annuler
-                </Button>
-                <Button onClick={() => void handleAddHotspotUser()} disabled={addLoading || !selectedRouterId}>
-                  {addLoading ? "Ajout en cours…" : "Ajouter"}
-                </Button>
-              </DialogFooter>
             </>
           )}
         </DialogContent>
