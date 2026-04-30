@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -288,6 +288,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { href: "/forfaits", label: "Forfaits",          icon: PackageOpen },
         { href: "/sessions", label: "Clients actifs",   icon: Activity },
         { href: "/ip-bindings", label: "Bypass MAC",     icon: ShieldCheck },
+        { href: "/dhcp-leases", label: "DHCP Leases",    icon: Database },
       ],
     },
     {

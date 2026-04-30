@@ -473,6 +473,25 @@ export interface HotspotIpBinding {
   disabled: boolean;
 }
 
+export interface DhcpLease {
+  id: string;
+  address: string;
+  macAddress: string;
+  hostName: string | null;
+  status: string | null;
+  expiresAfter: string | null;
+  server: string | null;
+  comment: string | null;
+  dynamic: boolean;
+}
+
+const dhcpLeaseCache = new Map<string, { rows: DhcpLease[]; exp: number }>();
+const DHCP_LEASE_CACHE_TTL = 60_000;
+
+function routerCacheKey(conn: RouterConnection): string {
+  return `${conn.host}:${conn.port}`;
+}
+
 function normalizeQueueTargetIp(binding: Pick<HotspotIpBinding, "address" | "toAddress">): string | null {
   const raw = (binding.address || binding.toAddress || "").trim();
   if (!raw) return null;
@@ -493,6 +512,7 @@ function normalizeIpTarget(raw: string | null | undefined): string | null {
 
 async function resolveQueueTargetIp(
   api: RouterOSAPI,
+  conn: RouterConnection,
   binding: Pick<HotspotIpBinding, "address" | "toAddress" | "macAddress">,
 ): Promise<string | null> {
   const direct = normalizeQueueTargetIp(binding);
@@ -501,7 +521,25 @@ async function resolveQueueTargetIp(
   const mac = normalizeMac(binding.macAddress);
   if (!mac) return null;
 
-  const leaseRows = await api.write("/ip/dhcp-server/lease/print", [`?mac-address=${mac}`]).catch(() => []);
+  const cacheKey = routerCacheKey(conn);
+  const cached = dhcpLeaseCache.get(cacheKey);
+  if (cached && Date.now() < cached.exp) {
+    const bound = cached.rows.find((x) => normalizeMac(x.macAddress) === mac && x.status?.toLowerCase() === "bound");
+    if (bound) {
+      const candidate = normalizeIpTarget(bound.address);
+      if (candidate) return candidate;
+    }
+    const any = cached.rows.find((x) => normalizeMac(x.macAddress) === mac);
+    if (any) {
+      const candidate = normalizeIpTarget(any.address);
+      if (candidate) return candidate;
+    }
+  }
+
+  const leaseRows = await api.write("/ip/dhcp-server/lease/print", [
+    "?mac-address=" + mac,
+    "=.proplist=address,status",
+  ]).catch(() => []);
   for (const row of leaseRows) {
     const status = String(row["status"] ?? "").toLowerCase();
     const address = (row["address"] as string | undefined) ?? "";
@@ -539,7 +577,7 @@ export async function upsertIpBindingQueue(
     const existing = await api.write("/queue/simple/print", [`?name=${name}`]).catch(() => []);
 
     // No limits configured OR no usable target IP => remove existing queue.
-    const target = await resolveQueueTargetIp(api, binding);
+    const target = await resolveQueueTargetIp(api, conn, binding);
     if ((!up && !down) || !target) {
       const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
       if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
@@ -564,7 +602,7 @@ export async function upsertIpBindingQueue(
       `=max-limit=${maxLimit}`,
       `=disabled=${disabled}`,
     ]);
-  });
+  }, 7000);
 }
 
 export async function removeIpBindingQueue(conn: RouterConnection, binding: HotspotIpBinding): Promise<void> {
@@ -573,6 +611,25 @@ export async function removeIpBindingQueue(conn: RouterConnection, binding: Hots
     const existing = await api.write("/queue/simple/print", [`?name=${name}`]).catch(() => []);
     const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
     if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
+  });
+}
+
+export async function listDhcpLeases(conn: RouterConnection): Promise<DhcpLease[]> {
+  return withRouter(conn, async (api) => {
+    const rows = await api.write("/ip/dhcp-server/lease/print");
+    const mapped = rows.map((r): DhcpLease => ({
+      id: (r[".id"] as string) ?? "",
+      address: (r["address"] as string) ?? "",
+      macAddress: normalizeMac((r["mac-address"] as string) ?? ""),
+      hostName: ((r["host-name"] as string) ?? "").trim() || null,
+      status: ((r["status"] as string) ?? "").trim() || null,
+      expiresAfter: ((r["expires-after"] as string) ?? "").trim() || null,
+      server: ((r["server"] as string) ?? "").trim() || null,
+      comment: ((r["comment"] as string) ?? "").trim() || null,
+      dynamic: ((r["dynamic"] as string) ?? "") === "true",
+    }));
+    dhcpLeaseCache.set(routerCacheKey(conn), { rows: mapped, exp: Date.now() + DHCP_LEASE_CACHE_TTL });
+    return mapped;
   });
 }
 

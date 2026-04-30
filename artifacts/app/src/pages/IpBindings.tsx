@@ -46,6 +46,7 @@ import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const IP_BINDINGS_CACHE_KEY = "ip-bindings-cache:v1";
+const DHCP_LEASES_CACHE_KEY = "dhcp-leases-cache:v1";
 
 type BindingType = "bypassed" | "blocked" | "regular";
 
@@ -89,6 +90,12 @@ interface HotspotServer {
   interface: string;
   profile: string;
   disabled: boolean;
+}
+
+interface DhcpLeaseLite {
+  id: string;
+  address: string;
+  macAddress: string;
 }
 
 // Sentinel value used inside the Select component because Radix Select
@@ -440,6 +447,25 @@ export default function IpBindings() {
     }
   };
 
+  const warmDhcpLeasesCache = async (routerId: number) => {
+    try {
+      const res = await fetch(`${BASE}/api/routers/${routerId}/dhcp-leases`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { leases?: DhcpLeaseLite[] };
+      if (!Array.isArray(data.leases)) return;
+      try {
+        localStorage.setItem(
+          `${DHCP_LEASES_CACHE_KEY}:${routerId}`,
+          JSON.stringify({ leases: data.leases, ts: Date.now() }),
+        );
+      } catch {
+        // ignore storage issues
+      }
+    } catch {
+      // best effort prefetch only
+    }
+  };
+
   // Reset the server cache and abort any in-flight request when the active
   // router changes (or on unmount).
   useEffect(() => {
@@ -456,6 +482,12 @@ export default function IpBindings() {
       abortRef.current            = null;
       inFlightRouterIdRef.current = null;
     };
+  }, [selectedRouterId]);
+
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    // Background warm-up so queue target resolution by MAC has lease data early.
+    void warmDhcpLeasesCache(selectedRouterId);
   }, [selectedRouterId]);
 
   useEffect(() => {
