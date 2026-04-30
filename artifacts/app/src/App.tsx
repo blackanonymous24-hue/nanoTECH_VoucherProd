@@ -101,6 +101,35 @@ function AppRoutes() {
     }
   }, [location, qc]);
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const normalized = location.toLowerCase();
+    const focus = (() => {
+      if (normalized.startsWith("/ip-bindings") || normalized.startsWith("/dhcp-leases")) return "bypass";
+      if (normalized.startsWith("/sessions")) return "sessions";
+      if (normalized.startsWith("/vouchers") || normalized.startsWith("/generate") || normalized.startsWith("/ticket-lookup")) return "vouchers";
+      if (normalized.startsWith("/forfaits")) return "forfaits";
+      if (normalized.startsWith("/reports") || normalized.startsWith("/sales/")) return "reports";
+      if (normalized.startsWith("/maintenance")) return "maintenance";
+      if (normalized === "/" || normalized.startsWith("/admin") || normalized.startsWith("/dashboard")) return "dashboard";
+      // Any other page still claims router focus (Mikhmon-style single active page).
+      return "generic-router-page";
+    })();
+    const routerRaw = localStorage.getItem("vouchernet_router_id");
+    const routerId = routerRaw ? Number.parseInt(routerRaw, 10) : NaN;
+    if (!Number.isFinite(routerId)) return;
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    const beat = () =>
+      fetch(`${base}/api/routers/${routerId}/page-focus`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page: focus }),
+      }).catch(() => undefined);
+    void beat();
+    const t = setInterval(() => { void beat(); }, 5000);
+    return () => clearInterval(t);
+  }, [isAuthenticated, location]);
+
   if (location.startsWith("/vendor-portal")) {
     return (
       <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
