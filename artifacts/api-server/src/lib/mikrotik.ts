@@ -649,11 +649,13 @@ export async function upsertIpBindingQueue(
     const resolved = await resolveQueueTargetIp(api, conn, binding);
     const preferredName = buildPreferredBypassQueueName(binding, resolved.hostName);
     const existingByMarker = await api.write("/queue/simple/print", [`?comment=${marker}`]).catch(() => []);
-    const existingPreferred = await api.write("/queue/simple/print", [`?name=${preferredName}`]).catch(() => []);
-    const existingLegacy = preferredName === legacyName
-      ? []
-      : await api.write("/queue/simple/print", [`?name=${legacyName}`]).catch(() => []);
-    const existing = existingByMarker[0] ?? existingPreferred[0] ?? existingLegacy[0] ?? null;
+    let existing = existingByMarker[0] ?? null;
+    if (!existing) {
+      // Lightweight fallback for pre-marker queues; if found, we migrate it by setting the marker.
+      const byPreferred = await api.write("/queue/simple/print", [`?name=${preferredName}`]).catch(() => []);
+      const byLegacy = preferredName === legacyName ? [] : await api.write("/queue/simple/print", [`?name=${legacyName}`]).catch(() => []);
+      existing = byPreferred[0] ?? byLegacy[0] ?? null;
+    }
 
     // No limits configured OR no usable target IP => remove existing queue.
     const target = resolved.target;
@@ -684,24 +686,16 @@ export async function upsertIpBindingQueue(
       `=disabled=${disabled}`,
       `=comment=${marker}`,
     ]);
-  }, 7000, "high");
+  }, 4000, "high");
 }
 
 export async function removeIpBindingQueue(conn: RouterConnection, binding: HotspotIpBinding): Promise<void> {
   return withRouter(conn, async (api) => {
     const marker = `bpq:${binding.id}`;
-    const legacyName = buildLegacyBypassQueueName(binding);
-    const preferredName = buildPreferredBypassQueueName(binding, null);
-    const rows = await Promise.all([
-      api.write("/queue/simple/print", [`?comment=${marker}`]).catch(() => []),
-      api.write("/queue/simple/print", [`?name=${preferredName}`]).catch(() => []),
-      preferredName === legacyName ? Promise.resolve([]) : api.write("/queue/simple/print", [`?name=${legacyName}`]).catch(() => []),
-    ]);
-    for (const list of rows) {
-      const exId = (list[0]?.[".id"] as string | undefined) ?? "";
-      if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
-    }
-  }, 7000, "high");
+    const existing = await api.write("/queue/simple/print", [`?comment=${marker}`]).catch(() => []);
+    const exId = (existing[0]?.[".id"] as string | undefined) ?? "";
+    if (exId) await api.write("/queue/simple/remove", [`=.id=${exId}`]).catch(() => undefined);
+  }, 4000, "high");
 }
 
 export async function listDhcpLeases(conn: RouterConnection): Promise<DhcpLease[]> {

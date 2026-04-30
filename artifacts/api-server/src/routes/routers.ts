@@ -158,7 +158,7 @@ const MIK_TTL = {
   sessions:   15_000,
   interfaces:300_000,
   traffic:     2_000,
-  logs:       10_000,
+  logs:        1_000,
   leases:     20_000,
 } as const;
 
@@ -2410,9 +2410,12 @@ router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   if (!enforcePageFocus(res, id, "dashboard")) return;
 
   const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : "";
+  const live = req.query.live === "1";
   const ck = `traffic:${id}:${ifaceName}`;
-  const fresh = mGet(ck);
-  if (fresh) { res.json(fresh); return; }
+  if (!live) {
+    const fresh = mGet(ck);
+    if (fresh) { res.json(fresh); return; }
+  }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
@@ -2420,7 +2423,7 @@ router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
 
   try {
     const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
-    mSet(ck, MIK_TTL.traffic, traffic);
+    if (!live) mSet(ck, MIK_TTL.traffic, traffic);
     res.json(traffic);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -2435,9 +2438,12 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
 
   const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : 50;
   const topics = (req.query.topics as string | undefined) ?? "";
+  const live = req.query.live === "1";
   const ck = `logs:${id}:${topics}:${limit}`;
-  const fresh = mGet(ck);
-  if (fresh) { res.json(fresh); return; }
+  if (!live) {
+    const fresh = mGet(ck);
+    if (fresh) { res.json(fresh); return; }
+  }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
@@ -2445,7 +2451,7 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
 
   try {
     const logs = await listLogs(conn, limit, topics || undefined);
-    mSet(ck, MIK_TTL.logs, logs);
+    if (!live) mSet(ck, MIK_TTL.logs, logs);
     res.json(logs);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

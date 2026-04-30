@@ -247,7 +247,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
   }, [ifaceList]);
 
   const trafficUrl = routerId
-    ? `${BASE}/api/routers/${routerId}/traffic${selectedIface ? `?iface=${encodeURIComponent(selectedIface)}` : ""}`
+    ? `${BASE}/api/routers/${routerId}/traffic?live=1${selectedIface ? `&iface=${encodeURIComponent(selectedIface)}` : ""}`
     : "";
 
   const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
@@ -507,13 +507,13 @@ export default function Dashboard() {
     error: logsError,
   } = useListRouterLogs(
     selectedRouterId ?? 0,
-    { limit: 80, topics: "hotspot" },
+    { limit: 80, topics: "hotspot", live: "1" },
     {
       query: {
         enabled: !!selectedRouterId && enableSecondaries,
-        refetchInterval: 5_000,
+        refetchInterval: 1_000,
         refetchIntervalInBackground: false,
-        staleTime: 4_000,
+        staleTime: 800,
       },
     },
   );
@@ -736,7 +736,7 @@ export default function Dashboard() {
                 </span>
               )}
             </CardTitle>
-                <span className="text-xs text-gray-400">↻ 5s</span>
+                <span className="text-xs text-gray-400">↻ 1s</span>
           </div>
         </CardHeader>
 
