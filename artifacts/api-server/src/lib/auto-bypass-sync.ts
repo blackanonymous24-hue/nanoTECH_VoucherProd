@@ -1,4 +1,5 @@
 import { db, routersTable } from "@workspace/db";
+import { parseVnetexpFromComment } from "@workspace/vnetexp";
 import { listHotspotUsers, listIpBindings, listProfiles, updateIpBinding, type RouterConnection } from "./mikrotik.js";
 import { parseRouterDurationToMs } from "./router-duration.js";
 import { logger } from "./logger.js";
@@ -8,7 +9,7 @@ let timer: NodeJS.Timeout | null = null;
 
 function stripStructuralSuffixes(comment: string): string {
   return comment
-    .replace(/\s*\[vnetexp:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[(?:Expire le|vnetexp):[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
     .trim();
 }
@@ -17,13 +18,6 @@ function extractVnetbpProfile(comment: string | null | undefined): string | null
   if (!comment) return null;
   const m = comment.match(/\[vnetbp:([^\]]+)\]/);
   return m?.[1]?.trim() ? m[1].trim() : null;
-}
-
-function extractVnetexpIso(comment: string | null | undefined): string | null {
-  if (!comment) return null;
-  const m = comment.match(/\[vnetexp:([^\]]+)\]/);
-  const iso = m?.[1]?.trim();
-  return iso || null;
 }
 
 function extractLinkedUsername(comment: string | null | undefined): string | null {
@@ -62,10 +56,9 @@ async function syncRouter(routerId: number, conn: RouterConnection) {
   const now = Date.now();
 
   for (const b of bindings) {
-    const standaloneIso = extractVnetexpIso(b.comment);
-    if (standaloneIso) {
-      const endMs = Date.parse(standaloneIso);
-      if (!Number.isNaN(endMs) && now >= endMs && !b.disabled) {
+    const standaloneEndMs = parseVnetexpFromComment(b.comment);
+    if (standaloneEndMs !== null) {
+      if (now >= standaloneEndMs && !b.disabled) {
         await updateIpBinding(conn, b.id, { disabled: true });
         continue;
       }

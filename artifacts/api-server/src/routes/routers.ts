@@ -1214,7 +1214,7 @@ router.delete("/routers/:id/users", async (req, res): Promise<void> => {
 function stripIpBindingStructuralTags(comment: string | null | undefined): string {
   if (!comment) return "";
   return comment
-    .replace(/\s*\[vnetexp:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[(?:Expire le|vnetexp):[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
     .trim();
 }

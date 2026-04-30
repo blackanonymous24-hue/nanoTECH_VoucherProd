@@ -43,6 +43,11 @@ import {
 import { ShieldCheck, RefreshCw, Plus, Search, Trash2, Pencil, ShieldOff, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
+import {
+  appendVnetexpTag,
+  extractVnetexpPayload,
+  parseVnetexpToMs,
+} from "@workspace/vnetexp";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const IP_BINDINGS_CACHE_KEY = "ip-bindings-cache:v1";
@@ -71,7 +76,7 @@ interface BindingFormState {
   comment: string;
   /** Username hotspot — ajouté au commentaire (parenthèses) ; si renseigné, la validité fixe ci-dessous est masquée */
   linkedUsername: string;
-  /** Durée puis tag [vnetexp:ISO] — ex. 30 + Jour = 30 j. (30d), désactivation auto ensuite */
+  /** Durée puis balise [Expire le:…] (date type commentaire) — ex. 30 + Jour = 30 j. (30d), désactivation auto ensuite */
   validityAmount: string;
   validityUnit: ValidityUnit;
   disabled: boolean;
@@ -95,15 +100,9 @@ interface HotspotServer {
 const SERVER_ALL = "__all__";
 function stripStructuralTags(comment: string): string {
   return comment
-    .replace(/\s*\[vnetexp:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[(?:Expire le|vnetexp):[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
     .trim();
-}
-
-function extractVnetexpIso(comment: string): string | null {
-  const m = comment.match(/\[vnetexp:([^\]]+)\]/);
-  const iso = m?.[1]?.trim();
-  return iso || null;
 }
 
 function stripLinkedSuffix(comment: string): string {
@@ -157,12 +156,6 @@ function describeValidityPeriod(n: number, unit: ValidityUnit): string | null {
     default:
       return null;
   }
-}
-
-/** Ajoute la date de fin absolue (UTC) pour désactivation auto côté serveur. */
-function appendVnetexp(commentSansTags: string, isoUtc: string): string {
-  const t = commentSansTags.trim();
-  return `${t} [vnetexp:${isoUtc}]`.trim();
 }
 
 const EMPTY_FORM: BindingFormState = {
@@ -299,6 +292,16 @@ export default function IpBindings() {
     return describeValidityPeriod(vn, form.validityUnit);
   }, [form.validityAmount, form.validityUnit]);
 
+  const preservedEndDisplay = useMemo(() => {
+    if (!preservedStandaloneIso) return null;
+    const ms = parseVnetexpToMs(preservedStandaloneIso);
+    return ms !== null
+      ? new Date(ms).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "medium" })
+      : preservedStandaloneIso;
+  }, [preservedStandaloneIso]);
+  const isInitialLoading = loading && (!bindings || bindings.length === 0);
+  const isRefreshingList = loading && Boolean(bindings && bindings.length > 0);
+
   // Lazy-load the hotspot server list once per router-session and reuse it
   // for every dialog open (servers rarely change at runtime).
   //
@@ -413,7 +416,7 @@ export default function IpBindings() {
 
   const openEdit = (b: IpBinding) => {
     const linkedFromComment = extractLinkedUsername(b.comment);
-    const expIso = extractVnetexpIso(b.comment);
+    const expIso = extractVnetexpPayload(b.comment);
     setEditing(b);
     setPreservedStandaloneIso(expIso);
     setValidityScheduleMode(expIso ? "extend" : "now");
@@ -474,7 +477,8 @@ export default function IpBindings() {
           if (ms > 0) {
             let endMs: number;
             if (validityScheduleMode === "extend" && preservedStandaloneIso) {
-              const curEnd = new Date(preservedStandaloneIso).getTime();
+              const parsed = parseVnetexpToMs(preservedStandaloneIso);
+              const curEnd = parsed !== null ? parsed : Date.now();
               endMs = curEnd + ms;
               if (curEnd < Date.now()) {
                 endMs = Date.now() + ms;
@@ -482,12 +486,25 @@ export default function IpBindings() {
             } else {
               endMs = Date.now() + ms;
             }
-            computedComment = appendVnetexp(computedComment, new Date(endMs).toISOString());
+            computedComment = appendVnetexpTag(computedComment, new Date(endMs));
           }
         } else if (editing && preservedStandaloneIso) {
-          computedComment = appendVnetexp(computedComment, preservedStandaloneIso);
+          const keepMs = parseVnetexpToMs(preservedStandaloneIso);
+          if (keepMs !== null) {
+            computedComment = appendVnetexpTag(computedComment, new Date(keepMs));
+          }
         }
       }
+      const optimisticBinding: IpBinding = {
+        id: editing?.id ?? `pending-${Date.now()}`,
+        macAddress: mac,
+        address: addr,
+        toAddress: form.toAddress.trim(),
+        server: serverPayload || "all",
+        type: form.type,
+        comment: computedComment,
+        disabled: form.disabled,
+      };
       const res = await fetch(url, {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -509,8 +526,16 @@ export default function IpBindings() {
         title: editing ? "Liaison modifiée" : "Liaison ajoutée",
         description: mac || addr,
       });
+      setBindings((cur) => {
+        if (editing) {
+          return cur ? cur.map((x) => (x.id === editing.id ? optimisticBinding : x)) : [optimisticBinding];
+        }
+        return cur ? [optimisticBinding, ...cur] : [optimisticBinding];
+      });
       setFormOpen(false);
-      await refresh();
+      setSaving(false);
+      void refresh();
+      return;
     } catch (e) {
       toast({
         title: editing ? "Erreur de modification" : "Erreur d'ajout",
@@ -630,6 +655,12 @@ export default function IpBindings() {
             {search ? `${filtered.length} / ${bindings.length}` : bindings.length} liaison(s)
           </Badge>
         )}
+        {selectedRouterId && isRefreshingList && (
+          <Badge variant="outline" className="gap-1.5 text-amber-700 border-amber-200 bg-amber-50">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Mise à jour...
+          </Badge>
+        )}
       </div>
 
       {!selectedRouterId && (
@@ -642,7 +673,7 @@ export default function IpBindings() {
         </Card>
       )}
 
-      {selectedRouterId && loading && bindings === null && (
+      {selectedRouterId && isInitialLoading && (
         <Card>
           <CardContent className="py-6 space-y-3">
             <Skeleton className="h-4 w-40" />
@@ -868,8 +899,9 @@ export default function IpBindings() {
                   <strong className="font-medium">Heure</strong>, <strong className="font-medium">Jour</strong>,{" "}
                   <strong className="font-medium">Mois</strong> ou <strong className="font-medium">Année</strong> — ex.{" "}
                   <strong className="font-medium">30</strong> + <strong className="font-medium">Jour</strong> = 30 jours, même durée qu&apos;une notation <code className="text-[10px] bg-white px-1 rounded border">30d</code>
-                  . Le système enregistre une date de fin (<code className="text-[10px] bg-white px-1 rounded border">[vnetexp:…]</code>
-                  ) puis désactive le bypass quand le délai est écoulé.
+                  . Le système ajoute une balise du type{" "}
+                  <code className="text-[10px] bg-white px-1 rounded border">[Expire le:may/30/2026 14:05:00]</code>{" "}
+                  (date lisible, comme dans les commentaires hotspot) puis désactive le bypass à l&apos;échéance.
                 </p>
               </div>
               <div>
@@ -989,14 +1021,9 @@ export default function IpBindings() {
                 <p className="text-xs text-amber-800/90">
                   Passée l&apos;échéance enregistrée dans le commentaire du routeur, la liaison est désactivée automatiquement.
                 </p>
-                {preservedStandaloneIso && !form.validityAmount.trim() && (
+                {preservedStandaloneIso && !form.validityAmount.trim() && preservedEndDisplay && (
                   <p className="text-xs text-amber-900 font-medium">
-                    Fin actuelle :{" "}
-                    {new Date(preservedStandaloneIso).toLocaleString("fr-FR", {
-                      dateStyle: "short",
-                      timeStyle: "medium",
-                    })}
-                    . Laissez vide pour la conserver, ou saisissez une durée ci-dessus.
+                    Fin actuelle : {preservedEndDisplay}. Laissez vide pour la conserver, ou saisissez une durée ci-dessus.
                   </p>
                 )}
               </div>
