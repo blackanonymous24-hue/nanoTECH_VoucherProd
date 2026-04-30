@@ -623,6 +623,18 @@ async function resolveQueueTargetIp(
   return { target: null, hostName: null };
 }
 
+export async function resolveBindingAddressFromDhcp(
+  conn: RouterConnection,
+  binding: Pick<HotspotIpBinding, "address" | "toAddress" | "macAddress">,
+): Promise<string | null> {
+  return withRouter(conn, async (api) => {
+    const resolved = await resolveQueueTargetIp(api, conn, binding);
+    const target = resolved.target ?? "";
+    if (!target) return null;
+    return target.replace(/\/\d+$/, "");
+  }, 3000, "high");
+}
+
 export async function upsertIpBindingQueue(
   conn: RouterConnection,
   binding: HotspotIpBinding,
@@ -727,6 +739,49 @@ export async function listIpBindings(conn: RouterConnection): Promise<HotspotIpB
       };
     });
   });
+}
+
+function mapIpBindingRow(b: Record<string, unknown>): HotspotIpBinding {
+  const t = ((b["type"] as string) || "regular").toLowerCase();
+  const type: HotspotIpBinding["type"] =
+    t === "bypassed" || t === "blocked" ? t : "regular";
+  return {
+    id:         (b[".id"]        as string) ?? "",
+    macAddress: ((b["mac-address"] as string) ?? "").toUpperCase(),
+    address:    (b["address"]    as string) ?? "",
+    toAddress:  (b["to-address"] as string) ?? "",
+    type,
+    server:     (b["server"]     as string) ?? "all",
+    comment:    fixEncoding((b["comment"] as string) ?? ""),
+    disabled:   (b["disabled"]   as string) === "true",
+  };
+}
+
+export async function getIpBindingById(conn: RouterConnection, id: string): Promise<HotspotIpBinding | null> {
+  return withRouter(conn, async (api) => {
+    const rows = await api.write("/ip/hotspot/ip-binding/print", [`?.id=${id}`]).catch(() => []);
+    if (!rows.length) return null;
+    return mapIpBindingRow(rows[0] as Record<string, unknown>);
+  }, 3000, "high");
+}
+
+export async function findIpBindingFast(
+  conn: RouterConnection,
+  opts: { macAddress?: string; address?: string },
+): Promise<HotspotIpBinding | null> {
+  return withRouter(conn, async (api) => {
+    const mac = (opts.macAddress ?? "").trim().toUpperCase();
+    const addr = (opts.address ?? "").trim();
+    if (mac) {
+      const rows = await api.write("/ip/hotspot/ip-binding/print", [`?mac-address=${mac}`]).catch(() => []);
+      if (rows.length) return mapIpBindingRow(rows[0] as Record<string, unknown>);
+    }
+    if (addr) {
+      const rows = await api.write("/ip/hotspot/ip-binding/print", [`?address=${addr}`]).catch(() => []);
+      if (rows.length) return mapIpBindingRow(rows[0] as Record<string, unknown>);
+    }
+    return null;
+  }, 3000, "high");
 }
 
 export interface AddIpBindingOpts {

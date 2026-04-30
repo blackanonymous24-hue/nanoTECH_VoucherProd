@@ -48,6 +48,7 @@ export default function DhcpLeases() {
       setInitialLoadDone(false);
       return;
     }
+    setLoading(true);
     try {
       const raw = localStorage.getItem(`${LEASES_CACHE_KEY}:${selectedRouterId}`);
       if (raw) {
@@ -93,6 +94,7 @@ export default function DhcpLeases() {
 
   useEffect(() => {
     if (!selectedRouterId) return;
+    setInitialLoadDone(false);
     void loadLeases();
   }, [selectedRouterId]);
 

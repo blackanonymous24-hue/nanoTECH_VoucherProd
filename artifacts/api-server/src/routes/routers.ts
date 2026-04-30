@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, listDhcpLeases, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -17,6 +17,7 @@ const BASE_ROUTER_SLOTS = 5;
 const CREDITS_PER_EXTRA_ROUTER = 10;
 const PAGE_FOCUS_TTL_MS = 15_000;
 const pageFocusByRouter = new Map<number, { page: string; exp: number }>();
+const queueReconcileInFlight = new Set<string>();
 
 function setPageFocus(routerId: number, page: string) {
   pageFocusByRouter.set(routerId, { page, exp: Date.now() + PAGE_FOCUS_TTL_MS });
@@ -1326,18 +1327,36 @@ function extractQueueLimit(comment: string | null | undefined, kind: "up" | "dow
 async function syncQueueForBinding(conn: RouterConnection, binding: Awaited<ReturnType<typeof listIpBindings>>[number]) {
   const up = extractQueueLimit(binding.comment, "up");
   const down = extractQueueLimit(binding.comment, "down");
-  // Best effort: queue sync must not block the main bypass save path.
+  // Fast path: apply immediately from current binding state.
   await Promise.race([
     upsertIpBindingQueue(conn, binding, up, down),
-    new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+    new Promise<void>((resolve) => setTimeout(resolve, 1500)),
   ]);
+
+  // Background reconcile: if DHCP IP changed (or was missing), update binding
+  // and re-apply queue without blocking the user action.
+  if (!binding.macAddress?.trim()) return;
+  const key = `${conn.host}:${conn.port}:${binding.id}`;
+  if (queueReconcileInFlight.has(key)) return;
+  queueReconcileInFlight.add(key);
+  void (async () => {
+    try {
+      const ip = await resolveBindingAddressFromDhcp(conn, binding).catch(() => null);
+      if (!ip) return;
+      if ((binding.address ?? "").trim() !== ip) {
+        await updateIpBinding(conn, binding.id, { address: ip }).catch(() => undefined);
+      }
+      await upsertIpBindingQueue(conn, { ...binding, address: ip }, up, down).catch(() => undefined);
+    } finally {
+      queueReconcileInFlight.delete(key);
+    }
+  })();
 }
 
 function triggerQueueSyncForBindingId(routerId: number, conn: RouterConnection, bindingId: string) {
   void (async () => {
     const t0 = Date.now();
-    const all = await listIpBindings(conn);
-    const current = all.find((b) => b.id === bindingId);
+    const current = await getIpBindingById(conn, bindingId);
     if (current) await syncQueueForBinding(conn, current);
     logger.info({
       scope: "queue-sync",
@@ -1360,11 +1379,7 @@ function triggerQueueSyncForCreatedBinding(
 ) {
   void (async () => {
     const t0 = Date.now();
-    const all = await listIpBindings(conn);
-    const created = all.find((b) =>
-      (parsed.macAddress?.trim() ? (b.macAddress ?? "").trim().toUpperCase() === parsed.macAddress.trim().toUpperCase() : false)
-      && (parsed.address?.trim() ? (b.address ?? "").trim() === parsed.address.trim() : true),
-    ) ?? all[0];
+    const created = await findIpBindingFast(conn, parsed);
     if (created) await syncQueueForBinding(conn, created);
     logger.info({
       scope: "queue-sync",
@@ -1793,9 +1808,7 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-    let current: Awaited<ReturnType<typeof listIpBindings>>[number] | undefined;
-    const all = await listIpBindings(conn);
-    current = all.find((b) => b.id === bindingId);
+    const current = await getIpBindingById(conn, bindingId) ?? undefined;
     await deleteIpBinding(conn, bindingId);
     invalidateIpBindingsCache(id);
     res.json({ ok: true });
@@ -2391,9 +2404,6 @@ router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
   }
 });
 
-// Per-key in-flight refresh guard for short-lived caches (logs/traffic) — Mikhmon-style.
-const _swrRefreshing = new Set<string>();
-
 router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
@@ -2407,22 +2417,6 @@ router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-
-  const stale = mGetStale(ck);
-  if (stale) {
-    res.json(stale);
-    if (!_swrRefreshing.has(ck)) {
-      _swrRefreshing.add(ck);
-      setImmediate(async () => {
-        try {
-          const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
-          mSet(ck, MIK_TTL.traffic, traffic);
-        } catch { /* keep stale */ }
-        finally { _swrRefreshing.delete(ck); }
-      });
-    }
-    return;
-  }
 
   try {
     const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
@@ -2448,22 +2442,6 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-
-  const stale = mGetStale(ck);
-  if (stale) {
-    res.json(stale);
-    if (!_swrRefreshing.has(ck)) {
-      _swrRefreshing.add(ck);
-      setImmediate(async () => {
-        try {
-          const logs = await listLogs(conn, limit, topics || undefined);
-          mSet(ck, MIK_TTL.logs, logs);
-        } catch { /* keep stale */ }
-        finally { _swrRefreshing.delete(ck); }
-      });
-    }
-    return;
-  }
 
   try {
     const logs = await listLogs(conn, limit, topics || undefined);

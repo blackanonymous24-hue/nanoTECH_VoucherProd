@@ -332,6 +332,7 @@ export default function IpBindings() {
   useEffect(() => {
     let hasCached = false;
     if (selectedRouterId) {
+      setLoading(true);
       try {
         const raw = localStorage.getItem(`${IP_BINDINGS_CACHE_KEY}:${selectedRouterId}`);
         if (raw) {
@@ -348,6 +349,7 @@ export default function IpBindings() {
       setBindings(null);
     }
     if (selectedRouterId) void refresh({ background: hasCached });
+    else setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRouterId]);
 
