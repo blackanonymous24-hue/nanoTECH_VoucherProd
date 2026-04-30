@@ -1211,11 +1211,20 @@ router.delete("/routers/:id/users", async (req, res): Promise<void> => {
 
 // PATCH /routers/:id/users/:username — rename a hotspot user
 
+function stripIpBindingStructuralTags(comment: string | null | undefined): string {
+  if (!comment) return "";
+  return comment
+    .replace(/\s*\[vnetexp:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
+    .trim();
+}
+
 function extractLinkedUsername(comment: string | null | undefined): string | null {
   if (!comment) return null;
-  const legacy = comment.match(/^auto-bypass:user:(.+)$/i)?.[1]?.trim();
+  const cleaned = stripIpBindingStructuralTags(comment);
+  const legacy = cleaned.match(/^auto-bypass:user:(.+)$/i)?.[1]?.trim();
   if (legacy) return legacy;
-  const m = comment.match(/\(([^()]+)\)\s*$/);
+  const m = cleaned.match(/\(([^()]+)\)\s*$/);
   const candidate = m?.[1]?.trim();
   return candidate ? candidate : null;
 }
@@ -1223,7 +1232,8 @@ function extractLinkedUsername(comment: string | null | undefined): string | nul
 function stripLinkedSuffix(comment: string | null | undefined): string {
   if (!comment) return "";
   if (/^auto-bypass:user:/i.test(comment.trim())) return "";
-  return comment.replace(/\s*\([^()]+\)\s*$/, "").trim();
+  let s = stripIpBindingStructuralTags(comment);
+  return s.replace(/\s*\([^()]+\)\s*$/, "").trim();
 }
 
 function buildLinkedBypassComment(baseComment: string | null | undefined, username: string): string {

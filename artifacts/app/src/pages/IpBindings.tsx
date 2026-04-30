@@ -60,6 +60,8 @@ interface IpBinding {
   disabled: boolean;
 }
 
+type ValidityUnit = "h" | "d" | "M" | "y";
+
 interface BindingFormState {
   macAddress: string;
   address: string;
@@ -68,6 +70,9 @@ interface BindingFormState {
   type: BindingType;
   comment: string;
   linkedUsername: string;
+  /** Durée sans utilisateur lié (nombre + unité → équivalent ex. 30d) */
+  validityAmount: string;
+  validityUnit: ValidityUnit;
   disabled: boolean;
 }
 
@@ -87,16 +92,31 @@ interface HotspotUserLite {
 // does not allow `value=""` on its <SelectItem>. We translate this to an
 // empty string before sending the payload to the API.
 const SERVER_ALL = "__all__";
+function stripStructuralTags(comment: string): string {
+  return comment
+    .replace(/\s*\[vnetexp:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
+    .trim();
+}
+
+function extractVnetexpIso(comment: string): string | null {
+  const m = comment.match(/\[vnetexp:([^\]]+)\]/);
+  const iso = m?.[1]?.trim();
+  return iso || null;
+}
+
 function extractLinkedUsername(comment: string): string {
-  const legacy = comment.match(/^auto-bypass:user:(.+)$/i)?.[1]?.trim();
+  const cleaned = stripStructuralTags(comment);
+  const legacy = cleaned.match(/^auto-bypass:user:(.+)$/i)?.[1]?.trim();
   if (legacy) return legacy;
-  const m = comment.match(/\(([^()]+)\)\s*$/);
+  const m = cleaned.match(/\(([^()]+)\)\s*$/);
   return m?.[1]?.trim() ?? "";
 }
 
 function stripLinkedSuffix(comment: string): string {
   if (/^auto-bypass:user:/i.test(comment.trim())) return "";
-  return comment.replace(/\s*\([^()]+\)\s*$/, "").trim();
+  let s = stripStructuralTags(comment);
+  return s.replace(/\s*\([^()]+\)\s*$/, "").trim();
 }
 
 function buildLinkedComment(base: string, username: string): string {
@@ -104,6 +124,27 @@ function buildLinkedComment(base: string, username: string): string {
   const u = username.trim();
   if (!u) return b;
   return b ? `${b} (${u})` : `(${u})`;
+}
+
+function validityToMs(n: number, unit: ValidityUnit): number {
+  switch (unit) {
+    case "h":
+      return n * 3600 * 1000;
+    case "d":
+      return n * 86400 * 1000;
+    case "M":
+      return n * 30 * 86400 * 1000;
+    case "y":
+      return n * 365 * 86400 * 1000;
+    default:
+      return 0;
+  }
+}
+
+/** Ajoute la date de fin absolue (UTC) pour désactivation auto côté serveur. */
+function appendVnetexp(commentSansTags: string, isoUtc: string): string {
+  const t = commentSansTags.trim();
+  return `${t} [vnetexp:${isoUtc}]`.trim();
 }
 
 const EMPTY_FORM: BindingFormState = {
@@ -114,6 +155,8 @@ const EMPTY_FORM: BindingFormState = {
   type: "bypassed",
   comment: "",
   linkedUsername: "",
+  validityAmount: "",
+  validityUnit: "d",
   disabled: false,
 };
 
@@ -175,6 +218,10 @@ export default function IpBindings() {
   const [deleting, setDeleting]           = useState(false);
   const [usersLite, setUsersLite]         = useState<HotspotUserLite[]>([]);
   const [usersLoading, setUsersLoading]   = useState(false);
+  /** ISO conservée à l’édition si l’utilisateur ne saisit pas une nouvelle durée */
+  const [preservedStandaloneIso, setPreservedStandaloneIso] = useState<string | null>(null);
+  /** `now` = fin = maintenant + durée ; `extend` = fin = fin actuelle + durée (si échéance connue) */
+  const [validityScheduleMode, setValidityScheduleMode] = useState<"now" | "extend">("now");
 
   const refresh = async () => {
     if (!selectedRouterId) return;
@@ -316,8 +363,16 @@ export default function IpBindings() {
     };
   }, [selectedRouterId]);
 
+  useEffect(() => {
+    if (!preservedStandaloneIso && validityScheduleMode === "extend") {
+      setValidityScheduleMode("now");
+    }
+  }, [preservedStandaloneIso, validityScheduleMode]);
+
   const openAdd = () => {
     setEditing(null);
+    setPreservedStandaloneIso(null);
+    setValidityScheduleMode("now");
     setForm(EMPTY_FORM);
     setFormOpen(true);
     void ensureServersLoaded();
@@ -326,7 +381,10 @@ export default function IpBindings() {
 
   const openEdit = (b: IpBinding) => {
     const linkedFromComment = extractLinkedUsername(b.comment);
+    const expIso = extractVnetexpIso(b.comment);
     setEditing(b);
+    setPreservedStandaloneIso(expIso);
+    setValidityScheduleMode(expIso ? "extend" : "now");
     setForm({
       macAddress: b.macAddress,
       address:    b.address,
@@ -337,6 +395,8 @@ export default function IpBindings() {
       type:       b.type,
       comment:    stripLinkedSuffix(b.comment),
       linkedUsername: linkedFromComment,
+      validityAmount: "",
+      validityUnit: "d",
       disabled:   b.disabled,
     });
     setFormOpen(true);
@@ -368,7 +428,32 @@ export default function IpBindings() {
       // Sentinel SERVER_ALL = empty string = MikroTik "all"
       const serverPayload = form.server === SERVER_ALL ? "" : form.server.trim();
       const linkedUsername = form.linkedUsername.trim();
-      const computedComment = buildLinkedComment(form.comment.trim(), linkedUsername);
+      const baseText = stripStructuralTags(form.comment.trim());
+      let computedComment = buildLinkedComment(baseText, linkedUsername);
+
+      if (linkedUsername) {
+        computedComment = stripStructuralTags(computedComment);
+      } else {
+        const n = parseInt(form.validityAmount.trim(), 10);
+        if (!Number.isNaN(n) && n > 0) {
+          const ms = validityToMs(n, form.validityUnit);
+          if (ms > 0) {
+            let endMs: number;
+            if (validityScheduleMode === "extend" && preservedStandaloneIso) {
+              const curEnd = new Date(preservedStandaloneIso).getTime();
+              endMs = curEnd + ms;
+              if (curEnd < Date.now()) {
+                endMs = Date.now() + ms;
+              }
+            } else {
+              endMs = Date.now() + ms;
+            }
+            computedComment = appendVnetexp(computedComment, new Date(endMs).toISOString());
+          }
+        } else if (editing && preservedStandaloneIso) {
+          computedComment = appendVnetexp(computedComment, preservedStandaloneIso);
+        }
+      }
       const res = await fetch(url, {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -744,12 +829,15 @@ export default function IpBindings() {
                 onChange={(e) => {
                   const username = e.target.value;
                   const matched = usersLite.find((u) => u.username.toLowerCase() === username.trim().toLowerCase());
+                  const hasUser = Boolean(username.trim());
                   setForm((f) => ({
                     ...f,
                     linkedUsername: username,
                     type: username.trim() ? "bypassed" : f.type,
                     macAddress: matched?.macAddress ? matched.macAddress : f.macAddress,
+                    ...(hasUser ? { validityAmount: "", validityUnit: "d" as ValidityUnit } : {}),
                   }));
+                  if (hasUser) setPreservedStandaloneIso(null);
                 }}
                 placeholder="Tapez pour rechercher un username"
                 disabled={usersLoading}
@@ -765,6 +853,91 @@ export default function IpBindings() {
                 Si un utilisateur est lié, le commentaire est conservé et le username est ajouté entre parenthèses.
               </p>
             </div>
+            {!form.linkedUsername.trim() && (
+              <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <Label className="text-amber-900">Validité (sans utilisateur lié)</Label>
+                  {preservedStandaloneIso && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs text-red-700 border-red-200 hover:bg-red-50 shrink-0"
+                      onClick={() => {
+                        setPreservedStandaloneIso(null);
+                        setValidityScheduleMode("now");
+                        setForm((f) => ({ ...f, validityAmount: "" }));
+                      }}
+                    >
+                      Supprimer la date d&apos;expiration
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-normal text-amber-900/80">Calcul de la nouvelle échéance</Label>
+                  <Select
+                    value={validityScheduleMode}
+                    onValueChange={(v: "now" | "extend") => {
+                      if (v === "extend" && !preservedStandaloneIso) return;
+                      setValidityScheduleMode(v);
+                    }}
+                  >
+                    <SelectTrigger className="h-9 bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="now">À partir de maintenant</SelectItem>
+                      <SelectItem value="extend" disabled={!preservedStandaloneIso}>
+                        Prolonger depuis la fin actuelle
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-amber-800/85">
+                    {validityScheduleMode === "extend" && preservedStandaloneIso
+                      ? "La durée saisie s’ajoute à la date de fin déjà enregistrée. Si celle-ci est dépassée, le prolongement part d’aujourd’hui."
+                      : "La durée saisie est ajoutée à partir de l’instant de l’enregistrement."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={999}
+                    className="w-24 h-9"
+                    placeholder="ex: 30"
+                    value={form.validityAmount}
+                    onChange={(e) => setForm((f) => ({ ...f, validityAmount: e.target.value }))}
+                  />
+                  <Select
+                    value={form.validityUnit}
+                    onValueChange={(v: ValidityUnit) => setForm((f) => ({ ...f, validityUnit: v }))}
+                  >
+                    <SelectTrigger className="w-[140px] h-9 bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="h">Heure(s)</SelectItem>
+                      <SelectItem value="d">Jour(s)</SelectItem>
+                      <SelectItem value="M">Mois (30 j.)</SelectItem>
+                      <SelectItem value="y">Année(s) (365 j.)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-xs text-amber-800/90">
+                  Passée l&apos;échéance, la liaison est désactivée automatiquement sur le routeur.
+                </p>
+                {preservedStandaloneIso && !form.validityAmount.trim() && (
+                  <p className="text-xs text-amber-900 font-medium">
+                    Fin actuelle :{" "}
+                    {new Date(preservedStandaloneIso).toLocaleString("fr-FR", {
+                      dateStyle: "short",
+                      timeStyle: "medium",
+                    })}
+                    . Laissez vide pour la conserver, ou saisissez une durée ci-dessus.
+                  </p>
+                )}
+              </div>
+            )}
             <div>
               <Label htmlFor="comment">Commentaire</Label>
               <Input
