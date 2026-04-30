@@ -22,6 +22,13 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
@@ -172,7 +179,6 @@ export default function GenerateVouchers() {
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [genPaused, setGenPaused] = useState(false);
-  const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
 
@@ -596,50 +602,31 @@ export default function GenerateVouchers() {
 
               <div>
                 <Label>Profil</Label>
-                <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={profilePopoverOpen}
-                      disabled={!selectedRouterId || loadingProfiles}
-                      className="w-full mt-1 justify-between font-normal"
-                    >
-                      <span className="truncate">
-                        {loadingProfiles
-                          ? "..."
-                          : profile
-                            ? (profiles.find((p) => p.name === profile)?.name ?? profile)
-                            : "Sélectionner un profil"}
-                      </span>
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                    <Command shouldFilter={false}>
-                      <CommandList className="max-h-52 overflow-y-auto">
-                        <CommandEmpty>Aucun profil disponible.</CommandEmpty>
-                        <CommandGroup>
-                          {profiles.map((p) => (
-                            <CommandItem
-                              key={p.name}
-                              value={p.name}
-                              onSelect={() => { setProfile(p.name); setProfilePopoverOpen(false); }}
-                            >
-                              <Check className={`mr-2 h-4 w-4 ${profile === p.name ? "opacity-100" : "opacity-0"}`} />
-                              <span className="flex-1">{p.name}</span>
-                              {(p.validity || p.price) && (
-                                <span className="text-xs text-gray-400 ml-2">
-                                  {[p.validity, p.price].filter(Boolean).join(" · ")}
-                                </span>
-                              )}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
+                <Select
+                  value={profile || "__none__"}
+                  onValueChange={(v) => setProfile(v === "__none__" ? "" : v)}
+                  disabled={!selectedRouterId || loadingProfiles}
+                >
+                  <SelectTrigger className="w-full mt-1 font-normal">
+                    <SelectValue
+                      placeholder={
+                        loadingProfiles
+                          ? "Chargement des profils…"
+                          : "Sélectionner un profil"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-52">
+                    <SelectItem value="__none__" className="text-muted-foreground">
+                      — Choisir un profil —
+                    </SelectItem>
+                    {profiles.map((p) => (
+                      <SelectItem key={p.name} value={p.name}>
+                        {[p.name, [p.validity, p.price].filter(Boolean).join(" · ")].filter(Boolean).join(" — ")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {selectedProfile && (
                   <div className="mt-2 p-2.5 bg-blue-50 rounded-lg text-xs text-blue-700 flex flex-wrap gap-2">
                     {selectedProfile.validity && (

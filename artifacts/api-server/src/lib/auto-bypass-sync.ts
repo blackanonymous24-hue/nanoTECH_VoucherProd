@@ -85,7 +85,7 @@ async function syncRouter(routerId: number, conn: RouterConnection) {
     } else if (profTag && user.profile.toLowerCase() === profTag.toLowerCase()) {
       const lim = user.limitUptime?.trim();
       const remMs = lim ? parseRouterDurationToMs(lim) : null;
-      if (remMs === 0) {
+      if (remMs !== null && remMs <= 0) {
         shouldDisable = true;
       } else {
         const validityStr = validityByProfile.get(user.profile.toLowerCase()) ?? null;

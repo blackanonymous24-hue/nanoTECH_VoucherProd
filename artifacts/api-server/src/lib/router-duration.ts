@@ -4,6 +4,7 @@
 export function parseRouterDurationToMs(s: string | null | undefined): number | null {
   if (!s || !String(s).trim()) return null;
   const str = String(s).trim().toLowerCase();
+  if (str === "0" || /^0+s?$/.test(str)) return 0;
   let total = 0;
   const re = /(\d+)\s*(w|d|h|m|s)/g;
   let m: RegExpExecArray | null;

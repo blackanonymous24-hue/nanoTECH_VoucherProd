@@ -69,11 +69,17 @@ interface BindingFormState {
   server: string;
   type: BindingType;
   comment: string;
+  /** Username hotspot — ajouté au commentaire (parenthèses) ; si renseigné, la validité fixe ci-dessous est masquée */
   linkedUsername: string;
-  /** Durée sans utilisateur lié (nombre + unité → équivalent ex. 30d) */
+  /** Durée puis tag [vnetexp:ISO] — ex. 30 + Jour = 30 j. (30d), désactivation auto ensuite */
   validityAmount: string;
   validityUnit: ValidityUnit;
   disabled: boolean;
+}
+
+interface HotspotUserLite {
+  username: string;
+  macAddress: string | null;
 }
 
 interface HotspotServer {
@@ -81,11 +87,6 @@ interface HotspotServer {
   interface: string;
   profile: string;
   disabled: boolean;
-}
-
-interface HotspotUserLite {
-  username: string;
-  macAddress: string | null;
 }
 
 // Sentinel value used inside the Select component because Radix Select
@@ -105,18 +106,18 @@ function extractVnetexpIso(comment: string): string | null {
   return iso || null;
 }
 
+function stripLinkedSuffix(comment: string): string {
+  if (/^auto-bypass:user:/i.test(comment.trim())) return "";
+  let s = stripStructuralTags(comment);
+  return s.replace(/\s*\([^()]+\)\s*$/, "").trim();
+}
+
 function extractLinkedUsername(comment: string): string {
   const cleaned = stripStructuralTags(comment);
   const legacy = cleaned.match(/^auto-bypass:user:(.+)$/i)?.[1]?.trim();
   if (legacy) return legacy;
   const m = cleaned.match(/\(([^()]+)\)\s*$/);
   return m?.[1]?.trim() ?? "";
-}
-
-function stripLinkedSuffix(comment: string): string {
-  if (/^auto-bypass:user:/i.test(comment.trim())) return "";
-  let s = stripStructuralTags(comment);
-  return s.replace(/\s*\([^()]+\)\s*$/, "").trim();
 }
 
 function buildLinkedComment(base: string, username: string): string {
@@ -138,6 +139,23 @@ function validityToMs(n: number, unit: ValidityUnit): number {
       return n * 365 * 86400 * 1000;
     default:
       return 0;
+  }
+}
+
+/** Aperçu lisible + équivalent type 30d pour les jours. */
+function describeValidityPeriod(n: number, unit: ValidityUnit): string | null {
+  if (!Number.isFinite(n) || n <= 0) return null;
+  switch (unit) {
+    case "h":
+      return `${n} heure${n > 1 ? "s" : ""}`;
+    case "d":
+      return `${n} jour${n > 1 ? "s" : ""}, équivalent ${n}d`;
+    case "M":
+      return `${n} mois (${n}×30 jours)`;
+    case "y":
+      return `${n} année${n > 1 ? "s" : ""} (${n}×365 jours)`;
+    default:
+      return null;
   }
 }
 
@@ -216,12 +234,13 @@ export default function IpBindings() {
   // Delete confirm
   const [confirmDelete, setConfirmDelete] = useState<IpBinding | null>(null);
   const [deleting, setDeleting]           = useState(false);
-  const [usersLite, setUsersLite]         = useState<HotspotUserLite[]>([]);
-  const [usersLoading, setUsersLoading]   = useState(false);
   /** ISO conservée à l’édition si l’utilisateur ne saisit pas une nouvelle durée */
   const [preservedStandaloneIso, setPreservedStandaloneIso] = useState<string | null>(null);
   /** `now` = fin = maintenant + durée ; `extend` = fin = fin actuelle + durée (si échéance connue) */
   const [validityScheduleMode, setValidityScheduleMode] = useState<"now" | "extend">("now");
+
+  const [usersLite, setUsersLite] = useState<HotspotUserLite[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
 
   const refresh = async () => {
     if (!selectedRouterId) return;
@@ -273,6 +292,12 @@ export default function IpBindings() {
         foldText(b.comment).includes(q),
     );
   }, [bindings, search]);
+
+  const validityPreviewDesc = useMemo(() => {
+    const vn = parseInt(form.validityAmount.trim(), 10);
+    if (Number.isNaN(vn) || vn <= 0) return null;
+    return describeValidityPeriod(vn, form.validityUnit);
+  }, [form.validityAmount, form.validityUnit]);
 
   // Lazy-load the hotspot server list once per router-session and reuse it
   // for every dialog open (servers rarely change at runtime).
@@ -338,8 +363,15 @@ export default function IpBindings() {
     try {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users?limit=5000`);
       if (!res.ok) return;
-      const data = await res.json() as { users?: Array<{ username: string; macAddress: string | null }> };
-      setUsersLite((data.users ?? []).map((u) => ({ username: u.username, macAddress: u.macAddress ?? null })));
+      const data = await res.json() as {
+        users?: Array<{ username: string; macAddress: string | null; profile?: string }>;
+      };
+      setUsersLite(
+        (data.users ?? []).map((u) => ({
+          username: u.username,
+          macAddress: u.macAddress ?? null,
+        })),
+      );
     } finally {
       setUsersLoading(false);
     }
@@ -420,6 +452,7 @@ export default function IpBindings() {
       });
       return;
     }
+    const linkedU = form.linkedUsername.trim();
     setSaving(true);
     try {
       const url = editing
@@ -427,13 +460,14 @@ export default function IpBindings() {
         : `${BASE}/api/routers/${selectedRouterId}/ip-bindings`;
       // Sentinel SERVER_ALL = empty string = MikroTik "all"
       const serverPayload = form.server === SERVER_ALL ? "" : form.server.trim();
-      const linkedUsername = form.linkedUsername.trim();
       const baseText = stripStructuralTags(form.comment.trim());
-      let computedComment = buildLinkedComment(baseText, linkedUsername);
+      let computedComment: string;
 
-      if (linkedUsername) {
+      if (linkedU) {
+        computedComment = buildLinkedComment(baseText, linkedU);
         computedComment = stripStructuralTags(computedComment);
       } else {
+        computedComment = baseText;
         const n = parseInt(form.validityAmount.trim(), 10);
         if (!Number.isNaN(n) && n > 0) {
           const ms = validityToMs(n, form.validityUnit);
@@ -555,7 +589,12 @@ export default function IpBindings() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Bypass MAC</h1>
           <p className="text-sm text-gray-500">
-            Autorisez certaines adresses MAC à contourner le portail captif (équivalent IP-binding de Winbox).
+            Contournement du portail captif (IP-binding MikroTik).{" "}
+            <span className="text-gray-600">
+              Optionnellement <strong className="font-medium text-gray-700">liez un utilisateur</strong> hotspot.{" "}
+              <strong className="font-medium text-gray-700">Sans utilisateur</strong>, indiquez une validité (nombre +{" "}
+              Heure, Jour, Mois ou Année) : à l&apos;échéance le bypass est désactivé automatiquement sur le routeur.
+            </span>
           </p>
         </div>
         <div className="flex gap-2 flex-shrink-0">
@@ -820,43 +859,61 @@ export default function IpBindings() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label htmlFor="linked-user">Lier à un utilisateur hotspot (optionnel)</Label>
-              <Input
-                id="linked-user"
-                list="hotspot-users-list"
-                value={form.linkedUsername}
-                onChange={(e) => {
-                  const username = e.target.value;
-                  const matched = usersLite.find((u) => u.username.toLowerCase() === username.trim().toLowerCase());
-                  const hasUser = Boolean(username.trim());
-                  setForm((f) => ({
-                    ...f,
-                    linkedUsername: username,
-                    type: username.trim() ? "bypassed" : f.type,
-                    macAddress: matched?.macAddress ? matched.macAddress : f.macAddress,
-                    ...(hasUser ? { validityAmount: "", validityUnit: "d" as ValidityUnit } : {}),
-                  }));
-                  if (hasUser) setPreservedStandaloneIso(null);
-                }}
-                placeholder="Tapez pour rechercher un username"
-                disabled={usersLoading}
-              />
-              <datalist id="hotspot-users-list">
-                {usersLite.slice(0, 5000).map((u) => (
-                  <option key={u.username} value={u.username}>
-                    {u.macAddress ?? ""}
-                  </option>
-                ))}
-              </datalist>
-              <p className="text-xs text-gray-400 mt-1">
-                Si un utilisateur est lié, le commentaire est conservé et le username est ajouté entre parenthèses.
-              </p>
-            </div>
-            {!form.linkedUsername.trim() && (
+            <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4 space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Utilisateur et validité</h3>
+                <p className="text-xs text-gray-600 mt-1">
+                  <strong className="font-medium">Utilisateur lié</strong> : le username est ajouté au commentaire.{" "}
+                  <strong className="font-medium">Sans utilisateur lié</strong> : saisissez une valeur et choisissez à droite{" "}
+                  <strong className="font-medium">Heure</strong>, <strong className="font-medium">Jour</strong>,{" "}
+                  <strong className="font-medium">Mois</strong> ou <strong className="font-medium">Année</strong> — ex.{" "}
+                  <strong className="font-medium">30</strong> + <strong className="font-medium">Jour</strong> = 30 jours, même durée qu&apos;une notation <code className="text-[10px] bg-white px-1 rounded border">30d</code>
+                  . Le système enregistre une date de fin (<code className="text-[10px] bg-white px-1 rounded border">[vnetexp:…]</code>
+                  ) puis désactive le bypass quand le délai est écoulé.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="linked-user">Lier à un utilisateur hotspot (optionnel)</Label>
+                <Input
+                  id="linked-user"
+                  list="hotspot-users-list"
+                  value={form.linkedUsername}
+                  onChange={(e) => {
+                    const username = e.target.value;
+                    const matched = usersLite.find((u) => u.username.toLowerCase() === username.trim().toLowerCase());
+                    const hasUser = Boolean(username.trim());
+                    setForm((f) => ({
+                      ...f,
+                      linkedUsername: username,
+                      type: username.trim() ? "bypassed" : f.type,
+                      macAddress: matched?.macAddress ? matched.macAddress : f.macAddress,
+                      ...(hasUser
+                        ? { validityAmount: "", validityUnit: "d" as ValidityUnit }
+                        : {}),
+                    }));
+                    if (hasUser) setPreservedStandaloneIso(null);
+                  }}
+                  placeholder="Tapez pour rechercher un username"
+                  disabled={usersLoading}
+                />
+                <datalist id="hotspot-users-list">
+                  {usersLite.slice(0, 5000).map((u) => (
+                    <option key={u.username} value={u.username}>
+                      {u.macAddress ?? ""}
+                    </option>
+                  ))}
+                </datalist>
+                <p className="text-xs text-gray-500 mt-1">
+                  Le username est ajouté au commentaire entre parenthèses.
+                </p>
+              </div>
+              {!form.linkedUsername.trim() && (
               <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 space-y-3">
+                <p className="text-[11px] font-medium text-amber-950/90">
+                  Bypass sans utilisateur lié — validité et désactivation automatique
+                </p>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <Label className="text-amber-900">Validité (sans utilisateur lié)</Label>
+                  <Label className="text-amber-900">Durée jusqu&apos;à désactivation auto</Label>
                   {preservedStandaloneIso && (
                     <Button
                       type="button"
@@ -907,24 +964,30 @@ export default function IpBindings() {
                     placeholder="ex: 30"
                     value={form.validityAmount}
                     onChange={(e) => setForm((f) => ({ ...f, validityAmount: e.target.value }))}
+                    aria-label="Valeur de la validité"
                   />
                   <Select
                     value={form.validityUnit}
                     onValueChange={(v: ValidityUnit) => setForm((f) => ({ ...f, validityUnit: v }))}
                   >
-                    <SelectTrigger className="w-[140px] h-9 bg-white">
+                    <SelectTrigger className="w-[158px] h-9 bg-white" aria-label="Unité (Heure, Jour, Mois, Année)">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="h">Heure(s)</SelectItem>
                       <SelectItem value="d">Jour(s)</SelectItem>
-                      <SelectItem value="M">Mois (30 j.)</SelectItem>
-                      <SelectItem value="y">Année(s) (365 j.)</SelectItem>
+                      <SelectItem value="M">Mois</SelectItem>
+                      <SelectItem value="y">Année(s)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+                {validityPreviewDesc && (
+                  <p className="text-[11px] text-amber-900/95">
+                    Aperçu : <strong className="font-medium">{validityPreviewDesc}</strong>. Après cette période, le bypass est coupé automatiquement (synchro serveur).
+                  </p>
+                )}
                 <p className="text-xs text-amber-800/90">
-                  Passée l&apos;échéance, la liaison est désactivée automatiquement sur le routeur.
+                  Passée l&apos;échéance enregistrée dans le commentaire du routeur, la liaison est désactivée automatiquement.
                 </p>
                 {preservedStandaloneIso && !form.validityAmount.trim() && (
                   <p className="text-xs text-amber-900 font-medium">
@@ -937,7 +1000,8 @@ export default function IpBindings() {
                   </p>
                 )}
               </div>
-            )}
+              )}
+            </div>
             <div>
               <Label htmlFor="comment">Commentaire</Label>
               <Input
