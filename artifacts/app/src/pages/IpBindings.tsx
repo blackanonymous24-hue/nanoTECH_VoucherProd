@@ -305,9 +305,9 @@ export default function IpBindings() {
   const [usersLite, setUsersLite] = useState<HotspotUserLite[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
 
-  const refresh = async () => {
+  const refresh = async (opts: { background?: boolean } = {}) => {
     if (!selectedRouterId) return;
-    setLoading(true);
+    if (!opts.background) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/ip-bindings`);
@@ -325,21 +325,29 @@ export default function IpBindings() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (!opts.background) setLoading(false);
     }
   };
 
   useEffect(() => {
-    setBindings(null);
+    let hasCached = false;
     if (selectedRouterId) {
       try {
         const raw = localStorage.getItem(`${IP_BINDINGS_CACHE_KEY}:${selectedRouterId}`);
-        if (raw) setBindings(JSON.parse(raw) as IpBinding[]);
+        if (raw) {
+          setBindings(JSON.parse(raw) as IpBinding[]);
+          hasCached = true;
+        } else {
+          setBindings([]);
+        }
       } catch {
         // ignore invalid cache
+        setBindings([]);
       }
+    } else {
+      setBindings(null);
     }
-    if (selectedRouterId) void refresh();
+    if (selectedRouterId) void refresh({ background: hasCached });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRouterId]);
 

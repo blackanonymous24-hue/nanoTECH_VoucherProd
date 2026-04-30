@@ -25,12 +25,10 @@ interface DhcpLease {
   macAddress: string;
   activeAddress: string | null;
   activeMacAddress: string | null;
-  activeHostName: string | null;
   hostName: string | null;
   status: string | null;
   expiresAfter: string | null;
   server: string | null;
-  comment: string | null;
   dynamic: boolean;
 }
 
@@ -54,7 +52,10 @@ export default function DhcpLeases() {
       const raw = localStorage.getItem(`${LEASES_CACHE_KEY}:${selectedRouterId}`);
       if (raw) {
         const parsed = JSON.parse(raw) as { leases?: DhcpLease[] };
-        if (Array.isArray(parsed.leases)) setLeases(parsed.leases);
+        if (Array.isArray(parsed.leases)) {
+          setLeases(parsed.leases);
+          setInitialLoadDone(true);
+        }
       }
     } catch {
       // Ignore local cache parsing failures.
@@ -103,10 +104,8 @@ export default function DhcpLeases() {
       foldText(x.macAddress).includes(q) ||
       foldText(x.activeAddress ?? "").includes(q) ||
       foldText(x.activeMacAddress ?? "").includes(q) ||
-      foldText(x.activeHostName ?? "").includes(q) ||
       foldText(x.hostName ?? "").includes(q) ||
-      foldText(x.server ?? "").includes(q) ||
-      foldText(x.comment ?? "").includes(q),
+      foldText(x.server ?? "").includes(q),
     );
   }, [leases, search]);
 
@@ -165,11 +164,9 @@ export default function DhcpLeases() {
                     <TableHead>Server</TableHead>
                     <TableHead>Active Address</TableHead>
                     <TableHead>Active MAC Address</TableHead>
-                    <TableHead>Active Host Name</TableHead>
                     <TableHead>Hostname</TableHead>
                     <TableHead>Statut</TableHead>
                     <TableHead>Expire</TableHead>
-                    <TableHead>Commentaire</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -183,10 +180,8 @@ export default function DhcpLeases() {
                           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                           <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-40" /></TableCell>
                         </TableRow>
                       ))}
                     </>
@@ -198,18 +193,16 @@ export default function DhcpLeases() {
                       <TableCell>{x.server || "—"}</TableCell>
                       <TableCell className="font-mono text-xs">{x.activeAddress || "—"}</TableCell>
                       <TableCell className="font-mono text-xs">{x.activeMacAddress || "—"}</TableCell>
-                      <TableCell>{x.activeHostName || "—"}</TableCell>
                       <TableCell>{x.hostName || "—"}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{x.status || (x.dynamic ? "dynamic" : "—")}</Badge>
                       </TableCell>
                       <TableCell>{x.expiresAfter || "—"}</TableCell>
-                      <TableCell className="max-w-[260px] truncate" title={x.comment || ""}>{x.comment || "—"}</TableCell>
                     </TableRow>
                   ))}
                   {initialLoadDone && !loading && filtered.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-sm text-gray-500 py-10">
+                      <TableCell colSpan={8} className="text-center text-sm text-gray-500 py-10">
                         Aucun lease DHCP trouvé.
                       </TableCell>
                     </TableRow>

@@ -472,9 +472,9 @@ export default function Dashboard() {
   const sessionsFetching = !sseConnected && priorityQueryFetching;
   const usersFetching = !sseConnected && priorityQueryFetching;
   const salesFetching = !sseConnected && priorityQueryFetching;
-  const sessionsKnown = !!livePriority?.availability?.sessionsKnown;
-  const usersKnown = !!livePriority?.availability?.usersKnown;
-  const infoKnown = !!livePriority?.availability?.infoKnown;
+  const sessionsKnown = (livePriority?.availability?.sessionsKnown ?? false) || typeof livePriority?.sessionsCount === "number";
+  const usersKnown = (livePriority?.availability?.usersKnown ?? false) || !!livePriority?.users;
+  const infoKnown = (livePriority?.availability?.infoKnown ?? false) || !!livePriority?.info;
 
   // Mikhmon-style: fire every dashboard fetch in parallel immediately, no
   // gating. Priority cards (info / sessions / sales / tickets) are served
