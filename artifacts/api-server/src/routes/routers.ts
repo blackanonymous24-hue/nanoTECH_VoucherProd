@@ -158,7 +158,7 @@ const MIK_TTL = {
   sessions:   15_000,
   interfaces:300_000,
   traffic:     2_000,
-  logs:        2_000,
+  logs:        1_000,
   leases:     20_000,
 } as const;
 
