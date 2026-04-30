@@ -105,6 +105,8 @@ const SERVER_ALL = "__all__";
 function stripStructuralTags(comment: string): string {
   return comment
     .replace(/\s*\[Expire le:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[Up:[^\]]+\]\s*/gi, "")
+    .replace(/\s*\[Down:[^\]]+\]\s*/gi, "")
     .replace(/\s*\[vnetqu:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetqd:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
@@ -112,8 +114,9 @@ function stripStructuralTags(comment: string): string {
 }
 
 function extractQueueLimit(comment: string, kind: "up" | "down"): string {
-  const re = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
-  return comment.match(re)?.[1]?.trim() ?? "";
+  const modern = kind === "up" ? /\[Up:([^\]]+)\]/i : /\[Down:([^\]]+)\]/i;
+  const legacy = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
+  return comment.match(modern)?.[1]?.trim() ?? comment.match(legacy)?.[1]?.trim() ?? "";
 }
 
 function stripLinkedSuffix(comment: string): string {
@@ -591,8 +594,8 @@ export default function IpBindings() {
       }
       const queueUp = form.queueUp.trim();
       const queueDown = form.queueDown.trim();
-      if (queueUp) computedComment = `${computedComment} [vnetqu:${queueUp}]`.trim();
-      if (queueDown) computedComment = `${computedComment} [vnetqd:${queueDown}]`.trim();
+      if (queueUp) computedComment = `${computedComment} [Up:${queueUp}]`.trim();
+      if (queueDown) computedComment = `${computedComment} [Down:${queueDown}]`.trim();
       const optimisticBinding: IpBinding = {
         id: editing?.id ?? `pending-${Date.now()}`,
         macAddress: mac,

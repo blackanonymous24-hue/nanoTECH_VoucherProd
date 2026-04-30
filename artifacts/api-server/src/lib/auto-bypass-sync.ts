@@ -35,8 +35,9 @@ function extractLegacyVnetexpPayload(comment: string | null | undefined): string
 
 function extractQueueLimit(comment: string | null | undefined, kind: "up" | "down"): string {
   if (!comment) return "";
-  const re = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
-  return comment.match(re)?.[1]?.trim() ?? "";
+  const modern = kind === "up" ? /\[Up:([^\]]+)\]/i : /\[Down:([^\]]+)\]/i;
+  const legacy = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
+  return comment.match(modern)?.[1]?.trim() ?? comment.match(legacy)?.[1]?.trim() ?? "";
 }
 
 const VNETEXP_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"] as const;

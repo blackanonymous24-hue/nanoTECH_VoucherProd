@@ -523,6 +523,8 @@ function extractLinkedUsernameFromComment(comment: string | null | undefined): s
 function stripBindingStructuralTags(comment: string | null | undefined): string {
   return String(comment ?? "")
     .replace(/\s*\[Expire le:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[Up:[^\]]+\]\s*/gi, "")
+    .replace(/\s*\[Down:[^\]]+\]\s*/gi, "")
     .replace(/\s*\[vnetqu:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetqd:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")

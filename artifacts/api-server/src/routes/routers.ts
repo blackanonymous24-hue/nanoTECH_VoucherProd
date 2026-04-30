@@ -1231,6 +1231,8 @@ function stripIpBindingStructuralTags(comment: string | null | undefined): strin
   if (!comment) return "";
   return comment
     .replace(/\s*\[Expire le:[^\]]+\]\s*/g, "")
+    .replace(/\s*\[Up:[^\]]+\]\s*/gi, "")
+    .replace(/\s*\[Down:[^\]]+\]\s*/gi, "")
     .replace(/\s*\[vnetqu:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetqd:[^\]]+\]\s*/g, "")
     .replace(/\s*\[vnetbp:[^\]]+\]\s*/g, "")
@@ -1239,8 +1241,9 @@ function stripIpBindingStructuralTags(comment: string | null | undefined): strin
 
 function extractQueueLimit(comment: string | null | undefined, kind: "up" | "down"): string {
   if (!comment) return "";
-  const re = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
-  return comment.match(re)?.[1]?.trim() ?? "";
+  const modern = kind === "up" ? /\[Up:([^\]]+)\]/i : /\[Down:([^\]]+)\]/i;
+  const legacy = kind === "up" ? /\[vnetqu:([^\]]+)\]/ : /\[vnetqd:([^\]]+)\]/;
+  return comment.match(modern)?.[1]?.trim() ?? comment.match(legacy)?.[1]?.trim() ?? "";
 }
 
 async function syncQueueForBinding(conn: RouterConnection, binding: Awaited<ReturnType<typeof listIpBindings>>[number]) {
