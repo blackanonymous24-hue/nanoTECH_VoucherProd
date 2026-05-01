@@ -51,6 +51,10 @@ function fmtAmount(n: number) {
   return n.toLocaleString("fr-FR");
 }
 
+function saleEntryKey(e: Pick<SaleEntry, "date" | "time" | "username" | "label" | "batch" | "price" | "ip" | "mac" | "validity">) {
+  return [e.date, e.time, e.username, e.label, e.batch, e.price, e.ip, e.mac, e.validity].join("-|-");
+}
+
 function exportCSV(entries: SaleEntry[], filename: string) {
   const header = ["#","Date","Heure","Utilisateur","Profil","Lot","Prix (FCFA)","IP","MAC","Validité"];
   const rows = entries.map((e, i) => [
@@ -76,6 +80,8 @@ export default function SellingReport() {
   const [confirmDeleteMonth, setConfirmDeleteMonth] = useState(false);
   const [deletingMonthScripts, setDeletingMonthScripts] = useState(false);
   const [purgedMonthFlash, setPurgedMonthFlash] = useState<string | null>(null);
+  const [presenceByKey, setPresenceByKey] = useState<Record<string, "mikrotik+local" | "local-db">>({});
+  const [presenceRefreshing, setPresenceRefreshing] = useState(false);
   const deferredSearch = useDeferredValue(search);
   const [applied,     setApplied]     = useState<{ day: string; month: string; year: string }>({
     day: ALL, month: String(now.getMonth() + 1), year: String(now.getFullYear()),
@@ -108,9 +114,6 @@ export default function SellingReport() {
       if (appliedYear)  params.set("year",  appliedYear);
       if (appliedMonth) params.set("month", appliedMonth);
       if (appliedDay)   params.set("day",   appliedDay);
-      // For month/year filters, request live presence markers from MikroTik
-      // while keeping local DB history intact.
-      if (appliedYear && appliedMonth) params.set("presence", "1");
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
@@ -120,11 +123,48 @@ export default function SellingReport() {
   });
 
   const entries = data ?? [];
+  const entriesWithPresence = useMemo(
+    () => entries.map((e) => {
+      const key = saleEntryKey(e);
+      return { ...e, source: presenceByKey[key] ?? e.source ?? "local-db" };
+    }),
+    [entries, presenceByKey],
+  );
+
+  useEffect(() => {
+    setPresenceByKey({});
+    if (!selectedRouterId || !appliedYear || !appliedMonth) return;
+    const controller = new AbortController();
+    const run = async () => {
+      setPresenceRefreshing(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("year", appliedYear);
+        params.set("month", appliedMonth);
+        if (appliedDay) params.set("day", appliedDay);
+        params.set("presence", "1");
+        const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`, { signal: controller.signal });
+        if (!res.ok) return;
+        const liveEntries = await res.json() as SaleEntry[];
+        const next: Record<string, "mikrotik+local" | "local-db"> = {};
+        for (const e of liveEntries) {
+          next[saleEntryKey(e)] = e.source === "mikrotik+local" ? "mikrotik+local" : "local-db";
+        }
+        setPresenceByKey(next);
+      } catch {
+        // Keep DB view even if MikroTik presence refresh fails.
+      } finally {
+        setPresenceRefreshing(false);
+      }
+    };
+    void run();
+    return () => controller.abort();
+  }, [selectedRouterId, appliedYear, appliedMonth, appliedDay]);
 
   const filtered = useMemo(() => {
-    if (!deferredSearch.trim()) return entries;
+    if (!deferredSearch.trim()) return entriesWithPresence;
     const q = foldText(deferredSearch);
-    return entries.filter(
+    return entriesWithPresence.filter(
       (e) =>
         foldText(e.username).includes(q) ||
         foldText(e.label).includes(q) ||
@@ -132,7 +172,7 @@ export default function SellingReport() {
         foldText(e.date).includes(q) ||
         foldText(e.vendorName ?? "").includes(q),
     );
-  }, [entries, deferredSearch]);
+  }, [entriesWithPresence, deferredSearch]);
 
   const totalAmount = useMemo(() => filtered.reduce((s, e) => s + e.price, 0), [filtered]);
   const sourceCounts = useMemo(() => {
@@ -285,6 +325,9 @@ export default function SellingReport() {
             </CardTitle>
             <div className="flex items-center gap-2">
               {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+              {!isLoading && presenceRefreshing && (
+                <span className="text-[11px] text-gray-400">MAJ MikroTik...</span>
+              )}
               {!isLoading && (
                 <>
                   <span className="text-xs text-gray-500 tabular-nums">
