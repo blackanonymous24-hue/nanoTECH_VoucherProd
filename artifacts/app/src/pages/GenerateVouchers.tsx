@@ -270,8 +270,12 @@ export default function GenerateVouchers() {
   const coldFetchAttempted = useState(() => new Set<number>())[0];
 
   useEffect(() => {
+    if (selectedRouterId) {
+      // Re-allow auto-load flow on each router switch so loading UI stays consistent.
+      autoLoadAttempted.delete(selectedRouterId);
+    }
     setLastLot(loadLastLot(selectedRouterId));
-  }, [selectedRouterId]);
+  }, [selectedRouterId, autoLoadAttempted]);
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
   useEffect(() => {
@@ -310,11 +314,14 @@ export default function GenerateVouchers() {
   );
   const [localProfiles, setLocalProfiles] = useState<(typeof profiles)>([]);
   const localProfilesCacheKey = selectedRouterId ? `${PROFILES_CACHE_KEY}:${selectedRouterId}` : null;
-  const displayedProfiles = profiles.length > 0 ? profiles : localProfiles;
+  const displayedProfiles = localProfiles;
 
   const generateMutation = useGenerateVouchers();
 
   useEffect(() => {
+    // Hard reset on router switch to avoid showing stale profiles
+    // from a previously selected router for even a single render.
+    setLocalProfiles([]);
     setProfile("");
     setProfilePopoverOpen(false);
   }, [selectedRouterId]);
@@ -671,6 +678,8 @@ export default function GenerateVouchers() {
         saveLastLot(nextLot);
       } else {
         clearLastLot(lot.routerId);
+        autoLoadAttempted.delete(lot.routerId);
+        setLoadingLastLot(true);
         setLastLot(null);
       }
       toast({
@@ -1168,8 +1177,8 @@ export default function GenerateVouchers() {
             <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
               <div className="w-full max-w-sm space-y-2 px-6">
                 <Skeleton className="h-5 w-40 mx-auto" />
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-5/6 mx-auto" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
               </div>
             </div>
           ) : (

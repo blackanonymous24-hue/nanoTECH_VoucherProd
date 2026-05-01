@@ -321,9 +321,9 @@ export default function Forfaits() {
       {selectedRouterId && loadingProfiles && displayedProfiles.length === 0 && (
         <Card>
           <CardContent className="py-6 space-y-3">
-            <Skeleton className="h-4 w-36" />
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-5 w-40 mx-auto" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
           </CardContent>
         </Card>
       )}

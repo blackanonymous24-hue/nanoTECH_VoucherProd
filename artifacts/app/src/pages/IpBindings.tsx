@@ -814,10 +814,9 @@ export default function IpBindings() {
       {selectedRouterId && isInitialLoading && (
         <Card>
           <CardContent className="py-6 space-y-3">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-5/6" />
+            <Skeleton className="h-5 w-40 mx-auto" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
           </CardContent>
         </Card>
       )}

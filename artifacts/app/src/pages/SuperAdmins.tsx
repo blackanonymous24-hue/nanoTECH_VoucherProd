@@ -317,9 +317,9 @@ export default function SuperAdmins() {
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="p-6 space-y-3">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-11/12" />
+            <Skeleton className="h-5 w-40 mx-auto" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
           </div>
         ) : filteredAdmins.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-500">

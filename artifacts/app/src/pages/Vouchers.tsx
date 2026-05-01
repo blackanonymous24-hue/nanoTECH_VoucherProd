@@ -1557,7 +1557,7 @@ export default function Vouchers() {
                   {isLoading ? (
                     <div className="py-12 px-4 text-center flex flex-col items-center justify-center">
                       <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
-                      <p className="text-sm font-medium text-gray-400">Chargement du dernier lot…</p>
+                      <p className="text-sm font-medium text-gray-400">Chargement depuis MikroTik…</p>
                     </div>
                   ) : filteredTotal === 0 ? (
                     <div className="py-8 text-center text-gray-400 text-sm">
@@ -1728,7 +1728,7 @@ export default function Vouchers() {
                 <Card>
                   <CardContent className="py-12 px-4 text-center flex flex-col items-center justify-center">
                     <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
-                    <p className="text-sm font-medium text-gray-400">Chargement du dernier lot…</p>
+                    <p className="text-sm font-medium text-gray-400">Chargement depuis MikroTik…</p>
                   </CardContent>
                 </Card>
               ) : lots.length === 0 ? (
