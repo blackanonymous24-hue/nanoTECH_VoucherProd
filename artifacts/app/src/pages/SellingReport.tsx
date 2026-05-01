@@ -4,14 +4,25 @@ import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  FileDown, Search, RotateCcw, Receipt, Loader2, AlertCircle,
+  FileDown, Search, RotateCcw, Receipt, Loader2, AlertCircle, Trash2, RefreshCw,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -54,12 +65,16 @@ function exportCSV(entries: SaleEntry[], filename: string) {
 
 export default function SellingReport() {
   const { selectedRouterId } = useRouterContext();
+  const { toast } = useToast();
   const now = new Date();
 
   const [filterDay,   setFilterDay]   = useState<string>(ALL);
   const [filterMonth, setFilterMonth] = useState<string>(String(now.getMonth() + 1));
   const [filterYear,  setFilterYear]  = useState<string>(String(now.getFullYear()));
   const [search,      setSearch]      = useState("");
+  const [confirmDeleteMonth, setConfirmDeleteMonth] = useState(false);
+  const [deletingMonthScripts, setDeletingMonthScripts] = useState(false);
+  const [purgedMonthFlash, setPurgedMonthFlash] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
   const [applied,     setApplied]     = useState<{ day: string; month: string; year: string }>({
     day: ALL, month: String(now.getMonth() + 1), year: String(now.getFullYear()),
@@ -162,6 +177,58 @@ export default function SellingReport() {
   }, [isAll, appliedDay, appliedMonth, appliedYear]);
 
   const csvFilename = `rapport-ventes-${reportLabel.replace(/\s+/g, "-")}.csv`;
+  const canDeleteSelectedMonth = applied.month !== ALL && applied.year !== ALL;
+  const monthYearAreApplied =
+    applied.month === filterMonth &&
+    applied.year === filterYear &&
+    applied.day === filterDay;
+  const canDeleteMonthScripts = canDeleteSelectedMonth && monthYearAreApplied;
+
+  const handleDeleteSelectedMonthScripts = async () => {
+    if (!selectedRouterId || !canDeleteSelectedMonth || deletingMonthScripts) return;
+    setDeletingMonthScripts(true);
+    try {
+      const year = Number(applied.year);
+      const month = Number(applied.month);
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report/scripts?year=${year}&month=${month}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({})) as {
+        error?: string;
+        removed?: number;
+        failed?: number;
+        scanned?: number;
+        cacheRowsDeleted?: number;
+      };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      toast({
+        title: "Scripts du mois supprimés",
+        description: `${Number(data.removed ?? 0)} script(s) MikroTik supprimé(s), ${Number(data.cacheRowsDeleted ?? 0)} ligne(s) cache purgée(s).`,
+      });
+      const monthLabel = MONTH_NAMES_FR[Math.max(0, Math.min(11, month - 1))] ?? `Mois ${month}`;
+      setPurgedMonthFlash(`Mois de ${monthLabel} purgé`);
+      setTimeout(() => setPurgedMonthFlash(null), 2500);
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      const nextMonthStr = String(nextMonth);
+      const nextYearStr = String(nextYear);
+      // Auto-switch to next month and immediately apply the filter.
+      setFilterDay(ALL);
+      setFilterMonth(nextMonthStr);
+      setFilterYear(nextYearStr);
+      setApplied({ day: ALL, month: nextMonthStr, year: nextYearStr });
+      setSearch("");
+      setConfirmDeleteMonth(false);
+    } catch (err) {
+      toast({
+        title: "Suppression échouée",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingMonthScripts(false);
+    }
+  };
 
   if (!selectedRouterId) {
     return (
@@ -187,6 +254,11 @@ export default function SellingReport() {
               <Badge variant="outline" className="text-xs font-normal">
                 {reportLabel}
               </Badge>
+              {purgedMonthFlash && (
+                <Badge variant="outline" className="text-xs font-normal text-emerald-700 border-emerald-300 bg-emerald-50">
+                  {purgedMonthFlash}
+                </Badge>
+              )}
             </CardTitle>
             <div className="flex items-center gap-2">
               {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
@@ -263,6 +335,21 @@ export default function SellingReport() {
               disabled={filtered.length === 0}
             >
               <FileDown className="h-3.5 w-3.5" /> CSV
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+              onClick={() => setConfirmDeleteMonth(true)}
+              disabled={!canDeleteMonthScripts || deletingMonthScripts}
+              title={
+                canDeleteMonthScripts
+                  ? "Supprimer les scripts du mois sélectionné sur MikroTik"
+                  : "Sélectionnez un mois + une année puis cliquez sur Filtrer"
+              }
+            >
+              {deletingMonthScripts ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Scripts du mois
             </Button>
           </div>
 
@@ -342,6 +429,31 @@ export default function SellingReport() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={confirmDeleteMonth} onOpenChange={(o) => { if (!o && !deletingMonthScripts) setConfirmDeleteMonth(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer les scripts de vente du mois sélectionné ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action supprime directement dans MikroTik les scripts MikHmon de{" "}
+              <strong>{reportLabel}</strong>, puis purge les entrées correspondantes du cache local.
+              Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingMonthScripts}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => void handleDeleteSelectedMonthScripts()}
+              disabled={deletingMonthScripts}
+            >
+              {deletingMonthScripts
+                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression...</span>
+                : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

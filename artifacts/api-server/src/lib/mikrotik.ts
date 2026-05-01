@@ -2075,6 +2075,51 @@ export async function purgeOldMikhmonScripts(
   }, 120_000);
 }
 
+/**
+ * Delete MikHmon sales scripts for an exact month (year + month).
+ * Only scripts whose parsed date belongs to the requested month are removed.
+ */
+export async function purgeMikhmonScriptsForMonth(
+  conn: RouterConnection,
+  year: number,
+  month: number, // 1-12
+): Promise<{
+  removed: number;
+  failed: number;
+  scanned: number;
+}> {
+  return withRouter(conn, async (api) => {
+    const all = await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []);
+
+    const targetIds: string[] = [];
+    for (const s of all) {
+      const sname = (s["name"] as string) ?? "";
+      const sid = (s[".id"] as string | undefined) ?? "";
+      if (!sid) continue;
+      const parts = sname.split("-|-");
+      if (parts.length < 3) continue;
+      const dt = parseMikhmonDate(parts[0], parts[1]);
+      if (!dt) continue;
+      if (dt.getFullYear() === year && dt.getMonth() + 1 === month) {
+        targetIds.push(sid);
+      }
+    }
+
+    let removed = 0;
+    let failed = 0;
+    for (const id of targetIds) {
+      try {
+        await api.write("/system/script/remove", [`=.id=${id}`]);
+        removed++;
+      } catch {
+        failed++;
+      }
+    }
+
+    return { removed, failed, scanned: targetIds.length };
+  }, 120_000);
+}
+
 // ─── Character sets (MikHMon-compatible) ─────────────────────────────────────
 export type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
 

@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -2433,6 +2433,63 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
     res.json(entries);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Erreur base de données" });
+  }
+});
+
+/**
+ * DELETE /routers/:id/sales-report/scripts?year=YYYY&month=M
+ * Removes MikHMon sales scripts for the selected month directly from MikroTik
+ * and purges corresponding rows from local script_sales cache.
+ */
+router.delete("/routers/:id/sales-report/scripts", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const yearRaw = req.query.year ? parseInt(req.query.year as string, 10) : NaN;
+  const monthRaw = req.query.month ? parseInt(req.query.month as string, 10) : NaN;
+  if (!Number.isFinite(yearRaw) || !Number.isFinite(monthRaw) || monthRaw < 1 || monthRaw > 12) {
+    res.status(400).json({ error: "Paramètres year/month invalides" });
+    return;
+  }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  try {
+    const result = await withRouterLock(id, async () => {
+      const purge = await purgeMikhmonScriptsForMonth(conn, yearRaw, monthRaw);
+      const monthPadded = String(monthRaw).padStart(2, "0");
+      const fromUtc = `${yearRaw}-${monthPadded}-01T00:00:00.000Z`;
+      const nextYear = monthRaw === 12 ? yearRaw + 1 : yearRaw;
+      const nextMonth = monthRaw === 12 ? 1 : monthRaw + 1;
+      const nextMonthPadded = String(nextMonth).padStart(2, "0");
+      const toUtc = `${nextYear}-${nextMonthPadded}-01T00:00:00.000Z`;
+
+      const deletedRows = await db
+        .delete(scriptSalesTable)
+        .where(and(
+          eq(scriptSalesTable.routerId, id),
+          gte(scriptSalesTable.saleDate, fromUtc),
+          lt(scriptSalesTable.saleDate, toUtc),
+        ))
+        .returning({ id: scriptSalesTable.id });
+
+      await syncScriptCache(id);
+      return { purge, cacheRowsDeleted: deletedRows.length };
+    });
+
+    res.json({
+      ok: true,
+      year: yearRaw,
+      month: monthRaw,
+      removed: result.purge.removed,
+      failed: result.purge.failed,
+      scanned: result.purge.scanned,
+      cacheRowsDeleted: result.cacheRowsDeleted,
+    });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
 });
 
