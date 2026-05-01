@@ -541,14 +541,9 @@ export default function Vouchers() {
   const handleDeleteSelected = async () => {
     if (!activeRouterId || selectedUsernames.size === 0) return;
     const usernames = [...selectedUsernames];
-    const count = usernames.length;
     setConfirmDeleteSelected(false);
     setSelectedUsernames(new Set());
     setIsDeletingSelected(false);
-    toast({
-      title: `${count} suppression(s) lancée(s)`,
-      description: "Synchronisation en arrière-plan...",
-    });
     void (async () => {
     try {
       const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users`, {
@@ -607,10 +602,6 @@ export default function Vouchers() {
     setDeletingLotName(lotName);
     setDeletingLot(null);
     if (filterComment === lotName) setFilterComment("all");
-    toast({
-      title: `Suppression du lot « ${lotName} » lancée`,
-      description: "Synchronisation en arrière-plan...",
-    });
     void (async () => {
     try {
       const res = await fetch(
@@ -1701,7 +1692,7 @@ export default function Vouchers() {
                             >
                               Tous les forfaits
                             </button>
-                            {[...new Set(lots.map((l) => l.profile).filter(Boolean) as string[])].sort().map((p) => (
+                            {sortedProfiles.map((profile) => profile.name).map((p) => (
                               <button
                                 key={p}
                                 className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterProfile === p ? "font-semibold text-blue-600" : ""}`}
