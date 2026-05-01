@@ -114,8 +114,6 @@ export default function HotspotCookies() {
 
   const handleDeleteCookie = async (cookie: HotspotCookie) => {
     if (!selectedRouterId || !cookie.id || busyCookieId || clearingAll) return;
-    const ok = window.confirm(`Supprimer ce cookie hotspot ?\n\nUtilisateur: ${cookie.user || "—"}\nMAC: ${cookie.macAddress || "—"}`);
-    if (!ok) return;
     setBusyCookieId(cookie.id);
     try {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/hotspot-cookies/${encodeURIComponent(cookie.id)}`, {
