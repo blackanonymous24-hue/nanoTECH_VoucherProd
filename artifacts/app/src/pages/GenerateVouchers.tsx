@@ -267,7 +267,6 @@ export default function GenerateVouchers() {
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
-  const coldFetchAttempted = useState(() => new Set<number>())[0];
 
   useEffect(() => {
     if (selectedRouterId) {
@@ -351,39 +350,6 @@ export default function GenerateVouchers() {
     }
   }, [localProfilesCacheKey, selectedRouterId, queryClient]);
 
-  // Cold start fallback: if no profile cache exists at all, fetch once from MikroTik,
-  // then seed all caches so subsequent opens are instant.
-  useEffect(() => {
-    if (!selectedRouterId) return;
-    if (displayedProfiles.length > 0) return;
-    if (coldFetchAttempted.has(selectedRouterId)) return;
-    coldFetchAttempted.add(selectedRouterId);
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
-        if (!res.ok || cancelled) return;
-        const freshProfiles = await res.json();
-        if (cancelled || !Array.isArray(freshProfiles)) return;
-        setLocalProfiles(freshProfiles);
-        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
-        queryClient.setQueryData(profileKey, freshProfiles);
-        queryClient.invalidateQueries({ queryKey: profileKey });
-        try {
-          localStorage.setItem(`${PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
-          localStorage.setItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
-        } catch {
-          // ignore storage quota/private mode errors
-        }
-      } catch {
-        // keep empty state if first fetch fails
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedRouterId, displayedProfiles.length, queryClient, coldFetchAttempted]);
-
   useEffect(() => {
     if (!localProfilesCacheKey || profiles.length === 0) return;
     try {
@@ -392,6 +358,36 @@ export default function GenerateVouchers() {
       // ignore storage quota/private mode errors
     }
   }, [localProfilesCacheKey, profiles]);
+
+  // Always refresh profiles when router changes so Generate uses
+  // the exact profile list of the currently selected router.
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
+        if (!res.ok || cancelled) return;
+        const freshProfiles = await res.json();
+        if (!Array.isArray(freshProfiles) || cancelled) return;
+        setLocalProfiles(freshProfiles);
+        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
+        queryClient.setQueryData(profileKey, freshProfiles);
+        queryClient.invalidateQueries({ queryKey: profileKey });
+        try {
+          localStorage.setItem(`${PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
+          localStorage.setItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
+        } catch {
+          // ignore storage errors
+        }
+      } catch {
+        // keep local cache fallback if live refresh fails
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRouterId, queryClient]);
 
   // Auto-load the most recent lot from API when localStorage is empty
   useEffect(() => {
