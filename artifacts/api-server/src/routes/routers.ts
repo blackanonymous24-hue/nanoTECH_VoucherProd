@@ -109,6 +109,16 @@ router.post("/routers/:id/page-focus", async (req, res): Promise<void> => {
 router.use("/routers/:id", (req, res, next) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  // Liste / snapshot profils : nécessaire depuis Générer, Vouchers, ticket-lookup (focus « vouchers »)
+  // alors que pageForRouterEndpoint("/profiles") exige « forfaits » → 429 et UI « aucun profil ».
+  const pathname = (req.originalUrl ?? req.url ?? "").split("?")[0];
+  if (
+    req.method === "GET" &&
+    /\/routers\/\d+\/profiles(\/db)?$/.test(pathname)
+  ) {
+    next();
+    return;
+  }
   const page = pageForRouterEndpoint(req.path);
   if (!page) { next(); return; }
   if (!enforcePageFocus(res, id, page)) return;
