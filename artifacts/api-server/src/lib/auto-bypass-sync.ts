@@ -2,6 +2,7 @@ import { db, routersTable } from "@workspace/db";
 import { listHotspotUsers, listIpBindings, listProfiles, updateIpBinding, upsertIpBindingQueue, type RouterConnection } from "./mikrotik.js";
 import { parseRouterDurationToMs } from "./router-duration.js";
 import { logger } from "./logger.js";
+import { isRouterLocked } from "./router-lock.js";
 
 const DEFAULT_INTERVAL_MS = 30_000;
 let timer: NodeJS.Timeout | null = null;
@@ -213,6 +214,9 @@ export function startAutoBypassSync() {
     try {
       const routers = await db.select().from(routersTable);
       for (const r of routers) {
+        // Même logique que vendor / usage sync : pas de concurrence API pendant génération
+        // ou verrou résiduel — la page Bypass reste réactive sans « bypass-lock » dédié.
+        if (isRouterLocked(r.id)) continue;
         const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
         try {
           await syncRouter(r.id, conn);

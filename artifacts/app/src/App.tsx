@@ -105,57 +105,37 @@ function AppRoutes() {
   useEffect(() => {
     if (!isAuthenticated) return;
     const normalized = location.toLowerCase();
-    const focus = (() => {
-      if (normalized.startsWith("/ip-bindings") || normalized.startsWith("/dhcp-leases")) return "bypass";
-      if (normalized.startsWith("/sessions")) return "sessions";
-      if (normalized.startsWith("/vouchers") || normalized.startsWith("/generate") || normalized.startsWith("/ticket-lookup")) return "vouchers";
-      if (normalized.startsWith("/forfaits")) return "forfaits";
-      if (normalized.startsWith("/reports") || normalized.startsWith("/sales/")) return "reports";
-      if (normalized.startsWith("/maintenance")) return "maintenance";
-      if (normalized === "/" || normalized.startsWith("/admin") || normalized.startsWith("/dashboard")) return "dashboard";
-      // Any other page still claims router focus (Mikhmon-style single active page).
-      return "generic-router-page";
-    })();
+    const isDashboardish =
+      normalized === "/" ||
+      normalized.startsWith("/admin") ||
+      normalized.startsWith("/dashboard");
     const routerRaw = localStorage.getItem("vouchernet_router_id");
     const routerId = routerRaw ? Number.parseInt(routerRaw, 10) : NaN;
-    if (!Number.isFinite(routerId)) return;
-    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-    const beat = () =>
-      fetch(`${base}/api/routers/${routerId}/page-focus`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ page: focus }),
-      }).catch(() => undefined);
-    void beat();
-    const t = setInterval(() => { void beat(); }, 5000);
+    if (!Number.isFinite(routerId) || !isDashboardish) return;
 
     // Pre-warm dashboard hotspot logs cache so the first paint can be instant.
     // Must match Dashboard.tsx `useListRouterLogs` params + query key.
-    if (focus === "dashboard") {
-      const LS_KEY = "vouchernet-dashboard-logs-cache:v2";
-      const dashLogsParams = {
-        limit: 120,
-        topics: "hotspot",
-        live: "1" as const,
-        hotspotUsers: "1" as const,
-      };
-      const qk = getListRouterLogsQueryKey(routerId, dashLogsParams);
-      void (async () => {
+    const LS_KEY = "vouchernet-dashboard-logs-cache:v2";
+    const dashLogsParams = {
+      limit: 120,
+      topics: "hotspot",
+      live: "1" as const,
+      hotspotUsers: "1" as const,
+    };
+    const qk = getListRouterLogsQueryKey(routerId, dashLogsParams);
+    void (async () => {
+      try {
+        const logs = await listRouterLogs(routerId, dashLogsParams);
+        qc.setQueryData(qk, logs);
         try {
-          const logs = await listRouterLogs(routerId, dashLogsParams);
-          qc.setQueryData(qk, logs);
-          try {
-            localStorage.setItem(`${LS_KEY}:${routerId}`, JSON.stringify({ ts: Date.now(), logs }));
-          } catch {
-            // ignore quota / private mode
-          }
+          localStorage.setItem(`${LS_KEY}:${routerId}`, JSON.stringify({ ts: Date.now(), logs }));
         } catch {
-          // ignore — dashboard will still fetch normally
+          // ignore quota / private mode
         }
-      })();
-    }
-
-    return () => clearInterval(t);
+      } catch {
+        // ignore — dashboard will still fetch normally
+      }
+    })();
   }, [isAuthenticated, location, qc]);
 
   if (location.startsWith("/vendor-portal")) {

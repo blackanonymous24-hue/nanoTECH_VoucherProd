@@ -54,7 +54,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -180,6 +179,7 @@ export default function Vouchers() {
   const [isResetting, setIsResetting] = useState(false);
   const [confirmDeleteEditUser, setConfirmDeleteEditUser] = useState<HotspotUser | null>(null);
   const [isDeletingEditUser, setIsDeletingEditUser] = useState(false);
+  const [isTogglingEditUserDisabled, setIsTogglingEditUserDisabled] = useState(false);
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
@@ -507,6 +507,31 @@ export default function Vouchers() {
       toast({ title: "Erreur", description: String(err), variant: "destructive" });
     } finally {
       setIsTogglingSelected(false);
+    }
+  };
+
+  const handleToggleEditUserDisabled = async () => {
+    if (!activeRouterId || !editingUser || isTogglingEditUserDisabled || isSavingRename) return;
+    const u = editingUser.username;
+    const enable = !!editingUser.disabled;
+    const snapshot = optimisticSetDisabled(activeRouterId, new Set([u]), !enable);
+    setIsTogglingEditUserDisabled(true);
+    try {
+      const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routerId: activeRouterId, usernames: [u], enable }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setEditingUser((prev) => (prev && prev.username === u ? { ...prev, disabled: !enable } : prev));
+      toast({ title: enable ? "Utilisateur réactivé" : "Utilisateur désactivé", description: u });
+      void refetchLots();
+      void refetchUsers();
+    } catch (err) {
+      for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
+      toast({ title: "Erreur", description: String(err), variant: "destructive" });
+    } finally {
+      setIsTogglingEditUserDisabled(false);
     }
   };
 
@@ -1847,15 +1872,12 @@ export default function Vouchers() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Edit user dialog — thème app + actions icônes (ordre : Fermer / Enregistrer / Supprimer / Réinitialiser) */}
-      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename) setEditingUser(null); }}>
+      {/* Edit user dialog — thème app + actions icônes (ordre : Fermer / Enregistrer / Activer·Désactiver / Supprimer / Réinitialiser) */}
+      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename && !isTogglingEditUserDisabled) setEditingUser(null); }}>
         <DialogContent className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:hidden">
           <div className="space-y-1.5 border-b bg-muted/30 px-6 py-4">
             <DialogHeader className="space-y-1.5 text-left">
-              <DialogTitle>Modifier le voucher</DialogTitle>
-              <DialogDescription>
-                Identifiant, mot de passe, forfait et liaison bypass MAC. Les changements sont appliqués sur MikroTik après enregistrement.
-              </DialogDescription>
+              <DialogTitle>{"Modifier l'utilisateur"}</DialogTitle>
             </DialogHeader>
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
               <Tooltip>
@@ -1866,7 +1888,7 @@ export default function Vouchers() {
                     variant="outline"
                     className="shrink-0"
                     onClick={() => setEditingUser(null)}
-                    disabled={isSavingRename}
+                    disabled={isSavingRename || isTogglingEditUserDisabled}
                     aria-label="Fermer"
                   >
                     <X className="h-4 w-4" />
@@ -1884,6 +1906,7 @@ export default function Vouchers() {
                     onClick={() => void handleRenameUser()}
                     disabled={
                       isSavingRename ||
+                      isTogglingEditUserDisabled ||
                       !editUsername.trim() ||
                       !editPassword.trim() ||
                       !editProfile.trim() ||
@@ -1902,8 +1925,34 @@ export default function Vouchers() {
                     type="button"
                     size="icon"
                     variant="outline"
+                    className={
+                      editingUser?.disabled
+                        ? "shrink-0 text-green-600 hover:bg-green-50 hover:text-green-800 dark:hover:bg-green-950/40"
+                        : "shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-800 dark:hover:bg-orange-950/40"
+                    }
+                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || !activeRouterId}
+                    onClick={() => void handleToggleEditUserDisabled()}
+                    aria-label={editingUser?.disabled ? "Activer" : "Désactiver"}
+                  >
+                    {isTogglingEditUserDisabled ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : editingUser?.disabled ? (
+                      <Power className="h-4 w-4" />
+                    ) : (
+                      <PowerOff className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{editingUser?.disabled ? "Activer" : "Désactiver"}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
                     className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    disabled={isSavingRename || !editingUser}
+                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
                     onClick={() => {
                       if (!editingUser) return;
                       const u = editingUser;
@@ -1924,7 +1973,7 @@ export default function Vouchers() {
                     size="icon"
                     variant="outline"
                     className="shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-700 dark:hover:bg-orange-950/40"
-                    disabled={isSavingRename || !editingUser}
+                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
                     onClick={() => {
                       if (!editingUser) return;
                       const u = editingUser;
@@ -1957,7 +2006,7 @@ export default function Vouchers() {
                 placeholder="Code ou nom d'utilisateur"
                 className="font-mono"
                 autoFocus
-                disabled={isSavingRename}
+                disabled={isSavingRename || isTogglingEditUserDisabled}
               />
             </div>
             <div className="space-y-1.5">
@@ -1969,7 +2018,7 @@ export default function Vouchers() {
                   value={editPassword}
                   onChange={(e) => setEditPassword(e.target.value)}
                   className="font-mono pr-10"
-                  disabled={isSavingRename}
+                  disabled={isSavingRename || isTogglingEditUserDisabled}
                 />
                 <Button
                   type="button"
@@ -1977,7 +2026,7 @@ export default function Vouchers() {
                   size="icon"
                   className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 shrink-0"
                   onClick={() => setEditShowPassword((v) => !v)}
-                  disabled={isSavingRename}
+                  disabled={isSavingRename || isTogglingEditUserDisabled}
                   aria-label={editShowPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                 >
                   {editShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -1995,7 +2044,7 @@ export default function Vouchers() {
                 )}
                 value={editProfile}
                 onChange={(e) => setEditProfile(e.target.value)}
-                disabled={isSavingRename}
+                disabled={isSavingRename || isTogglingEditUserDisabled}
               >
                 <option value="">Choisir un forfait</option>
                 {sortedProfiles.map((p) => (
@@ -2010,7 +2059,7 @@ export default function Vouchers() {
                 className="h-4 w-4 rounded border-input"
                 checked={linkBypass}
                 onChange={(e) => setLinkBypass(e.target.checked)}
-                disabled={isSavingRename}
+                disabled={isSavingRename || isTogglingEditUserDisabled}
               />
               <Label htmlFor="link-bypass" className="text-sm font-normal text-muted-foreground">
                 Lier un bypass MAC automatique
@@ -2031,7 +2080,7 @@ export default function Vouchers() {
                       if (match?.macAddress) setEditBypassMac(match.macAddress);
                     }}
                     placeholder="Filtrer par commentaire du bypass…"
-                    disabled={isSavingRename}
+                    disabled={isSavingRename || isTogglingEditUserDisabled}
                   />
                   <datalist id="bypass-comment-options">
                     {bypassBindings
@@ -2052,7 +2101,7 @@ export default function Vouchers() {
                     onChange={(e) => setEditBypassMac(e.target.value)}
                     placeholder="AA:BB:CC:DD:EE:FF"
                     className="font-mono"
-                    disabled={isSavingRename}
+                    disabled={isSavingRename || isTogglingEditUserDisabled}
                   />
                 </div>
               </div>

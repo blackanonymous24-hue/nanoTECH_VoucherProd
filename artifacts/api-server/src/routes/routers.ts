@@ -15,63 +15,7 @@ import { logger } from "../lib/logger.js";
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
 const CREDITS_PER_EXTRA_ROUTER = 10;
-const PAGE_FOCUS_TTL_MS = 15_000;
-const pageFocusByRouter = new Map<number, { page: string; exp: number }>();
 const queueReconcileInFlight = new Set<string>();
-
-function setPageFocus(routerId: number, page: string) {
-  pageFocusByRouter.set(routerId, { page, exp: Date.now() + PAGE_FOCUS_TTL_MS });
-}
-
-function getCurrentPageFocus(routerId: number): string | null {
-  const hit = pageFocusByRouter.get(routerId);
-  if (!hit) return null;
-  if (Date.now() > hit.exp) {
-    pageFocusByRouter.delete(routerId);
-    return null;
-  }
-  return hit.page;
-}
-
-function enforcePageFocus(res: { status: (code: number) => { json: (body: unknown) => void } }, routerId: number, page: string): boolean {
-  const active = getCurrentPageFocus(routerId);
-  if (active && active !== page) {
-    res.status(429).json({ error: `Routeur occupé par la page active: ${active}` });
-    return false;
-  }
-  setPageFocus(routerId, page);
-  return true;
-}
-
-function pageForRouterEndpoint(path: string): string | null {
-  if (path === "/page-focus") return null;
-  if (
-    path.startsWith("/ip-bindings") ||
-    path.startsWith("/dhcp-leases") ||
-    path.startsWith("/hotspot-servers")
-  ) return "bypass";
-  if (
-    path.startsWith("/users") ||
-    path.startsWith("/lots")
-  ) return "vouchers";
-  if (path.startsWith("/sessions")) return "sessions";
-  if (
-    path.startsWith("/dashboard-priority") ||
-    path.startsWith("/traffic") ||
-    path.startsWith("/logs") ||
-    path.startsWith("/interfaces")
-  ) return "dashboard";
-  if (
-    path.startsWith("/profiles") ||
-    path.startsWith("/pools")
-  ) return "forfaits";
-  if (path.startsWith("/sales-report") || path.startsWith("/profile-stock")) return "reports";
-  if (path.startsWith("/sync-status")) return "maintenance";
-  if (path.startsWith("/info") || path.startsWith("/ping") || path.startsWith("/bootstrap")) return "dashboard";
-  // Any unclassified /routers/:id endpoint is considered "generic-router-page"
-  // and still participates in focus arbitration.
-  return "generic-router-page";
-}
 
 interface ProfileListCache {
   profiles: Awaited<ReturnType<typeof listProfiles>>;
@@ -94,36 +38,6 @@ function setProfileCache(routerId: number, profiles: Awaited<ReturnType<typeof l
 function invalidateProfileListCache(routerId: number) {
   profileListCache.delete(routerId);
 }
-
-router.post("/routers/:id/page-focus", async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  const page = typeof (req.body as { page?: unknown })?.page === "string"
-    ? ((req.body as { page: string }).page || "").trim().toLowerCase()
-    : "";
-  if (!page) { res.status(400).json({ error: "Page requise" }); return; }
-  setPageFocus(id, page);
-  res.json({ ok: true, page, ttlMs: PAGE_FOCUS_TTL_MS });
-});
-
-router.use("/routers/:id", (req, res, next) => {
-  const id = parseInt(req.params.id as string, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  // Liste / snapshot profils : nécessaire depuis Générer, Vouchers, ticket-lookup (focus « vouchers »)
-  // alors que pageForRouterEndpoint("/profiles") exige « forfaits » → 429 et UI « aucun profil ».
-  const pathname = (req.originalUrl ?? req.url ?? "").split("?")[0];
-  if (
-    req.method === "GET" &&
-    /\/routers\/\d+\/profiles(\/db)?$/.test(pathname)
-  ) {
-    next();
-    return;
-  }
-  const page = pageForRouterEndpoint(req.path);
-  if (!page) { next(); return; }
-  if (!enforcePageFocus(res, id, page)) return;
-  next();
-});
 
 async function fetchProfilesWithCache(routerId: number, conn: RouterConnection) {
   const inFlight = profileListInFlight.get(routerId);
@@ -2145,7 +2059,6 @@ router.get("/routers/:id/dashboard-priority", async (req, res): Promise<void> =>
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  if (!enforcePageFocus(res, id, "dashboard")) return;
   try {
     const snapshot = await buildDashboardPrioritySnapshot(id);
     res.json(snapshot);
@@ -2304,7 +2217,6 @@ router.get("/routers/:id/dashboard-priority/stream", async (req, res): Promise<v
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  if (!enforcePageFocus(res, id, "dashboard")) return;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -2466,7 +2378,6 @@ router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
 router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  if (!enforcePageFocus(res, id, "dashboard")) return;
 
   const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : "";
   const live = req.query.live === "1";
@@ -2493,7 +2404,6 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  if (!enforcePageFocus(res, id, "dashboard")) return;
 
   const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : 50;
   const topics = (req.query.topics as string | undefined) ?? "";
