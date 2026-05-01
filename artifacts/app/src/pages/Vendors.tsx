@@ -427,7 +427,7 @@ export default function Vendors() {
   };
 
   const handleDelete = async () => {
-    if (!deleteVendorId) return;
+    if (!deleteVendorId || deleteMutation.isPending) return;
     try {
       await deleteMutation.mutateAsync({ id: deleteVendorId });
       invalidate();
@@ -687,8 +687,9 @@ export default function Vendors() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="text-red-500 hover:text-red-600 hover:bg-red-50 border-red-200"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                         onClick={() => setDeleteVendorId(vendor.id)}
+                        disabled={deleteMutation.isPending}
                         title="Supprimer"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -747,7 +748,7 @@ export default function Vendors() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteVendorId} onOpenChange={(o) => { if (!o) setDeleteVendorId(null); }}>
+      <AlertDialog open={!!deleteVendorId} onOpenChange={(o) => { if (!o && !deleteMutation.isPending) setDeleteVendorId(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer ce vendeur ?</AlertDialogTitle>
@@ -760,8 +761,11 @@ export default function Vendors() {
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
               onClick={handleDelete}
+              disabled={deleteMutation.isPending}
             >
-              Supprimer
+              {deleteMutation.isPending
+                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression...</span>
+                : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

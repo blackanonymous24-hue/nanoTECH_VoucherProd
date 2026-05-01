@@ -233,7 +233,7 @@ export default function Forfaits() {
   }
 
   async function handleDelete() {
-    if (!deletingName || !selectedRouterId) return;
+    if (!deletingName || !selectedRouterId || deleting) return;
     setDeleting(true);
     try {
       const res = await fetch(
@@ -397,7 +397,8 @@ export default function Forfaits() {
                     {!isManager && (
                       <button
                         onClick={() => setDeletingName(p.name)}
-                        className="p-1 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"
+                        disabled={deleting}
+                        className="p-1 rounded hover:bg-red-50 text-red-600 hover:text-red-700 transition-colors"
                         title="Supprimer"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -411,7 +412,7 @@ export default function Forfaits() {
         </>
       )}
 
-      <AlertDialog open={deletingName !== null} onOpenChange={(open) => { if (!open) setDeletingName(null); }}>
+      <AlertDialog open={deletingName !== null} onOpenChange={(open) => { if (!open && !deleting) setDeletingName(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer le forfait ?</AlertDialogTitle>
@@ -426,7 +427,9 @@ export default function Forfaits() {
               disabled={deleting}
               className="bg-red-600 hover:bg-red-700 focus:ring-red-500"
             >
-              {deleting ? "Suppression…" : "Supprimer"}
+              {deleting
+                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression…</span>
+                : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

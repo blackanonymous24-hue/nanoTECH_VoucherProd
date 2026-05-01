@@ -26,7 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Activity, RefreshCw, Wifi, Users, Search, Trash2 } from "lucide-react";
+import { Activity, RefreshCw, Wifi, Users, Search, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
 
@@ -96,7 +96,7 @@ export default function Sessions() {
   const disconnectMutation = useDisconnectRouterSession();
 
   const handleDisconnect = async () => {
-    if (!disconnectUser || !selectedRouterId) return;
+    if (!disconnectUser || !selectedRouterId || disconnectMutation.isPending) return;
     try {
       const result = await disconnectMutation.mutateAsync({
         id: selectedRouterId,
@@ -236,9 +236,10 @@ export default function Sessions() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50 flex-shrink-0"
+                          className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
                           title={`Déconnecter ${s.user}`}
                           onClick={() => setDisconnectUser(s.user)}
+                          disabled={disconnectMutation.isPending}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -263,7 +264,7 @@ export default function Sessions() {
         </Card>
       )}
 
-      <AlertDialog open={!!disconnectUser} onOpenChange={(o) => { if (!o) setDisconnectUser(null); }}>
+      <AlertDialog open={!!disconnectUser} onOpenChange={(o) => { if (!o && !disconnectMutation.isPending) setDisconnectUser(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Déconnecter ce client ?</AlertDialogTitle>
@@ -278,7 +279,9 @@ export default function Sessions() {
               onClick={handleDisconnect}
               disabled={disconnectMutation.isPending}
             >
-              {disconnectMutation.isPending ? "Déconnexion..." : "Déconnecter"}
+              {disconnectMutation.isPending
+                ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Déconnexion...</span>
+                : "Déconnecter"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

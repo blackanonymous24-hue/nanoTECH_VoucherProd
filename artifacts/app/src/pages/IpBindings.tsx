@@ -718,7 +718,7 @@ export default function IpBindings() {
   };
 
   const handleDelete = async () => {
-    if (!confirmDelete || !selectedRouterId) return;
+    if (!confirmDelete || !selectedRouterId || deleting) return;
     setDeleting(true);
     try {
       const res = await fetch(
@@ -903,9 +903,10 @@ export default function IpBindings() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-7 w-7 p-0 text-gray-400 hover:text-red-600"
+                          className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                           title="Supprimer"
                           onClick={() => setConfirmDelete(b)}
+                          disabled={deleting}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -1242,7 +1243,9 @@ export default function IpBindings() {
               onClick={() => void handleDelete()}
               disabled={deleting}
             >
-              {deleting ? "Suppression…" : "Supprimer"}
+              {deleting
+                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression…</span>
+                : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

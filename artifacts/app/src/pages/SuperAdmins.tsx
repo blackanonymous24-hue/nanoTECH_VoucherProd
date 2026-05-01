@@ -94,6 +94,7 @@ export default function SuperAdmins() {
   const [routerTarget, setRouterTarget] = useState<AdminRow | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "expired">("all");
+  const [deletingAdminId, setDeletingAdminId] = useState<number | null>(null);
 
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
@@ -149,6 +150,18 @@ export default function SuperAdmins() {
     onSuccess: () => { refresh(); toast({ title: "Administrateur supprimé" }); },
     onError: handleErr,
   });
+
+  const handleDeleteAdmin = async (admin: AdminRow) => {
+    if (deletingAdminId !== null) return;
+    const ok = confirm(`Supprimer l'administrateur « ${admin.displayName || admin.login} » et toutes ses données ?`);
+    if (!ok) return;
+    setDeletingAdminId(admin.id);
+    try {
+      await deleteM.mutateAsync(admin.id);
+    } finally {
+      setDeletingAdminId(null);
+    }
+  };
 
   const forfaitM = useMutation({
     mutationFn: async (v: { id: number; duration: ForfaitChoice; mode: "set" | "extend" }) => {
@@ -420,13 +433,17 @@ export default function SuperAdmins() {
                             <Pencil className="h-4 w-4" />
                           </Button>
                           {!a.isSuperAdmin && (
-                            <Button size="icon" variant="ghost" title="Supprimer"
-                              onClick={() => {
-                                if (confirm(`Supprimer l'administrateur « ${a.displayName || a.login} » et toutes ses données ?`)) {
-                                  deleteM.mutate(a.id);
-                                }
-                              }}>
-                              <Trash2 className="h-4 w-4 text-red-600" />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              title="Supprimer"
+                              onClick={() => void handleDeleteAdmin(a)}
+                              disabled={deletingAdminId !== null}
+                            >
+                              {deletingAdminId === a.id
+                                ? <Loader2 className="h-4 w-4 animate-spin text-red-600" />
+                                : <Trash2 className="h-4 w-4 text-red-600" />}
                             </Button>
                           )}
                         </div>

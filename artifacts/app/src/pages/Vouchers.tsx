@@ -8,7 +8,6 @@ import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client
 import { queryClient } from "@/lib/queryClient";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -155,6 +154,7 @@ export default function Vouchers() {
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
   const [isDeletingLot, setIsDeletingLot] = useState(false);
+  const [deletingLotName, setDeletingLotName] = useState<string | null>(null);
   const [isDisabling, setIsDisabling] = useState(false);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
@@ -602,10 +602,11 @@ export default function Vouchers() {
 
   // ── Lot delete — removes users from MikroTik ────────────────────────────────
   const handleDeleteLot = async (lotName: string) => {
-    if (!activeRouterId) return;
+    if (!activeRouterId || isDeletingLot) return;
+    setIsDeletingLot(true);
+    setDeletingLotName(lotName);
     setDeletingLot(null);
     if (filterComment === lotName) setFilterComment("all");
-    setIsDeletingLot(false);
     toast({
       title: `Suppression du lot « ${lotName} » lancée`,
       description: "Synchronisation en arrière-plan...",
@@ -625,6 +626,8 @@ export default function Vouchers() {
     } catch (err) {
       toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
     } finally {
+        setIsDeletingLot(false);
+        setDeletingLotName(null);
         void refetch();
     }
     })();
@@ -1364,9 +1367,13 @@ export default function Vouchers() {
                       size="sm"
                       variant="ghost"
                       onClick={() => setDeletingLot(filterComment)}
+                      disabled={isDeletingLot}
                       className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
                     >
-                      <Trash2 className="h-3.5 w-3.5" /> Supprimer
+                      {isDeletingLot && deletingLotName === filterComment
+                        ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        : <Trash2 className="h-3.5 w-3.5" />}
+                      Supprimer
                     </Button>
                   </div>
                 </div>
@@ -1475,7 +1482,7 @@ export default function Vouchers() {
                         size="sm"
                         variant="ghost"
                         onClick={() => setConfirmDeleteSelected(true)}
-                        className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Supprimer ({selectedUsernames.size})
@@ -1512,7 +1519,7 @@ export default function Vouchers() {
               </AlertDialog>
 
               {/* Confirmation dialog — delete selected */}
-              <AlertDialog open={confirmDeleteSelected} onOpenChange={setConfirmDeleteSelected}>
+              <AlertDialog open={confirmDeleteSelected} onOpenChange={(open) => { if (!isDeletingSelected) setConfirmDeleteSelected(open); }}>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>Supprimer {selectedUsernames.size} voucher(s) ?</AlertDialogTitle>
@@ -1523,13 +1530,15 @@ export default function Vouchers() {
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Annuler</AlertDialogCancel>
+                    <AlertDialogCancel disabled={isDeletingSelected}>Annuler</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={handleDeleteSelected}
                       disabled={isDeletingSelected}
                       className="bg-red-600 hover:bg-red-700"
                     >
-                      {isDeletingSelected ? "Suppression..." : "Supprimer définitivement"}
+                      {isDeletingSelected
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Suppression...</>
+                        : "Supprimer définitivement"}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -1558,11 +1567,9 @@ export default function Vouchers() {
                 </div>
                 <CardContent className="p-0">
                   {isLoading ? (
-                    <div className="py-6 px-4 space-y-2">
-                      <Skeleton className="h-5 w-40 mx-auto" />
-                      <Skeleton className="h-10 w-full" />
-                      <Skeleton className="h-10 w-full" />
-                      <Skeleton className="h-10 w-11/12" />
+                    <div className="py-12 px-4 text-center flex flex-col items-center justify-center">
+                      <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
+                      <p className="text-sm font-medium text-gray-400">Chargement du dernier lot…</p>
                     </div>
                   ) : filteredTotal === 0 ? (
                     <div className="py-8 text-center text-gray-400 text-sm">
@@ -1731,10 +1738,9 @@ export default function Vouchers() {
 
               {lotsLoading ? (
                 <Card>
-                  <CardContent className="py-6 px-4 space-y-2">
-                    <Skeleton className="h-5 w-28 mx-auto" />
-                    <Skeleton className="h-12 w-full" />
-                    <Skeleton className="h-12 w-full" />
+                  <CardContent className="py-12 px-4 text-center flex flex-col items-center justify-center">
+                    <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
+                    <p className="text-sm font-medium text-gray-400">Chargement du dernier lot…</p>
                   </CardContent>
                 </Card>
               ) : lots.length === 0 ? (
@@ -1810,11 +1816,14 @@ export default function Vouchers() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="gap-1.5 text-xs text-red-400 hover:text-red-600 hover:bg-red-50"
+                            className="gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
                             onClick={() => setDeletingLot(lot.name)}
+                            disabled={isDeletingLot}
                             title="Supprimer ce lot de MikroTik"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            {isDeletingLot && deletingLotName === lot.name
+                              ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              : <Trash2 className="h-3.5 w-3.5" />}
                           </Button>
                         </div>
                       </div>
@@ -2368,7 +2377,7 @@ export default function Vouchers() {
       </Dialog>
 
       {/* Delete lot confirmation */}
-      <AlertDialog open={!!deletingLot} onOpenChange={(o) => { if (!o) setDeletingLot(null); }}>
+      <AlertDialog open={!!deletingLot} onOpenChange={(o) => { if (!o && !isDeletingLot) setDeletingLot(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer le lot ?</AlertDialogTitle>
@@ -2378,13 +2387,15 @@ export default function Vouchers() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeletingLot}>Annuler</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
               onClick={() => deletingLot && handleDeleteLot(deletingLot)}
               disabled={isDeletingLot}
             >
-              {isDeletingLot ? "Suppression..." : "Supprimer"}
+              {isDeletingLot
+                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression...</span>
+                : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -23,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangle, Coins, Activity } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangle, Coins, Activity, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 
@@ -203,6 +203,7 @@ export default function Routers() {
   const [editRouter, setEditRouter] = useState<RouterType | null>(null);
   const [form, setForm] = useState<RouterFormData>(emptyForm);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
+  const [deletingRouterId, setDeletingRouterId] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
 
@@ -247,9 +248,15 @@ export default function Routers() {
 
   const handleDelete = async (id: number) => {
     if (!confirm("Supprimer ce routeur et tous ses vouchers ?")) return;
-    await deleteMutation.mutateAsync({ id });
-    toast({ title: "Routeur supprimé" });
-    invalidate();
+    if (deletingRouterId !== null) return;
+    setDeletingRouterId(id);
+    try {
+      await deleteMutation.mutateAsync({ id });
+      toast({ title: "Routeur supprimé" });
+      invalidate();
+    } finally {
+      setDeletingRouterId(null);
+    }
   };
 
   const handleTest = async (id: number) => {
@@ -435,11 +442,14 @@ export default function Routers() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-7 w-7 rounded-full text-red-500 hover:text-red-700 hover:bg-red-50 border border-red-100"
+                            className="h-7 w-7 rounded-full text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-100"
                             onClick={(e) => { e.stopPropagation(); void handleDelete(r.id); }}
+                            disabled={deletingRouterId !== null}
                             title="Supprimer"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            {deletingRouterId === r.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Trash2 className="h-3.5 w-3.5" />}
                           </Button>
                         </div>
                       )}

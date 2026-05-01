@@ -654,7 +654,7 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
                   type="button"
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleDelete(p.id, p.amount); }}
                   disabled={deleting === p.id}
-                  className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50 flex-shrink-0"
+                  className="p-1.5 rounded text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50 flex-shrink-0"
                   title="Supprimer ce versement"
                 >
                   {deleting === p.id

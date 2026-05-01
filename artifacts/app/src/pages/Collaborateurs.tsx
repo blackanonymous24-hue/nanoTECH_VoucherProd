@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Pencil, Trash2, Check, X, MoreHorizontal, KeyRound, Router as RouterIcon, ShieldCheck } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, Check, X, MoreHorizontal, KeyRound, Router as RouterIcon, ShieldCheck, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -275,6 +275,7 @@ export default function Collaborateurs() {
                         <DropdownMenuItem
                           className="py-1.5 text-sm text-red-600 focus:text-red-600 focus:bg-red-50"
                           onClick={() => setDeleteId(c.id)}
+                          disabled={deleteMutation.isPending}
                         >
                           <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
                         </DropdownMenuItem>
@@ -383,19 +384,22 @@ export default function Collaborateurs() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && setDeleteId(null)}>
+      <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && !deleteMutation.isPending && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer ce collaborateur ?</AlertDialogTitle>
             <AlertDialogDescription>Cette action est irréversible.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Annuler</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
               onClick={() => deleteId !== null && deleteMutation.mutate(deleteId)}
+              disabled={deleteMutation.isPending}
             >
-              Supprimer
+              {deleteMutation.isPending
+                ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Suppression...</span>
+                : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

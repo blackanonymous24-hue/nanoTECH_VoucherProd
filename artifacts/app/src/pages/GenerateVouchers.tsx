@@ -28,6 +28,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
+import { setApiRequestPause } from "@/lib/installAuthFetch";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -441,6 +442,16 @@ export default function GenerateVouchers() {
     e.preventDefault();
     if (!selectedRouterId || !profile) return;
 
+    // During generation, pause unrelated API traffic and keep only generation-critical
+    // endpoints so RouterOS bandwidth is dedicated to voucher creation.
+    setApiRequestPause(true, {
+      allowPathPatterns: [
+        /^\/api\/vouchers\/generate(?:$|\/|\?)/,
+        /^\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
+        /^\/api\/routers\/\d+\/users(?:$|\/|\?)/,
+      ],
+    });
+
     const total = parseInt(qty, 10);
     setProgress({ done: 0, total });
     setGenPaused(false);
@@ -554,6 +565,7 @@ export default function GenerateVouchers() {
       setDatalimit("");
       setVendorId("");
     } finally {
+      setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
       if (lockAcquired) {
         void fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "DELETE" });
@@ -1125,7 +1137,7 @@ export default function GenerateVouchers() {
                 <Button
                   size="default"
                   variant="outline"
-                  className="gap-1.5 text-red-600 hover:text-red-700"
+                  className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                   onClick={() => void handleDeleteLastLot(lastLot)}
                   title="Supprimer ce lot"
                   disabled={isDeletingLastLot}
