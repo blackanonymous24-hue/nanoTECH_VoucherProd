@@ -3,6 +3,7 @@ import {
   useListRouterProfiles,
   useGenerateVouchers,
   getListVouchersQueryKey,
+  getListRouterProfilesQueryKey,
 } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
@@ -31,6 +32,7 @@ import { setApiRequestPause } from "@/lib/installAuthFetch";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
+const FORFAITS_PROFILES_CACHE_KEY = "forfaits-cache";
 
 type LastLot = {
   vouchers: Voucher[];
@@ -244,6 +246,7 @@ export default function GenerateVouchers() {
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
+  const coldFetchAttempted = useState(() => new Set<number>())[0];
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
   useEffect(() => {
@@ -270,7 +273,9 @@ export default function GenerateVouchers() {
     selectedRouterId ?? 0,
     {
       query: {
-        enabled: !!selectedRouterId,
+        // Generate page runs in API-pause mode for speed; profile list is served
+        // from local caches/React Query cache instead of live fetch here.
+        enabled: false,
         staleTime: 5 * 60_000,
         gcTime: 10 * 60_000,
         refetchOnWindowFocus: false,
@@ -291,8 +296,14 @@ export default function GenerateVouchers() {
 
   useEffect(() => {
     // While Generate is open, pause all other API traffic to free RouterOS bandwidth.
-    // Keep voucher generation endpoint allowed; everything else is suspended.
-    setApiRequestPause(true, { allowPathPatterns: [/^\/api\/vouchers\/generate(?:$|\/|\?)/] });
+    // Keep voucher generation endpoint allowed.
+    // Also allow profiles endpoint only for cold-start cache seeding.
+    setApiRequestPause(true, {
+      allowPathPatterns: [
+        /^\/api\/vouchers\/generate(?:$|\/|\?)/,
+        /^\/api\/routers\/\d+\/profiles(?:$|\/|\?)/,
+      ],
+    });
     return () => {
       setApiRequestPause(false);
     };
@@ -304,12 +315,57 @@ export default function GenerateVouchers() {
       return;
     }
     try {
-      const raw = localStorage.getItem(localProfilesCacheKey);
-      setLocalProfiles(raw ? JSON.parse(raw) : []);
+      const fromGenerate = localStorage.getItem(localProfilesCacheKey);
+      if (fromGenerate) {
+        setLocalProfiles(JSON.parse(fromGenerate));
+        return;
+      }
+      const fromForfaits = localStorage.getItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`);
+      if (fromForfaits) {
+        const parsed = JSON.parse(fromForfaits);
+        setLocalProfiles(Array.isArray(parsed) ? parsed : []);
+        return;
+      }
+      const profileKey = getListRouterProfilesQueryKey(selectedRouterId ?? 0);
+      const fromQuery = queryClient.getQueryData(profileKey);
+      setLocalProfiles(Array.isArray(fromQuery) ? fromQuery : []);
     } catch {
       setLocalProfiles([]);
     }
-  }, [localProfilesCacheKey]);
+  }, [localProfilesCacheKey, selectedRouterId, queryClient]);
+
+  // Cold start fallback: if no profile cache exists at all, fetch once from MikroTik,
+  // then seed all caches so subsequent opens are instant.
+  useEffect(() => {
+    if (!selectedRouterId) return;
+    if (displayedProfiles.length > 0) return;
+    if (coldFetchAttempted.has(selectedRouterId)) return;
+    coldFetchAttempted.add(selectedRouterId);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
+        if (!res.ok || cancelled) return;
+        const freshProfiles = await res.json();
+        if (cancelled || !Array.isArray(freshProfiles)) return;
+        setLocalProfiles(freshProfiles);
+        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
+        queryClient.setQueryData(profileKey, freshProfiles);
+        queryClient.invalidateQueries({ queryKey: profileKey });
+        try {
+          localStorage.setItem(`${PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
+          localStorage.setItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
+        } catch {
+          // ignore storage quota/private mode errors
+        }
+      } catch {
+        // keep empty state if first fetch fails
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRouterId, displayedProfiles.length, queryClient, coldFetchAttempted]);
 
   useEffect(() => {
     if (!localProfilesCacheKey || profiles.length === 0) return;
