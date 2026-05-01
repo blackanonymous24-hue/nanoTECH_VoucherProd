@@ -2107,12 +2107,17 @@ export async function purgeMikhmonScriptsForMonth(
 
     let removed = 0;
     let failed = 0;
-    for (const id of targetIds) {
-      try {
-        await api.write("/system/script/remove", [`=.id=${id}`]);
-        removed++;
-      } catch {
-        failed++;
+    // Remove in parallel chunks to reduce total wall time on MikroTik.
+    // node-routeros supports concurrent tagged writes over one connection.
+    const CHUNK = 25;
+    for (let i = 0; i < targetIds.length; i += CHUNK) {
+      const part = targetIds.slice(i, i + CHUNK);
+      const settled = await Promise.allSettled(
+        part.map((id) => api.write("/system/script/remove", [`=.id=${id}`])),
+      );
+      for (const r of settled) {
+        if (r.status === "fulfilled") removed++;
+        else failed++;
       }
     }
 
