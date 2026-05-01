@@ -174,6 +174,7 @@ export default function GenerateVouchers() {
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [genPaused, setGenPaused] = useState(false);
+  const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
 
@@ -207,6 +208,7 @@ export default function GenerateVouchers() {
 
   useEffect(() => {
     setProfile("");
+    setProfilePopoverOpen(false);
   }, [selectedRouterId]);
 
   // On page load (Generate tab), force a MikroTik profile sync once per router
@@ -597,21 +599,54 @@ export default function GenerateVouchers() {
 
               <div>
                 <Label>Profil</Label>
-                <select
-                  className="w-full h-9 mt-1 border border-input bg-background rounded-md px-3 text-sm"
-                  value={profile}
-                  onChange={(e) => setProfile(e.target.value)}
-                  disabled={!selectedRouterId || loadingProfiles}
-                >
-                  <option value="">
-                    {loadingProfiles ? "Chargement des profils…" : "Sélectionner un profil"}
-                  </option>
-                  {profiles.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={profilePopoverOpen}
+                      disabled={!selectedRouterId || loadingProfiles}
+                      className="w-full mt-1 justify-between font-normal"
+                    >
+                      <span className="truncate">
+                        {loadingProfiles
+                          ? "Chargement…"
+                          : profile
+                            ? (profiles.find((p) => p.name === profile)?.name ?? profile)
+                            : "Sélectionner un profil"}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command shouldFilter={false}>
+                      <CommandList className="max-h-52 overflow-y-auto">
+                        <CommandEmpty>Aucun profil disponible.</CommandEmpty>
+                        <CommandGroup>
+                          {profiles.map((p) => (
+                            <CommandItem
+                              key={p.name}
+                              value={p.name}
+                              onSelect={() => {
+                                setProfile(p.name);
+                                setProfilePopoverOpen(false);
+                              }}
+                            >
+                              <Check className={`mr-2 h-4 w-4 shrink-0 ${profile === p.name ? "opacity-100" : "opacity-0"}`} />
+                              <span className="flex-1 truncate">{p.name}</span>
+                              {(p.validity || p.price) && (
+                                <span className="text-xs text-muted-foreground ml-2 shrink-0 tabular-nums">
+                                  {[p.validity, p.price].filter(Boolean).join(" · ")}
+                                </span>
+                              )}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
                 {selectedProfile && (
                   <div className="mt-2 p-2.5 bg-blue-50 rounded-lg text-xs text-blue-700 flex flex-wrap gap-2">
                     {selectedProfile.validity && (
