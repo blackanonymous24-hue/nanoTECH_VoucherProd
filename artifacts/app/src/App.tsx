@@ -16,6 +16,7 @@ const Forfaits = lazy(() => import("@/pages/Forfaits"));
 const Sessions = lazy(() => import("@/pages/Sessions"));
 const IpBindings = lazy(() => import("@/pages/IpBindings"));
 const DhcpLeases = lazy(() => import("@/pages/DhcpLeases"));
+const HotspotCookies = lazy(() => import("@/pages/HotspotCookies"));
 const GenerateVouchers = lazy(() => import("@/pages/GenerateVouchers"));
 const Vouchers = lazy(() => import("@/pages/Vouchers"));
 const Vendors = lazy(() => import("@/pages/Vendors"));
@@ -178,6 +179,7 @@ function AppRoutes() {
             <Route path="/sessions" component={Sessions} />
             <Route path="/ip-bindings" component={IpBindings} />
             <Route path="/dhcp-leases" component={DhcpLeases} />
+            <Route path="/hotspot-cookies" component={HotspotCookies} />
             <Route path="/generate" component={GenerateVouchers} />
             <Route path="/vouchers" component={Vouchers} />
             <Route path="/vendors" component={Vendors} />

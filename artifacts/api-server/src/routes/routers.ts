@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -1568,6 +1568,20 @@ function invalidateIpBindingsCache(routerId: number) {
   ipBindingsCache.delete(routerId);
 }
 
+const hotspotCookiesCache = new Map<number, { cookies: Awaited<ReturnType<typeof listHotspotCookies>>; exp: number }>();
+const HOTSPOT_COOKIES_TTL = 10_000;
+function getHotspotCookiesCached(routerId: number) {
+  const hit = hotspotCookiesCache.get(routerId);
+  if (hit && Date.now() < hit.exp) return hit.cookies;
+  return null;
+}
+function setHotspotCookiesCache(routerId: number, cookies: Awaited<ReturnType<typeof listHotspotCookies>>) {
+  hotspotCookiesCache.set(routerId, { cookies, exp: Date.now() + HOTSPOT_COOKIES_TTL });
+}
+function invalidateHotspotCookiesCache(routerId: number) {
+  hotspotCookiesCache.delete(routerId);
+}
+
 router.get("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
@@ -1631,6 +1645,74 @@ router.get("/routers/:id/dhcp-leases", async (req, res): Promise<void> => {
     const leases = await listDhcpLeases(conn);
     mSet(ck, MIK_TTL.leases, leases);
     res.json({ leases });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.get("/routers/:id/hotspot-cookies", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const hit = getHotspotCookiesCached(id);
+  if (hit) { res.json({ cookies: hit }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const cookies = await listHotspotCookies(conn);
+    setHotspotCookiesCache(id, cookies);
+    res.json({ cookies });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.delete("/routers/:id/hotspot-cookies/:cookieId", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  const cookieId = decodeURIComponent(req.params.cookieId as string).trim();
+  if (!cookieId) { res.status(400).json({ error: "cookieId requis" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    await deleteHotspotCookie(conn, cookieId);
+    invalidateHotspotCookiesCache(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+router.delete("/routers/:id/hotspot-cookies", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const username = String(req.query.user ?? "").trim();
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    let removed = 0;
+    if (username) {
+      removed = await deleteHotspotCookiesByUser(conn, username);
+    } else {
+      const all = await listHotspotCookies(conn);
+      for (const c of all) {
+        if (!c.id) continue;
+        await deleteHotspotCookie(conn, c.id);
+        removed++;
+      }
+    }
+    invalidateHotspotCookiesCache(id);
+    res.json({ ok: true, removed });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

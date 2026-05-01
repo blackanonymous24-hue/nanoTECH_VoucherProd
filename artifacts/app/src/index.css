@@ -336,16 +336,16 @@
 /* ── Sidebar nav scrollbar — slightly more visible ── */
 .sidebar-nav::-webkit-scrollbar { width: 6px; }
 .sidebar-nav::-webkit-scrollbar-track { background: transparent; }
-.sidebar-nav::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
-.sidebar-nav::-webkit-scrollbar-thumb:hover { background: #475569; }
-.sidebar-nav { scrollbar-width: auto; scrollbar-color: #334155 transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: #3f556f; border-radius: 999px; }
+.sidebar-nav::-webkit-scrollbar-thumb:hover { background: #5b738f; }
+.sidebar-nav { scrollbar-width: auto; scrollbar-color: #3f556f transparent; }
 
 /* ── Sidebar outer scrollbar — slightly more visible ── */
 .sidebar-scroll::-webkit-scrollbar { width: 6px; }
 .sidebar-scroll::-webkit-scrollbar-track { background: #0d1117; }
-.sidebar-scroll::-webkit-scrollbar-thumb { background: #2d4f78; border-radius: 999px; }
-.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
-.sidebar-scroll { scrollbar-width: auto; scrollbar-color: #2d4f78 #0d1117; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: #3a628e; border-radius: 999px; }
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #4f8fe8; }
+.sidebar-scroll { scrollbar-width: auto; scrollbar-color: #3a628e #0d1117; }
 
 /* ── Scrollable card — thin styled scrollbar ── */
 .scroll-card::-webkit-scrollbar { width: 4px; }

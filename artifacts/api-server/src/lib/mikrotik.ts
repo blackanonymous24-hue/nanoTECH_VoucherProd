@@ -102,6 +102,17 @@ export interface HotspotSession {
   server: string | null;
 }
 
+export interface HotspotCookie {
+  id: string;
+  user: string | null;
+  macAddress: string | null;
+  address: string | null;
+  server: string | null;
+  expiresIn: string | null;
+  domain: string | null;
+  path: string | null;
+}
+
 export interface RouterBoardInfo {
   model: string;
   version: string;
@@ -136,6 +147,17 @@ function fixEncoding(str: string): string {
   } catch {
     return str;
   }
+}
+
+/**
+ * Normalize text coming from RouterOS/node-routeros for UI display.
+ * Handles both common mojibake forms:
+ * - UTF-8 bytes interpreted as latin-1 ("NadÃ¨ge")
+ * - mixed Win1252 byte mappings.
+ */
+function decodeRouterText(str: string | null | undefined): string {
+  if (!str) return "";
+  return fromWin1252(fixEncoding(str));
 }
 
 // MikhMon expmode values stored at index [1] in the original format
@@ -345,9 +367,9 @@ export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo>
     } catch { /* clock may be restricted */ }
 
     return {
-      identity,
-      boardName: (res?.["board-name"] as string) ?? null,
-      model,
+      identity: identity ? decodeRouterText(identity) : null,
+      boardName: ((res?.["board-name"] as string) ?? "").trim() ? decodeRouterText((res?.["board-name"] as string) ?? "") : null,
+      model: model ? decodeRouterText(model) : null,
       serialNumber,
       routerOsVersion: (res?.["version"] as string) ?? null,
       firmwareVersion,
@@ -373,7 +395,7 @@ export async function listProfiles(conn: RouterConnection): Promise<HotspotProfi
       const parsed = onLogin.includes(",") ? parseProfileOnLogin(onLogin) : EMPTY_PARSED;
       return {
         mikrotikId:  (p[".id"] as string) ?? "",
-        name:        fixEncoding((p["name"] as string) ?? ""),
+        name:        decodeRouterText((p["name"] as string) ?? ""),
         rateLimit:   (p["rate-limit"] as string) || null,
         validity:    parsed.validity || null,
         price:       parsed.price || null,
@@ -390,7 +412,10 @@ export async function listProfiles(conn: RouterConnection): Promise<HotspotProfi
 
 export async function updateProfile(conn: RouterConnection, originalName: string, opts: CreateProfileOptions): Promise<void> {
   return withRouter(conn, async (api) => {
-    const found = await api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]);
+    let found = await api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]);
+    if (!found.length) {
+      found = await api.write("/ip/hotspot/user/profile/print", [`?name=${toWin1252(originalName)}`]).catch(() => []);
+    }
     if (!found.length) throw new Error(`Profil "${originalName}" introuvable`);
     const id = found[0][".id"] as string;
     const sys = await api.write("/system/resource/print");
@@ -399,15 +424,15 @@ export async function updateProfile(conn: RouterConnection, originalName: string
     const onLogin = generateMikHmonOnLogin(opts, version);
     const args = [
       `=.id=${id}`,
-      `=name=${opts.name}`,
-      `=on-login=${onLogin}`,
+      `=name=${toWin1252(opts.name)}`,
+      `=on-login=${toWin1252(onLogin)}`,
       `=shared-users=${opts.sharedUsers || "1"}`,
     ];
     if (opts.rateLimit)   args.push(`=rate-limit=${opts.rateLimit}`);
     else                  args.push(`=rate-limit=`);
     if (opts.addrPool)    args.push(`=address-pool=${opts.addrPool}`);
     else                  args.push(`=address-pool=`);
-    if (opts.parentQueue) args.push(`=parent-queue=${opts.parentQueue}`);
+    if (opts.parentQueue) args.push(`=parent-queue=${toWin1252(opts.parentQueue)}`);
     else                  args.push(`=parent-queue=`);
     await api.write("/ip/hotspot/user/profile/set", args);
     await upsertProfileScheduler(api, opts.name, expmode, version);
@@ -724,12 +749,12 @@ export async function listDhcpLeases(conn: RouterConnection): Promise<DhcpLease[
       macAddress: normalizeMac((r["mac-address"] as string) ?? ""),
       activeAddress: ((r["active-address"] as string) ?? "").trim() || null,
       activeMacAddress: normalizeMac((r["active-mac-address"] as string) ?? "") || null,
-      activeHostName: ((r["active-host-name"] as string) ?? "").trim() || null,
-      hostName: ((r["host-name"] as string) ?? "").trim() || null,
+      activeHostName: decodeRouterText(((r["active-host-name"] as string) ?? "").trim()) || null,
+      hostName: decodeRouterText(((r["host-name"] as string) ?? "").trim()) || null,
       status: ((r["status"] as string) ?? "").trim() || null,
       expiresAfter: ((r["expires-after"] as string) ?? "").trim() || null,
       server: ((r["server"] as string) ?? "").trim() || null,
-      comment: ((r["comment"] as string) ?? "").trim() || null,
+      comment: decodeRouterText(((r["comment"] as string) ?? "").trim()) || null,
       dynamic: ((r["dynamic"] as string) ?? "") === "true",
     }));
     dhcpLeaseCache.set(routerCacheKey(conn), { rows: mapped, exp: Date.now() + DHCP_LEASE_CACHE_TTL });
@@ -751,7 +776,7 @@ export async function listIpBindings(conn: RouterConnection): Promise<HotspotIpB
         toAddress:  (b["to-address"] as string) ?? "",
         type,
         server:     (b["server"]     as string) ?? "all",
-        comment:    fixEncoding((b["comment"] as string) ?? ""),
+        comment:    decodeRouterText((b["comment"] as string) ?? ""),
         disabled:   (b["disabled"]   as string) === "true",
       };
     });
@@ -769,7 +794,7 @@ function mapIpBindingRow(b: Record<string, unknown>): HotspotIpBinding {
     toAddress:  (b["to-address"] as string) ?? "",
     type,
     server:     (b["server"]     as string) ?? "all",
-    comment:    fixEncoding((b["comment"] as string) ?? ""),
+    comment:    decodeRouterText((b["comment"] as string) ?? ""),
     disabled:   (b["disabled"]   as string) === "true",
   };
 }
@@ -875,9 +900,9 @@ export async function listHotspotServers(conn: RouterConnection): Promise<Hotspo
   return withRouter(conn, async (api) => {
     const rows = await api.write("/ip/hotspot/print");
     return rows.map((s): HotspotServer => ({
-      name:      (s["name"]      as string) ?? "",
-      interface: (s["interface"] as string) ?? "",
-      profile:   (s["profile"]   as string) ?? "",
+      name:      decodeRouterText((s["name"] as string) ?? ""),
+      interface: decodeRouterText((s["interface"] as string) ?? ""),
+      profile:   decodeRouterText((s["profile"] as string) ?? ""),
       disabled:  (s["disabled"]  as string) === "true",
     }));
   });
@@ -987,13 +1012,13 @@ export async function createProfile(conn: RouterConnection, opts: CreateProfileO
     const expmode = toMikhmonExpmode(opts.expiredMode);
     const onLogin = generateMikHmonOnLogin(opts, version);
     const args = [
-      `=name=${opts.name}`,
-      `=on-login=${onLogin}`,
+      `=name=${toWin1252(opts.name)}`,
+      `=on-login=${toWin1252(onLogin)}`,
       `=shared-users=${opts.sharedUsers || "1"}`,
     ];
     if (opts.rateLimit)    args.push(`=rate-limit=${opts.rateLimit}`);
     if (opts.addrPool)     args.push(`=address-pool=${opts.addrPool}`);
-    if (opts.parentQueue)  args.push(`=parent-queue=${opts.parentQueue}`);
+    if (opts.parentQueue)  args.push(`=parent-queue=${toWin1252(opts.parentQueue)}`);
     await api.write("/ip/hotspot/user/profile/add", args);
     await upsertProfileScheduler(api, opts.name, expmode, version);
   });
@@ -1015,10 +1040,10 @@ export async function listHotspotUsers(conn: RouterConnection, timeout = 15000):
   return withRouter(conn, async (api) => {
     const users = await api.write("/ip/hotspot/user/print");
     return users.map((u) => ({
-      username: fixEncoding((u["name"] as string) ?? ""),
+      username: decodeRouterText((u["name"] as string) ?? ""),
       password: (u["password"] as string) ?? "",
-      profile: fixEncoding((u["profile"] as string) ?? ""),
-      comment: fixEncoding((u["comment"] as string) || null) || null,
+      profile: decodeRouterText((u["profile"] as string) ?? ""),
+      comment: decodeRouterText((u["comment"] as string) ?? "") || null,
       limitUptime: (u["limit-uptime"] as string) || null,
       limitBytesTotal: (u["limit-bytes-total"] as string) || null,
       macAddress: (u["mac-address"] as string) || null,
@@ -1059,15 +1084,53 @@ export async function listSessions(conn: RouterConnection): Promise<HotspotSessi
   return withRouter(conn, async (api) => {
     const sessions = await api.write("/ip/hotspot/active/print");
     return sessions.map((s) => ({
-      user: (s["user"] as string) ?? "",
+      user: decodeRouterText((s["user"] as string) ?? ""),
       address: (s["address"] as string) ?? "",
       macAddress: (s["mac-address"] as string) || null,
       uptime: (s["uptime"] as string) ?? "00:00:00",
       bytesIn: (s["bytes-in"] as string) || null,
       bytesOut: (s["bytes-out"] as string) || null,
-      server: (s["server"] as string) || null,
+      server: decodeRouterText((s["server"] as string) || "") || null,
     }));
   });
+}
+
+export async function listHotspotCookies(conn: RouterConnection): Promise<HotspotCookie[]> {
+  return withRouter(conn, async (api) => {
+    const rows = await api.write("/ip/hotspot/cookie/print");
+    return rows.map((c): HotspotCookie => ({
+      id: (c[".id"] as string) ?? "",
+      user: decodeRouterText((c["user"] as string) ?? "") || null,
+      macAddress: ((c["mac-address"] as string) ?? "").toUpperCase() || null,
+      address: (c["address"] as string) || null,
+      server: decodeRouterText((c["server"] as string) ?? "") || null,
+      expiresIn: (c["expires-in"] as string) || null,
+      domain: decodeRouterText((c["domain"] as string) ?? "") || null,
+      path: (c["path"] as string) || null,
+    }));
+  }, 10_000, "high");
+}
+
+export async function deleteHotspotCookie(conn: RouterConnection, id: string): Promise<void> {
+  return withRouter(conn, async (api) => {
+    await api.write("/ip/hotspot/cookie/remove", [`=.id=${id}`]);
+  }, 8_000, "high");
+}
+
+export async function deleteHotspotCookiesByUser(conn: RouterConnection, username: string): Promise<number> {
+  if (!username.trim()) return 0;
+  return withRouter(conn, async (api) => {
+    const rows = await api.write("/ip/hotspot/cookie/print");
+    const target = username.trim().toLowerCase();
+    const ids = rows
+      .filter((c) => decodeRouterText((c["user"] as string) ?? "").toLowerCase() === target)
+      .map((c) => (c[".id"] as string) ?? "")
+      .filter(Boolean);
+    for (const id of ids) {
+      await api.write("/ip/hotspot/cookie/remove", [`=.id=${id}`]);
+    }
+    return ids.length;
+  }, 15_000, "high");
 }
 
 export interface RouterInterface {
