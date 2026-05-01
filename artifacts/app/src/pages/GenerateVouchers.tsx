@@ -27,9 +27,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
-import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
+import { setApiRequestPause } from "@/lib/installAuthFetch";
 
 const LS_KEY = "vouchernet-last-lot";
+const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
 
 type LastLot = {
   vouchers: Voucher[];
@@ -267,8 +268,19 @@ export default function GenerateVouchers() {
 
   const { data: profiles = [], isLoading: loadingProfiles } = useListRouterProfiles(
     selectedRouterId ?? 0,
-    { query: { enabled: !!selectedRouterId } },
+    {
+      query: {
+        enabled: !!selectedRouterId,
+        staleTime: 5 * 60_000,
+        gcTime: 10 * 60_000,
+        refetchOnWindowFocus: false,
+        placeholderData: (prev) => prev,
+      },
+    },
   );
+  const [localProfiles, setLocalProfiles] = useState<(typeof profiles)>([]);
+  const localProfilesCacheKey = selectedRouterId ? `${PROFILES_CACHE_KEY}:${selectedRouterId}` : null;
+  const displayedProfiles = profiles.length > 0 ? profiles : localProfiles;
 
   const generateMutation = useGenerateVouchers();
 
@@ -277,7 +289,36 @@ export default function GenerateVouchers() {
     setProfilePopoverOpen(false);
   }, [selectedRouterId]);
 
-  useProfileAutoResync(selectedRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
+  useEffect(() => {
+    // While Generate is open, pause all other API traffic to free RouterOS bandwidth.
+    // Keep voucher generation endpoint allowed; everything else is suspended.
+    setApiRequestPause(true, { allowPathPatterns: [/^\/api\/vouchers\/generate(?:$|\/|\?)/] });
+    return () => {
+      setApiRequestPause(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!localProfilesCacheKey) {
+      setLocalProfiles([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(localProfilesCacheKey);
+      setLocalProfiles(raw ? JSON.parse(raw) : []);
+    } catch {
+      setLocalProfiles([]);
+    }
+  }, [localProfilesCacheKey]);
+
+  useEffect(() => {
+    if (!localProfilesCacheKey || profiles.length === 0) return;
+    try {
+      localStorage.setItem(localProfilesCacheKey, JSON.stringify(profiles));
+    } catch {
+      // ignore storage quota/private mode errors
+    }
+  }, [localProfilesCacheKey, profiles]);
 
   // Auto-load the most recent lot from API when localStorage is empty
   useEffect(() => {
@@ -294,7 +335,7 @@ export default function GenerateVouchers() {
         const lot = await loadMostRecentLotFromRouter(
           selectedRouterId,
           GEN_BASE,
-          profiles,
+          displayedProfiles,
           selectedRouter?.name ?? "",
           controller.signal,
         );
@@ -310,17 +351,17 @@ export default function GenerateVouchers() {
     })();
 
     return () => controller.abort();
-  }, [selectedRouterId, lastLot, profiles, selectedRouter, autoLoadAttempted]);
+  }, [selectedRouterId, lastLot, displayedProfiles, selectedRouter, autoLoadAttempted]);
 
-  const selectedProfile = profiles.find((p) => p.name === profile);
+  const selectedProfile = displayedProfiles.find((p) => p.name === profile);
 
   // If a profile was renamed in MikroTik, clear stale selected value.
   useEffect(() => {
     if (!profile) return;
-    if (!profiles.some((p) => p.name === profile)) {
+    if (!displayedProfiles.some((p) => p.name === profile)) {
       setProfile("");
     }
-  }, [profiles, profile]);
+  }, [displayedProfiles, profile]);
 
   const selectedVendor = vendors.find((v) => String(v.id) === vendorId);
   const vendorSuffix =
@@ -545,7 +586,7 @@ export default function GenerateVouchers() {
       const nextLot = await loadMostRecentLotFromRouter(
         lot.routerId,
         GEN_BASE,
-        profiles,
+        displayedProfiles,
         selectedRouter?.name ?? lot.routerName ?? "",
       );
       if (nextLot) {
@@ -629,14 +670,14 @@ export default function GenerateVouchers() {
                       variant="outline"
                       role="combobox"
                       aria-expanded={profilePopoverOpen}
-                      disabled={!selectedRouterId || loadingProfiles}
+                      disabled={!selectedRouterId || (loadingProfiles && displayedProfiles.length === 0)}
                       className="w-full mt-1 justify-between font-normal"
                     >
                       <span className="truncate">
-                        {loadingProfiles
+                        {(loadingProfiles && displayedProfiles.length === 0)
                           ? "Chargement…"
                           : profile
-                            ? (profiles.find((p) => p.name === profile)?.name ?? profile)
+                            ? (displayedProfiles.find((p) => p.name === profile)?.name ?? profile)
                             : "Sélectionner un profil"}
                       </span>
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -647,7 +688,7 @@ export default function GenerateVouchers() {
                       <CommandList className="max-h-52 overflow-y-auto">
                         <CommandEmpty>Aucun profil disponible.</CommandEmpty>
                         <CommandGroup>
-                          {profiles.map((p) => (
+                          {displayedProfiles.map((p) => (
                             <CommandItem
                               key={p.name}
                               value={p.name}

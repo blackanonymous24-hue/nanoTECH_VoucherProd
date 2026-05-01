@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { queryClient } from "@/lib/queryClient";
+import { abortAllApiRequests } from "@/lib/installAuthFetch";
 
 const TOKEN_KEY           = "vouchernet_admin_token";
 const ROLE_KEY            = "vouchernet_role";
@@ -114,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    abortAllApiRequests();
     void queryClient.cancelQueries();
     queryClient.clear();
 
