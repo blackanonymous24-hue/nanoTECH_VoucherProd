@@ -375,7 +375,7 @@ export default function Routers() {
                 <CardContent className="py-2.5 px-3">
                   <div className="flex items-center justify-between gap-2">
                     <div
-                      className="flex items-center gap-2.5 min-w-0 flex-1 basis-3/4 cursor-pointer"
+                      className="flex items-center gap-2.5 min-w-0 w-3/4 max-w-[75%] cursor-pointer"
                       onClick={() => handleSelect(r.id)}
                       title="Sélectionner ce routeur"
                     >
@@ -407,7 +407,10 @@ export default function Routers() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0 justify-end">
+                    <div
+                      className="flex items-center gap-1 flex-shrink-0 justify-end"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <Button
                         size="icon"
                         variant="ghost"
