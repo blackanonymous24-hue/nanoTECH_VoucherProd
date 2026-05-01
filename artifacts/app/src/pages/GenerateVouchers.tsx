@@ -143,6 +143,72 @@ async function fetchLotUsers(
   return data.users ?? [];
 }
 
+type ProfileForLot = { name: string; price?: string | null; validity?: string | null };
+
+/**
+ * Charge le lot le plus récent encore présent sur le routeur (GET /lots trié du plus récent au plus ancien).
+ * Si le premier lot n’a plus d’utilisateurs, essaie le suivant — utile après suppression du dernier lot.
+ */
+async function loadMostRecentLotFromRouter(
+  routerId: number,
+  base: string,
+  profiles: ProfileForLot[],
+  routerName: string,
+  signal?: AbortSignal,
+): Promise<LastLot | null> {
+  let lotsRes: Response;
+  try {
+    lotsRes = await fetch(`${base}/api/routers/${routerId}/lots`, { signal });
+  } catch {
+    return null;
+  }
+  if (!lotsRes.ok) return null;
+  const { lots: apiLots } = (await lotsRes.json()) as {
+    lots: Array<{ name: string; count: number; profile: string | null }>;
+  };
+  if (!apiLots.length) return null;
+
+  for (const apiLot of apiLots) {
+    let usersRes: Response;
+    try {
+      usersRes = await fetch(
+        `${base}/api/routers/${routerId}/users?comment=${encodeURIComponent(apiLot.name)}&limit=5000`,
+        { signal },
+      );
+    } catch {
+      continue;
+    }
+    if (!usersRes.ok) continue;
+    const { users } = (await usersRes.json()) as {
+      users: Array<{ username: string; password: string; profile: string }>;
+    };
+    if (!users.length) continue;
+
+    const prof = profiles.find((p) => p.name === apiLot.profile);
+    return {
+      vouchers: users.map((u, i) => ({
+        id: i,
+        routerId,
+        username: u.username,
+        password: u.password,
+        profileName: u.profile ?? apiLot.profile ?? "",
+        price: prof?.price ?? "",
+        validity: prof?.validity ?? "",
+        createdAt: new Date().toISOString(),
+      })),
+      comment: apiLot.name,
+      routerName,
+      routerId,
+      profileName: apiLot.profile ?? "",
+      price: prof?.price ?? "",
+      validity: prof?.validity ?? "",
+      vendorName: "",
+      generatedAt: new Date().toISOString(),
+    };
+  }
+  return null;
+}
+
 function makeBatchId(mode: "vc" | "up" = "vc"): string {
   const now = new Date();
   const M = String(now.getMonth() + 1).padStart(2, "0");
@@ -247,52 +313,17 @@ export default function GenerateVouchers() {
 
     void (async () => {
       try {
-        const lotsRes = await fetch(
-          `${GEN_BASE}/api/routers/${selectedRouterId}/lots`,
-          { signal: controller.signal },
+        const lot = await loadMostRecentLotFromRouter(
+          selectedRouterId,
+          GEN_BASE,
+          profiles,
+          selectedRouter?.name ?? "",
+          controller.signal,
         );
-        if (!lotsRes.ok) return;
-        const { lots: apiLots } = await lotsRes.json() as {
-          lots: Array<{ name: string; count: number; profile: string | null }>;
-        };
-        if (!apiLots.length) return;
-
-        const firstLot = apiLots[0];
-
-        const usersRes = await fetch(
-          `${GEN_BASE}/api/routers/${selectedRouterId}/users?comment=${encodeURIComponent(firstLot.name)}&limit=5000`,
-          { signal: controller.signal },
-        );
-        if (!usersRes.ok) return;
-        const { users } = await usersRes.json() as { users: Array<{ username: string; password: string; profile: string }> };
-        if (!users.length) return;
-
-        // Cross-reference profile metadata (prices/validity) from already-loaded profiles
-        const prof = profiles.find((p) => p.name === firstLot.profile);
-
-        const lot: LastLot = {
-          vouchers: users.map((u, i) => ({
-            id: i,
-            routerId: selectedRouterId,
-            username: u.username,
-            password: u.password,
-            profileName: u.profile ?? firstLot.profile ?? "",
-            price: prof?.price ?? "",
-            validity: prof?.validity ?? "",
-            createdAt: new Date().toISOString(),
-          })),
-          comment: firstLot.name,
-          routerName: selectedRouter?.name ?? "",
-          routerId: selectedRouterId,
-          profileName: firstLot.profile ?? "",
-          price: prof?.price ?? "",
-          validity: prof?.validity ?? "",
-          vendorName: "",
-          generatedAt: new Date().toISOString(),
-        };
-
-        setLastLot(lot);
-        saveLastLot(lot);
+        if (lot) {
+          setLastLot(lot);
+          saveLastLot(lot);
+        }
       } catch {
         // Router offline or aborted — keep "Aucun lot" state, user can generate
       } finally {
@@ -532,12 +563,26 @@ export default function GenerateVouchers() {
         throw new Error(data?.error || "Suppression impossible sur le routeur.");
       }
 
-      clearLastLot();
-      setLastLot(null);
       queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
+      const nextLot = await loadMostRecentLotFromRouter(
+        lot.routerId,
+        GEN_BASE,
+        profiles,
+        selectedRouter?.name ?? lot.routerName ?? "",
+      );
+      if (nextLot) {
+        setLastLot(nextLot);
+        saveLastLot(nextLot);
+      } else {
+        clearLastLot();
+        setLastLot(null);
+      }
       toast({
-        title: "Dernier lot supprimé",
-        description: `${Number(data?.deleted ?? 0)} utilisateur(s) supprimé(s) sur MikroTik.`,
+        title: "Lot supprimé",
+        description:
+          nextLot
+            ? `${Number(data?.deleted ?? 0)} utilisateur(s) supprimé(s). Le lot affiché est désormais le plus récent encore présent sur le routeur.`
+            : `${Number(data?.deleted ?? 0)} utilisateur(s) supprimé(s) sur MikroTik.`,
       });
     } catch (err) {
       toast({
