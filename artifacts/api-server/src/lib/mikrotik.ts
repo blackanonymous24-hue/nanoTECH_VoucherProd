@@ -1258,11 +1258,38 @@ export interface LogEntry {
   message: string;
 }
 
-export async function listLogs(conn: RouterConnection, limit = 50, topicFilter?: string): Promise<LogEntry[]> {
+/** Hotspot log lines that reflect user session activity (not DHCP, scripts, etc.). */
+function isHotspotUserSessionLogMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  if (/\blogged in\b/.test(m)) return true;
+  if (/\blogged out\b/.test(m)) return true;
+  if (/\blogin failed\b/.test(m)) return true;
+  if (/\btrying to log in\b/.test(m)) return true;
+  if (/\blogging out\b/.test(m)) return true;
+  if (/\bchap-login failure\b/.test(m)) return true;
+  if (/\bpap-login failure\b/.test(m)) return true;
+  if (/\binternal login failed\b/.test(m)) return true;
+  if (/\btrying to log out\b/.test(m)) return true;
+  return false;
+}
+
+export async function listLogs(
+  conn: RouterConnection,
+  limit = 50,
+  topicFilter?: string,
+  hotspotUserEventsOnly = false,
+): Promise<LogEntry[]> {
   return withRouter(conn, async (api) => {
     const entries = await api.write("/log/print");
     let filtered = entries;
-    if (topicFilter) {
+    if (hotspotUserEventsOnly) {
+      filtered = filtered.filter((e) => {
+        const topics = ((e["topics"] as string) ?? "").toLowerCase();
+        if (!topics.includes("hotspot")) return false;
+        const message = (e["message"] as string) ?? "";
+        return isHotspotUserSessionLogMessage(message);
+      });
+    } else if (topicFilter) {
       const topics = topicFilter
         .split(",")
         .map((x) => x.trim().toLowerCase())

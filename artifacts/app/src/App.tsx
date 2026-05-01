@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { getListRouterLogsQueryKey, listRouterLogs } from "@workspace/api-client-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RouterProvider } from "@/contexts/RouterContext";
@@ -127,8 +128,35 @@ function AppRoutes() {
       }).catch(() => undefined);
     void beat();
     const t = setInterval(() => { void beat(); }, 5000);
+
+    // Pre-warm dashboard hotspot logs cache so the first paint can be instant.
+    // Must match Dashboard.tsx `useListRouterLogs` params + query key.
+    if (focus === "dashboard") {
+      const LS_KEY = "vouchernet-dashboard-logs-cache:v2";
+      const dashLogsParams = {
+        limit: 120,
+        topics: "hotspot",
+        live: "1" as const,
+        hotspotUsers: "1" as const,
+      };
+      const qk = getListRouterLogsQueryKey(routerId, dashLogsParams);
+      void (async () => {
+        try {
+          const logs = await listRouterLogs(routerId, dashLogsParams);
+          qc.setQueryData(qk, logs);
+          try {
+            localStorage.setItem(`${LS_KEY}:${routerId}`, JSON.stringify({ ts: Date.now(), logs }));
+          } catch {
+            // ignore quota / private mode
+          }
+        } catch {
+          // ignore — dashboard will still fetch normally
+        }
+      })();
+    }
+
     return () => clearInterval(t);
-  }, [isAuthenticated, location]);
+  }, [isAuthenticated, location, qc]);
 
   if (location.startsWith("/vendor-portal")) {
     return (

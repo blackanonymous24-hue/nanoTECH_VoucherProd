@@ -18,6 +18,38 @@ const _dashboardCache: { data?: any; ts?: number } = {};
 
 type LogEntry = { id: string; time: string; topics: string; message: string };
 
+const DASH_LOGS_PARAMS = {
+  limit: 120,
+  topics: "hotspot",
+  live: "1" as const,
+  hotspotUsers: "1" as const,
+};
+const DASH_LOGS_CACHE_KEY = "vouchernet-dashboard-logs-cache:v2";
+const DASH_LOGS_CACHE_TTL_MS = 60_000;
+
+function readDashLogsCache(routerId: number | null): LogEntry[] | undefined {
+  if (!routerId) return undefined;
+  try {
+    const raw = localStorage.getItem(`${DASH_LOGS_CACHE_KEY}:${routerId}`);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { ts?: number; logs?: LogEntry[] };
+    if (!parsed?.logs?.length) return undefined;
+    if (typeof parsed.ts === "number" && Date.now() - parsed.ts > DASH_LOGS_CACHE_TTL_MS) return undefined;
+    return parsed.logs;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeDashLogsCache(routerId: number | null, logs: LogEntry[]) {
+  if (!routerId || !logs.length) return;
+  try {
+    localStorage.setItem(`${DASH_LOGS_CACHE_KEY}:${routerId}`, JSON.stringify({ ts: Date.now(), logs }));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 interface RouterInfo {
   identity: string | null;
   boardName: string | null;
@@ -507,19 +539,22 @@ export default function Dashboard() {
     error: logsError,
   } = useListRouterLogs(
     selectedRouterId ?? 0,
-    { limit: 120, topics: "hotspot,info,debug", live: "1" },
+    DASH_LOGS_PARAMS,
     {
       query: {
         enabled: !!selectedRouterId && enableSecondaries,
         refetchInterval: 4_000,
         refetchIntervalInBackground: false,
         staleTime: 800,
+        initialData: readDashLogsCache(selectedRouterId),
+        initialDataUpdatedAt: readDashLogsCache(selectedRouterId) ? Date.now() : undefined,
       },
     },
   );
 
   useEffect(() => {
     if (!logs.length) return;
+    writeDashLogsCache(selectedRouterId, logs);
     const incoming = new Set(logs.map((l) => l.id).filter(Boolean));
     const fresh = new Set([...incoming].filter((id) => !prevIdsRef.current.has(id)));
     if (fresh.size > 0 && prevIdsRef.current.size > 0) {
@@ -725,7 +760,7 @@ export default function Dashboard() {
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              Logs Hotspot
+              Logs hotspot (utilisateurs)
               {selectedRouterId && !logsLoading && (
                 <span className="flex items-center gap-1 text-xs font-normal text-green-600">
                   <span className="relative flex h-2 w-2">
@@ -753,11 +788,11 @@ export default function Dashboard() {
             </div>
           ) : logsError ? (
             <div className="py-10 text-center text-sm text-red-400">
-              Impossible de récupérer les logs hotspot.
+              Impossible de récupérer les logs de session hotspot.
             </div>
           ) : logs.length === 0 ? (
             <div className="py-10 text-center text-sm text-gray-400">
-              Aucun log hotspot disponible.
+              Aucune entrée de connexion / déconnexion récente.
             </div>
           ) : (
             <div

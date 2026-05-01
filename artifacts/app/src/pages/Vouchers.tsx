@@ -54,10 +54,12 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -176,6 +178,8 @@ export default function Vouchers() {
   const [isSavingRename, setIsSavingRename] = useState(false);
   const [confirmResetUser, setConfirmResetUser] = useState<HotspotUser | null>(null);
   const [isResetting, setIsResetting] = useState(false);
+  const [confirmDeleteEditUser, setConfirmDeleteEditUser] = useState<HotspotUser | null>(null);
+  const [isDeletingEditUser, setIsDeletingEditUser] = useState(false);
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
@@ -537,6 +541,36 @@ export default function Vouchers() {
         void refetch();
     }
     })();
+  };
+
+  const handleConfirmDeleteEditUser = async () => {
+    if (!activeRouterId || !confirmDeleteEditUser || isDeletingEditUser) return;
+    const user = confirmDeleteEditUser;
+    setIsDeletingEditUser(true);
+    try {
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usernames: [user.username] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { deleted: number };
+      toast({
+        title: `${data.deleted} voucher supprimé`,
+        description: user.username,
+      });
+      setSelectedUsernames((prev) => {
+        const next = new Set(prev);
+        next.delete(user.username);
+        return next;
+      });
+    } catch (err) {
+      toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
+    } finally {
+      setIsDeletingEditUser(false);
+      setConfirmDeleteEditUser(null);
+      void refetch();
+    }
   };
 
   // ── Lot delete — removes users from MikroTik ────────────────────────────────
@@ -1813,34 +1847,121 @@ export default function Vouchers() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Edit user dialog (Mikhmon-style) */}
+      {/* Edit user dialog — thème app + actions icônes (ordre : Fermer / Enregistrer / Supprimer / Réinitialiser) */}
       <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename) setEditingUser(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Modifier l'utilisateur</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
+        <DialogContent className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:hidden">
+          <div className="space-y-1.5 border-b bg-muted/30 px-6 py-4">
+            <DialogHeader className="space-y-1.5 text-left">
+              <DialogTitle>Modifier le voucher</DialogTitle>
+              <DialogDescription>
+                Identifiant, mot de passe, forfait et liaison bypass MAC. Les changements sont appliqués sur MikroTik après enregistrement.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => setEditingUser(null)}
+                    disabled={isSavingRename}
+                    aria-label="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Fermer</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="default"
+                    className="shrink-0"
+                    onClick={() => void handleRenameUser()}
+                    disabled={
+                      isSavingRename ||
+                      !editUsername.trim() ||
+                      !editPassword.trim() ||
+                      !editProfile.trim() ||
+                      (linkBypass && !editBypassMac.trim() && !editBypassComment.trim())
+                    }
+                    aria-label="Enregistrer"
+                  >
+                    {isSavingRename ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Enregistrer</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={isSavingRename || !editingUser}
+                    onClick={() => {
+                      if (!editingUser) return;
+                      const u = editingUser;
+                      setEditingUser(null);
+                      setConfirmDeleteEditUser(u);
+                    }}
+                    aria-label="Supprimer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Supprimer</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-700 dark:hover:bg-orange-950/40"
+                    disabled={isSavingRename || !editingUser}
+                    onClick={() => {
+                      if (!editingUser) return;
+                      const u = editingUser;
+                      setEditingUser(null);
+                      setConfirmResetUser(u);
+                    }}
+                    aria-label="Réinitialiser"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Réinitialiser</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+          <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto px-6 py-4">
             <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">Utilisateur actuel</Label>
-              <p className="font-mono text-sm bg-gray-50 rounded px-3 py-2 border border-gray-200">
+              <Label className="text-xs text-muted-foreground">Identifiant actuel</Label>
+              <p className="rounded-md border border-input bg-muted/40 px-3 py-2 font-mono text-sm">
                 {editingUser?.username}
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-username" className="text-xs text-gray-500">Identifiant</Label>
+              <Label htmlFor="edit-username" className="text-xs text-muted-foreground">Identifiant</Label>
               <Input
                 id="edit-username"
                 value={editUsername}
                 onChange={(e) => setEditUsername(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") void handleRenameUser(); }}
-                placeholder="Nom d'utilisateur..."
+                placeholder="Code ou nom d'utilisateur"
                 className="font-mono"
                 autoFocus
                 disabled={isSavingRename}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-password" className="text-xs text-gray-500">Mot de passe</Label>
+              <Label htmlFor="edit-password" className="text-xs text-muted-foreground">Mot de passe</Label>
               <div className="relative">
                 <Input
                   id="edit-password"
@@ -1850,44 +1971,55 @@ export default function Vouchers() {
                   className="font-mono pr-10"
                   disabled={isSavingRename}
                 />
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 shrink-0"
                   onClick={() => setEditShowPassword((v) => !v)}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-8 flex items-center justify-center rounded bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  disabled={isSavingRename}
+                  aria-label={editShowPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                 >
-                  {editShowPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
+                  {editShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-profile" className="text-xs text-gray-500">Forfait (profil)</Label>
+              <Label htmlFor="edit-profile" className="text-xs text-muted-foreground">Forfait (profil)</Label>
               <select
                 id="edit-profile"
-                className="w-full h-9 border border-input bg-background rounded-md px-3 text-sm"
+                className={cn(
+                  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm",
+                  "ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  "disabled:cursor-not-allowed disabled:opacity-50",
+                )}
                 value={editProfile}
                 onChange={(e) => setEditProfile(e.target.value)}
                 disabled={isSavingRename}
               >
-                <option value="">Sélectionner un profil</option>
+                <option value="">Choisir un forfait</option>
                 {sortedProfiles.map((p) => (
                   <option key={p.name} value={p.name}>{p.name}</option>
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 pt-0.5">
               <input
                 id="link-bypass"
                 type="checkbox"
+                className="h-4 w-4 rounded border-input"
                 checked={linkBypass}
                 onChange={(e) => setLinkBypass(e.target.checked)}
                 disabled={isSavingRename}
               />
-              <Label htmlFor="link-bypass" className="text-sm text-gray-600">Lier un bypass MAC automatique</Label>
+              <Label htmlFor="link-bypass" className="text-sm font-normal text-muted-foreground">
+                Lier un bypass MAC automatique
+              </Label>
             </div>
             {linkBypass && (
-              <div className="space-y-3">
+              <div className="space-y-3 border-t pt-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-bypass-comment" className="text-xs text-gray-500">Rechercher un bypass (commentaire)</Label>
+                  <Label htmlFor="edit-bypass-comment" className="text-xs text-muted-foreground">Recherche bypass (commentaire)</Label>
                   <Input
                     id="edit-bypass-comment"
                     list="bypass-comment-options"
@@ -1898,7 +2030,7 @@ export default function Vouchers() {
                       const match = bypassBindings.find((b) => (b.comment ?? "").toLowerCase() === value.trim().toLowerCase());
                       if (match?.macAddress) setEditBypassMac(match.macAddress);
                     }}
-                    placeholder="Tapez pour rechercher un commentaire bypass..."
+                    placeholder="Filtrer par commentaire du bypass…"
                     disabled={isSavingRename}
                   />
                   <datalist id="bypass-comment-options">
@@ -1913,7 +2045,7 @@ export default function Vouchers() {
                   </datalist>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-bypass-mac" className="text-xs text-gray-500">Adresse MAC bypass (ou saisie directe)</Label>
+                  <Label htmlFor="edit-bypass-mac" className="text-xs text-muted-foreground">Adresse MAC du bypass</Label>
                   <Input
                     id="edit-bypass-mac"
                     value={editBypassMac}
@@ -1926,25 +2058,38 @@ export default function Vouchers() {
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingUser(null)} disabled={isSavingRename}>
-              Annuler
-            </Button>
-            <Button
-              onClick={() => void handleRenameUser()}
-              disabled={
-                isSavingRename ||
-                !editUsername.trim() ||
-                !editPassword.trim() ||
-                !editProfile.trim() ||
-                (linkBypass && !editBypassMac.trim() && !editBypassComment.trim())
-              }
-            >
-              {isSavingRename ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Enregistrement...</> : "Enregistrer"}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!confirmDeleteEditUser} onOpenChange={(o) => { if (!o && !isDeletingEditUser) setConfirmDeleteEditUser(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce voucher&nbsp;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              L&apos;utilisateur{" "}
+              <span className="font-mono font-semibold">{confirmDeleteEditUser?.username}</span>{" "}
+              sera définitivement supprimé de MikroTik. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingEditUser}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeletingEditUser}
+              onClick={() => void handleConfirmDeleteEditUser()}
+            >
+              {isDeletingEditUser ? (
+                <>
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  Suppression…
+                </>
+              ) : (
+                "Supprimer"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Add User dialog (Mikhmon-style) ────────────────────────────────── */}
       <Dialog open={addUserOpen} onOpenChange={(o) => { if (!isSavingUser) setAddUserOpen(o); }}>

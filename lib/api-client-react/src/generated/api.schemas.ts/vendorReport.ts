@@ -14,7 +14,6 @@ export interface VendorReport {
   totalVouchers: number;
   totalPrinted: number;
   totalUsed: number;
-  totalAvailable: number;
   salesStats: VendorSalesStats;
   byProfile: VendorProfileStat[];
   recentVouchers: Voucher[];

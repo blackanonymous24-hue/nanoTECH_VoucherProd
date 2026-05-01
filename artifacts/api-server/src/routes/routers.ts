@@ -2246,7 +2246,7 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
       });
     }
 
-    const logsKey = `logs:${id}:hotspot:80`;
+    const logsKey = `logs:${id}:hotspot-user:80`;
     const logsFresh = mGet(logsKey) as Awaited<ReturnType<typeof listLogs>> | null;
     const logsStale = mGetStale(logsKey) as Awaited<ReturnType<typeof listLogs>> | null;
     const logs = logsFresh ?? logsStale ?? [];
@@ -2254,7 +2254,7 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
     if (!logsKnown) {
       setImmediate(async () => {
         try {
-          const list = await listLogs(conn, "hotspot", 80);
+          const list = await listLogs(conn, 80, "hotspot", true);
           mSet(logsKey, MIK_TTL.logs, list);
         } catch { /* keep empty snapshot */ }
       });
@@ -2488,7 +2488,8 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
   const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : 50;
   const topics = (req.query.topics as string | undefined) ?? "";
   const live = req.query.live === "1";
-  const ck = `logs:${id}:${topics}:${limit}`;
+  const hotspotUserEventsOnly = req.query.hotspotUsers === "1";
+  const ck = `logs:${id}:${topics}:${limit}:u${hotspotUserEventsOnly ? 1 : 0}`;
   if (!live) {
     const fresh = mGet(ck);
     if (fresh) { res.json(fresh); return; }
@@ -2499,7 +2500,7 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
-    const logs = await listLogs(conn, limit, topics || undefined);
+    const logs = await listLogs(conn, limit, topics || undefined, hotspotUserEventsOnly);
     if (!live) mSet(ck, MIK_TTL.logs, logs);
     res.json(logs);
   } catch (err) {

@@ -212,7 +212,9 @@ export const listRouterLogsParams = zod.object({
 
 export const listRouterLogsQueryParams = zod.object({
   "limit": zod.number().optional(),
-  "topics": zod.string().optional()
+  "topics": zod.string().optional(),
+  "live": zod.string().optional().describe('When \"1\", bypass short-lived server cache for this request'),
+  "hotspotUsers": zod.string().optional().describe('When \"1\", return only hotspot topic lines about user sessions (login\/logout\/failures)')
 })
 
 export const listRouterLogsResponseItem = zod.object({

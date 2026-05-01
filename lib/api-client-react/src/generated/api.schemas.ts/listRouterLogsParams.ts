@@ -8,4 +8,12 @@
 export type ListRouterLogsParams = {
 limit?: number;
 topics?: string;
+/**
+ * When "1", bypass short-lived server cache for this request
+ */
+live?: string;
+/**
+ * When "1", return only hotspot topic lines about user sessions (login/logout/failures)
+ */
+hotspotUsers?: string;
 };

@@ -306,6 +306,16 @@ paths:
           name: topics
           schema:
             type: string
+        - in: query
+          name: live
+          description: When "1", bypass short-lived server cache for this request
+          schema:
+            type: string
+        - in: query
+          name: hotspotUsers
+          description: When "1", return only hotspot topic lines about user sessions (login/logout/failures)
+          schema:
+            type: string
       responses:
         "200":
           description: Log entries
