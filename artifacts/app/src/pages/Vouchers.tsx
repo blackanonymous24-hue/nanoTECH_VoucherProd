@@ -70,6 +70,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
+import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
 type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
@@ -363,6 +364,7 @@ export default function Vouchers() {
   const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
     query: { enabled: !!activeRouterId, staleTime: 120_000 },
   });
+  useProfileAutoResync(activeRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
   const profileExpiryModeByName = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of profilesList as Array<Record<string, unknown>>) {

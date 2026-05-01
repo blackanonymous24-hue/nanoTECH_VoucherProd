@@ -3,7 +3,6 @@ import {
   useListRouterProfiles,
   useGenerateVouchers,
   getListVouchersQueryKey,
-  getListRouterProfilesQueryKey,
 } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
@@ -28,6 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
+import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 
 const LS_KEY = "vouchernet-last-lot";
 
@@ -277,29 +277,7 @@ export default function GenerateVouchers() {
     setProfilePopoverOpen(false);
   }, [selectedRouterId]);
 
-  // On page load (Generate tab), force a MikroTik profile sync once per router
-  // so both Generate and Forfaits use fresh profile metadata.
-  useEffect(() => {
-    if (!selectedRouterId) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
-        if (!res.ok || cancelled) return;
-        const freshProfiles = await res.json();
-        if (cancelled) return;
-        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
-        queryClient.setQueryData(profileKey, freshProfiles);
-        queryClient.invalidateQueries({ queryKey: profileKey });
-      } catch {
-        // Keep existing cached profiles if live sync fails.
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedRouterId, queryClient]);
+  useProfileAutoResync(selectedRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
 
   // Auto-load the most recent lot from API when localStorage is empty
   useEffect(() => {

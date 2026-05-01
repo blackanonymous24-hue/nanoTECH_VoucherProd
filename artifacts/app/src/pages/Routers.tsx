@@ -10,7 +10,7 @@ import {
   getListRoutersQueryKey,
 } from "@workspace/api-client-react";
 import type { Router as RouterType } from "@workspace/api-client-react";
-import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -23,23 +23,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, MoreHorizontal, ArrowRight, Layers, AlertTriangle, RefreshCw, Coins } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangle, Coins, Activity } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -178,169 +164,6 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
   );
 }
 
-type DbProfile = { profileName: string; total: number; available: number; sold: number };
-
-function ProfileMergeDialog({ routerId, onClose }: { routerId: number; onClose: () => void }) {
-  const { token } = useAuth();
-  const { toast } = useToast();
-  const [dbProfiles, setDbProfiles] = useState<DbProfile[]>([]);
-  const [liveNames, setLiveNames] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [merging, setMerging] = useState(false);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [dbRes, liveRes] = await Promise.all([
-        fetch(`${BASE}/api/routers/${routerId}/profiles/db`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${BASE}/api/routers/${routerId}/profiles`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
-      ]);
-      const db: DbProfile[] = await dbRes.json();
-      setDbProfiles(db);
-      if (liveRes?.ok) {
-        const live: { name: string }[] = await liveRes.json();
-        setLiveNames(new Set(live.map((p) => p.name)));
-      }
-    } catch {
-      toast({ title: "Erreur de chargement", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { void load(); }, []);
-
-  const handleMerge = async () => {
-    if (!from || !to) return;
-    if (!confirm(`Fusionner tous les tickets « ${from} » → « ${to} » ?\nCette action est irréversible.`)) return;
-    setMerging(true);
-    try {
-      const res = await fetch(`${BASE}/api/routers/${routerId}/profiles/merge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ from, to }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      toast({ title: `Fusion effectuée — ${data.updated} ticket(s) mis à jour` });
-      setFrom("");
-      setTo("");
-      await load();
-    } catch (err) {
-      toast({ title: "Erreur", description: err instanceof Error ? err.message : "Erreur inconnue", variant: "destructive" });
-    } finally {
-      setMerging(false);
-    }
-  };
-
-  const orphaned = dbProfiles.filter((p) => liveNames.size > 0 && !liveNames.has(p.profileName));
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg w-full">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Layers className="h-4 w-4" /> Gestion des profils — BD
-          </DialogTitle>
-        </DialogHeader>
-
-        {loading ? (
-          <div className="py-4 space-y-3">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-11/12" />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {orphaned.length > 0 && (
-              <div className="flex items-start gap-2 rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-sm text-orange-700">
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <span>
-                  <strong>{orphaned.length} profil(s)</strong> en BD absent(s) de MikroTik :{" "}
-                  {orphaned.map((p) => `« ${p.profileName} »`).join(", ")}
-                </span>
-              </div>
-            )}
-
-            <div className="rounded-md border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-xs text-gray-500">
-                  <tr>
-                    <th className="text-left px-3 py-2">Profil</th>
-                    <th className="text-right px-3 py-2">Total</th>
-                    <th className="text-right px-3 py-2">Dispo</th>
-                    <th className="text-right px-3 py-2">Vendus</th>
-                    <th className="text-center px-3 py-2">Statut</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {dbProfiles.map((p) => {
-                    const isOrphaned = liveNames.size > 0 && !liveNames.has(p.profileName);
-                    return (
-                      <tr key={p.profileName} className={isOrphaned ? "bg-orange-50" : ""}>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-800">{p.profileName}</td>
-                        <td className="px-3 py-2 text-right text-gray-600">{p.total}</td>
-                        <td className="px-3 py-2 text-right text-emerald-600 font-semibold">{p.available}</td>
-                        <td className="px-3 py-2 text-right text-gray-400">{p.sold}</td>
-                        <td className="px-3 py-2 text-center">
-                          {isOrphaned ? (
-                            <span className="text-xs font-semibold text-orange-500">Ancien nom</span>
-                          ) : (
-                            <span className="text-xs text-green-600">✓ Actif</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Fusionner un profil</p>
-              <div className="flex items-center gap-2">
-                <Select value={from} onValueChange={setFrom}>
-                  <SelectTrigger className="flex-1 text-sm h-9">
-                    <SelectValue placeholder="Ancien nom..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dbProfiles.map((p) => (
-                      <SelectItem key={p.profileName} value={p.profileName}>{p.profileName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <ArrowRight className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                <Select value={to} onValueChange={setTo}>
-                  <SelectTrigger className="flex-1 text-sm h-9">
-                    <SelectValue placeholder="Nom cible..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dbProfiles.filter((p) => p.profileName !== from).map((p) => (
-                      <SelectItem key={p.profileName} value={p.profileName}>{p.profileName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <button
-                  onClick={handleMerge}
-                  disabled={!from || !to || merging}
-                  className="px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {merging ? "..." : "Fusionner"}
-                </button>
-              </div>
-              <p className="text-xs text-gray-400">
-                Tous les tickets de l&apos;ancien nom seront rattachés au nom cible. Les tickets vendus sont conservés.
-              </p>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export default function Routers() {
   const { data: routers = [], isLoading } = useListRouters();
   const createMutation = useCreateRouter();
@@ -380,8 +203,6 @@ export default function Routers() {
   const [editRouter, setEditRouter] = useState<RouterType | null>(null);
   const [form, setForm] = useState<RouterFormData>(emptyForm);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
-  const [profileMergeRouterId, setProfileMergeRouterId] = useState<number | null>(null);
-  const [forceSyncingId, setForceSyncingId] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
 
@@ -447,25 +268,6 @@ export default function Routers() {
     }
   };
 
-  const handleForceSync = async (id: number) => {
-    setForceSyncingId(id);
-    try {
-      const res = await fetch(`/api/admin/routers/${id}/force-sync`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erreur");
-      toast({
-        title: "Resync complet terminé",
-        description: `${data.scriptInserted} nouvelles entrées script · ${data.vouchersCreated} ticket(s) récupéré(s)`,
-      });
-    } catch (err) {
-      toast({ title: "Resync échoué", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
-    } finally {
-      setForceSyncingId(null);
-    }
-  };
 
   const handleSelect = (id: number) => {
     setSelectedRouterId(id);
@@ -562,7 +364,7 @@ export default function Routers() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {routers.map((r) => {
             const isSelected = r.id === selectedRouterId;
             return (
@@ -571,103 +373,68 @@ export default function Routers() {
                 className={`${isSelected ? "ring-2 ring-blue-500" : ""} cursor-pointer`}
                 onClick={() => handleSelect(r.id)}
               >
-                <CardContent className="py-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
-                      <div className={`p-2 rounded-lg flex-shrink-0 ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
-                        <Wifi className={`h-5 w-5 ${isSelected ? "text-white" : "text-blue-500"}`} />
+                <CardContent className="py-2.5 px-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className={`p-1.5 rounded-md flex-shrink-0 ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
+                        <Wifi className={`h-4 w-4 ${isSelected ? "text-white" : "text-blue-500"}`} />
                       </div>
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-semibold text-gray-900">{r.name}</span>
-                          {(r as any).hotspotName && (
-                            <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 font-mono truncate max-w-[100px]">{(r as any).hotspotName}</span>
-                          )}
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="font-semibold text-sm text-gray-900">{r.name}</span>
                           {isSelected && (
-                            <Badge className="bg-blue-100 text-blue-700 border-blue-300 gap-1 flex-shrink-0">
-                              <CheckCircle2 className="h-3 w-3" /> Actif
+                            <Badge className="h-5 px-1.5 bg-blue-100 text-blue-700 border-blue-300 gap-1 flex-shrink-0">
+                              <CheckCircle2 className="h-2.5 w-2.5" /> Actif
                             </Badge>
                           )}
-                          <Badge
-                            variant="outline"
-                            className={`flex-shrink-0 ${r.isActive ? "text-green-600 border-green-200" : "text-gray-400"}`}
-                          >
-                            {r.isActive ? "Connecté" : "Inactif"}
-                          </Badge>
                           {testResults[r.id] && (
-                            <Badge
-                              variant="outline"
-                              className={`flex-shrink-0 ${testResults[r.id].success ? "text-green-600 border-green-200" : "text-red-500 border-red-200"}`}
+                            <span
+                              className={`inline-flex items-center rounded-full px-1.5 h-5 text-[10px] font-medium border ${
+                                testResults[r.id].success
+                                  ? "text-green-600 border-green-200 bg-green-50"
+                                  : "text-red-500 border-red-200 bg-red-50"
+                              }`}
                             >
-                              {testResults[r.id].success ? "✓ En ligne" : "✗ Hors ligne"}
-                            </Badge>
+                              {testResults[r.id].success ? "En ligne" : "Hors ligne"}
+                            </span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5 truncate">
+                        <p className="text-[11px] text-gray-500 leading-tight truncate">
                           {r.host}:{r.port} · {r.username}
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-1 flex-shrink-0 w-[68px] justify-end">
-                      {!isSelected && (
-                        <Button
-                          size="icon"
-                          className="h-8 w-8 bg-blue-600 hover:bg-blue-700 text-white"
-                          onClick={(e) => { e.stopPropagation(); handleSelect(r.id); }}
-                          title="Sélectionner"
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                        </Button>
-                      )}
+                    <div className="flex items-center gap-1 flex-shrink-0 justify-end">
                       <Button
-                        variant="outline"
-                        className="h-8 w-8 text-blue-600 text-xs font-medium p-0"
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 rounded-full text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-100"
                         onClick={(e) => { e.stopPropagation(); void handleTest(r.id); }}
                         disabled={testMutation.isPending}
+                        title="Ping"
                       >
-                        Ping
+                        <Activity className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="h-8 w-8 text-gray-400 hover:text-gray-700"
+                        className="h-7 w-7 rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-slate-200"
                         onClick={(e) => { e.stopPropagation(); openEdit(r); }}
                         title="Modifier"
                       >
-                        <Edit className="h-4 w-4" />
+                        <Edit className="h-3.5 w-3.5" />
                       </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-gray-400" onClick={(e) => e.stopPropagation()}>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="py-1.5 text-sm" onClick={() => setProfileMergeRouterId(r.id)}>
-                            <Layers className="h-3.5 w-3.5 mr-2" /> Profils en base
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="py-1.5 text-sm text-blue-600 focus:text-blue-600 focus:bg-blue-50"
-                            onClick={() => handleForceSync(r.id)}
-                            disabled={forceSyncingId === r.id}
-                          >
-                            <RefreshCw className={`h-3.5 w-3.5 mr-2 ${forceSyncingId === r.id ? "animate-spin" : ""}`} />
-                            {forceSyncingId === r.id ? "Resync en cours…" : "Resync complet"}
-                          </DropdownMenuItem>
-                          {!isManager && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="py-1.5 text-sm text-red-600 focus:text-red-600 focus:bg-red-50"
-                                onClick={() => handleDelete(r.id)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      {!isManager && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 rounded-full text-red-500 hover:text-red-700 hover:bg-red-50 border border-red-100"
+                          onClick={(e) => { e.stopPropagation(); void handleDelete(r.id); }}
+                          title="Supprimer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -765,12 +532,6 @@ export default function Routers() {
 
       <CredentialsDialog open={showCredentials} onClose={() => setShowCredentials(false)} />
 
-      {profileMergeRouterId !== null && (
-        <ProfileMergeDialog
-          routerId={profileMergeRouterId}
-          onClose={() => setProfileMergeRouterId(null)}
-        />
-      )}
     </div>
   );
 }
