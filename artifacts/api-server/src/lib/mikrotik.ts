@@ -2163,18 +2163,14 @@ export async function generateVouchers(
       vouchers.push({ username, password, addParams });
     }
 
-    // Step 2 – Send writes with a continuous worker pool (no batch barriers).
-    // This keeps the RouterOS pipeline saturated while avoiding huge spikes.
-    const PARALLEL_WRITES = 64;
-    let cursor = 0;
-    const workers = Array.from({ length: Math.min(PARALLEL_WRITES, vouchers.length) }, async () => {
-      for (;;) {
-        const idx = cursor++;
-        if (idx >= vouchers.length) break;
-        await api.write("/ip/hotspot/user/add", vouchers[idx].addParams);
-      }
-    });
-    await Promise.all(workers);
+    // Step 2 – Send writes in parallel batches.
+    // node-routeros opens a separate tagged channel per api.write() call, so
+    // concurrent calls are fully safe over a single connection.
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < vouchers.length; i += BATCH_SIZE) {
+      const batch = vouchers.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(({ addParams }) => api.write("/ip/hotspot/user/add", addParams)));
+    }
 
     return vouchers.map(({ username, password }) => ({
       username,

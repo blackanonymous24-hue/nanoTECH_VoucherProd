@@ -193,12 +193,12 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
   try {
     // Lock this router for the duration of generation so background syncs
     // don't open concurrent MikroTik connections and saturate the API limit.
-    const responseRows = await withRouterLock(routerId, async () => {
+    const inserted = await withRouterLock(routerId, async () => {
       const generated = await generateVouchers(
         conn,
         { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "same", charType, userLength, timelimit: timelimit || undefined, datalimit: datalimit || undefined },
       );
-      const insertedIds = await db
+      return db
         .insert(vouchersTable)
         .values(
           generated.map((v) => ({
@@ -212,21 +212,7 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
             comment: v.comment || null,
           })),
         )
-        .returning({ id: vouchersTable.id });
-      return generated.map((v, i) => ({
-        id: insertedIds[i]?.id ?? 0,
-        routerId,
-        vendorId: vendorId ?? null,
-        username: v.username,
-        password: v.password,
-        profileName: v.profile,
-        price: v.price,
-        validity: v.validity,
-        comment: v.comment || null,
-        printedAt: null,
-        usedAt: null,
-        createdAt: new Date().toISOString(),
-      }));
+        .returning();
     });
 
     // Drop the cached MikroTik user list so any reconciliation read-back
@@ -234,10 +220,10 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     // after a retry) sees the freshly-added users.
     invalidateUserCache(routerId);
 
-    res.status(201).json(responseRows);
+    res.status(201).json(inserted);
 
     // Background: auto-attribute vouchers without vendorId to the matching vendor by comment suffix
-    void autoAttributeInserted(responseRows.map((v) => v.id));
+    void autoAttributeInserted(inserted.map((v) => v.id));
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }

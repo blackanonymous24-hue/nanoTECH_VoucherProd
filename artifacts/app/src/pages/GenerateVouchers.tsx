@@ -28,7 +28,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
-import { setApiRequestPause } from "@/lib/installAuthFetch";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -46,21 +45,42 @@ type LastLot = {
   generatedAt: string;
 };
 
-function loadLastLot(): LastLot | null {
+function lastLotStorageKey(routerId: number): string {
+  return `${LS_KEY}:${routerId}`;
+}
+
+function loadLastLot(routerId: number | null | undefined): LastLot | null {
+  if (!routerId) return null;
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? (JSON.parse(raw) as LastLot) : null;
+    const raw = localStorage.getItem(lastLotStorageKey(routerId));
+    if (raw) return JSON.parse(raw) as LastLot;
+    // Backward compatibility with legacy single-key storage.
+    const legacy = localStorage.getItem(LS_KEY);
+    if (!legacy) return null;
+    const parsed = JSON.parse(legacy) as LastLot;
+    return parsed?.routerId === routerId ? parsed : null;
   } catch {
     return null;
   }
 }
 
 function saveLastLot(lot: LastLot) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(lot)); } catch { /* noop */ }
+  try {
+    localStorage.setItem(lastLotStorageKey(lot.routerId), JSON.stringify(lot));
+    // Keep legacy key in sync for users upgrading across versions.
+    localStorage.setItem(LS_KEY, JSON.stringify(lot));
+  } catch {
+    /* noop */
+  }
 }
 
-function clearLastLot() {
-  try { localStorage.removeItem(LS_KEY); } catch { /* noop */ }
+function clearLastLot(routerId: number | null | undefined) {
+  try {
+    if (routerId) localStorage.removeItem(lastLotStorageKey(routerId));
+    localStorage.removeItem(LS_KEY);
+  } catch {
+    /* noop */
+  }
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -237,7 +257,7 @@ export default function GenerateVouchers() {
   const [mbgb, setMbgb] = useState<number>(1048576);
   const [comment, setComment] = useState(() => makeBatchId("vc"));
   const [vendorId, setVendorId] = useState<string>("");
-  const [lastLot, setLastLot] = useState<LastLot | null>(() => loadLastLot());
+  const [lastLot, setLastLot] = useState<LastLot | null>(null);
   const [loadingLastLot, setLoadingLastLot] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
@@ -247,6 +267,10 @@ export default function GenerateVouchers() {
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
   const coldFetchAttempted = useState(() => new Set<number>())[0];
+
+  useEffect(() => {
+    setLastLot(loadLastLot(selectedRouterId));
+  }, [selectedRouterId]);
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
   useEffect(() => {
@@ -417,16 +441,6 @@ export default function GenerateVouchers() {
     e.preventDefault();
     if (!selectedRouterId || !profile) return;
 
-    // During generation, pause unrelated API traffic and keep only generation-critical
-    // endpoints so RouterOS bandwidth is dedicated to voucher creation.
-    setApiRequestPause(true, {
-      allowPathPatterns: [
-        /^\/api\/vouchers\/generate(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/users(?:$|\/|\?)/,
-      ],
-    });
-
     const total = parseInt(qty, 10);
     setProgress({ done: 0, total });
     setGenPaused(false);
@@ -540,7 +554,6 @@ export default function GenerateVouchers() {
       setDatalimit("");
       setVendorId("");
     } finally {
-      setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
       if (lockAcquired) {
         void fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "DELETE" });
@@ -645,7 +658,7 @@ export default function GenerateVouchers() {
         setLastLot(nextLot);
         saveLastLot(nextLot);
       } else {
-        clearLastLot();
+        clearLastLot(lot.routerId);
         setLastLot(null);
       }
       toast({
