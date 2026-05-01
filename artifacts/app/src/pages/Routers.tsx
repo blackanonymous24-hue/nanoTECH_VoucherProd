@@ -370,12 +370,15 @@ export default function Routers() {
             return (
               <Card
                 key={r.id}
-                className={`${isSelected ? "ring-2 ring-blue-500" : ""} cursor-pointer`}
-                onClick={() => handleSelect(r.id)}
+                className={`${isSelected ? "ring-2 ring-blue-500" : ""}`}
               >
                 <CardContent className="py-2.5 px-3">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div
+                      className="flex items-center gap-2.5 min-w-0 flex-1 basis-3/4 cursor-pointer"
+                      onClick={() => handleSelect(r.id)}
+                      title="Sélectionner ce routeur"
+                    >
                       <div className={`p-1.5 rounded-md flex-shrink-0 ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
                         <Wifi className={`h-4 w-4 ${isSelected ? "text-white" : "text-blue-500"}`} />
                       </div>
@@ -425,7 +428,7 @@ export default function Routers() {
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
                       {!isManager && (
-                        <div className="ml-2 pl-2 border-l border-gray-200">
+                        <div className="ml-4 pl-3 border-l border-gray-200">
                           <Button
                             size="icon"
                             variant="ghost"
