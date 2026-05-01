@@ -252,6 +252,9 @@ export default function Routers() {
     setDeletingRouterId(id);
     try {
       await deleteMutation.mutateAsync({ id });
+      queryClient.setQueryData<RouterType[]>(getListRoutersQueryKey(), (prev) =>
+        Array.isArray(prev) ? prev.filter((r) => r.id !== id) : prev,
+      );
       toast({ title: "Routeur supprimé" });
       invalidate();
     } finally {

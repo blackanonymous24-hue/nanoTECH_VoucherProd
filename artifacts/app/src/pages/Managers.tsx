@@ -125,9 +125,24 @@ export default function Managers() {
       const r = await fetch(`${BASE}/api/managers/${id}`, { method: "DELETE", headers });
       if (!r.ok) throw new Error("Erreur suppression");
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["managers"] }); setDeleteId(null); toast({ title: "Gérant supprimé" }); },
-    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
   });
+
+  const handleDeleteManager = async () => {
+    if (deleteId === null || deleteMutation.isPending) return;
+    const id = deleteId;
+    try {
+      await deleteMutation.mutateAsync(id);
+      qc.setQueryData<Manager[]>(["managers"], (prev) =>
+        Array.isArray(prev) ? prev.filter((m) => m.id !== id) : prev,
+      );
+      qc.invalidateQueries({ queryKey: ["managers"] });
+      setDeleteId(null);
+      toast({ title: "Gérant supprimé" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erreur suppression";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    }
+  };
 
   const handleCreate = async (data: PersonFormData) => {
     setCreateError("");
@@ -221,7 +236,7 @@ export default function Managers() {
                         <DropdownMenuItem
                           className="py-1.5 text-sm text-red-600 focus:text-red-600 focus:bg-red-50"
                           onClick={() => setDeleteId(m.id)}
-                          disabled={deleteMutation.isPending}
+                          disabled={deleteMutation.isPending && deleteId === m.id}
                         >
                           <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
                         </DropdownMenuItem>
@@ -350,7 +365,7 @@ export default function Managers() {
             <AlertDialogCancel disabled={deleteMutation.isPending}>Annuler</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
-              onClick={() => deleteId !== null && deleteMutation.mutate(deleteId)}
+              onClick={() => void handleDeleteManager()}
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending

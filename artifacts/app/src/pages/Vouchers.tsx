@@ -539,30 +539,29 @@ export default function Vouchers() {
 
   // ── Delete selected usernames ────────────────────────────────────────────────
   const handleDeleteSelected = async () => {
-    if (!activeRouterId || selectedUsernames.size === 0) return;
+    if (!activeRouterId || selectedUsernames.size === 0 || isDeletingSelected) return;
     const usernames = [...selectedUsernames];
+    setIsDeletingSelected(true);
     setConfirmDeleteSelected(false);
-    setSelectedUsernames(new Set());
-    setIsDeletingSelected(false);
-    void (async () => {
     try {
       const res = await fetch(`${BASE}/api/routers/${activeRouterId}/users`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ usernames }),
+        body: JSON.stringify({ usernames }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { deleted: number };
+      setSelectedUsernames(new Set());
       toast({
         title: `${data.deleted} voucher(s) supprimé(s)`,
         description: `Profil : ${filterProfile}`,
       });
+      await Promise.all([refetchUsers(), refetchLots()]);
     } catch (err) {
       toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
     } finally {
-        void refetch();
+      setIsDeletingSelected(false);
     }
-    })();
   };
 
   const handleConfirmDeleteEditUser = async () => {
@@ -591,7 +590,7 @@ export default function Vouchers() {
     } finally {
       setIsDeletingEditUser(false);
       setConfirmDeleteEditUser(null);
-      void refetch();
+      await Promise.all([refetchUsers(), refetchLots()]);
     }
   };
 
@@ -602,7 +601,6 @@ export default function Vouchers() {
     setDeletingLotName(lotName);
     setDeletingLot(null);
     if (filterComment === lotName) setFilterComment("all");
-    void (async () => {
     try {
       const res = await fetch(
         `${BASE}/api/routers/${activeRouterId}/users?comment=${encodeURIComponent(lotName)}`,
@@ -617,11 +615,10 @@ export default function Vouchers() {
     } catch (err) {
       toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
     } finally {
-        setIsDeletingLot(false);
-        setDeletingLotName(null);
-        void refetch();
+      setIsDeletingLot(false);
+      setDeletingLotName(null);
+      await Promise.all([refetchUsers(), refetchLots()]);
     }
-    })();
   };
 
   // ── Print ────────────────────────────────────────────────────────────────────
@@ -1992,12 +1989,6 @@ export default function Vouchers() {
             </div>
           </div>
           <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto px-6 py-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Identifiant actuel</Label>
-              <p className="rounded-md border border-input bg-muted/40 px-3 py-2 font-mono text-sm">
-                {editingUser?.username}
-              </p>
-            </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-username" className="text-xs text-muted-foreground">Identifiant</Label>
               <Input

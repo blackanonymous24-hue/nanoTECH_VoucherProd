@@ -147,7 +147,6 @@ export default function SuperAdmins() {
       const r = await fetch(`${BASE}/api/super/admins/${id}`, { method: "DELETE", headers });
       if (!r.ok) throw new Error((await r.json()).error ?? "Suppression impossible");
     },
-    onSuccess: () => { refresh(); toast({ title: "Administrateur supprimé" }); },
     onError: handleErr,
   });
 
@@ -158,6 +157,13 @@ export default function SuperAdmins() {
     setDeletingAdminId(admin.id);
     try {
       await deleteM.mutateAsync(admin.id);
+      qc.setQueryData<AdminRow[]>(["super", "admins"], (prev) =>
+        Array.isArray(prev) ? prev.filter((a) => a.id !== admin.id) : prev,
+      );
+      refresh();
+      toast({ title: "Administrateur supprimé" });
+    } catch {
+      // Error toast handled by mutation onError (handleErr).
     } finally {
       setDeletingAdminId(null);
     }

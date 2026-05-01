@@ -1881,16 +1881,50 @@ export async function updateHotspotUser(
   }, 20_000, "high");
 }
 
-export async function disconnectSession(conn: RouterConnection, username: string): Promise<number> {
+export async function disconnectSession(
+  conn: RouterConnection,
+  username: string,
+): Promise<number> {
   return withRouter(conn, async (api) => {
-    const sessions = await api.write("/ip/hotspot/active/print", [`?user=${username}`]);
-    let removed = 0;
-    for (const s of sessions) {
-      const id = s[".id"] as string | undefined;
-      if (id) {
-        await api.write("/ip/hotspot/active/remove", [`=.id=${id}`]);
-        removed++;
+    const target = username.trim();
+    if (!target) return 0;
+    const targetLower = target.toLowerCase();
+
+    // Fast path: ask MikroTik for the exact user first (very fast on large active lists).
+    // Include common encoded variants to handle accents/special chars gracefully.
+    const candidates = Array.from(new Set([
+      target,
+      fixEncoding(target),
+      decodeRouterText(target),
+    ].map((v) => v.trim()).filter(Boolean)));
+
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const cand of candidates) {
+      const rows = await api.write("/ip/hotspot/active/print", [`?user=${cand}`]);
+      for (const row of rows) {
+        const id = String(row[".id"] ?? "");
+        if (id) byId.set(id, row as Record<string, unknown>);
       }
+      if (byId.size > 0) break;
+    }
+
+    // Fallback path (rare): full scan + robust compare for mixed encodings.
+    if (byId.size === 0) {
+      const sessions = await api.write("/ip/hotspot/active/print");
+      for (const s of sessions) {
+        const rawUser = String(s["user"] ?? "").trim();
+        const decodedUser = decodeRouterText(rawUser).trim();
+        if (rawUser.toLowerCase() === targetLower || decodedUser.toLowerCase() === targetLower) {
+          const id = String(s[".id"] ?? "");
+          if (id) byId.set(id, s as Record<string, unknown>);
+        }
+      }
+    }
+
+    let removed = 0;
+    for (const id of byId.keys()) {
+      await api.write("/ip/hotspot/active/remove", [`=.id=${id}`]);
+      removed++;
     }
     return removed;
   }, 10_000, "high");

@@ -163,13 +163,24 @@ export default function Collaborateurs() {
       const r = await fetch(`${BASE}/api/collaborateurs/${id}`, { method: "DELETE", headers });
       if (!r.ok) throw new Error("Erreur suppression");
     },
-    onSuccess: () => {
+  });
+
+  const handleDeleteCollaborateur = async () => {
+    if (deleteId === null || deleteMutation.isPending) return;
+    const id = deleteId;
+    try {
+      await deleteMutation.mutateAsync(id);
+      qc.setQueryData<Collaborateur[]>(["collaborateurs"], (prev) =>
+        Array.isArray(prev) ? prev.filter((c) => c.id !== id) : prev,
+      );
       qc.invalidateQueries({ queryKey: ["collaborateurs"] });
       setDeleteId(null);
       toast({ title: "Collaborateur supprimé" });
-    },
-    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
-  });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erreur suppression";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    }
+  };
 
   const handleCreate = async (data: PersonFormData) => {
     setCreateError("");
@@ -275,7 +286,7 @@ export default function Collaborateurs() {
                         <DropdownMenuItem
                           className="py-1.5 text-sm text-red-600 focus:text-red-600 focus:bg-red-50"
                           onClick={() => setDeleteId(c.id)}
-                          disabled={deleteMutation.isPending}
+                          disabled={deleteMutation.isPending && deleteId === c.id}
                         >
                           <Trash2 className="h-3.5 w-3.5 mr-2" /> Supprimer
                         </DropdownMenuItem>
@@ -394,7 +405,7 @@ export default function Collaborateurs() {
             <AlertDialogCancel disabled={deleteMutation.isPending}>Annuler</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
-              onClick={() => deleteId !== null && deleteMutation.mutate(deleteId)}
+              onClick={() => void handleDeleteCollaborateur()}
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending

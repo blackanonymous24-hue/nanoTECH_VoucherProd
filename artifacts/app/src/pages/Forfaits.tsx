@@ -397,7 +397,7 @@ export default function Forfaits() {
                     {!isManager && (
                       <button
                         onClick={() => setDeletingName(p.name)}
-                        disabled={deleting}
+                        disabled={deleting && deletingName === p.name}
                         className="p-1 rounded hover:bg-red-50 text-red-600 hover:text-red-700 transition-colors"
                         title="Supprimer"
                       >

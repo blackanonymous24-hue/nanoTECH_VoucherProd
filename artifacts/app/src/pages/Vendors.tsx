@@ -428,8 +428,12 @@ export default function Vendors() {
 
   const handleDelete = async () => {
     if (!deleteVendorId || deleteMutation.isPending) return;
+    const deletedId = deleteVendorId;
     try {
-      await deleteMutation.mutateAsync({ id: deleteVendorId });
+      await deleteMutation.mutateAsync({ id: deletedId });
+      queryClient.setQueryData<Vendor[]>(["vendors", selectedRouterId], (prev) =>
+        Array.isArray(prev) ? prev.filter((v) => v.id !== deletedId) : prev,
+      );
       invalidate();
       setDeleteVendorId(null);
       toast({ title: "Vendeur supprimé" });
@@ -689,7 +693,7 @@ export default function Vendors() {
                         variant="outline"
                         className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                         onClick={() => setDeleteVendorId(vendor.id)}
-                        disabled={deleteMutation.isPending}
+                        disabled={deleteMutation.isPending && deleteVendorId === vendor.id}
                         title="Supprimer"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

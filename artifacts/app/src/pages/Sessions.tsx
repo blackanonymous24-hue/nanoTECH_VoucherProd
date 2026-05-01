@@ -106,7 +106,13 @@ export default function Sessions() {
         title: `${disconnectUser} déconnecté`,
         description: `${result.removed} session(s) terminée(s)`,
       });
-      refetch();
+      if (result.removed > 0) {
+        _sessionsCache[selectedRouterId] = {
+          sessions: sessions.filter((s) => s.user !== disconnectUser),
+          ts: Date.now(),
+        };
+      }
+      void refetch();
     } catch {
       toast({
         title: "Erreur de déconnexion",
@@ -239,7 +245,7 @@ export default function Sessions() {
                           className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
                           title={`Déconnecter ${s.user}`}
                           onClick={() => setDisconnectUser(s.user)}
-                          disabled={disconnectMutation.isPending}
+                          disabled={disconnectMutation.isPending && disconnectUser === s.user}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
