@@ -400,7 +400,7 @@ export default function Routers() {
                           )}
                         </div>
                         <p className="text-[11px] text-gray-500 leading-tight truncate">
-                          {r.host}:{r.port} · {r.username}
+                          {r.host}:{r.port}
                         </p>
                       </div>
                     </div>
@@ -425,15 +425,17 @@ export default function Routers() {
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
                       {!isManager && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 rounded-full text-red-500 hover:text-red-700 hover:bg-red-50 border border-red-100"
-                          onClick={(e) => { e.stopPropagation(); void handleDelete(r.id); }}
-                          title="Supprimer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="ml-2 pl-2 border-l border-gray-200">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 rounded-full text-red-500 hover:text-red-700 hover:bg-red-50 border border-red-100"
+                            onClick={(e) => { e.stopPropagation(); void handleDelete(r.id); }}
+                            title="Supprimer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </div>
