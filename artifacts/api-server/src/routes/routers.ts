@@ -2402,6 +2402,7 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   const yearRaw  = req.query.year  ? parseInt(req.query.year  as string, 10) : null;
   const monthRaw = req.query.month ? parseInt(req.query.month as string, 10) : null;
   const dayRaw   = req.query.day   ? parseInt(req.query.day   as string, 10) : null;
+  const withPresence = String(req.query.presence ?? "") === "1" || String(req.query.presence ?? "") === "true";
 
   try {
     const conditions: ReturnType<typeof eq>[] = [eq(scriptSalesTable.routerId, id) as any];
@@ -2420,14 +2421,35 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
         validity: scriptSalesTable.validity,
         label:    scriptSalesTable.label,
         batch:    scriptSalesTable.batch,
+        rawName:  scriptSalesTable.rawName,
       })
       .from(scriptSalesTable)
       .where(and(...conditions))
       .orderBy(sql`${scriptSalesTable.saleDate} DESC`);
 
-    const entries = rows.map(({ price, ...rest }) => ({
+    let liveRawNames = new Set<string>();
+    if (withPresence && yearRaw && monthRaw && monthRaw >= 1 && monthRaw <= 12) {
+      const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+      if (r) {
+        const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+        try {
+          await withRouterLock(id, async () => {
+            const live = await fetchScriptSales(conn, { type: "month", year: yearRaw, month: monthRaw }, 60_000);
+            liveRawNames = new Set(live.map((e) => [
+              e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch,
+            ].join("-|-")));
+          }, 90_000);
+        } catch {
+          // Non-blocking marker check: keep report available from local DB.
+          liveRawNames = new Set<string>();
+        }
+      }
+    }
+
+    const entries = rows.map(({ price, rawName, ...rest }) => ({
       ...rest,
       price: parseFloat(price) || 0,
+      source: liveRawNames.size > 0 && rawName && liveRawNames.has(rawName) ? "mikrotik+local" : "local-db",
     }));
 
     res.json(entries);
@@ -2439,7 +2461,7 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
 /**
  * DELETE /routers/:id/sales-report/scripts?year=YYYY&month=M
  * Removes MikHMon sales scripts for the selected month directly from MikroTik
- * and purges corresponding rows from local script_sales cache.
+ * while keeping local script_sales cache/history intact.
  */
 router.delete("/routers/:id/sales-report/scripts", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
@@ -2458,7 +2480,6 @@ router.delete("/routers/:id/sales-report/scripts", async (req, res): Promise<voi
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
     const result = await withRouterLock(id, async () => {
-      const purge = await purgeMikhmonScriptsForMonth(conn, yearRaw, monthRaw);
       const monthPadded = String(monthRaw).padStart(2, "0");
       const fromUtc = `${yearRaw}-${monthPadded}-01T00:00:00.000Z`;
       const nextYear = monthRaw === 12 ? yearRaw + 1 : yearRaw;
@@ -2466,17 +2487,18 @@ router.delete("/routers/:id/sales-report/scripts", async (req, res): Promise<voi
       const nextMonthPadded = String(nextMonth).padStart(2, "0");
       const toUtc = `${nextYear}-${nextMonthPadded}-01T00:00:00.000Z`;
 
-      const deletedRows = await db
-        .delete(scriptSalesTable)
+      const monthRows = await db
+        .select({ rawName: scriptSalesTable.rawName })
+        .from(scriptSalesTable)
         .where(and(
           eq(scriptSalesTable.routerId, id),
           gte(scriptSalesTable.saleDate, fromUtc),
           lt(scriptSalesTable.saleDate, toUtc),
-        ))
-        .returning({ id: scriptSalesTable.id });
+        ));
+      const preferredRawNames = monthRows.map((r) => String(r.rawName ?? "").trim()).filter(Boolean);
 
-      await syncScriptCache(id);
-      return { purge, cacheRowsDeleted: deletedRows.length };
+      const purge = await purgeMikhmonScriptsForMonth(conn, yearRaw, monthRaw, { preferredRawNames });
+      return { purge };
     });
 
     res.json({
@@ -2486,7 +2508,7 @@ router.delete("/routers/:id/sales-report/scripts", async (req, res): Promise<voi
       removed: result.purge.removed,
       failed: result.purge.failed,
       scanned: result.purge.scanned,
-      cacheRowsDeleted: result.cacheRowsDeleted,
+      cacheRowsDeleted: 0,
     });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

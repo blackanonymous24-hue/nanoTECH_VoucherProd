@@ -44,6 +44,7 @@ interface SaleEntry {
   validity: string;
   label: string;
   batch: string;
+  source?: "mikrotik+local" | "local-db";
 }
 
 function fmtAmount(n: number) {
@@ -107,6 +108,9 @@ export default function SellingReport() {
       if (appliedYear)  params.set("year",  appliedYear);
       if (appliedMonth) params.set("month", appliedMonth);
       if (appliedDay)   params.set("day",   appliedDay);
+      // For month/year filters, request live presence markers from MikroTik
+      // while keeping local DB history intact.
+      if (appliedYear && appliedMonth) params.set("presence", "1");
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
@@ -131,6 +135,15 @@ export default function SellingReport() {
   }, [entries, deferredSearch]);
 
   const totalAmount = useMemo(() => filtered.reduce((s, e) => s + e.price, 0), [filtered]);
+  const sourceCounts = useMemo(() => {
+    let both = 0;
+    let local = 0;
+    for (const e of filtered) {
+      if (e.source === "mikrotik+local") both++;
+      else local++;
+    }
+    return { both, local };
+  }, [filtered]);
   const tableRows = useMemo(
     () => filtered.map((e, i) => (
       <tr
@@ -141,6 +154,17 @@ export default function SellingReport() {
         <td className="px-3 py-2 font-mono text-gray-600">{e.date}</td>
         <td className="px-3 py-2 font-mono text-gray-500">{e.time}</td>
         <td className="px-3 py-2 font-medium text-gray-800">{e.username}</td>
+        <td className="px-3 py-2">
+          {e.source === "mikrotik+local" ? (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-emerald-700 border-emerald-300 bg-emerald-50">
+              MikroTik + Local
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-amber-700 border-amber-300 bg-amber-50">
+              Local (DB)
+            </Badge>
+          )}
+        </td>
         <td className="px-3 py-2 text-gray-600">{e.label || "—"}</td>
         <td className="px-3 py-2 text-gray-500">{e.batch || "—"}</td>
         <td className="px-3 py-2 text-right font-semibold text-gray-800 tabular-nums">
@@ -198,12 +222,11 @@ export default function SellingReport() {
         removed?: number;
         failed?: number;
         scanned?: number;
-        cacheRowsDeleted?: number;
       };
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       toast({
         title: "Scripts du mois supprimés",
-        description: `${Number(data.removed ?? 0)} script(s) MikroTik supprimé(s), ${Number(data.cacheRowsDeleted ?? 0)} ligne(s) cache purgée(s).`,
+        description: `${Number(data.removed ?? 0)} script(s) MikroTik supprimé(s). La base locale est conservée.`,
       });
       const monthLabel = MONTH_NAMES_FR[Math.max(0, Math.min(11, month - 1))] ?? `Mois ${month}`;
       setPurgedMonthFlash(`Mois de ${monthLabel} purgé`);
@@ -263,9 +286,17 @@ export default function SellingReport() {
             <div className="flex items-center gap-2">
               {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
               {!isLoading && (
-                <span className="text-xs text-gray-500 tabular-nums">
-                  {filtered.length} vente{filtered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
-                </span>
+                <>
+                  <span className="text-xs text-gray-500 tabular-nums">
+                    {filtered.length} vente{filtered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
+                  </span>
+                  <Badge variant="outline" className="text-[10px] font-normal text-emerald-700 border-emerald-300 bg-emerald-50">
+                    {sourceCounts.both} MikroTik + Local
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px] font-normal text-amber-700 border-amber-300 bg-amber-50">
+                    {sourceCounts.local} Local (DB)
+                  </Badge>
+                </>
               )}
             </div>
           </div>
@@ -349,7 +380,7 @@ export default function SellingReport() {
               }
             >
               {deletingMonthScripts ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              Scripts du mois
+              Supprimer de Mikrotik
             </Button>
           </div>
 
@@ -389,13 +420,14 @@ export default function SellingReport() {
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Date</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Heure</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Utilisateur</th>
+                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Source</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Profil</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Lot</th>
                     <th className="px-3 py-2 text-right text-gray-500 font-medium">Prix (FCFA)</th>
                   </tr>
                   {/* Running total header */}
                   <tr className="bg-emerald-50 border-b border-emerald-100">
-                    <th colSpan={5} className="px-3 py-1.5 text-left text-emerald-700 font-medium text-xs">
+                    <th colSpan={6} className="px-3 py-1.5 text-left text-emerald-700 font-medium text-xs">
                       {filtered.length} ticket{filtered.length !== 1 ? "s" : ""}
                     </th>
                     <th className="px-3 py-1.5 text-right text-emerald-700 font-bold text-xs" colSpan={2}>
@@ -406,7 +438,7 @@ export default function SellingReport() {
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
+                      <td colSpan={8} className="px-3 py-8 text-center text-gray-400">
                         Aucune vente trouvée
                       </td>
                     </tr>
@@ -415,7 +447,7 @@ export default function SellingReport() {
                 {filtered.length > 0 && (
                   <tfoot>
                     <tr className="bg-gray-50 border-t border-gray-200">
-                      <td colSpan={5} className="px-3 py-2 text-xs text-gray-500 font-medium">
+                      <td colSpan={6} className="px-3 py-2 text-xs text-gray-500 font-medium">
                         Total — {filtered.length} ticket{filtered.length !== 1 ? "s" : ""}
                       </td>
                       <td colSpan={2} className="px-3 py-2 text-right text-sm font-bold text-emerald-700 tabular-nums">
@@ -436,7 +468,7 @@ export default function SellingReport() {
             <AlertDialogTitle>Supprimer les scripts de vente du mois sélectionné ?</AlertDialogTitle>
             <AlertDialogDescription>
               Cette action supprime directement dans MikroTik les scripts MikHmon de{" "}
-              <strong>{reportLabel}</strong>, puis purge les entrées correspondantes du cache local.
+              <strong>{reportLabel}</strong>. Les données locales en base sont conservées.
               Cette action est irréversible.
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -2083,25 +2083,62 @@ export async function purgeMikhmonScriptsForMonth(
   conn: RouterConnection,
   year: number,
   month: number, // 1-12
+  options: { preferredRawNames?: string[] } = {},
 ): Promise<{
   removed: number;
   failed: number;
   scanned: number;
 }> {
   return withRouter(conn, async (api) => {
-    const all = await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []);
+    const mm = String(month).padStart(2, "0");
+    const isoOwner = `${mm}${year}`; // e.g. 032026
+    const legacyOwner = `${MIKHMON_MONTH_ABBR[month - 1]}${year}`; // e.g. mar2026
+
+    // Fast path: month-scoped owner queries (much smaller payload).
+    const byId = new Map<string, Record<string, unknown>>();
+    const addRows = (rows: Record<string, unknown>[]) => {
+      for (const r of rows) {
+        const id = String(r[".id"] ?? "");
+        if (id) byId.set(id, r);
+      }
+    };
+    addRows(await api.write("/system/script/print", [`?owner=${isoOwner}`, "?comment=mikhmon"]).catch(() => []));
+    addRows(await api.write("/system/script/print", [`?owner=${legacyOwner}`, "?comment=mikhmon"]).catch(() => []));
+
+    // Compatibility fallback for older/atypical routers.
+    if (byId.size === 0) {
+      addRows(await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []));
+    }
+    const all = [...byId.values()];
 
     const targetIds: string[] = [];
-    for (const s of all) {
-      const sname = (s["name"] as string) ?? "";
-      const sid = (s[".id"] as string | undefined) ?? "";
-      if (!sid) continue;
-      const parts = sname.split("-|-");
-      if (parts.length < 3) continue;
-      const dt = parseMikhmonDate(parts[0], parts[1]);
-      if (!dt) continue;
-      if (dt.getFullYear() === year && dt.getMonth() + 1 === month) {
-        targetIds.push(sid);
+    const preferred = new Set((options.preferredRawNames ?? []).map((v) => v.trim()).filter(Boolean));
+
+    // Fastest match path: use DB-known raw script names directly.
+    if (preferred.size > 0) {
+      for (const s of all) {
+        const sid = (s[".id"] as string | undefined) ?? "";
+        if (!sid) continue;
+        const sname = ((s["name"] as string) ?? "").trim();
+        if (sname && preferred.has(sname)) {
+          targetIds.push(sid);
+        }
+      }
+    }
+
+    // Fallback path: parse dates from script names when no direct match was found.
+    if (targetIds.length === 0) {
+      for (const s of all) {
+        const sname = (s["name"] as string) ?? "";
+        const sid = (s[".id"] as string | undefined) ?? "";
+        if (!sid) continue;
+        const parts = sname.split("-|-");
+        if (parts.length < 3) continue;
+        const dt = parseMikhmonDate(parts[0], parts[1]);
+        if (!dt) continue;
+        if (dt.getFullYear() === year && dt.getMonth() + 1 === month) {
+          targetIds.push(sid);
+        }
       }
     }
 
@@ -2109,7 +2146,7 @@ export async function purgeMikhmonScriptsForMonth(
     let failed = 0;
     // Remove in parallel chunks to reduce total wall time on MikroTik.
     // node-routeros supports concurrent tagged writes over one connection.
-    const CHUNK = 25;
+    const CHUNK = 50;
     for (let i = 0; i < targetIds.length; i += CHUNK) {
       const part = targetIds.slice(i, i + CHUNK);
       const settled = await Promise.allSettled(
