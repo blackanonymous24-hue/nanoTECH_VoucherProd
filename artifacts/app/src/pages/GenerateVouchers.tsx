@@ -295,21 +295,6 @@ export default function GenerateVouchers() {
   }, [selectedRouterId]);
 
   useEffect(() => {
-    // While Generate is open, pause all other API traffic to free RouterOS bandwidth.
-    // Keep voucher generation endpoint allowed.
-    // Also allow profiles endpoint only for cold-start cache seeding.
-    setApiRequestPause(true, {
-      allowPathPatterns: [
-        /^\/api\/vouchers\/generate(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/profiles(?:$|\/|\?)/,
-      ],
-    });
-    return () => {
-      setApiRequestPause(false);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!localProfilesCacheKey) {
       setLocalProfiles([]);
       return;
@@ -432,6 +417,16 @@ export default function GenerateVouchers() {
     e.preventDefault();
     if (!selectedRouterId || !profile) return;
 
+    // During generation, pause unrelated API traffic and keep only generation-critical
+    // endpoints so RouterOS bandwidth is dedicated to voucher creation.
+    setApiRequestPause(true, {
+      allowPathPatterns: [
+        /^\/api\/vouchers\/generate(?:$|\/|\?)/,
+        /^\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
+        /^\/api\/routers\/\d+\/users(?:$|\/|\?)/,
+      ],
+    });
+
     const total = parseInt(qty, 10);
     setProgress({ done: 0, total });
     setGenPaused(false);
@@ -545,6 +540,7 @@ export default function GenerateVouchers() {
       setDatalimit("");
       setVendorId("");
     } finally {
+      setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
       if (lockAcquired) {
         void fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "DELETE" });
