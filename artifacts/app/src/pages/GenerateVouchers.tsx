@@ -312,8 +312,9 @@ export default function GenerateVouchers() {
     },
   );
   const [localProfiles, setLocalProfiles] = useState<(typeof profiles)>([]);
+  const [profilesForRouterId, setProfilesForRouterId] = useState<number | null>(null);
   const localProfilesCacheKey = selectedRouterId ? `${PROFILES_CACHE_KEY}:${selectedRouterId}` : null;
-  const displayedProfiles = localProfiles;
+  const displayedProfiles = profilesForRouterId === selectedRouterId ? localProfiles : [];
 
   const generateMutation = useGenerateVouchers();
 
@@ -321,6 +322,7 @@ export default function GenerateVouchers() {
     // Hard reset on router switch to avoid showing stale profiles
     // from a previously selected router for even a single render.
     setLocalProfiles([]);
+    setProfilesForRouterId(null);
     setProfile("");
     setProfilePopoverOpen(false);
   }, [selectedRouterId]);
@@ -328,27 +330,31 @@ export default function GenerateVouchers() {
   useEffect(() => {
     if (!localProfilesCacheKey) {
       setLocalProfiles([]);
+      setProfilesForRouterId(null);
       return;
     }
     try {
       const fromGenerate = localStorage.getItem(localProfilesCacheKey);
       if (fromGenerate) {
-        setLocalProfiles(JSON.parse(fromGenerate));
+        const parsed = JSON.parse(fromGenerate);
+        setLocalProfiles(Array.isArray(parsed) ? parsed : []);
+        setProfilesForRouterId(selectedRouterId ?? null);
         return;
       }
       const fromForfaits = localStorage.getItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`);
       if (fromForfaits) {
         const parsed = JSON.parse(fromForfaits);
         setLocalProfiles(Array.isArray(parsed) ? parsed : []);
+        setProfilesForRouterId(selectedRouterId ?? null);
         return;
       }
-      const profileKey = getListRouterProfilesQueryKey(selectedRouterId ?? 0);
-      const fromQuery = queryClient.getQueryData(profileKey);
-      setLocalProfiles(Array.isArray(fromQuery) ? fromQuery : []);
+      setLocalProfiles([]);
+      setProfilesForRouterId(null);
     } catch {
       setLocalProfiles([]);
+      setProfilesForRouterId(null);
     }
-  }, [localProfilesCacheKey, selectedRouterId, queryClient]);
+  }, [localProfilesCacheKey, selectedRouterId]);
 
   useEffect(() => {
     if (!localProfilesCacheKey || profiles.length === 0) return;
@@ -371,6 +377,7 @@ export default function GenerateVouchers() {
         const freshProfiles = await res.json();
         if (!Array.isArray(freshProfiles) || cancelled) return;
         setLocalProfiles(freshProfiles);
+        setProfilesForRouterId(selectedRouterId);
         const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
         queryClient.setQueryData(profileKey, freshProfiles);
         queryClient.invalidateQueries({ queryKey: profileKey });
