@@ -216,17 +216,14 @@ export default function HotspotCookies() {
               <CardTitle className="text-base">Cookies Hotspot</CardTitle>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
-              <Table className="min-w-[900px]">
+              <Table className="min-w-[760px]">
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12 text-center">Action</TableHead>
                     <TableHead>Utilisateur</TableHead>
-                    <TableHead>MAC</TableHead>
-                    <TableHead>Adresse</TableHead>
-                    <TableHead>Server</TableHead>
-                    <TableHead>Expire dans</TableHead>
+                    <TableHead>Adresse MAC</TableHead>
                     <TableHead>Domaine</TableHead>
-                    <TableHead>Path</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
+                    <TableHead>Expire dans</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -234,28 +231,18 @@ export default function HotspotCookies() {
                     <>
                       {[...Array(6)].map((_, idx) => (
                         <TableRow key={`sk-${idx}`}>
+                          <TableCell><Skeleton className="h-8 w-8 mx-auto" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-36" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                          <TableCell><Skeleton className="h-8 w-9 ml-auto" /></TableCell>
                         </TableRow>
                       ))}
                     </>
                   )}
                   {filtered.map((x) => (
                     <TableRow key={x.id}>
-                      <TableCell className="font-medium">{x.user || "—"}</TableCell>
-                      <TableCell className="font-mono text-xs">{x.macAddress || "—"}</TableCell>
-                      <TableCell className="font-mono text-xs">{x.address || "—"}</TableCell>
-                      <TableCell>{x.server || "—"}</TableCell>
-                      <TableCell>{x.expiresIn || "—"}</TableCell>
-                      <TableCell>{x.domain || "—"}</TableCell>
-                      <TableCell>{x.path || "—"}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-center">
                         <Button
                           size="icon"
                           variant="ghost"
@@ -267,11 +254,15 @@ export default function HotspotCookies() {
                           {busyCookieId === x.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </Button>
                       </TableCell>
+                      <TableCell className="font-medium">{x.user || "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">{x.macAddress || "—"}</TableCell>
+                      <TableCell>{x.domain || "—"}</TableCell>
+                      <TableCell>{x.expiresIn || "—"}</TableCell>
                     </TableRow>
                   ))}
                   {initialLoadDone && !loading && filtered.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-sm text-gray-500 py-10">
+                      <TableCell colSpan={5} className="text-center text-sm text-gray-500 py-10">
                         Aucun cookie hotspot trouvé.
                       </TableCell>
                     </TableRow>
