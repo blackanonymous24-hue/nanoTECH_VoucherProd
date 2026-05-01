@@ -6,6 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Search, Loader2, Ticket, User } from "lucide-react";
 
+/**
+ * Recherche « Vérifier un ticket » (vendus via scripts + stock non vendu, 90 j).
+ * Ne pas rétablir une logique « uniquement imprimés » ni retirer champs / filtres sans validation produit.
+ */
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const MONTHS = [

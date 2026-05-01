@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, isNull, desc, sql, or, ilike, gte } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, desc, sql, or, ilike, gte } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
 import { invalidateUserCache } from "./routers.js";
@@ -76,7 +76,9 @@ router.get("/vouchers", async (req, res): Promise<void> => {
   res.json({ vouchers, total });
 });
 
-/* ── Ticket lookup (sold + unsold, 90 days) ────────────────────────────── */
+/* ── Ticket lookup (sold + unsold, 90 days) ──────────────────────────────
+ * Ne pas régresser vers l’ancien filtre « printedAt seul » : fenêtre vente = usedAt,
+ * tickets non vendus restent trouvables ; recherche sur commentaire incluse. */
 router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
   const { routerId, q } = req.query as { routerId?: string; q?: string };
   if (!routerId) { res.status(400).json({ error: "routerId requis" }); return; }
