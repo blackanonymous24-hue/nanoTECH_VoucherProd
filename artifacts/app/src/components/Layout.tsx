@@ -360,7 +360,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* ── Router selector ── */}
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
-        <p className="px-1 mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300/95">
+        <p className="px-1 mb-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
           Routeur actif
         </p>
         <RouterSelector />
@@ -374,7 +374,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           const hasAlerts = lowStockCount > 0;
           return (
             <div className="mb-3">
-              <p className="px-2 mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300/95">
+              <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
                 Alertes
               </p>
               <Link
@@ -418,7 +418,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
         {navGroups.map((group, gi) => (
           <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
-            <p className="px-2 mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300/95">
+            <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
               {group.label}
             </p>
             <div className="space-y-0.5">
