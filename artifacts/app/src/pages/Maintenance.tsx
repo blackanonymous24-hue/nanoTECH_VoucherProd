@@ -14,8 +14,10 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 // Larger batches → fewer round-trips → less risk of network "load failed".
 // Backend caps this at 500.
 const SCRIPT_PURGE_BATCH_SIZE = 200;
-// Per-request timeout (ms): MikroTik can be slow on big batches.
-const SCRIPT_PURGE_REQUEST_TIMEOUT = 60_000;
+// Per-request timeout (ms): must exceed backend `withRouter` for purge (large
+// `?comment=mikhmon` print + many removes). A short client timeout caused
+// `AbortError` / "signal is aborted without reason" while the server was still working.
+const SCRIPT_PURGE_REQUEST_TIMEOUT = 200_000;
 // Number of retries for a single batch on transient network failures.
 const SCRIPT_PURGE_MAX_RETRIES = 3;
 
@@ -43,7 +45,12 @@ async function fetchScriptPurgeBatch(url: string, init: RequestInit): Promise<Re
   let lastErr: unknown;
   for (let attempt = 0; attempt <= SCRIPT_PURGE_MAX_RETRIES; attempt++) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), SCRIPT_PURGE_REQUEST_TIMEOUT);
+    const timer = setTimeout(() => {
+      ctrl.abort(new DOMException(
+        "Délai dépassé pendant la purge (MikroTik lent ou beaucoup de scripts). Réessayez ou réduisez le lot.",
+        "AbortError",
+      ));
+    }, SCRIPT_PURGE_REQUEST_TIMEOUT);
     try {
       const res = await fetch(url, { ...init, signal: ctrl.signal });
       clearTimeout(timer);

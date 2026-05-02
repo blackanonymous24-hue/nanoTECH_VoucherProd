@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { eq, and, inArray, isNotNull, isNull, sql, gte, lt } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";

@@ -2057,13 +2057,21 @@ export async function purgeOldMikhmonScripts(
     let failed = 0;
     const byMonthMap = new Map<string, number>();
 
-    for (const c of batch) {
-      try {
-        await api.write("/system/script/remove", [`=.id=${c.id}`]);
-        removed++;
-        byMonthMap.set(c.ym, (byMonthMap.get(c.ym) ?? 0) + 1);
-      } catch {
-        failed++;
+    const CHUNK = 40;
+    for (let i = 0; i < batch.length; i += CHUNK) {
+      const part = batch.slice(i, i + CHUNK);
+      const settled = await Promise.allSettled(
+        part.map((c) => api.write("/system/script/remove", [`=.id=${c.id}`])),
+      );
+      for (let j = 0; j < settled.length; j++) {
+        const r = settled[j]!;
+        const c = part[j]!;
+        if (r.status === "fulfilled") {
+          removed++;
+          byMonthMap.set(c.ym, (byMonthMap.get(c.ym) ?? 0) + 1);
+        } else {
+          failed++;
+        }
       }
     }
 
@@ -2072,7 +2080,7 @@ export async function purgeOldMikhmonScripts(
       .map(([yearMonth, count]) => ({ yearMonth, count }));
 
     return { removed, failed, scanned: total, byMonth };
-  }, 120_000);
+  }, 240_000);
 }
 
 /**
@@ -2094,7 +2102,46 @@ export async function purgeMikhmonScriptsForMonth(
     const isoOwner = `${mm}${year}`; // e.g. 032026
     const legacyOwner = `${MIKHMON_MONTH_ABBR[month - 1]}${year}`; // e.g. mar2026
 
-    // Fast path: month-scoped owner queries (much smaller payload).
+    const SCRIPT_PROPLIST = "=.proplist=.id,name";
+
+    /** Same bytes represented different ways (DB vs live API) must still match. */
+    const nameKeySet = (name: string): Set<string> => {
+      const t = (name ?? "").trim();
+      const s = new Set<string>();
+      if (!t) return s;
+      s.add(t);
+      s.add(decodeRouterText(t));
+      s.add(fixEncoding(t));
+      s.add(decodeRouterText(fixEncoding(t)));
+      return s;
+    };
+
+    const preferredUnion = new Set<string>();
+    for (const raw of options.preferredRawNames ?? []) {
+      for (const k of nameKeySet(raw)) preferredUnion.add(k);
+    }
+
+    const scriptMatchesPreferred = (sname: string): boolean => {
+      if (preferredUnion.size === 0) return false;
+      const keys = nameKeySet(sname);
+      for (const k of keys) {
+        if (preferredUnion.has(k)) return true;
+      }
+      return false;
+    };
+
+    const inSelectedMonth = (sname: string): boolean => {
+      const parts = sname.split("-|-");
+      if (parts.length < 3) return false;
+      const dt = parseMikhmonDate(parts[0], parts[1]);
+      if (!dt) return false;
+      return dt.getFullYear() === year && dt.getMonth() + 1 === month;
+    };
+
+    // Union of candidates — must mirror how fetchScriptSales discovers scripts:
+    // - owner-only (ISO + legacy), same as monthly sales fetch
+    // - plus full ?comment=mikhmon so scripts without owner / odd comment pairs are not missed
+    // Using only ?owner+?comment=mikhmon was too strict and excluded real MikHmon rows.
     const byId = new Map<string, Record<string, unknown>>();
     const addRows = (rows: Record<string, unknown>[]) => {
       for (const r of rows) {
@@ -2102,51 +2149,28 @@ export async function purgeMikhmonScriptsForMonth(
         if (id) byId.set(id, r);
       }
     };
-    addRows(await api.write("/system/script/print", [`?owner=${isoOwner}`, "?comment=mikhmon"]).catch(() => []));
-    addRows(await api.write("/system/script/print", [`?owner=${legacyOwner}`, "?comment=mikhmon"]).catch(() => []));
-
-    // Compatibility fallback for older/atypical routers.
-    if (byId.size === 0) {
-      addRows(await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []));
-    }
+    addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${isoOwner}`]).catch(() => []));
+    addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${legacyOwner}`]).catch(() => []));
+    addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, "?comment=mikhmon"]).catch(() => []));
     const all = [...byId.values()];
 
-    const targetIds: string[] = [];
-    const preferred = new Set((options.preferredRawNames ?? []).map((v) => v.trim()).filter(Boolean));
-
-    // Fastest match path: use DB-known raw script names directly.
-    if (preferred.size > 0) {
-      for (const s of all) {
-        const sid = (s[".id"] as string | undefined) ?? "";
-        if (!sid) continue;
-        const sname = ((s["name"] as string) ?? "").trim();
-        if (sname && preferred.has(sname)) {
-          targetIds.push(sid);
-        }
+    // Targets = union(DB name match, calendar month match). Never skip date match
+    // just because preferred matched something unrelated (old bug).
+    const targetIdSet = new Set<string>();
+    for (const s of all) {
+      const sid = (s[".id"] as string | undefined) ?? "";
+      if (!sid) continue;
+      const sname = (s["name"] as string) ?? "";
+      if (scriptMatchesPreferred(sname) || inSelectedMonth(sname)) {
+        targetIdSet.add(sid);
       }
     }
-
-    // Fallback path: parse dates from script names when no direct match was found.
-    if (targetIds.length === 0) {
-      for (const s of all) {
-        const sname = (s["name"] as string) ?? "";
-        const sid = (s[".id"] as string | undefined) ?? "";
-        if (!sid) continue;
-        const parts = sname.split("-|-");
-        if (parts.length < 3) continue;
-        const dt = parseMikhmonDate(parts[0], parts[1]);
-        if (!dt) continue;
-        if (dt.getFullYear() === year && dt.getMonth() + 1 === month) {
-          targetIds.push(sid);
-        }
-      }
-    }
+    const targetIds = [...targetIdSet];
 
     let removed = 0;
     let failed = 0;
-    // Remove in parallel chunks to reduce total wall time on MikroTik.
-    // node-routeros supports concurrent tagged writes over one connection.
-    const CHUNK = 50;
+    // Moderate parallelism: large batches caused silent failures on some routers.
+    const CHUNK = 20;
     for (let i = 0; i < targetIds.length; i += CHUNK) {
       const part = targetIds.slice(i, i + CHUNK);
       const settled = await Promise.allSettled(
@@ -2159,7 +2183,7 @@ export async function purgeMikhmonScriptsForMonth(
     }
 
     return { removed, failed, scanned: targetIds.length };
-  }, 120_000);
+  }, 240_000);
 }
 
 // ─── Character sets (MikHMon-compatible) ─────────────────────────────────────
