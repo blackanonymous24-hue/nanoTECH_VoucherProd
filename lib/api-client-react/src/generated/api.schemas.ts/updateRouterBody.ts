@@ -12,4 +12,6 @@ export interface UpdateRouterBody {
   username?: string;
   password?: string;
   isActive?: boolean;
+  /** Libellé monnaie (tickets, rapports) */
+  currency?: string;
 }

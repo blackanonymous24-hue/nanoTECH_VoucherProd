@@ -235,6 +235,7 @@ router.get("/routers", async (req, res): Promise<void> => {
       name: routersTable.name,
       hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
+      currency: routersTable.currency,
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
@@ -263,10 +264,11 @@ router.post("/routers", async (req, res): Promise<void> => {
   const scope = getAdminScopeFromHeader(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const { name, hotspotName, contact, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, currency, host, port, username, password, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
     contact?: string;
+    currency?: string;
     host?: string;
     port?: number;
     username?: string;
@@ -321,6 +323,8 @@ router.post("/routers", async (req, res): Promise<void> => {
     }
   }
 
+  const currencyNorm = (currency ?? "FCFA").trim().slice(0, 24) || "FCFA";
+
   const [created] = await db
     .insert(routersTable)
     .values({
@@ -329,6 +333,7 @@ router.post("/routers", async (req, res): Promise<void> => {
       name,
       hotspotName: hotspotName ?? null,
       contact: contact ?? null,
+      currency: currencyNorm,
       host,
       port: port ?? 8728,
       username,
@@ -340,6 +345,7 @@ router.post("/routers", async (req, res): Promise<void> => {
       name: routersTable.name,
       hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
+      currency: routersTable.currency,
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
@@ -404,6 +410,7 @@ router.get("/routers/:id", async (req, res): Promise<void> => {
       name: routersTable.name,
       hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
+      currency: routersTable.currency,
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
@@ -423,10 +430,11 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, hotspotName, contact, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, currency, host, port, username, password, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
     contact?: string;
+    currency?: string;
     host?: string;
     port?: number;
     username?: string;
@@ -438,6 +446,10 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   if (name !== undefined) updates.name = name;
   if (hotspotName !== undefined) updates.hotspotName = hotspotName || null;
   if (contact !== undefined) updates.contact = contact || null;
+  if (currency !== undefined) {
+    const c = currency.trim().slice(0, 24);
+    updates.currency = c || "FCFA";
+  }
   if (host !== undefined) updates.host = host;
   if (port !== undefined) updates.port = port;
   if (username !== undefined) updates.username = username;
@@ -458,6 +470,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
       name: routersTable.name,
       hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
+      currency: routersTable.currency,
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,

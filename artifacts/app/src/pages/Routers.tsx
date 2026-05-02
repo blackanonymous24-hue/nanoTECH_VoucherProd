@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -33,6 +33,7 @@ type RouterFormData = {
   name: string;
   hotspotName: string;
   contact: string;
+  currency: string;
   address: string;
   username: string;
   password: string;
@@ -42,10 +43,19 @@ const emptyForm: RouterFormData = {
   name: "",
   hotspotName: "",
   contact: "",
+  currency: "FCFA",
   address: "",
   username: "admin",
   password: "",
 };
+
+const MAX_CURRENCY_LEN = 24;
+
+/** Devise affichée en majuscules (saisie, collage, édition). */
+function normalizeRouterCurrency(raw: string): string {
+  const v = raw.trim().toUpperCase().slice(0, MAX_CURRENCY_LEN);
+  return v || "FCFA";
+}
 
 function parseAddress(address: string): { host: string; port: number } {
   const colonIdx = address.lastIndexOf(":");
@@ -214,7 +224,15 @@ export default function Routers() {
   };
 
   const openEdit = (r: RouterType) => {
-    setForm({ name: r.name, hotspotName: (r as any).hotspotName ?? "", contact: (r as any).contact ?? "", address: `${r.host}:${r.port}`, username: r.username, password: "" });
+    setForm({
+      name: r.name,
+      hotspotName: (r as { hotspotName?: string }).hotspotName ?? "",
+      contact: (r as { contact?: string }).contact ?? "",
+      currency: normalizeRouterCurrency(r.currency ?? ""),
+      address: `${r.host}:${r.port}`,
+      username: r.username,
+      password: "",
+    });
     setEditRouter(r);
     setShowForm(true);
   };
@@ -230,6 +248,7 @@ export default function Routers() {
       name: form.name,
       hotspotName: form.hotspotName || undefined,
       contact: form.contact || undefined,
+      currency: normalizeRouterCurrency(form.currency),
       host,
       port,
       username: form.username,
@@ -502,6 +521,18 @@ export default function Routers() {
                   onChange={(e) => setForm({ ...form, contact: e.target.value })}
                 />
                 <p className="text-xs text-gray-400 mt-0.5">Affiché en bas de chaque ticket imprimé (facultatif)</p>
+              </div>
+              <div>
+                <Label>Devise</Label>
+                <Input
+                  className="mt-1 h-9 text-sm font-mono uppercase"
+                  placeholder="ex. FCFA, EUR, USD"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  value={form.currency}
+                  onChange={(e) => setForm({ ...form, currency: normalizeRouterCurrency(e.target.value) })}
+                />
+                <p className="text-xs text-gray-400 mt-0.5">Saisie en majuscules automatique (tickets, rapports), max. 24 caractères</p>
               </div>
               <div>
                 <Label>Adresse (hôte:port)</Label>

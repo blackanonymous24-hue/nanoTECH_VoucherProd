@@ -12,4 +12,6 @@ export interface CreateRouterBody {
   username: string;
   password: string;
   isActive?: boolean;
+  /** Libellé monnaie (tickets, rapports) */
+  currency?: string;
 }

@@ -379,10 +379,11 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
   if (target.isSuperAdmin) { res.status(400).json({ error: "Routeur direct non supporté pour super admin" }); return; }
   if (!target.isActive) { res.status(400).json({ error: "Admin désactivé" }); return; }
 
-  const { name, hotspotName, contact, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, currency, host, port, username, password, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
     contact?: string;
+    currency?: string;
     host?: string;
     port?: number;
     username?: string;
@@ -418,6 +419,8 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
     }
   }
 
+  const currencyNorm = (currency ?? "FCFA").trim().slice(0, 24) || "FCFA";
+
   const [created] = await db
     .insert(routersTable)
     .values({
@@ -425,6 +428,7 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
       name: name.trim(),
       hotspotName: hotspotName?.trim() || null,
       contact: contact?.trim() || null,
+      currency: currencyNorm,
       host: host.trim(),
       port: port ?? 8728,
       username: username.trim(),

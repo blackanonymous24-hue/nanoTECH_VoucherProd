@@ -9,6 +9,8 @@ export const routersTable = pgTable("routers", {
   // a backfill step assigns the original super-admin to every existing row.
   ownerAdminId: integer("owner_admin_id").references(() => adminSettingsTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  /** Libellé monnaie affiché (tickets, rapports) — ex. FCFA, EUR, USD */
+  currency: text("currency").notNull().default("FCFA"),
   hotspotName: text("hotspot_name"),
   contact: text("contact"),
   host: text("host").notNull(),

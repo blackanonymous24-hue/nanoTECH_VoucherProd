@@ -17,6 +17,8 @@ export const getHealthResponse = zod.object({
 /**
  * @summary List all routers
  */
+export const listRoutersResponseCurrencyDefault = "FCFA";
+
 export const listRoutersResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -24,6 +26,7 @@ export const listRoutersResponseItem = zod.object({
   "port": zod.number(),
   "username": zod.string(),
   "isActive": zod.boolean(),
+  "currency": zod.string().default(listRoutersResponseCurrencyDefault).describe('Libellé monnaie affiché (ex. FCFA, EUR)'),
   "createdAt": zod.string().datetime({}),
   "updatedAt": zod.string().datetime({})
 })
@@ -33,7 +36,7 @@ export const listRoutersResponse = zod.array(listRoutersResponseItem)
 /**
  * @summary Add a router
  */
-export const createRouterBodyPortDefault = 8728;export const createRouterBodyIsActiveDefault = true;
+export const createRouterBodyPortDefault = 8728;export const createRouterBodyIsActiveDefault = true;export const createRouterBodyCurrencyDefault = "FCFA";
 
 export const createRouterBody = zod.object({
   "name": zod.string(),
@@ -41,7 +44,8 @@ export const createRouterBody = zod.object({
   "port": zod.number().default(createRouterBodyPortDefault),
   "username": zod.string(),
   "password": zod.string(),
-  "isActive": zod.boolean().default(createRouterBodyIsActiveDefault)
+  "isActive": zod.boolean().default(createRouterBodyIsActiveDefault),
+  "currency": zod.string().default(createRouterBodyCurrencyDefault).describe('Libellé monnaie (tickets, rapports)')
 })
 
 
@@ -52,6 +56,8 @@ export const getRouterParams = zod.object({
   "id": zod.number()
 })
 
+export const getRouterResponseCurrencyDefault = "FCFA";
+
 export const getRouterResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -59,6 +65,7 @@ export const getRouterResponse = zod.object({
   "port": zod.number(),
   "username": zod.string(),
   "isActive": zod.boolean(),
+  "currency": zod.string().default(getRouterResponseCurrencyDefault).describe('Libellé monnaie affiché (ex. FCFA, EUR)'),
   "createdAt": zod.string().datetime({}),
   "updatedAt": zod.string().datetime({})
 })
@@ -77,8 +84,11 @@ export const updateRouterBody = zod.object({
   "port": zod.number().optional(),
   "username": zod.string().optional(),
   "password": zod.string().optional(),
-  "isActive": zod.boolean().optional()
+  "isActive": zod.boolean().optional(),
+  "currency": zod.string().optional().describe('Libellé monnaie (tickets, rapports)')
 })
+
+export const updateRouterResponseCurrencyDefault = "FCFA";
 
 export const updateRouterResponse = zod.object({
   "id": zod.number(),
@@ -87,6 +97,7 @@ export const updateRouterResponse = zod.object({
   "port": zod.number(),
   "username": zod.string(),
   "isActive": zod.boolean(),
+  "currency": zod.string().default(updateRouterResponseCurrencyDefault).describe('Libellé monnaie affiché (ex. FCFA, EUR)'),
   "createdAt": zod.string().datetime({}),
   "updatedAt": zod.string().datetime({})
 })

@@ -12,6 +12,8 @@ export interface Router {
   port: number;
   username: string;
   isActive: boolean;
+  /** Libellé monnaie affiché (ex. FCFA, EUR) */
+  currency?: string;
   createdAt: string;
   updatedAt: string;
 }

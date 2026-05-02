@@ -720,6 +720,10 @@ components:
           type: string
         isActive:
           type: boolean
+        currency:
+          type: string
+          description: Libellé monnaie affiché (ex. FCFA, EUR)
+          default: FCFA
         createdAt:
           type: string
           format: date-time
@@ -745,6 +749,10 @@ components:
         isActive:
           type: boolean
           default: true
+        currency:
+          type: string
+          description: Libellé monnaie (tickets, rapports)
+          default: FCFA
 
     UpdateRouterBody:
       type: object
@@ -761,6 +769,9 @@ components:
           type: string
         isActive:
           type: boolean
+        currency:
+          type: string
+          description: Libellé monnaie (tickets, rapports)
 
     TestResult:
       type: object
