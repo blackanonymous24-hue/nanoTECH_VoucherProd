@@ -2,9 +2,8 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
-  PackageOpen, Activity, Users, FileCode, LogOut,
+  PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
   UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie,
-  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -86,6 +85,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isAdmin = role === "admin";
   const isManager = role === "manager";
   const isCollaborateur = role === "collaborateur";
+  const isStockAlertsPage = location.startsWith("/stock-alerts");
   const isVouchersPage = location.startsWith("/vouchers");
 
   const isNavActive = (href: string) => {
@@ -293,60 +293,34 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     throwOnError: false,
   });
 
-  /** Sidebar sections: order follows daily workflow (overview → router → vouchers → sales → config). */
-  const navGroups: {
-    label: string;
-    hint?: string;
-    accent: "sky" | "emerald" | "violet" | "amber" | "rose";
-    items: { href: string; label: string; icon: LucideIcon }[];
-  }[] = [
+  const navGroups = [
     {
-      label: "Accueil",
-      hint: "Synthèse & alertes",
-      accent: "sky",
+      label: "Réseau",
       items: [
-        { href: "/", label: "Tableau de bord", icon: LayoutDashboard },
-      ],
-    },
-    {
-      label: "MikroTik",
-      hint: "Routeur sélectionné",
-      accent: "emerald",
-      items: [
+        { href: "/",         label: "Tableau de bord", icon: LayoutDashboard },
         ...(!isManager && !isCollaborateur ? [{ href: "/routers", label: "Routeurs", icon: Router }] : []),
-        { href: "/forfaits", label: "Forfaits", icon: PackageOpen },
-        { href: "/sessions", label: "Clients actifs", icon: Activity },
-        { href: "/ip-bindings", label: "Bypass MAC", icon: ShieldCheck },
-        { href: "/dhcp-leases", label: "Baux DHCP", icon: Database },
-        { href: "/hotspot-cookies", label: "Cookies hotspot", icon: Cookie },
+        { href: "/forfaits", label: "Forfaits",          icon: PackageOpen },
+        { href: "/sessions", label: "Clients actifs",   icon: Activity },
+        { href: "/ip-bindings", label: "Bypass MAC",     icon: ShieldCheck },
+        { href: "/dhcp-leases", label: "DHCP Leases",    icon: Database },
+        { href: "/hotspot-cookies", label: "Cookies Hotspot", icon: Cookie },
       ],
     },
     {
-      label: "Codes Tickets",
-      hint: "Création & contrôle des codes",
-      accent: "violet",
+      label: "Tickets",
       items: [
-        { href: "/generate", label: "Générer", icon: Zap },
-        { href: "/vouchers", label: "Mes tickets", icon: Ticket },
-        { href: "/ticket-lookup", label: "Vérifier un ticket", icon: SearchCheck },
+        { href: "/generate",     label: "Générer",         icon: Zap },
+        { href: "/vouchers",        label: "Mes Tickets",          icon: Ticket },
+        { href: "/ticket-lookup",   label: "Vérifier un ticket",  icon: SearchCheck },
+        { href: "/vendors",                   label: "Vendeurs",            icon: Users },
+        { href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard },
+        { href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet },
+        { href: "/vendors/tracking",          label: "Rapport par vendeur",  icon: ListOrdered },
+        { href: "/sales/report",      label: "Rapport de vente",  icon: Receipt },
       ],
     },
     {
-      label: "Ventes",
-      hint: "Vendeurs & rapports",
-      accent: "amber",
-      items: [
-        { href: "/vendors", label: "Vendeurs", icon: Users },
-        { href: "/vendors/versement-du-jour", label: "Versement du jour", icon: CreditCard },
-        { href: "/vendors/versements", label: "Versements hebdo", icon: Wallet },
-        { href: "/vendors/tracking", label: "Suivi par vendeur", icon: ListOrdered },
-        { href: "/sales/report", label: "Rapport de vente", icon: Receipt },
-      ],
-    },
-    {
-      label: "Configuration",
-      hint: "Modèles, accès, maintenance",
-      accent: "rose",
+      label: "Outils",
       items: [
         { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode },
         ...(isAdmin ? [{ href: "/managers", label: "Gérants de zone", icon: UserCog }] : []),
@@ -354,23 +328,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         ...(isAdmin ? [{ href: "/maintenance", label: "Maintenance", icon: Wrench }] : []),
       ],
     },
-    ...(isSuperAdmin
-      ? [{
-        label: "Super admin",
-        hint: "Plateforme",
-        accent: "sky" as const,
-        items: [{ href: "/super/admins", label: "Administrateurs", icon: Crown }],
-      }]
-      : []),
+    // Super Admin section: only the platform super-admin sees this group.
+    ...(isSuperAdmin ? [{
+      label: "Super Admin",
+      items: [
+        { href: "/super/admins", label: "Administrateurs", icon: Crown },
+      ],
+    }] : []),
   ];
-
-  const sectionAccentDot: Record<(typeof navGroups)[number]["accent"], string> = {
-    sky: "bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.45)]",
-    emerald: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)]",
-    violet: "bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.45)]",
-    amber: "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.4)]",
-    rose: "bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.35)]",
-  };
 
   return (
     <div className="flex flex-col h-full">
@@ -395,124 +360,111 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* ── Router selector ── */}
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
-        <p className="px-1 mb-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
+        <p className="px-1 mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300/95">
           Routeur actif
         </p>
         <RouterSelector />
       </div>
 
       {/* ── Nav ── */}
-      <nav className="flex-1 overflow-y-auto sidebar-nav px-3 py-3 min-h-0 space-y-1">
+      <nav className="flex-1 overflow-y-auto sidebar-nav px-3 py-2 min-h-0">
 
-        {navGroups.map((group, gi) => {
+        {/* ── Notification stock faible — always visible ── */}
+        {(() => {
           const hasAlerts = lowStockCount > 0;
-          const isAccueil = group.label === "Accueil";
           return (
-            <div
-              key={group.label}
-              className={cn(
-                "rounded-xl border border-white/[0.08] bg-white/[0.02] px-2 py-2",
-                gi > 0 && "mt-2.5",
-              )}
-            >
-              <div className="flex items-start gap-2 px-1.5 pb-1.5 mb-1 border-b border-white/[0.06]">
-                <span
-                  className={cn("mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0", sectionAccentDot[group.accent])}
-                  aria-hidden
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-200 leading-tight">
-                    {group.label}
-                  </p>
-                  {group.hint && (
-                    <p className="text-[10px] text-gray-500 leading-snug mt-0.5">{group.hint}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-0.5 pt-0.5">
-                {isAccueil && (
-                  <Link
-                    href="/stock-alerts"
-                    onClick={(e) => handleTabClick("/stock-alerts", e)}
-                    className={cn(
-                      "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 mb-1",
-                      isNavActive("/stock-alerts")
-                        ? "bg-blue-500/15 text-blue-200 shadow-[inset_3px_0_0_#60a5fa]"
-                        : hasAlerts
-                          ? "text-amber-100 bg-amber-500/15 ring-1 ring-amber-400/35 hover:bg-amber-500/25"
-                          : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-200 ring-1 ring-transparent",
-                    )}
-                  >
-                    <span className="relative flex-shrink-0">
-                      <Bell className={cn("h-4 w-4", hasAlerts ? "text-amber-300" : "text-gray-500")} />
-                      {hasAlerts && (
-                        <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex-1 truncate text-left">
-                      {hasAlerts ? "Alertes stocks forfaits" : "Stocks forfaits"}
-                    </span>
-                    <span
-                      className={cn(
-                        "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.35rem] text-center tabular-nums leading-none",
-                        hasAlerts ? "bg-amber-500 text-white" : "bg-white/10 text-gray-500",
-                      )}
-                    >
-                      {lowStockCount}
-                    </span>
-                  </Link>
+            <div className="mb-3">
+              <p className="px-2 mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300/95">
+                Alertes
+              </p>
+              <Link
+                href="/stock-alerts"
+                onClick={(e) => handleTabClick("/stock-alerts", e)}
+                className={cn(
+                  "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                  hasAlerts
+                    ? "text-red-400 bg-red-500/10 hover:bg-red-500/20"
+                    : "text-gray-500 hover:bg-white/[0.06] hover:text-gray-300",
                 )}
+              >
+                <span className="relative flex-shrink-0">
+                  <Bell className={cn(
+                    "h-4 w-4 transition-colors",
+                    hasAlerts ? "text-red-400" : "text-gray-600",
+                  )} />
+                  {hasAlerts && (
+                    <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                    </span>
+                  )}
+                </span>
+                <span className="flex-1 truncate">
+                  {hasAlerts ? "Stocks faibles" : "Stocks OK"}
+                </span>
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums leading-none",
+                  hasAlerts
+                    ? "bg-red-500 text-white"
+                    : "bg-white/8 text-gray-600",
+                )}>
+                  {lowStockCount}
+                </span>
+              </Link>
 
-                {group.items.map(({ href, label, icon: Icon }) => {
-                  const isActive = isNavActive(href);
-                  const showVoucherBadge = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
-                  return (
-                    <div key={href}>
-                      <Link
-                        href={href}
-                        onClick={(e) => handleTabClick(href, e)}
-                        className={cn(
-                          "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
-                          isActive
-                            ? "bg-blue-500/15 text-blue-200 shadow-[inset_3px_0_0_#60a5fa]"
-                            : "text-gray-400 hover:bg-white/[0.07] hover:text-gray-100",
-                        )}
-                      >
-                        <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
-                        <span className="flex-1 truncate">{label}</span>
-                        {showVoucherBadge && (
-                          <span
-                            className={cn(
-                              "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
-                              isActive ? "bg-blue-500/25 text-blue-200" : "bg-white/10 text-gray-400",
-                            )}
-                          >
-                            {voucherCount!.toLocaleString("fr-FR")}
-                          </span>
-                        )}
-                      </Link>
-                      {href === "/generate" && (isAdmin || isManager || isCollaborateur) && (
-                        <button
-                          type="button"
-                          onClick={openAddUserDialog}
-                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:text-gray-100 hover:bg-white/[0.05]"
-                          title="Ajouter un utilisateur hotspot"
-                        >
-                          <UserPlus className="h-4 w-4 flex-shrink-0 text-gray-500" />
-                          <span className="flex-1 truncate text-left">Ajouter un client</span>
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           );
-        })}
+        })()}
+
+        {navGroups.map((group, gi) => (
+          <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
+            <p className="px-2 mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300/95">
+              {group.label}
+            </p>
+            <div className="space-y-0.5">
+              {group.items.map(({ href, label, icon: Icon }) => {
+                const isActive = isNavActive(href);
+                const showVoucherBadge = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
+                return (
+                  <div key={href}>
+                    <Link
+                      href={href}
+                      onClick={(e) => handleTabClick(href, e)}
+                      className={cn(
+                        "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                        isActive
+                          ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
+                          : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
+                      )}
+                    >
+                      <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
+                      <span className="flex-1 truncate">{label}</span>
+                      {showVoucherBadge && (
+                        <span className={cn(
+                          "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
+                          isActive ? "bg-blue-500/20 text-blue-300" : "bg-white/8 text-gray-400",
+                        )}>
+                          {voucherCount!.toLocaleString("fr-FR")}
+                        </span>
+                      )}
+                    </Link>
+                    {/* Ajouter un utilisateur hotspot — juste après Générer */}
+                    {href === "/generate" && (isAdmin || isManager || isCollaborateur) && (
+                      <button
+                        onClick={openAddUserDialog}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:text-gray-100"
+                        title="Ajouter un utilisateur hotspot"
+                      >
+                        <UserPlus className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                        <span className="flex-1 truncate text-left">Ajouter un client</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* ── Divider ── */}
