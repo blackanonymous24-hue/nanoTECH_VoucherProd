@@ -2012,8 +2012,11 @@ export async function resetHotspotUser(
  * Scripts whose parsed date is strictly before the first day of the cutoff
  * month are removed. Scripts whose date cannot be parsed are skipped.
  *
- * Returns counts of removed/failed scripts and a per-month breakdown of
- * what was removed (oldest first).
+ * Same discovery strategy as MikHmon `clean_selling.php` + our month purge:
+ *   1) One `/system/script/print` with `?comment=mikhmon` and **only** `.id` + `name`
+ *      (avoids huge rows / timeouts vs a full print).
+ *   2) If empty (older RouterOS), same owner-month scan fallback as `fetchScriptSales`.
+ *   3) Removes in small parallel chunks (reliable on busy routers).
  */
 export async function purgeOldMikhmonScripts(
   conn: RouterConnection,
@@ -2028,7 +2031,31 @@ export async function purgeOldMikhmonScripts(
 }> {
   return withRouter(conn, async (api) => {
     const cutoff = new Date(cutoffYear, cutoffMonth - 1, 1, 0, 0, 0);
-    const all = await api.write("/system/script/print", ["?comment=mikhmon"]).catch(() => []);
+    const SCRIPT_PROPLIST = "=.proplist=.id,name";
+
+    let all = await api.write("/system/script/print", [SCRIPT_PROPLIST, "?comment=mikhmon"]).catch(() => []);
+
+    if (all.length === 0) {
+      const byId = new Map<string, Record<string, unknown>>();
+      const addRows = (rows: Record<string, unknown>[]) => {
+        for (const r of rows) {
+          const id = String(r[".id"] ?? "");
+          if (id) byId.set(id, r);
+        }
+      };
+      const now = new Date();
+      for (let i = 0; i <= 12; i++) {
+        const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const mm2 = String(dt.getMonth() + 1).padStart(2, "0");
+        const y2 = dt.getFullYear();
+        addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${mm2}${y2}`]).catch(() => []));
+        addRows(await api.write("/system/script/print", [
+          SCRIPT_PROPLIST,
+          `?owner=${MIKHMON_MONTH_ABBR[dt.getMonth()]}${y2}`,
+        ]).catch(() => []));
+      }
+      all = [...byId.values()];
+    }
 
     type Candidate = { id: string; date: Date; ym: string };
     const candidates: Candidate[] = [];
@@ -2057,7 +2084,7 @@ export async function purgeOldMikhmonScripts(
     let failed = 0;
     const byMonthMap = new Map<string, number>();
 
-    const CHUNK = 40;
+    const CHUNK = 20;
     for (let i = 0; i < batch.length; i += CHUNK) {
       const part = batch.slice(i, i + CHUNK);
       const settled = await Promise.allSettled(
