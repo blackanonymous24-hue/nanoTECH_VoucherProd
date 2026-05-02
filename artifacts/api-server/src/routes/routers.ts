@@ -2481,19 +2481,20 @@ router.delete("/routers/:id/sales-report/scripts", async (req, res): Promise<voi
   try {
     const result = await withRouterLock(id, async () => {
       const monthPadded = String(monthRaw).padStart(2, "0");
-      const fromUtc = `${yearRaw}-${monthPadded}-01T00:00:00.000Z`;
       const nextYear = monthRaw === 12 ? yearRaw + 1 : yearRaw;
       const nextMonth = monthRaw === 12 ? 1 : monthRaw + 1;
       const nextMonthPadded = String(nextMonth).padStart(2, "0");
-      const toUtc = `${nextYear}-${nextMonthPadded}-01T00:00:00.000Z`;
+      // Drizzle timestamp bindings expect Date, not ISO strings (avoids toISOString crash).
+      const rangeStart = new Date(`${yearRaw}-${monthPadded}-01T00:00:00.000Z`);
+      const rangeEndExclusive = new Date(`${nextYear}-${nextMonthPadded}-01T00:00:00.000Z`);
 
       const monthRows = await db
         .select({ rawName: scriptSalesTable.rawName })
         .from(scriptSalesTable)
         .where(and(
           eq(scriptSalesTable.routerId, id),
-          gte(scriptSalesTable.saleDate, fromUtc),
-          lt(scriptSalesTable.saleDate, toUtc),
+          gte(scriptSalesTable.saleDate, rangeStart),
+          lt(scriptSalesTable.saleDate, rangeEndExclusive),
         ));
       const preferredRawNames = monthRows.map((r) => String(r.rawName ?? "").trim()).filter(Boolean);
 

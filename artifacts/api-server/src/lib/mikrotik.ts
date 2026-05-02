@@ -2085,7 +2085,13 @@ export async function purgeOldMikhmonScripts(
 
 /**
  * Delete MikHmon sales scripts for an exact month (year + month).
- * Only scripts whose parsed date belongs to the requested month are removed.
+ *
+ * MikHmon (`delete_selling_by_month.php`) uses a single `/system/script/print`
+ * with `?comment=mikhmon`, then filters by parsed date in PHP — one list fetch.
+ * We do the same for speed (one round-trip + minimal columns), with:
+ *   - ISO + legacy date parts via `parseMikhmonDate` (PHP only matched legacy),
+ *   - optional DB `rawName` hints + encoding variants,
+ *   - parallel `/system/script/remove` chunks (faster than PHP write/read per row).
  */
 export async function purgeMikhmonScriptsForMonth(
   conn: RouterConnection,
@@ -2099,8 +2105,8 @@ export async function purgeMikhmonScriptsForMonth(
 }> {
   return withRouter(conn, async (api) => {
     const mm = String(month).padStart(2, "0");
-    const isoOwner = `${mm}${year}`; // e.g. 032026
-    const legacyOwner = `${MIKHMON_MONTH_ABBR[month - 1]}${year}`; // e.g. mar2026
+    const isoOwner = `${mm}${year}`;
+    const legacyOwner = `${MIKHMON_MONTH_ABBR[month - 1]}${year}`;
 
     const SCRIPT_PROPLIST = "=.proplist=.id,name";
 
@@ -2138,21 +2144,23 @@ export async function purgeMikhmonScriptsForMonth(
       return dt.getFullYear() === year && dt.getMonth() + 1 === month;
     };
 
-    // Union of candidates — must mirror how fetchScriptSales discovers scripts:
-    // - owner-only (ISO + legacy), same as monthly sales fetch
-    // - plus full ?comment=mikhmon so scripts without owner / odd comment pairs are not missed
-    // Using only ?owner+?comment=mikhmon was too strict and excluded real MikHmon rows.
-    const byId = new Map<string, Record<string, unknown>>();
-    const addRows = (rows: Record<string, unknown>[]) => {
-      for (const r of rows) {
-        const id = String(r[".id"] ?? "");
-        if (id) byId.set(id, r);
-      }
-    };
-    addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${isoOwner}`]).catch(() => []));
-    addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${legacyOwner}`]).catch(() => []));
-    addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, "?comment=mikhmon"]).catch(() => []));
-    const all = [...byId.values()];
+    // MikHmon: one `?comment=mikhmon` print — fastest consistent discovery path.
+    let allRows = await api.write("/system/script/print", [SCRIPT_PROPLIST, "?comment=mikhmon"]).catch(() => []);
+
+    // Older RouterOS: no comment tag → same fallback as fetchScriptSales (owner scan).
+    if (allRows.length === 0) {
+      const byId = new Map<string, Record<string, unknown>>();
+      const addRows = (rows: Record<string, unknown>[]) => {
+        for (const r of rows) {
+          const id = String(r[".id"] ?? "");
+          if (id) byId.set(id, r);
+        }
+      };
+      addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${isoOwner}`]).catch(() => []));
+      addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${legacyOwner}`]).catch(() => []));
+      allRows = [...byId.values()];
+    }
+    const all = allRows;
 
     // Targets = union(DB name match, calendar month match). Never skip date match
     // just because preferred matched something unrelated (old bug).
