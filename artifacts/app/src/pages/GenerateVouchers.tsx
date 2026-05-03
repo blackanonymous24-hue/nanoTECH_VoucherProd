@@ -489,22 +489,22 @@ export default function GenerateVouchers() {
         while (!batchOk) {
           try {
             const generated = await generateMutation.mutateAsync({
-              data: {
-                routerId: selectedRouterId,
-                profile,
+          data: {
+            routerId: selectedRouterId,
+            profile,
                 qty: qtyBatch,
-                prefix: prefix || null,
-                comment: effectiveComment || null,
-                vendorId: vendorId ? parseInt(vendorId, 10) : null,
-                passwordMode,
-                charType,
-                userLength: parseInt(userLength, 10),
-                timelimit: timelimit || undefined,
-                datalimit: dlBytes,
+            prefix: prefix || null,
+            comment: effectiveComment || null,
+            vendorId: vendorId ? parseInt(vendorId, 10) : null,
+            passwordMode,
+            charType,
+            userLength: parseInt(userLength, 10),
+            timelimit: timelimit || undefined,
+            datalimit: dlBytes,
                 profilePrice,
                 profileValidity,
-              },
-            });
+          },
+        });
             allVouchers.push(...generated);
             done += generated.length;
             setProgress({ done, total });
@@ -537,7 +537,7 @@ export default function GenerateVouchers() {
                       } as unknown as Voucher));
                     allVouchers.push(...missing);
                     done = allVouchers.length;
-                    setProgress({ done, total });
+        setProgress({ done, total });
                   }
                 }
               } catch {
@@ -1062,11 +1062,11 @@ export default function GenerateVouchers() {
                         </span>
                       )}
                       <span className="tabular-nums font-medium">
-                        {progress.done} / {progress.total}
+                      {progress.done} / {progress.total}
                         <span className="text-gray-400 font-normal ml-1">
                           ({Math.round((progress.done / progress.total) * 100)}%)
                         </span>
-                      </span>
+                    </span>
                     </div>
                   </div>
                 )}
@@ -1092,7 +1092,7 @@ export default function GenerateVouchers() {
                   <span className="ml-auto text-xs text-gray-400 flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {new Date(lastLot.generatedAt).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}
-                  </span>
+                      </span>
                 </div>
                 <p className="font-mono font-bold text-gray-900 text-sm break-all">{lastLot.comment}</p>
                 <div className="flex flex-wrap items-center gap-1.5 mt-2">
@@ -1123,9 +1123,9 @@ export default function GenerateVouchers() {
                     <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500 border-0">
                       <RouterIcon className="h-3 w-3 mr-1" />{lastLot.routerName}
                     </Badge>
-                  )}
-                </div>
-              </div>
+                      )}
+                    </div>
+                  </div>
 
               {/* Dernier lot — barre d’actions : ne pas rétablir l’ancien bouton « copier tout » ni retirer export / suppression ; garder ce jeu de boutons. */}
               {/* ── Bouton Imprimer proéminent ── */}
@@ -1139,13 +1139,13 @@ export default function GenerateVouchers() {
                     ? <Loader2 className="h-4 w-4 animate-spin" />
                     : <Printer className="h-4 w-4" />}
                   {isPrinting ? "Impression en cours..." : "Imprimer les tickets"}
-                </Button>
+                  </Button>
                 <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportTxt(lastLot)} title="Exporter .txt">
                   <FileText className="h-4 w-4" />
-                </Button>
+                  </Button>
                 <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
                   <Table2 className="h-4 w-4" />
-                </Button>
+                  </Button>
                 <Button
                   size="default"
                   variant="outline"
@@ -1155,7 +1155,7 @@ export default function GenerateVouchers() {
                   disabled={isDeletingLastLot}
                 >
                   {isDeletingLastLot ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                </Button>
+                  </Button>
               </div>
 
               {/* ── Liste des codes ── */}

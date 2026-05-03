@@ -206,7 +206,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   const detailRows = vouchers.map((v, i) => `<tr>
     <td>${i + 1}</td><td>${v.time ?? "—"}</td><td>${v.username}</td>
     <td>${v.profileName || "—"}</td><td>${v.vendorName}</td>
-    <td style="text-align:right">${fmtAmount(v.amount)}</td>
+        <td style="text-align:right">${fmtAmount(v.amount)}</td>
   </tr>`).join("");
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -289,14 +289,14 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
     <span class="vname">${s.vendorName}</span>
     <span class="vstatus" style="background:${sBg};color:${sColor};border:1px solid ${sBorder}">${statusIcon}${badge.text}</span>
   </div>
-  <table>
+<table>
     <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
     <tr><td>Versé</td><td class="val">${fmtAmount(s.paidAmount ?? 0)} FCFA</td></tr>
     ${coRow}
     <tr><td>Total à verser</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(toPay)} FCFA</td></tr>
     <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
     <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"}</td></tr>
-  </table>
+</table>
 </div>`;
   }).join("");
 
@@ -329,11 +329,11 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
 <div class="grid">${vendorCards}</div>
 <div class="totals">
   <div class="totals-header">Totaux de la semaine</div>
-  <table>
+<table>
     <tr><td>Montant total vendu</td><td class="tval">${fmtAmount(totalAmount)} FCFA</td></tr>
     <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} FCFA</td></tr>
     <tr><td>Total à verser</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
-  </table>
+</table>
 </div>
 <script>window.onload = function() { window.print(); };</script>
 </body></html>`;
@@ -449,8 +449,8 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 
 /* ── Canvas JPEG: weekly — grille de cartes par vendeur ─────── */
 function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => void) {
-  setSaving(true);
-  try {
+    setSaving(true);
+    try {
     const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
     if (ws.length === 0) { setSaving(false); return; }
 
@@ -469,10 +469,10 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
     const canvas = document.createElement("canvas");
     canvas.width = W * DPR; canvas.height = totalH * DPR;
     const ctx = canvas.getContext("2d")!;
-    ctx.scale(DPR, DPR);
+      ctx.scale(DPR, DPR);
 
     const r = (x: number, y: number, w: number, h: number, fill: string, radius = 0) => {
-      ctx.fillStyle = fill;
+        ctx.fillStyle = fill;
       if (radius > 0) {
         ctx.beginPath();
         ctx.roundRect(x, y, w, h, radius);
@@ -488,8 +488,8 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
     const t = (str: string, x: number, y: number, { size = 10, bold = false, color = "#374151", align = "left" as CanvasTextAlign } = {}) => {
       ctx.font = `${bold ? "600" : "400"} ${size}px Inter,system-ui,sans-serif`;
       ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle";
-      ctx.fillText(str, x, y);
-    };
+        ctx.fillText(str, x, y);
+      };
 
     const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
 
@@ -587,7 +587,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
     const link = document.createElement("a");
     link.download = `rapport-hebdo-${data.weekStart ?? "semaine"}.jpeg`;
     link.href = canvas.toDataURL("image/jpeg", 0.93);
-    link.click();
+      link.click();
   } finally { setSaving(false); }
 }
 
@@ -894,7 +894,7 @@ export default function VendorTracking() {
           <div ref={summaryRef} className="space-y-3 bg-white rounded-xl p-3">
 
             {/* ── Résumé d'hier — cartes par vendeur ── */}
-            {!isLoading && activeSummary.length > 0 && (
+          {!isLoading && activeSummary.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between px-1">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">
@@ -932,7 +932,7 @@ export default function VendorTracking() {
                         </div>
                         {/* Arrears only (forfait breakdown + total row removed) */}
                         <table className="w-full border-collapse">
-                          <tbody>
+                <tbody>
                             {/* ── Arriérés semaine(s) précédente(s) — ligne agrégée ── */}
                             {prevTotal > 0 && (
                               <tr className="border-t-2 border-red-300 bg-red-50">
@@ -956,8 +956,8 @@ export default function VendorTracking() {
                                       </button>
                                     </div>
                                   </div>
-                                </td>
-                              </tr>
+                      </td>
+                    </tr>
                             )}
                             {/* ── Arriérés semaine en cours — lignes individuelles (regroupées si ≥3) ── */}
                             {consolidateArrears(currentArrears).map((arr) => {
@@ -1022,8 +1022,8 @@ export default function VendorTracking() {
                                         </button>
                                       </div>
                                     )}
-                                  </td>
-                                </tr>
+                    </td>
+                  </tr>
                               );
                             })}
                             {/* ── Total à verser ── */}
@@ -1039,16 +1039,16 @@ export default function VendorTracking() {
                               );
                             })()}
                           </tbody>
-                        </table>
+              </table>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
+            </div>
+          )}
 
             {/* ── Weekly summary — cartes par vendeur ── */}
-            {!isLoading && weekSummary.length > 0 && (
+          {!isLoading && weekSummary.length > 0 && (
               <div className="space-y-2">
                 {/* Titre section */}
                 <div className="flex items-center justify-between px-1">
@@ -1087,12 +1087,12 @@ export default function VendorTracking() {
                             <tr className="border-b border-gray-50">
                               <td className="px-3 py-1.5 text-gray-500">Montant vendu</td>
                               <td className="px-3 py-1.5 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
-                            </tr>
+                  </tr>
                             {(s.dailyPaid ?? 0) > 0 && (
                               <tr className="border-b border-gray-50 bg-sky-50/40">
                                 <td className="px-3 py-1.5 text-sky-700">Versé en journalier</td>
                                 <td className="px-3 py-1.5 text-right font-semibold text-sky-700 tabular-nums">{fmtAmount(s.dailyPaid!)} FCFA</td>
-                              </tr>
+                  </tr>
                             )}
                             {(s.weeklyPaid ?? 0) > 0 && (
                               <tr className="border-b border-gray-50 bg-emerald-50/40">
@@ -1119,29 +1119,29 @@ export default function VendorTracking() {
                                 </td>
                                 <td className="px-3 py-1.5 text-right font-semibold text-red-600 tabular-nums">
                                   {fmtAmount(s.carryOverAmount!)} FCFA
-                                </td>
-                              </tr>
+                      </td>
+                    </tr>
                             )}
                             <tr className="border-b border-gray-50">
                               <td className="px-3 py-1.5 text-gray-500">Total à verser</td>
                               <td className={`px-3 py-1.5 text-right font-bold tabular-nums ${(s.totalToPay ?? s.remainingAmount ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
                                 {fmtAmount(s.totalToPay ?? s.remainingAmount ?? 0)} FCFA
-                              </td>
+                    </td>
                             </tr>
                             <tr className="border-b border-gray-50 bg-gray-50/50">
                               <td className="px-3 py-1.5 text-gray-500">Commission</td>
                               <td className="px-3 py-1.5 text-right font-medium text-gray-600 tabular-nums">
                                 {commRate > 0 ? `${commRate}%` : <span className="text-gray-300">—</span>}
-                              </td>
+                    </td>
                             </tr>
                             <tr>
                               <td className="px-3 py-1.5 text-gray-500">Rémunération</td>
                               <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">
                                 {(s.commission ?? 0) > 0 ? `${fmtAmount(s.commission!)} FCFA` : <span className="text-gray-300">—</span>}
-                              </td>
-                            </tr>
+                    </td>
+                  </tr>
                           </tbody>
-                        </table>
+              </table>
                       </div>
                     );
                   })}
@@ -1167,8 +1167,8 @@ export default function VendorTracking() {
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+            </div>
+          )}
 
           </div>{/* end capture zone */}
 

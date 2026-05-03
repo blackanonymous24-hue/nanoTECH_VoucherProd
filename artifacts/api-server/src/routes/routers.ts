@@ -247,8 +247,10 @@ router.get("/routers", async (req, res): Promise<void> => {
     .from(routersTable);
 
   if (scope.kind === "super") {
-    // Super-admin should only see routers in their own tenant account.
-    res.json(await baseSelect.where(eq(routersTable.ownerAdminId, scope.adminId)).orderBy(routersTable.name));
+    // Super-admin: liste globale (tous les tenants). Les routeurs créés pour un
+    // admin client ont son owner_admin_id — un filtre par l'id du super-admin
+    // laissait la page « Routeurs » vide alors que la plateforme en contient.
+    res.json(await baseSelect.orderBy(routersTable.name));
     return;
   }
   if (scope.kind === "admin") {
