@@ -452,17 +452,24 @@ export default function GenerateVouchers() {
     e.preventDefault();
     if (!selectedRouterId || !profile) return;
 
+    const total = parseInt(qty, 10);
+    if (!Number.isFinite(total) || total < 1 || total > 1000) {
+      toast({ title: "Quantité invalide", description: "Veuillez saisir un nombre entre 1 et 1000.", variant: "destructive" });
+      return;
+    }
+
     // During generation, pause unrelated API traffic and keep only generation-critical
     // endpoints so RouterOS bandwidth is dedicated to voucher creation.
+    // NOTE: ping must be allowed so waitForRouter can detect when the router recovers.
     setApiRequestPause(true, {
       allowPathPatterns: [
         /^\/api\/vouchers\/generate(?:$|\/|\?)/,
         /^\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
         /^\/api\/routers\/\d+\/users(?:$|\/|\?)/,
+        /^\/api\/routers\/\d+\/ping(?:$|\/|\?)/,
       ],
     });
 
-    const total = parseInt(qty, 10);
     setProgress({ done: 0, total });
     setGenPaused(false);
 
@@ -574,6 +581,14 @@ export default function GenerateVouchers() {
       setTimelimit("");
       setDatalimit("");
       setVendorId("");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isAxiosMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast({
+        title: "Erreur de génération",
+        description: isAxiosMsg || msg || "Une erreur inattendue est survenue.",
+        variant: "destructive",
+      });
     } finally {
       setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
@@ -1027,7 +1042,7 @@ export default function GenerateVouchers() {
                 <Button
                   type="submit"
                   className="w-full gap-2"
-                  disabled={!selectedRouterId || !profile || !!progress}
+                  disabled={!selectedRouterId || !profile || !!progress || !Number.isFinite(parseInt(qty, 10)) || parseInt(qty, 10) < 1}
                 >
                   <Zap className="h-4 w-4" />
                   {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
