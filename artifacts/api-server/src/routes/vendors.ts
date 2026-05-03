@@ -114,6 +114,13 @@ router.post("/vendors", async (req, res): Promise<void> => {
     const [r] = await db.select({ owner: routersTable.ownerAdminId })
       .from(routersTable).where(eq(routersTable.id, routerId));
     if (!r) { res.status(400).json({ error: "Routeur invalide" }); return; }
+    if (r.owner == null) {
+      res.status(403).json({
+        error:
+          "Ce routeur n'est pas rattaché à un compte client. Le super administrateur doit le créer depuis la fiche de l'administrateur (Routeurs du client).",
+      });
+      return;
+    }
     if (r.owner !== scope.adminId) {
       res.status(403).json({ error: "Ce routeur ne vous appartient pas" }); return;
     }

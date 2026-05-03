@@ -78,6 +78,24 @@ export interface RouterConnection {
   password: string;
 }
 
+/** Mikhmon sets `status-autorefresh=1m` on profiles so session metadata tracks changes faster. */
+const HOTSPOT_PROFILE_STATUS_AUTOREFRESH = "1m";
+
+/** `/system/resource/print` is only needed for RouterOS 6 vs 7+ script quirks; cache per device to save one API round-trip per profile add/update. */
+const ROUTER_OS_VERSION_CACHE_MS = 15 * 60 * 1000;
+const routerOsVersionCache = new Map<string, { version: string | null; at: number }>();
+
+async function getCachedRouterOsVersion(api: RouterOSAPI, conn: RouterConnection): Promise<string | null> {
+  const key = `${conn.host}:${conn.port}`;
+  const hit = routerOsVersionCache.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at < ROUTER_OS_VERSION_CACHE_MS) return hit.version;
+  const sys = await api.write("/system/resource/print");
+  const version = ((sys?.[0] as Record<string, unknown> | undefined)?.["version"] as string | undefined) ?? null;
+  routerOsVersionCache.set(key, { version, at: now });
+  return version;
+}
+
 export interface HotspotProfile {
   mikrotikId: string;
   name: string;
@@ -90,6 +108,8 @@ export interface HotspotProfile {
   lockMac: boolean;
   expiredMode: string | null;
   parentQueue: string | null;
+  /** Mikhmon-style: system scheduler named like the profile, enabled → green dot in UI. */
+  schedulerMonitorActive: boolean;
 }
 
 export interface HotspotSession {
@@ -389,13 +409,27 @@ const EMPTY_PARSED = { price: "", validity: "", lockMac: false, sellingPrice: ""
 
 export async function listProfiles(conn: RouterConnection): Promise<HotspotProfile[]> {
   return withRouter(conn, async (api) => {
-    const profiles = await api.write("/ip/hotspot/user/profile/print");
+    const [profiles, schedulers] = await Promise.all([
+      api.write("/ip/hotspot/user/profile/print"),
+      api.write("/system/scheduler/print").catch(() => [] as Record<string, unknown>[]),
+    ]);
+    const schedulerByName = new Map<string, { disabled: boolean }>();
+    for (const s of schedulers) {
+      const rawName = (s["name"] as string) ?? "";
+      const n = decodeRouterText(rawName);
+      if (!n) continue;
+      const disabled = String(s["disabled"] ?? "false").toLowerCase() === "true";
+      schedulerByName.set(n, { disabled });
+    }
     return profiles.map((p) => {
       const onLogin = (p["on-login"] as string) ?? "";
       const parsed = onLogin.includes(",") ? parseProfileOnLogin(onLogin) : EMPTY_PARSED;
+      const name = decodeRouterText((p["name"] as string) ?? "");
+      const sch = schedulerByName.get(name);
+      const schedulerMonitorActive = !!(sch && !sch.disabled);
       return {
         mikrotikId:  (p[".id"] as string) ?? "",
-        name:        decodeRouterText((p["name"] as string) ?? ""),
+        name,
         rateLimit:   (p["rate-limit"] as string) || null,
         validity:    parsed.validity || null,
         price:       parsed.price || null,
@@ -405,21 +439,37 @@ export async function listProfiles(conn: RouterConnection): Promise<HotspotProfi
         lockMac:     parsed.lockMac,
         expiredMode: parsed.expiredMode || null,
         parentQueue: (p["parent-queue"] as string) || parsed.parentQueue || null,
+        schedulerMonitorActive,
       };
     });
   });
 }
 
+/** RouterOS internal row id (e.g. *12). Rejects values that could break API sentence parsing. */
+function looksLikeRouterOsRowId(id: string): boolean {
+  return /^\*[0-9A-Fa-f]{1,16}$/i.test(id);
+}
+
 export async function updateProfile(conn: RouterConnection, originalName: string, opts: CreateProfileOptions): Promise<void> {
   return withRouter(conn, async (api) => {
-    let found = await api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]);
-    if (!found.length) {
-      found = await api.write("/ip/hotspot/user/profile/print", [`?name=${toWin1252(originalName)}`]).catch(() => []);
+    let id: string | undefined;
+    const mid = opts.mikrotikId?.trim();
+    if (mid && looksLikeRouterOsRowId(mid)) {
+      const byId = await api.write("/ip/hotspot/user/profile/print", [`?.id=${mid}`]).catch(() => []);
+      if (byId.length) {
+        const rowName = decodeRouterText((byId[0]["name"] as string) ?? "");
+        if (rowName === originalName) id = mid;
+      }
     }
-    if (!found.length) throw new Error(`Profil "${originalName}" introuvable`);
-    const id = found[0][".id"] as string;
-    const sys = await api.write("/system/resource/print");
-    const version = ((sys?.[0] as Record<string, unknown> | undefined)?.["version"] as string | undefined) ?? null;
+    if (!id) {
+      let found = await api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]);
+      if (!found.length) {
+        found = await api.write("/ip/hotspot/user/profile/print", [`?name=${toWin1252(originalName)}`]).catch(() => []);
+      }
+      if (!found.length) throw new Error(`Profil "${originalName}" introuvable`);
+      id = found[0][".id"] as string;
+    }
+    const version = await getCachedRouterOsVersion(api, conn);
     const expmode = toMikhmonExpmode(opts.expiredMode);
     const onLogin = generateMikHmonOnLogin(opts, version);
     const args = [
@@ -427,6 +477,7 @@ export async function updateProfile(conn: RouterConnection, originalName: string
       `=name=${toWin1252(opts.name)}`,
       `=on-login=${toWin1252(onLogin)}`,
       `=shared-users=${opts.sharedUsers || "1"}`,
+      `=status-autorefresh=${HOTSPOT_PROFILE_STATUS_AUTOREFRESH}`,
     ];
     if (opts.rateLimit)   args.push(`=rate-limit=${opts.rateLimit}`);
     else                  args.push(`=rate-limit=`);
@@ -926,6 +977,8 @@ export interface CreateProfileOptions {
   expiredMode: string;   // "None" | "Remove" | "Notice" | "Remove & Record" | "Notice & Record"
   lockMac: boolean;
   parentQueue: string;
+  /** Internal RouterOS `.id` (from list profiles). Used on update to resolve by id instead of by name. */
+  mikrotikId?: string;
 }
 
 function toMikhmonExpmode(mode: string): string {
@@ -1007,14 +1060,14 @@ async function upsertProfileScheduler(
 
 export async function createProfile(conn: RouterConnection, opts: CreateProfileOptions): Promise<void> {
   return withRouter(conn, async (api) => {
-    const sys = await api.write("/system/resource/print");
-    const version = ((sys?.[0] as Record<string, unknown> | undefined)?.["version"] as string | undefined) ?? null;
+    const version = await getCachedRouterOsVersion(api, conn);
     const expmode = toMikhmonExpmode(opts.expiredMode);
     const onLogin = generateMikHmonOnLogin(opts, version);
     const args = [
       `=name=${toWin1252(opts.name)}`,
       `=on-login=${toWin1252(onLogin)}`,
       `=shared-users=${opts.sharedUsers || "1"}`,
+      `=status-autorefresh=${HOTSPOT_PROFILE_STATUS_AUTOREFRESH}`,
     ];
     if (opts.rateLimit)    args.push(`=rate-limit=${opts.rateLimit}`);
     if (opts.addrPool)     args.push(`=address-pool=${opts.addrPool}`);
@@ -2219,6 +2272,54 @@ export async function purgeMikhmonScriptsForMonth(
 
     return { removed, failed, scanned: targetIds.length };
   }, 240_000);
+}
+
+/**
+ * Remove specific MikHMon script rows by their raw sale names once they have
+ * been persisted to the local DB cache.
+ *
+ * This is used by the auto-clean flow: fetch -> store locally -> delete router scripts.
+ */
+export async function removeMikhmonScriptsByRawNames(
+  conn: RouterConnection,
+  rawNames: string[],
+): Promise<{ removed: number; failed: number; scanned: number }> {
+  if (rawNames.length === 0) return { removed: 0, failed: 0, scanned: 0 };
+
+  return withRouter(conn, async (api) => {
+    const target = new Set(rawNames.map((n) => n.trim()).filter(Boolean));
+    if (target.size === 0) return { removed: 0, failed: 0, scanned: 0 };
+
+    // Pull all mikhmon scripts once, then remove only exact matches.
+    const rows = await api.write("/system/script/print", [
+      "=.proplist=.id,name",
+      "?comment=mikhmon",
+    ]).catch(() => [] as Record<string, unknown>[]);
+
+    const ids: string[] = [];
+    for (const r of rows) {
+      const id = String(r[".id"] ?? "");
+      const name = String(r["name"] ?? "").trim();
+      if (id && name && target.has(name)) ids.push(id);
+    }
+    if (ids.length === 0) return { removed: 0, failed: 0, scanned: 0 };
+
+    let removed = 0;
+    let failed = 0;
+    const CHUNK = 20;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const part = ids.slice(i, i + CHUNK);
+      const settled = await Promise.allSettled(
+        part.map((id) => api.write("/system/script/remove", [`=.id=${id}`])),
+      );
+      for (const s of settled) {
+        if (s.status === "fulfilled") removed++;
+        else failed++;
+      }
+    }
+
+    return { removed, failed, scanned: ids.length };
+  }, 120_000);
 }
 
 // ─── Character sets (MikHMon-compatible) ─────────────────────────────────────

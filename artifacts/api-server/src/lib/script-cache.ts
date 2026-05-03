@@ -12,7 +12,7 @@
  */
 import { eq, and, sql } from "drizzle-orm";
 import { db, scriptSalesTable, routersTable } from "@workspace/db";
-import { fetchScriptSales, type RouterConnection } from "./mikrotik.js";
+import { fetchScriptSales, removeMikhmonScriptsByRawNames, type RouterConnection } from "./mikrotik.js";
 import { logger } from "./logger.js";
 
 /** Shape returned by getCachedSaleDetails — mirrors mikrotik.ts SaleDetail */
@@ -190,6 +190,30 @@ export async function syncScriptCache(
         .returning({ id: scriptSalesTable.id });
       inserted += result.length;
     }
+
+      const [routerCfg] = await db
+        .select({ autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts })
+        .from(routersTable)
+        .where(eq(routersTable.id, routerId))
+        .limit(1);
+
+      if (routerCfg?.autoDeleteSalesScripts) {
+        // Auto-clean on router: once the sale scripts are present locally,
+        // remove their MikHMon script entries to prevent accumulation.
+        // Non-blocking for business flow: local cache remains source of truth.
+        try {
+          const rawNames = rows.map((r) => r.rawName).filter(Boolean);
+          const cleaned = await removeMikhmonScriptsByRawNames(conn, rawNames);
+          if (cleaned.removed > 0 || cleaned.failed > 0) {
+            logger.info(
+              { routerId, removed: cleaned.removed, failed: cleaned.failed, scanned: cleaned.scanned },
+              "script cache: auto-cleaned MikroTik scripts after local persist",
+            );
+          }
+        } catch (cleanupErr) {
+          logger.warn({ routerId, err: cleanupErr }, "script cache: MikroTik auto-clean failed (non-blocking)");
+        }
+      }
 
       if (inserted > 0) {
         logger.info({ routerId, total: entries.length, inserted }, "script cache: sync complete");
