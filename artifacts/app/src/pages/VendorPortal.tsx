@@ -1159,25 +1159,25 @@ function Dashboard({ token, vendor, onLogout }: {
                   <div className="flex gap-1">
                     <Select value={reportDay} onValueChange={setReportDay}>
                       <SelectTrigger className="text-[11px] h-7 px-1.5 flex-1 min-w-0"><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-[200px]">
                         {days.map((d) => (
-                          <SelectItem key={d} value={String(d)} className="text-xs">{String(d).padStart(2,"0")}</SelectItem>
+                          <SelectItem key={d} value={String(d)} className="text-sm py-2">{String(d).padStart(2,"0")}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <Select value={reportMonth} onValueChange={setReportMonth}>
                       <SelectTrigger className="text-[11px] h-7 px-1.5 flex-1 min-w-0"><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-[200px]">
                         {MONTHS.map((m, i) => (
-                          <SelectItem key={i + 1} value={String(i + 1)} className="text-xs">{m.slice(0, 3)}</SelectItem>
+                          <SelectItem key={i + 1} value={String(i + 1)} className="text-sm py-2">{m}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <Select value={reportYear} onValueChange={setReportYear}>
                       <SelectTrigger className="text-[11px] h-7 px-1.5 flex-1 min-w-0"><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-[200px]">
                         {years.map((y) => (
-                          <SelectItem key={y} value={String(y)} className="text-xs">{y}</SelectItem>
+                          <SelectItem key={y} value={String(y)} className="text-sm py-2">{y}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
