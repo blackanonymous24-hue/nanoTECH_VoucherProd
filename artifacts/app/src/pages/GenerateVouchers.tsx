@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   useListRouterProfiles,
   useGenerateVouchers,
   getListVouchersQueryKey,
-  getListRouterProfilesQueryKey,
 } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
@@ -26,6 +25,7 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { getStoredPHP } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
@@ -122,6 +122,40 @@ const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
 };
 
 const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2"];
+
+/** Motifs pour les fetch autorisés pendant la pause (sous-chemin SPA : …/api/…, pas seulement ^/api/). */
+const GENERATION_PAUSE_ALLOW_FETCH: RegExp[] = [
+  /\/api\/vouchers\/generate(?:$|\/|\?)/,
+  /\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
+  /\/api\/routers\/\d+\/users(?:$|\/|\?)/,
+];
+
+function formatGenerateError(err: unknown): string {
+  const msg = err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message) : "";
+  if (msg === "api-paused") {
+    return "Requête API bloquée pendant la génération. Réessayez ; si le problème persiste, rechargez la page.";
+  }
+  if (err && typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    const resp = o.response as { data?: { error?: string }; status?: number } | undefined;
+    const dataErr = resp?.data && typeof resp.data === "object" && (resp.data as { error?: string }).error;
+    if (typeof dataErr === "string" && dataErr.trim()) return dataErr.trim();
+    if (typeof o.message === "string" && o.message.trim()) return o.message.trim();
+  }
+  return "Erreur inattendue pendant la génération.";
+}
+
+function formatProfilesLoadError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    const resp = o.response as { data?: { error?: string }; status?: number } | undefined;
+    const data = resp?.data;
+    const msg = data && typeof data === "object" && "error" in data ? (data as { error?: string }).error : undefined;
+    if (typeof msg === "string" && msg.trim()) return msg.trim();
+    if (typeof o.message === "string" && o.message.trim()) return o.message.trim();
+  }
+  return "Impossible de charger les profils. Vérifiez le routeur ou votre connexion.";
+}
 
 /** Détecte si l'erreur correspond à un routeur inaccessible (502 ou réseau). */
 function isRouterUnreachable(err: unknown): boolean {
@@ -297,24 +331,38 @@ export default function GenerateVouchers() {
     staleTime: 60_000,
   });
 
-  const { data: profiles = [], isLoading: loadingProfiles } = useListRouterProfiles(
+  const {
+    data: profiles = [],
+    isLoading: loadingProfiles,
+    isFetching: fetchingProfiles,
+    isError: profilesLoadError,
+    error: profilesQueryError,
+    refetch: refetchProfiles,
+  } = useListRouterProfiles(
     selectedRouterId ?? 0,
     {
       query: {
-        // Generate page runs in API-pause mode for speed; profile list is served
-        // from local caches/React Query cache instead of live fetch here.
-        enabled: false,
+        enabled: !!selectedRouterId,
         staleTime: 5 * 60_000,
         gcTime: 10 * 60_000,
         refetchOnWindowFocus: false,
+        refetchOnMount: "always",
         placeholderData: (prev) => prev,
       },
     },
   );
+
+  /** Comme Forfaits : remplit le cache React Query même sans localStorage (GET ?refresh=1 + sync noms). */
+  useProfileAutoResync(selectedRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
   const [localProfiles, setLocalProfiles] = useState<(typeof profiles)>([]);
   const [profilesForRouterId, setProfilesForRouterId] = useState<number | null>(null);
   const localProfilesCacheKey = selectedRouterId ? `${PROFILES_CACHE_KEY}:${selectedRouterId}` : null;
-  const displayedProfiles = profilesForRouterId === selectedRouterId ? localProfiles : [];
+  const displayedProfiles = useMemo(() => {
+    if (!selectedRouterId) return [];
+    if (profiles.length > 0) return profiles;
+    if (profilesForRouterId === selectedRouterId && localProfiles.length > 0) return localProfiles;
+    return [];
+  }, [selectedRouterId, profiles, profilesForRouterId, localProfiles]);
 
   const generateMutation = useGenerateVouchers();
 
@@ -360,41 +408,13 @@ export default function GenerateVouchers() {
     if (!localProfilesCacheKey || profiles.length === 0) return;
     try {
       localStorage.setItem(localProfilesCacheKey, JSON.stringify(profiles));
+      if (selectedRouterId) {
+        localStorage.setItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(profiles));
+      }
     } catch {
       // ignore storage quota/private mode errors
     }
-  }, [localProfilesCacheKey, profiles]);
-
-  // Always refresh profiles when router changes so Generate uses
-  // the exact profile list of the currently selected router.
-  useEffect(() => {
-    if (!selectedRouterId) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
-        if (!res.ok || cancelled) return;
-        const freshProfiles = await res.json();
-        if (!Array.isArray(freshProfiles) || cancelled) return;
-        setLocalProfiles(freshProfiles);
-        setProfilesForRouterId(selectedRouterId);
-        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
-        queryClient.setQueryData(profileKey, freshProfiles);
-        queryClient.invalidateQueries({ queryKey: profileKey });
-        try {
-          localStorage.setItem(`${PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
-          localStorage.setItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
-        } catch {
-          // ignore storage errors
-        }
-      } catch {
-        // keep local cache fallback if live refresh fails
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedRouterId, queryClient]);
+  }, [localProfilesCacheKey, profiles, selectedRouterId]);
 
   // Auto-load the most recent lot from API when localStorage is empty
   useEffect(() => {
@@ -452,17 +472,24 @@ export default function GenerateVouchers() {
     e.preventDefault();
     if (!selectedRouterId || !profile) return;
 
+    const total = parseInt(qty, 10);
+    if (!Number.isFinite(total) || total < 1 || total > 1000) {
+      toast({ title: "Quantité invalide", description: "Veuillez saisir un nombre entre 1 et 1000.", variant: "destructive" });
+      return;
+    }
+
     // During generation, pause unrelated API traffic and keep only generation-critical
     // endpoints so RouterOS bandwidth is dedicated to voucher creation.
+    // NOTE: ping must be allowed so waitForRouter can detect when the router recovers.
     setApiRequestPause(true, {
       allowPathPatterns: [
         /^\/api\/vouchers\/generate(?:$|\/|\?)/,
         /^\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
         /^\/api\/routers\/\d+\/users(?:$|\/|\?)/,
+        /^\/api\/routers\/\d+\/ping(?:$|\/|\?)/,
       ],
     });
 
-    const total = parseInt(qty, 10);
     setProgress({ done: 0, total });
     setGenPaused(false);
 
@@ -474,14 +501,21 @@ export default function GenerateVouchers() {
     let done = 0;
     let lockAcquired = false;
     try {
-      // Verrouille le routeur pour toute la session : la sync background
-      // (vendor + usage) saute automatiquement les routeurs verrouillés.
+      // 1) Verrou routeur AVANT setApiRequestPause : la pause appelle abortAllApiRequests()
+      //    et le fetch du lock peut être refusé si le pathname ne matche pas (ex. BASE_URL avec préfixe),
+      //    ou subir une course avec l’abort — d’où un « faux départ » puis échec au 1er clic.
       const lockResp = await fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "POST" });
       if (!lockResp.ok) {
         const lockReason = await lockResp.text().catch(() => "");
         throw new Error(lockReason || "Impossible de démarrer la génération: routeur verrouillé.");
       }
       lockAcquired = true;
+
+      // 2) Pause du trafic fetch non essentiel (axios /generate n’est pas concerné ; fetch users si réconciliation oui).
+      setApiRequestPause(true, { allowPathPatterns: GENERATION_PAUSE_ALLOW_FETCH });
+
+      setProgress({ done: 0, total });
+      setGenPaused(false);
 
       while (done < total) {
         const qtyBatch = Math.min(BATCH_SIZE, total - done);
@@ -574,6 +608,12 @@ export default function GenerateVouchers() {
       setTimelimit("");
       setDatalimit("");
       setVendorId("");
+    } catch (err) {
+      toast({
+        title: "Génération interrompue",
+        description: formatGenerateError(err),
+        variant: "destructive",
+      });
     } finally {
       setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
@@ -752,6 +792,38 @@ export default function GenerateVouchers() {
 
               <div>
                 <Label>Profil</Label>
+                {profilesLoadError && displayedProfiles.length === 0 && selectedRouterId && (
+                  <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    <span className="min-w-0">{formatProfilesLoadError(profilesQueryError)}</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 border-red-300 text-red-900 hover:bg-red-100 gap-1.5"
+                      onClick={() => void refetchProfiles()}
+                      disabled={fetchingProfiles}
+                    >
+                      {fetchingProfiles ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {fetchingProfiles ? "Chargement…" : "Réessayer"}
+                    </Button>
+                  </div>
+                )}
+                {!profilesLoadError && !loadingProfiles && !fetchingProfiles && displayedProfiles.length === 0 && selectedRouterId && (
+                  <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <p className="min-w-0">
+                      Aucun profil listé (réponse vide du routeur — ni cache React ni localStorage ne suffisent sans cette liste). Vérifiez les profils hotspot sur MikroTik ou la connexion API.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 border-amber-300 text-amber-950 hover:bg-amber-100"
+                      onClick={() => void refetchProfiles()}
+                    >
+                      Actualiser
+                    </Button>
+                  </div>
+                )}
                 <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -759,11 +831,15 @@ export default function GenerateVouchers() {
                       variant="outline"
                       role="combobox"
                       aria-expanded={profilePopoverOpen}
-                      disabled={!selectedRouterId || (loadingProfiles && displayedProfiles.length === 0)}
+                      disabled={
+                        !selectedRouterId
+                        || (displayedProfiles.length === 0 && (loadingProfiles || fetchingProfiles))
+                        || (profilesLoadError && displayedProfiles.length === 0)
+                      }
                       className="w-full mt-1 justify-between font-normal"
                     >
                       <span className="truncate">
-                        {(loadingProfiles && displayedProfiles.length === 0)
+                        {((loadingProfiles || fetchingProfiles) && displayedProfiles.length === 0)
                           ? "Chargement…"
                           : profile
                             ? (displayedProfiles.find((p) => p.name === profile)?.name ?? profile)
@@ -1027,7 +1103,7 @@ export default function GenerateVouchers() {
                 <Button
                   type="submit"
                   className="w-full gap-2"
-                  disabled={!selectedRouterId || !profile || !!progress}
+                  disabled={!selectedRouterId || !profile || !!progress || !Number.isFinite(parseInt(qty, 10)) || parseInt(qty, 10) < 1}
                 >
                   <Zap className="h-4 w-4" />
                   {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
