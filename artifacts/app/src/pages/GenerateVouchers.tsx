@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import {
-  useListRouterProfiles,
   useGenerateVouchers,
   getListVouchersQueryKey,
   getListRouterProfilesQueryKey,
 } from "@workspace/api-client-react";
+import type { HotspotProfile } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -297,21 +297,12 @@ export default function GenerateVouchers() {
     staleTime: 60_000,
   });
 
-  const { data: profiles = [], isLoading: loadingProfiles } = useListRouterProfiles(
-    selectedRouterId ?? 0,
-    {
-      query: {
-        // Generate page runs in API-pause mode for speed; profile list is served
-        // from local caches/React Query cache instead of live fetch here.
-        enabled: false,
-        staleTime: 5 * 60_000,
-        gcTime: 10 * 60_000,
-        refetchOnWindowFocus: false,
-        placeholderData: (prev) => prev,
-      },
-    },
-  );
-  const [localProfiles, setLocalProfiles] = useState<(typeof profiles)>([]);
+  // Profils du routeur courant : chargés uniquement via le fetch ci‑dessous (pas
+  // useListRouterProfiles avec placeholderData), sinon au changement de routeur
+  // React Query peut encore exposer la liste du routeur précédent et corrompre
+  // le localStorage sous la mauvaise clé.
+  const [profilesRefreshing, setProfilesRefreshing] = useState(false);
+  const [localProfiles, setLocalProfiles] = useState<HotspotProfile[]>([]);
   const [profilesForRouterId, setProfilesForRouterId] = useState<number | null>(null);
   const localProfilesCacheKey = selectedRouterId ? `${PROFILES_CACHE_KEY}:${selectedRouterId}` : null;
   const displayedProfiles = profilesForRouterId === selectedRouterId ? localProfiles : [];
@@ -356,25 +347,17 @@ export default function GenerateVouchers() {
     }
   }, [localProfilesCacheKey, selectedRouterId]);
 
-  useEffect(() => {
-    if (!localProfilesCacheKey || profiles.length === 0) return;
-    try {
-      localStorage.setItem(localProfilesCacheKey, JSON.stringify(profiles));
-    } catch {
-      // ignore storage quota/private mode errors
-    }
-  }, [localProfilesCacheKey, profiles]);
-
   // Always refresh profiles when router changes so Generate uses
   // the exact profile list of the currently selected router.
   useEffect(() => {
     if (!selectedRouterId) return;
     let cancelled = false;
+    setProfilesRefreshing(true);
     void (async () => {
       try {
         const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
         if (!res.ok || cancelled) return;
-        const freshProfiles = await res.json();
+        const freshProfiles = (await res.json()) as HotspotProfile[];
         if (!Array.isArray(freshProfiles) || cancelled) return;
         setLocalProfiles(freshProfiles);
         setProfilesForRouterId(selectedRouterId);
@@ -389,10 +372,13 @@ export default function GenerateVouchers() {
         }
       } catch {
         // keep local cache fallback if live refresh fails
+      } finally {
+        if (!cancelled) setProfilesRefreshing(false);
       }
     })();
     return () => {
       cancelled = true;
+      setProfilesRefreshing(false);
     };
   }, [selectedRouterId, queryClient]);
 
@@ -759,11 +745,11 @@ export default function GenerateVouchers() {
                       variant="outline"
                       role="combobox"
                       aria-expanded={profilePopoverOpen}
-                      disabled={!selectedRouterId || (loadingProfiles && displayedProfiles.length === 0)}
+                      disabled={!selectedRouterId || (profilesRefreshing && displayedProfiles.length === 0)}
                       className="w-full mt-1 justify-between font-normal"
                     >
                       <span className="truncate">
-                        {(loadingProfiles && displayedProfiles.length === 0)
+                        {(profilesRefreshing && displayedProfiles.length === 0)
                           ? "Chargement…"
                           : profile
                             ? (displayedProfiles.find((p) => p.name === profile)?.name ?? profile)

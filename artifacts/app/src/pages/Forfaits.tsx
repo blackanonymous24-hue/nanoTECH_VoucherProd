@@ -97,7 +97,6 @@ export default function Forfaits() {
         staleTime: 5 * 60_000,
         gcTime: 10 * 60_000,
         refetchOnWindowFocus: false,
-        placeholderData: (prev) => prev,
       },
     },
   );
