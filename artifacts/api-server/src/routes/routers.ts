@@ -239,6 +239,7 @@ router.get("/routers", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       ownerAdminId: routersTable.ownerAdminId,
       createdAt: routersTable.createdAt,
@@ -266,7 +267,7 @@ router.post("/routers", async (req, res): Promise<void> => {
   const scope = getAdminScopeFromHeader(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const { name, hotspotName, contact, currency, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, currency, host, port, username, password, autoDeleteSalesScripts, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
     contact?: string;
@@ -275,6 +276,7 @@ router.post("/routers", async (req, res): Promise<void> => {
     port?: number;
     username?: string;
     password?: string;
+    autoDeleteSalesScripts?: boolean;
     isActive?: boolean;
   };
 
@@ -340,6 +342,7 @@ router.post("/routers", async (req, res): Promise<void> => {
       port: port ?? 8728,
       username,
       password,
+      autoDeleteSalesScripts: autoDeleteSalesScripts ?? false,
       isActive: isActive ?? true,
     })
     .returning({
@@ -351,6 +354,7 @@ router.post("/routers", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       ownerAdminId: routersTable.ownerAdminId,
       createdAt: routersTable.createdAt,
@@ -416,6 +420,7 @@ router.get("/routers/:id", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       createdAt: routersTable.createdAt,
       updatedAt: routersTable.updatedAt,
@@ -432,7 +437,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, hotspotName, contact, currency, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, currency, host, port, username, password, autoDeleteSalesScripts, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
     contact?: string;
@@ -441,6 +446,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
     port?: number;
     username?: string;
     password?: string;
+    autoDeleteSalesScripts?: boolean;
     isActive?: boolean;
   };
 
@@ -456,6 +462,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   if (port !== undefined) updates.port = port;
   if (username !== undefined) updates.username = username;
   if (password !== undefined) updates.password = password;
+  if (autoDeleteSalesScripts !== undefined) updates.autoDeleteSalesScripts = autoDeleteSalesScripts;
   if (isActive !== undefined) updates.isActive = isActive;
 
   if (Object.keys(updates).length === 0) {
@@ -476,6 +483,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       createdAt: routersTable.createdAt,
       updatedAt: routersTable.updatedAt,

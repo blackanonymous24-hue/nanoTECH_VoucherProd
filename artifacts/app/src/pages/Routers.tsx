@@ -37,6 +37,7 @@ type RouterFormData = {
   address: string;
   username: string;
   password: string;
+  autoDeleteSalesScripts: boolean;
 };
 
 const emptyForm: RouterFormData = {
@@ -47,6 +48,7 @@ const emptyForm: RouterFormData = {
   address: "",
   username: "admin",
   password: "",
+  autoDeleteSalesScripts: false,
 };
 
 const MAX_CURRENCY_LEN = 24;
@@ -232,6 +234,7 @@ export default function Routers() {
       address: `${r.host}:${r.port}`,
       username: r.username,
       password: "",
+      autoDeleteSalesScripts: (r as { autoDeleteSalesScripts?: boolean }).autoDeleteSalesScripts ?? false,
     });
     setEditRouter(r);
     setShowForm(true);
@@ -253,6 +256,7 @@ export default function Routers() {
       port,
       username: form.username,
       password: form.password,
+      autoDeleteSalesScripts: form.autoDeleteSalesScripts,
     };
     if (editRouter) {
       await updateMutation.mutateAsync({ id: editRouter.id, data: payload });
@@ -568,6 +572,20 @@ export default function Routers() {
                   />
                 </div>
               </div>
+              <label className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4"
+                  checked={form.autoDeleteSalesScripts}
+                  onChange={(e) => setForm({ ...form, autoDeleteSalesScripts: e.target.checked })}
+                />
+                <span className="text-sm text-gray-700">
+                  Suppression auto des scripts de ventes MikroTik apres sauvegarde locale
+                  <span className="block text-xs text-gray-500 mt-0.5">
+                    Option facultative. Si desactivee, le fonctionnement reste inchangé.
+                  </span>
+                </span>
+              </label>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-4 mt-2 border-t">

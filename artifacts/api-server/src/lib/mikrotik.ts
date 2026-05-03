@@ -2221,6 +2221,54 @@ export async function purgeMikhmonScriptsForMonth(
   }, 240_000);
 }
 
+/**
+ * Remove specific MikHMon script rows by their raw sale names once they have
+ * been persisted to the local DB cache.
+ *
+ * This is used by the auto-clean flow: fetch -> store locally -> delete router scripts.
+ */
+export async function removeMikhmonScriptsByRawNames(
+  conn: RouterConnection,
+  rawNames: string[],
+): Promise<{ removed: number; failed: number; scanned: number }> {
+  if (rawNames.length === 0) return { removed: 0, failed: 0, scanned: 0 };
+
+  return withRouter(conn, async (api) => {
+    const target = new Set(rawNames.map((n) => n.trim()).filter(Boolean));
+    if (target.size === 0) return { removed: 0, failed: 0, scanned: 0 };
+
+    // Pull all mikhmon scripts once, then remove only exact matches.
+    const rows = await api.write("/system/script/print", [
+      "=.proplist=.id,name",
+      "?comment=mikhmon",
+    ]).catch(() => [] as Record<string, unknown>[]);
+
+    const ids: string[] = [];
+    for (const r of rows) {
+      const id = String(r[".id"] ?? "");
+      const name = String(r["name"] ?? "").trim();
+      if (id && name && target.has(name)) ids.push(id);
+    }
+    if (ids.length === 0) return { removed: 0, failed: 0, scanned: 0 };
+
+    let removed = 0;
+    let failed = 0;
+    const CHUNK = 20;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const part = ids.slice(i, i + CHUNK);
+      const settled = await Promise.allSettled(
+        part.map((id) => api.write("/system/script/remove", [`=.id=${id}`])),
+      );
+      for (const s of settled) {
+        if (s.status === "fulfilled") removed++;
+        else failed++;
+      }
+    }
+
+    return { removed, failed, scanned: ids.length };
+  }, 120_000);
+}
+
 // ─── Character sets (MikHMon-compatible) ─────────────────────────────────────
 export type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
 
