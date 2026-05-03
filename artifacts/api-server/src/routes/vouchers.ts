@@ -2,7 +2,7 @@ import { Router } from "express";
 import { eq, and, isNull, isNotNull, desc, sql, or, ilike, gte } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
-import { invalidateUserCache, resolveCallerScope } from "./routers.js";
+import { invalidateUserCache } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { withRouterLock } from "../lib/router-lock.js";
 
@@ -80,36 +80,10 @@ router.get("/vouchers", async (req, res): Promise<void> => {
  * Ne pas régresser vers l’ancien filtre « printedAt seul » : fenêtre vente = usedAt,
  * tickets non vendus restent trouvables ; recherche sur commentaire incluse. */
 router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
-  const scope = await resolveCallerScope(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
-
   const { routerId, q } = req.query as { routerId?: string; q?: string };
   if (!routerId) { res.status(400).json({ error: "routerId requis" }); return; }
 
   const rid = parseInt(routerId, 10);
-  if (Number.isNaN(rid)) { res.status(400).json({ error: "routerId invalide" }); return; }
-
-  if (scope.kind === "admin") {
-    const [own] = await db
-      .select({ owner: routersTable.ownerAdminId })
-      .from(routersTable)
-      .where(eq(routersTable.id, rid));
-    if (!own) { res.status(404).json({ error: "Routeur introuvable" }); return; }
-    if (own.owner == null || own.owner !== scope.adminId) {
-      res.status(403).json({ error: "Accès refusé à ce routeur" });
-      return;
-    }
-  } else if (scope.kind !== "super") {
-    if (!scope.routerIds.includes(rid)) {
-      res.status(403).json({ error: "Accès refusé à ce routeur" });
-      return;
-    }
-  }
-
-  const [routerExists] = await db.select({ id: routersTable.id }).from(routersTable).where(eq(routersTable.id, rid));
-  if (!routerExists) { res.status(404).json({ error: "Routeur introuvable" }); return; }
-
-
   const term = (q ?? "").trim();
 
   const cutoff = new Date();

@@ -43,10 +43,7 @@ interface SaleEntry {
   mac: string;
   validity: string;
   label: string;
-  batch: string | null;
-  rawName?: string | null;
-  /** Script MikHMon en base vs bon consommé sans ligne script ce jour-là (anti-doublon côté API). */
-  origin?: "script" | "voucher";
+  batch: string;
   source?: "mikrotik+local" | "local-db";
 }
 
@@ -54,20 +51,14 @@ function fmtAmount(n: number) {
   return n.toLocaleString("fr-FR");
 }
 
-function saleEntryKey(e: Pick<SaleEntry, "date" | "time" | "username" | "label" | "batch" | "price" | "ip" | "mac" | "validity" | "rawName" | "origin">) {
-  return [e.date, e.time, e.username, e.label, e.batch ?? "", e.price, e.ip, e.mac, e.validity, e.rawName ?? "", e.origin ?? ""].join("-|-");
-}
-
-function originLabel(e: SaleEntry): string {
-  if (e.origin === "voucher") return "Bon (hors cache script)";
-  if (e.origin === "script") return "Cache script";
-  return "";
+function saleEntryKey(e: Pick<SaleEntry, "date" | "time" | "username" | "label" | "batch" | "price" | "ip" | "mac" | "validity">) {
+  return [e.date, e.time, e.username, e.label, e.batch, e.price, e.ip, e.mac, e.validity].join("-|-");
 }
 
 function exportCSV(entries: SaleEntry[], filename: string) {
-  const header = ["#","Date","Heure","Utilisateur","Origine","Profil","Lot","Prix (FCFA)","IP","MAC","Validité"];
+  const header = ["#","Date","Heure","Utilisateur","Profil","Lot","Prix (FCFA)","IP","MAC","Validité"];
   const rows = entries.map((e, i) => [
-    i + 1, e.date, e.time, e.username, originLabel(e), e.label, e.batch ?? "", e.price, e.ip, e.mac, e.validity,
+    i + 1, e.date, e.time, e.username, e.label, e.batch, e.price, e.ip, e.mac, e.validity,
   ]);
   const csv = [header, ...rows].map((r) => r.join(",")).join("\n");
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -185,22 +176,18 @@ export default function SellingReport() {
 
   const totalAmount = useMemo(() => filtered.reduce((s, e) => s + e.price, 0), [filtered]);
   const sourceCounts = useMemo(() => {
-    let scriptRows = 0;
-    let voucherRows = 0;
     let both = 0;
     let local = 0;
     for (const e of filtered) {
-      if (e.origin === "script") scriptRows++;
-      else if (e.origin === "voucher") voucherRows++;
       if (e.source === "mikrotik+local") both++;
       else local++;
     }
-    return { scriptRows, voucherRows, both, local };
+    return { both, local };
   }, [filtered]);
   const tableRows = useMemo(
     () => filtered.map((e, i) => (
       <tr
-        key={saleEntryKey(e)}
+        key={`${e.date}-${e.time}-${e.username}`}
         className="border-b border-gray-50 hover:bg-gray-50 transition-colors"
       >
         <td className="px-3 py-2 text-gray-400 tabular-nums">{i + 1}</td>
@@ -208,26 +195,13 @@ export default function SellingReport() {
         <td className="px-3 py-2 font-mono text-gray-500">{e.time}</td>
         <td className="px-3 py-2 font-medium text-gray-800">{e.username}</td>
         <td className="px-3 py-2">
-          {e.origin === "voucher" ? (
-            <span className="text-gray-400 text-[10px]">—</span>
-          ) : e.source === "mikrotik+local" ? (
+          {e.source === "mikrotik+local" ? (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-emerald-700 border-emerald-300 bg-emerald-50">
               MikroTik + Local
             </Badge>
           ) : (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-amber-700 border-amber-300 bg-amber-50">
               Local (DB)
-            </Badge>
-          )}
-        </td>
-        <td className="px-3 py-2">
-          {e.origin === "voucher" ? (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-sky-800 border-sky-300 bg-sky-50">
-              Bon seul
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-gray-700 border-gray-200 bg-gray-50">
-              Cache script
             </Badge>
           )}
         </td>
@@ -359,12 +333,6 @@ export default function SellingReport() {
                   <span className="text-xs text-gray-500 tabular-nums">
                     {filtered.length} vente{filtered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
                   </span>
-                  <Badge variant="outline" className="text-[10px] font-normal text-gray-700 border-gray-200 bg-gray-50">
-                    {sourceCounts.scriptRows} cache script
-                  </Badge>
-                  <Badge variant="outline" className="text-[10px] font-normal text-sky-800 border-sky-300 bg-sky-50">
-                    {sourceCounts.voucherRows} bon seul
-                  </Badge>
                   <Badge variant="outline" className="text-[10px] font-normal text-emerald-700 border-emerald-300 bg-emerald-50">
                     {sourceCounts.both} MikroTik + Local
                   </Badge>
@@ -460,14 +428,8 @@ export default function SellingReport() {
           </div>
 
           {/* ── Search ─────────────────────────────────────────── */}
-          {isAll && (
-            <p className="text-[11px] text-gray-500">
-              Sans année sélectionnée, seul le cache scripts est chargé. Pour inclure les ventes « bon seul » (sans ligne script), choisissez une année puis filtrez.
-            </p>
-          )}
-
           <Input
-            placeholder="Rechercher utilisateur, profil, bon, lot…"
+            placeholder="Rechercher utilisateur, profil, lot…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-8 text-xs max-w-xs"
@@ -494,22 +456,21 @@ export default function SellingReport() {
           {/* ── Table ──────────────────────────────────────────── */}
           {!isLoading && (
             <div className="overflow-x-auto rounded-lg border border-gray-100">
-              <table className="w-full min-w-[760px] text-xs border-collapse">
+              <table className="w-full min-w-[680px] text-xs border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="px-3 py-2 text-left text-gray-500 font-medium w-10">#</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Date</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Heure</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Utilisateur</th>
-                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Sync routeur</th>
-                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Origine</th>
+                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Source</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Profil</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Lot</th>
                     <th className="px-3 py-2 text-right text-gray-500 font-medium">Prix (FCFA)</th>
                   </tr>
                   {/* Running total header */}
                   <tr className="bg-emerald-50 border-b border-emerald-100">
-                    <th colSpan={7} className="px-3 py-1.5 text-left text-emerald-700 font-medium text-xs">
+                    <th colSpan={6} className="px-3 py-1.5 text-left text-emerald-700 font-medium text-xs">
                       {filtered.length} ticket{filtered.length !== 1 ? "s" : ""}
                     </th>
                     <th className="px-3 py-1.5 text-right text-emerald-700 font-bold text-xs" colSpan={2}>
@@ -520,7 +481,7 @@ export default function SellingReport() {
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-3 py-8 text-center text-gray-400">
+                      <td colSpan={8} className="px-3 py-8 text-center text-gray-400">
                         Aucune vente trouvée
                       </td>
                     </tr>
@@ -529,7 +490,7 @@ export default function SellingReport() {
                 {filtered.length > 0 && (
                   <tfoot>
                     <tr className="bg-gray-50 border-t border-gray-200">
-                      <td colSpan={7} className="px-3 py-2 text-xs text-gray-500 font-medium">
+                      <td colSpan={6} className="px-3 py-2 text-xs text-gray-500 font-medium">
                         Total — {filtered.length} ticket{filtered.length !== 1 ? "s" : ""}
                       </td>
                       <td colSpan={2} className="px-3 py-2 text-right text-sm font-bold text-emerald-700 tabular-nums">

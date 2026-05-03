@@ -18,9 +18,7 @@ function isApiRequest(input: RequestInfo | URL): boolean {
   if (url.startsWith("/api/") || url === "/api") return true;
   try {
     const u = new URL(url, window.location.origin);
-    if (u.origin !== window.location.origin) return false;
-    // Racine /api/… ou déploiement Vite avec base path : /app/api/…
-    return u.pathname.startsWith("/api/") || u.pathname === "/api" || u.pathname.includes("/api/");
+    return u.origin === window.location.origin && u.pathname.startsWith("/api/");
   } catch {
     return false;
   }
