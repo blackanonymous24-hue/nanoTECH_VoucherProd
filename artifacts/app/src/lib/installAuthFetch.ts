@@ -24,6 +24,18 @@ function isApiRequest(input: RequestInfo | URL): boolean {
   }
 }
 
+/** `fetch` navigateur d’origine, avant notre patch (connexion, etc.). */
+let nativeFetchRef: typeof fetch | null = null;
+
+/**
+ * Appels qui doivent ignorer pause API, en-tête Bearer automatique et AbortController global
+ * — typiquement `POST /api/login` depuis la page de connexion.
+ */
+export function fetchWithoutInterceptors(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (nativeFetchRef) return nativeFetchRef(input, init);
+  return window.fetch(input, init);
+}
+
 declare global {
   interface Window {
     __vouchernetAuthFetchInstalled?: boolean;
@@ -61,6 +73,12 @@ function getApiPauseState() {
   return window.__vouchernetApiPause;
 }
 
+/** Connexion / endpoints publics : ne jamais bloquer pendant la pause génération (sinon login « impossible de contacter »). */
+const API_PAUSE_PUBLIC_PATHS: RegExp[] = [
+  /\/api\/login(?:$|\/|\?)/,
+  /\/api\/vendor-portal\/login(?:$|\/|\?)/,
+];
+
 export function setApiRequestPause(
   paused: boolean,
   options?: { allowPathPatterns?: RegExp[] },
@@ -71,6 +89,11 @@ export function setApiRequestPause(
   if (paused) {
     abortAllApiRequests();
   }
+}
+
+/** Réinitialise la pause (ex. après déconnexion ou chargement de l’app si état coincé). */
+export function clearApiRequestPause(): void {
+  setApiRequestPause(false);
 }
 
 function getApiPath(input: RequestInfo | URL): string {
@@ -94,12 +117,15 @@ export function installAuthFetch(): void {
   getApiControllers();
   getApiPauseState();
   const original = window.fetch.bind(window);
+  nativeFetchRef = original;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (!isApiRequest(input)) return original(input, init);
     const pauseState = getApiPauseState();
     if (pauseState.paused) {
       const path = getApiPath(input);
-      const allowed = pauseState.allowPathPatterns.some((re) => re.test(path));
+      const allowed =
+        API_PAUSE_PUBLIC_PATHS.some((re) => re.test(path)) ||
+        pauseState.allowPathPatterns.some((re) => re.test(path));
       if (!allowed) {
         throw new DOMException(API_FETCH_PAUSED_REASON, "AbortError");
       }

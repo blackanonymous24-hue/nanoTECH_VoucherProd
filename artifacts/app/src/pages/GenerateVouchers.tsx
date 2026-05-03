@@ -123,6 +123,28 @@ const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
 
 const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2"];
 
+/** Motifs pour les fetch autorisés pendant la pause (sous-chemin SPA : …/api/…, pas seulement ^/api/). */
+const GENERATION_PAUSE_ALLOW_FETCH: RegExp[] = [
+  /\/api\/vouchers\/generate(?:$|\/|\?)/,
+  /\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
+  /\/api\/routers\/\d+\/users(?:$|\/|\?)/,
+];
+
+function formatGenerateError(err: unknown): string {
+  const msg = err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message) : "";
+  if (msg === "api-paused") {
+    return "Requête API bloquée pendant la génération. Réessayez ; si le problème persiste, rechargez la page.";
+  }
+  if (err && typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    const resp = o.response as { data?: { error?: string }; status?: number } | undefined;
+    const dataErr = resp?.data && typeof resp.data === "object" && (resp.data as { error?: string }).error;
+    if (typeof dataErr === "string" && dataErr.trim()) return dataErr.trim();
+    if (typeof o.message === "string" && o.message.trim()) return o.message.trim();
+  }
+  return "Erreur inattendue pendant la génération.";
+}
+
 /** Détecte si l'erreur correspond à un routeur inaccessible (502 ou réseau). */
 function isRouterUnreachable(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -452,20 +474,7 @@ export default function GenerateVouchers() {
     e.preventDefault();
     if (!selectedRouterId || !profile) return;
 
-    // During generation, pause unrelated API traffic and keep only generation-critical
-    // endpoints so RouterOS bandwidth is dedicated to voucher creation.
-    setApiRequestPause(true, {
-      allowPathPatterns: [
-        /^\/api\/vouchers\/generate(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/users(?:$|\/|\?)/,
-      ],
-    });
-
     const total = parseInt(qty, 10);
-    setProgress({ done: 0, total });
-    setGenPaused(false);
-
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
     const profilePrice = selectedProfile?.price ?? "";
     const profileValidity = selectedProfile?.validity ?? "";
@@ -474,14 +483,21 @@ export default function GenerateVouchers() {
     let done = 0;
     let lockAcquired = false;
     try {
-      // Verrouille le routeur pour toute la session : la sync background
-      // (vendor + usage) saute automatiquement les routeurs verrouillés.
+      // 1) Verrou routeur AVANT setApiRequestPause : la pause appelle abortAllApiRequests()
+      //    et le fetch du lock peut être refusé si le pathname ne matche pas (ex. BASE_URL avec préfixe),
+      //    ou subir une course avec l’abort — d’où un « faux départ » puis échec au 1er clic.
       const lockResp = await fetch(`${BASE}/api/routers/${selectedRouterId}/generation-lock`, { method: "POST" });
       if (!lockResp.ok) {
         const lockReason = await lockResp.text().catch(() => "");
         throw new Error(lockReason || "Impossible de démarrer la génération: routeur verrouillé.");
       }
       lockAcquired = true;
+
+      // 2) Pause du trafic fetch non essentiel (axios /generate n’est pas concerné ; fetch users si réconciliation oui).
+      setApiRequestPause(true, { allowPathPatterns: GENERATION_PAUSE_ALLOW_FETCH });
+
+      setProgress({ done: 0, total });
+      setGenPaused(false);
 
       while (done < total) {
         const qtyBatch = Math.min(BATCH_SIZE, total - done);
@@ -574,6 +590,12 @@ export default function GenerateVouchers() {
       setTimelimit("");
       setDatalimit("");
       setVendorId("");
+    } catch (err) {
+      toast({
+        title: "Génération interrompue",
+        description: formatGenerateError(err),
+        variant: "destructive",
+      });
     } finally {
       setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
