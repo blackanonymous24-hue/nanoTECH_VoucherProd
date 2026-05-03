@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { abortAllApiRequests } from "@/lib/installAuthFetch";
-import { getListRoutersQueryKey } from "@workspace/api-client-react";
 
 const TOKEN_KEY           = "vouchernet_admin_token";
 const ROLE_KEY            = "vouchernet_role";
@@ -113,12 +112,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setManagerRouterId(r === "manager" && mgrRouterId != null ? mgrRouterId : null);
     setCollaborateurRouterIds(r === "collaborateur" && collabRouterIds ? collabRouterIds : []);
     setIsSuperAdmin(effectiveSuper);
-
-    // La clé React Query pour GET /routers ne dépend pas du tenant : invalider
-    // pour éviter d'afficher la liste du compte précédent (ex. super admin).
-    if (r === "admin" || r === "manager" || r === "collaborateur") {
-      void queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
-    }
   };
 
   const logout = () => {

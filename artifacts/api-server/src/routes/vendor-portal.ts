@@ -9,11 +9,11 @@ import { type RouterConnection } from "../lib/mikrotik.js";
 const router = Router();
 
 /* ── Generic in-memory TTL cache ────────────────────────────── */
-const _cache = new Map<string, { data: unknown; exp: number; setAt: number }>();
+const _cache = new Map<string, { data: unknown; exp: number }>();
 function cGet(k: string) { const e = _cache.get(k); return (e && Date.now() < e.exp) ? e.data : null; }
-/** Returns cached entry even if expired — for stale-while-revalidate. */
-function cGetStaleEntry(k: string) { return _cache.get(k) ?? null; }
-function cSet(k: string, ttl: number, d: unknown) { _cache.set(k, { data: d, exp: Date.now() + ttl, setAt: Date.now() }); }
+/** Returns cached data even if expired — for stale-while-revalidate. */
+function cGetStale(k: string) { return _cache.get(k)?.data ?? null; }
+function cSet(k: string, ttl: number, d: unknown) { _cache.set(k, { data: d, exp: Date.now() + ttl }); }
 
 /** Called after any payment change or background sync for a vendor.
  *  Drops all cached data so the next portal request re-reads the DB. */
@@ -31,7 +31,6 @@ const PSC_TTL: Record<string, number> = {
 const DASH_TTL     = 20_000;   // /vendor-portal/me  (15s refresh cycle + buffer)
 const PAYMENTS_TTL = 30_000;   // /vendor-portal/me/payments
 const ARREARS_TTL  = 45_000;   // /vendor-portal/me/daily-arrears
-const DASH_MAX_STALE_MS = 2 * 60_000;
 
 function buildTotals(vendorId: number) {
   return db.select({
@@ -103,9 +102,9 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
       buildPortalPeriodStats(id),
       db.select().from(vouchersTable).where(and(
         eq(vouchersTable.vendorId, id),
-        sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt}) is not null`,
-        gte(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt})`, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
-      )).orderBy(desc(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt})`)),
+        isNotNull(vouchersTable.printedAt),
+        gte(vouchersTable.printedAt, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
+      )).orderBy(desc(vouchersTable.printedAt)),
       db.select().from(vouchersTable).where(eq(vouchersTable.vendorId, id)).orderBy(desc(vouchersTable.createdAt)),
       vendor.routerId != null
         ? db.select({ profileName: profilesCacheTable.profileName }).from(profilesCacheTable).where(eq(profilesCacheTable.routerId, vendor.routerId))
@@ -139,7 +138,6 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
   };
 
   const dashPayload = {
-    lastFreshAt: new Date().toISOString(),
     vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
     hotspotName: routerRow?.hotspotName ?? null,
     totalVouchers:  totals?.total        ?? 0,
@@ -222,9 +220,9 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
   const dashFresh = cGet(dashKey);
   if (dashFresh) { res.json(dashFresh); return; }
 
-  const dashStaleEntry = cGetStaleEntry(dashKey);
-  if (dashStaleEntry && (Date.now() - dashStaleEntry.setAt) <= DASH_MAX_STALE_MS) {
-    res.json(dashStaleEntry.data);
+  const dashStale = cGetStale(dashKey);
+  if (dashStale) {
+    res.json(dashStale);
     // Recompute in background so the very next request is fresh.
     setImmediate(async () => {
       try {

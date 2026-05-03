@@ -21,22 +21,3 @@ export async function ensureRouterCurrencyColumn(): Promise<void> {
     );
   }
 }
-
-/**
- * Sans cette colonne, tout SELECT Drizzle sur `routers` échoue et la liste des
- * routeurs semble vide. Idempotent — aligné sur lib/db/scripts/add-router-auto-delete-sales-scripts.sql
- */
-export async function ensureRouterAutoDeleteSalesScriptsColumn(): Promise<void> {
-  try {
-    await db.execute(sql`
-      ALTER TABLE routers
-      ADD COLUMN IF NOT EXISTS auto_delete_sales_scripts boolean NOT NULL DEFAULT false
-    `);
-    logger.info("DB compat: colonne routers.auto_delete_sales_scripts vérifiée / ajoutée");
-  } catch (err) {
-    logger.error(
-      { err },
-      "DB compat: impossible d'ajouter routers.auto_delete_sales_scripts — exécutez lib/db/scripts/add-router-auto-delete-sales-scripts.sql",
-    );
-  }
-}

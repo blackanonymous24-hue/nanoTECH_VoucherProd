@@ -17,8 +17,6 @@ export const routersTable = pgTable("routers", {
   port: integer("port").notNull().default(8728),
   username: text("username").notNull(),
   password: text("password").notNull(),
-  /** If true, auto-delete MikroTik sales scripts after local cache persist. */
-  autoDeleteSalesScripts: boolean("auto_delete_sales_scripts").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

@@ -156,26 +156,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [addLoading, setAddLoading]             = useState(false);
 
   /* Profile list for the selected router (fetched when dialog opens) */
-  const { data: dialogProfiles } = useQuery<
-    { name: string; price: string | null; validity: string | null; schedulerMonitorActive: boolean }[]
-  >({
+  const { data: dialogProfiles } = useQuery<{ name: string; price: string | null; validity: string | null }[]>({
     queryKey: ["router-profiles-dialog", selectedRouterId],
     queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/profiles`, { signal });
       if (!res.ok) return [];
-      const data = await res.json() as {
-        name: string;
-        price?: string;
-        validity?: string;
-        schedulerMonitorActive?: boolean;
-      }[];
-      return data.map((p) => ({
-        name: p.name,
-        price: p.price ?? null,
-        validity: p.validity ?? null,
-        schedulerMonitorActive: p.schedulerMonitorActive === true,
-      }));
+      const data = await res.json() as { name: string; price?: string; validity?: string }[];
+      return data.map((p) => ({ name: p.name, price: p.price ?? null, validity: p.validity ?? null }));
     },
     enabled: showAddUser && !!selectedRouterId,
     staleTime: 60_000,
@@ -707,15 +695,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                     <SelectContent className="max-h-56 overflow-y-auto">
                       {(dialogProfiles ?? []).map((p) => (
                         <SelectItem key={p.name} value={p.name}>
-                          <span className="flex items-center gap-2">
-                            <span
-                              className={`h-2 w-2 rounded-full flex-shrink-0 ${
-                                p.schedulerMonitorActive ? "bg-emerald-500" : "bg-orange-400"
-                              }`}
-                              aria-hidden
-                            />
-                            {p.name}
-                          </span>
+                          {p.name}
                         </SelectItem>
                       ))}
                     </SelectContent>

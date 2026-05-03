@@ -1,7 +1,7 @@
 import "source-map-support/register.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
-import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn } from "./lib/ensure-router-currency-column.js";
+import { ensureRouterCurrencyColumn } from "./lib/ensure-router-currency-column.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
@@ -21,7 +21,6 @@ process.on("unhandledRejection", (reason) => {
 
 async function start() {
   await ensureRouterCurrencyColumn();
-  await ensureRouterAutoDeleteSalesScriptsColumn();
   app.listen(port, "0.0.0.0", () => {
     logger.info({ port }, "API server started");
     startRealtimeVendorSync();
