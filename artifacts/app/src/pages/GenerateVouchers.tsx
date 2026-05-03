@@ -473,26 +473,6 @@ export default function GenerateVouchers() {
     if (!selectedRouterId || !profile) return;
 
     const total = parseInt(qty, 10);
-    if (!Number.isFinite(total) || total < 1 || total > 1000) {
-      toast({ title: "Quantité invalide", description: "Veuillez saisir un nombre entre 1 et 1000.", variant: "destructive" });
-      return;
-    }
-
-    // During generation, pause unrelated API traffic and keep only generation-critical
-    // endpoints so RouterOS bandwidth is dedicated to voucher creation.
-    // NOTE: ping must be allowed so waitForRouter can detect when the router recovers.
-    setApiRequestPause(true, {
-      allowPathPatterns: [
-        /^\/api\/vouchers\/generate(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/users(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/ping(?:$|\/|\?)/,
-      ],
-    });
-
-    setProgress({ done: 0, total });
-    setGenPaused(false);
-
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
     const profilePrice = selectedProfile?.price ?? "";
     const profileValidity = selectedProfile?.validity ?? "";
@@ -1103,7 +1083,7 @@ export default function GenerateVouchers() {
                 <Button
                   type="submit"
                   className="w-full gap-2"
-                  disabled={!selectedRouterId || !profile || !!progress || !Number.isFinite(parseInt(qty, 10)) || parseInt(qty, 10) < 1}
+                  disabled={!selectedRouterId || !profile || !!progress}
                 >
                   <Zap className="h-4 w-4" />
                   {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
