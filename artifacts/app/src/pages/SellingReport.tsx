@@ -204,13 +204,17 @@ export default function SellingReport() {
 
   const totalAmount = useMemo(() => orderedFiltered.reduce((s, e) => s + e.price, 0), [orderedFiltered]);
   const sourceCounts = useMemo(() => {
+    let scriptRows = 0;
+    let voucherRows = 0;
     let both = 0;
     let local = 0;
     for (const e of orderedFiltered) {
+      if (e.origin === "script") scriptRows++;
+      else if (e.origin === "voucher") voucherRows++;
       if (e.source === "mikrotik+local") both++;
       else local++;
     }
-    return { both, local };
+    return { scriptRows, voucherRows, both, local };
   }, [orderedFiltered]);
   const tableRows = useMemo(
     () => orderedFiltered.map((e, i) => (
