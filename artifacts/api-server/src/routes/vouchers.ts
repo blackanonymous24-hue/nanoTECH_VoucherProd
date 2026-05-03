@@ -92,7 +92,7 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
   const rid = parseInt(routerId, 10);
   if (Number.isNaN(rid)) { res.status(400).json({ error: "routerId invalide" }); return; }
 
-  if (scope.kind === "admin") {
+  if (scope.kind === "admin" || scope.kind === "super") {
     const [own] = await db
       .select({ owner: routersTable.ownerAdminId })
       .from(routersTable)
@@ -102,7 +102,7 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
       res.status(403).json({ error: "Accès refusé à ce routeur" });
       return;
     }
-  } else if (scope.kind !== "super") {
+  } else {
     if (!scope.routerIds.includes(rid)) {
       res.status(403).json({ error: "Accès refusé à ce routeur" });
       return;

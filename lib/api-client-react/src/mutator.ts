@@ -1,10 +1,18 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";
 
-const apiClient = axios.create({
-  baseURL: "/api",
-});
-
 const TOKEN_KEY = "vouchernet_admin_token";
+
+function rewriteApiUrl(url: string | undefined): string | undefined {
+  if (!url) return url;
+  if (url !== "/api" && !url.startsWith("/api/")) return url;
+  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  const prefix = base ? `${base}/api` : "/api";
+  return url.replace(/^\/api/, prefix);
+}
+
+const apiClient = axios.create({
+  baseURL: "",
+});
 
 /**
  * Inject the bearer token from localStorage/sessionStorage on every request
@@ -13,6 +21,9 @@ const TOKEN_KEY = "vouchernet_admin_token";
  * POST /routers after the multi-tenant hardening) would receive 401.
  */
 apiClient.interceptors.request.use((config) => {
+  if (typeof config.url === "string") {
+    config.url = rewriteApiUrl(config.url);
+  }
   if (typeof window === "undefined") return config;
   const token =
     window.localStorage.getItem(TOKEN_KEY) ??
