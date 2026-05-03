@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { eq, and, isNull, isNotNull, desc, sql, or, ilike, gte } from "drizzle-orm";
-import { db, routersTable, vouchersTable, vendorsTable } from "@workspace/db";
+import { db, routersTable, vouchersTable, vendorsTable, scriptSalesTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
-import { invalidateUserCache } from "./routers.js";
+import { invalidateUserCache, resolveCallerScope } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { withRouterLock } from "../lib/router-lock.js";
 
@@ -77,14 +77,46 @@ router.get("/vouchers", async (req, res): Promise<void> => {
 });
 
 /* ── Ticket lookup (sold + unsold, 90 days) ──────────────────────────────
- * Ne pas régresser vers l’ancien filtre « printedAt seul » : fenêtre vente = usedAt,
- * tickets non vendus restent trouvables ; recherche sur commentaire incluse. */
+ * Lecture **uniquement en base locale** : vouchers (stock / ventes app) +
+ * mikrotik_script_sales (même cache que GET …/sales-report, alimenté par la synchro
+ * planifiée / vendeurs). Aucun appel MikroTik ici — évite de bloquer le routeur et
+ * les autres écrans au rafraîchissement.
+ * Authentification + même périmètre routeur que le reste de l’API. */
 router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+
   const { routerId, q } = req.query as { routerId?: string; q?: string };
   if (!routerId) { res.status(400).json({ error: "routerId requis" }); return; }
 
   const rid = parseInt(routerId, 10);
+  if (Number.isNaN(rid)) { res.status(400).json({ error: "routerId invalide" }); return; }
+
+  if (scope.kind === "admin") {
+    const [own] = await db
+      .select({ owner: routersTable.ownerAdminId })
+      .from(routersTable)
+      .where(eq(routersTable.id, rid));
+    if (!own) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+    if (own.owner == null || own.owner !== scope.adminId) {
+      res.status(403).json({ error: "Accès refusé à ce routeur" });
+      return;
+    }
+  } else if (scope.kind !== "super") {
+    if (!scope.routerIds.includes(rid)) {
+      res.status(403).json({ error: "Accès refusé à ce routeur" });
+      return;
+    }
+  }
+
+  const [routerExists] = await db.select({ id: routersTable.id }).from(routersTable).where(eq(routersTable.id, rid));
+  if (!routerExists) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
   const term = (q ?? "").trim();
+  if (term.length < 1) {
+    res.status(400).json({ error: "Saisissez au moins un caractère de recherche (q)" });
+    return;
+  }
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 90);
@@ -92,46 +124,101 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
 
   const baseConditions = [
     eq(vouchersTable.routerId, rid),
-    // Sold window: strictly based on script-backed sale date (usedAt) on 90 days.
-    // Unsold fallback: still searchable when voucher exists in available stock.
     or(
       gte(vouchersTable.usedAt, cutoff),
       isNull(vouchersTable.usedAt),
     ),
   ];
 
-  const searchConditions = term.length >= 1
-    ? [or(
-        ilike(vouchersTable.username, `%${term}%`),
-        ilike(vouchersTable.macAddress, `%${term}%`),
-        ilike(vouchersTable.saleIp, `%${term}%`),
-        ilike(vouchersTable.comment, `%${term}%`),
-      )]
-    : [];
+  const searchConditions = [
+    or(
+      ilike(vouchersTable.username, `%${term}%`),
+      ilike(vouchersTable.macAddress, `%${term}%`),
+      ilike(vouchersTable.saleIp, `%${term}%`),
+      ilike(vouchersTable.comment, `%${term}%`),
+    ),
+  ];
 
-  const rows = await db
-    .select({
-      id:          vouchersTable.id,
-      username:    vouchersTable.username,
-      profileName: vouchersTable.profileName,
-      price:       vouchersTable.price,
-      salePrice:   vouchersTable.salePrice,
-      macAddress:  vouchersTable.macAddress,
-      saleIp:      vouchersTable.saleIp,
-      comment:     vouchersTable.comment,
-      printedAt:   vouchersTable.printedAt,
-      createdAt:   vouchersTable.createdAt,
-      usedAt:      vouchersTable.usedAt,
-      vendorId:    vouchersTable.vendorId,
-      vendorName:  vendorsTable.name,
-    })
-    .from(vouchersTable)
-    .leftJoin(vendorsTable, eq(vouchersTable.vendorId, vendorsTable.id))
-    .where(and(...baseConditions, ...searchConditions))
-    .orderBy(desc(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt}, ${vouchersTable.createdAt})`))
-    .limit(200);
+  const scriptWhere = and(
+    eq(scriptSalesTable.routerId, rid),
+    gte(scriptSalesTable.saleDate, cutoff),
+    or(
+      ilike(scriptSalesTable.username, `%${term}%`),
+      ilike(scriptSalesTable.mac, `%${term}%`),
+      ilike(scriptSalesTable.ip, `%${term}%`),
+      ilike(scriptSalesTable.batch, `%${term}%`),
+      ilike(scriptSalesTable.label, `%${term}%`),
+      ilike(scriptSalesTable.validity, `%${term}%`),
+      ilike(scriptSalesTable.rawName, `%${term}%`),
+    ),
+  );
 
-  res.json({ tickets: rows, total: rows.length });
+  const [voucherRows, scriptRows] = await Promise.all([
+    db
+      .select({
+        id:          vouchersTable.id,
+        username:    vouchersTable.username,
+        profileName: vouchersTable.profileName,
+        price:       vouchersTable.price,
+        salePrice:   vouchersTable.salePrice,
+        macAddress:  vouchersTable.macAddress,
+        saleIp:      vouchersTable.saleIp,
+        comment:     vouchersTable.comment,
+        printedAt:   vouchersTable.printedAt,
+        createdAt:   vouchersTable.createdAt,
+        usedAt:      vouchersTable.usedAt,
+        vendorId:    vouchersTable.vendorId,
+        vendorName:  vendorsTable.name,
+      })
+      .from(vouchersTable)
+      .leftJoin(vendorsTable, eq(vouchersTable.vendorId, vendorsTable.id))
+      .where(and(...baseConditions, ...searchConditions))
+      .orderBy(desc(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt}, ${vouchersTable.createdAt})`))
+      .limit(200),
+    db
+      .select({
+        id:       scriptSalesTable.id,
+        username: scriptSalesTable.username,
+        saleDate: scriptSalesTable.saleDate,
+        price:    scriptSalesTable.price,
+        ip:       scriptSalesTable.ip,
+        mac:      scriptSalesTable.mac,
+        validity: scriptSalesTable.validity,
+        label:    scriptSalesTable.label,
+        batch:    scriptSalesTable.batch,
+      })
+      .from(scriptSalesTable)
+      .where(scriptWhere)
+      .orderBy(desc(scriptSalesTable.saleDate))
+      .limit(200),
+  ]);
+
+  const fromScripts = scriptRows.map((s) => ({
+    id: -s.id,
+    username: s.username,
+    profileName: (s.label?.trim() || s.validity?.trim() || "—") as string,
+    comment: s.batch?.trim() || null,
+    price: s.price ?? "",
+    salePrice: s.price ?? null,
+    macAddress: s.mac?.trim() || null,
+    saleIp: s.ip?.trim() || null,
+    printedAt: null as string | null,
+    createdAt: s.saleDate.toISOString(),
+    usedAt: s.saleDate.toISOString(),
+    vendorId: null as number | null,
+    vendorName: "Script MikroTik" as string | null,
+  }));
+
+  type TicketRow = (typeof voucherRows)[number];
+  const merged: TicketRow[] = [...voucherRows, ...fromScripts] as TicketRow[];
+  merged.sort(
+    (a, b) =>
+      new Date(b.usedAt ?? b.printedAt ?? b.createdAt).getTime() -
+      new Date(a.usedAt ?? a.printedAt ?? a.createdAt).getTime(),
+  );
+  const tickets = merged.slice(0, 200);
+
+  res.json({ tickets, total: tickets.length });
 });
 
 router.post("/vouchers/generate", async (req, res): Promise<void> => {
@@ -232,7 +319,7 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     // Drop the cached MikroTik user list so any reconciliation read-back
     // (e.g. the client checking how many users actually exist for a lot
     // after a retry) sees the freshly-added users.
-    invalidateUserCache(routerId);
+    await invalidateUserCache(routerId);
 
     res.status(201).json(responseRows);
 
@@ -266,7 +353,7 @@ router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
         enable ?? false,
       ),
     );
-    invalidateUserCache(routerId);
+    await invalidateUserCache(routerId);
     res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -306,7 +393,7 @@ router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
         enable ?? false,
       ),
     );
-    invalidateUserCache(routerId);
+    await invalidateUserCache(routerId);
     res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

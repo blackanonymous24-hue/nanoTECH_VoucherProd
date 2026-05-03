@@ -416,6 +416,7 @@ export default function GenerateVouchers() {
   }, [selectedRouterId, lastLot, displayedProfiles, selectedRouter, autoLoadAttempted]);
 
   const selectedProfile = displayedProfiles.find((p) => p.name === profile);
+  const selectedProfileMonitorOk = selectedProfile?.schedulerMonitorActive === true;
 
   // If a profile was renamed in MikroTik, clear stale selected value.
   useEffect(() => {
@@ -754,12 +755,22 @@ export default function GenerateVouchers() {
                       disabled={!selectedRouterId || (profilesRefreshing && displayedProfiles.length === 0)}
                       className="w-full mt-1 justify-between font-normal"
                     >
-                      <span className="truncate">
-                        {(profilesRefreshing && displayedProfiles.length === 0)
-                          ? "Chargement…"
-                          : profile
-                            ? (displayedProfiles.find((p) => p.name === profile)?.name ?? profile)
-                            : "Sélectionner un profil"}
+                      <span className="truncate flex items-center gap-2">
+                        {(profilesRefreshing && displayedProfiles.length === 0) ? (
+                          "Chargement…"
+                        ) : profile ? (
+                          <>
+                            <span
+                              className={`h-2 w-2 rounded-full flex-shrink-0 ${
+                                selectedProfileMonitorOk ? "bg-emerald-500" : "bg-orange-400"
+                              }`}
+                              aria-hidden
+                            />
+                            <span className="truncate">{selectedProfile?.name ?? profile}</span>
+                          </>
+                        ) : (
+                          "Sélectionner un profil"
+                        )}
                       </span>
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
@@ -779,6 +790,12 @@ export default function GenerateVouchers() {
                               }}
                             >
                               <Check className={`mr-2 h-4 w-4 shrink-0 ${profile === p.name ? "opacity-100" : "opacity-0"}`} />
+                              <span
+                                className={`mr-1.5 h-2 w-2 rounded-full shrink-0 ${
+                                  p.schedulerMonitorActive === true ? "bg-emerald-500" : "bg-orange-400"
+                                }`}
+                                aria-hidden
+                              />
                               <span className="flex-1 truncate">{p.name}</span>
                               {(p.validity || p.price) && (
                                 <span className="text-xs text-muted-foreground ml-2 shrink-0 tabular-nums">

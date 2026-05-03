@@ -472,7 +472,7 @@ export default function Dashboard() {
     }
     const es = new EventSource(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority/stream`);
     es.onopen = () => setSseConnected(true);
-    es.onmessage = (ev) => {
+    const onPriority = (ev: MessageEvent) => {
       try {
         const payload = JSON.parse(ev.data) as PrioritySnapshot;
         setSsePriority(payload);
@@ -482,8 +482,10 @@ export default function Dashboard() {
         // fallback polling still active
       }
     };
+    es.addEventListener("priority", onPriority as EventListener);
     es.onerror = () => setSseConnected(false);
     return () => {
+      es.removeEventListener("priority", onPriority as EventListener);
       es.close();
       setSseConnected(false);
     };

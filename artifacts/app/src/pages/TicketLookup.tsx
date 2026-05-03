@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Search, Loader2, Ticket, User } from "lucide-react";
 
 /**
- * Recherche « Vérifier un ticket » (vendus via scripts + stock non vendu, 90 j).
- * Ne pas rétablir une logique « uniquement imprimés » ni retirer champs / filtres sans validation produit.
+ * Recherche « Vérifier un ticket » : base locale uniquement (bons + cache
+ * mikrotik_script_sales, même source que le rapport de ventes) + stock non vendu (90 j).
  */
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -81,7 +81,7 @@ export default function TicketLookup() {
             Vérifier un ticket
           </h1>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Vendu (scripts, 90 jours) + non vendu (stock disponible) · tous vendeurs confondus
+            Données locales (rapport de ventes + bons) · scripts 90 j · stock non vendu · sans appel routeur à la recherche
           </p>
         </div>
       </div>
