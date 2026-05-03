@@ -37,7 +37,6 @@ type RouterFormData = {
   address: string;
   username: string;
   password: string;
-  autoDeleteSalesScripts: boolean;
 };
 
 const emptyForm: RouterFormData = {
@@ -48,7 +47,6 @@ const emptyForm: RouterFormData = {
   address: "",
   username: "admin",
   password: "",
-  autoDeleteSalesScripts: false,
 };
 
 const MAX_CURRENCY_LEN = 24;
@@ -177,7 +175,7 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
 }
 
 export default function Routers() {
-  const { data: routers = [], isLoading, isError, error, refetch, isFetching } = useListRouters();
+  const { data: routers = [], isLoading } = useListRouters();
   const createMutation = useCreateRouter();
   const deleteMutation = useDeleteRouter();
   const updateMutation = useUpdateRouter();
@@ -234,7 +232,6 @@ export default function Routers() {
       address: `${r.host}:${r.port}`,
       username: r.username,
       password: "",
-      autoDeleteSalesScripts: (r as { autoDeleteSalesScripts?: boolean }).autoDeleteSalesScripts ?? false,
     });
     setEditRouter(r);
     setShowForm(true);
@@ -256,7 +253,6 @@ export default function Routers() {
       port,
       username: form.username,
       password: form.password,
-      autoDeleteSalesScripts: form.autoDeleteSalesScripts,
     };
     if (editRouter) {
       await updateMutation.mutateAsync({ id: editRouter.id, data: payload });
@@ -385,23 +381,6 @@ export default function Routers() {
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
         </div>
-      ) : isError ? (
-        <Card className="border-red-200 bg-red-50/80">
-          <CardContent className="py-10 text-center space-y-3">
-            <AlertTriangle className="h-10 w-10 text-red-500 mx-auto" />
-            <p className="text-red-900 font-medium">Impossible de charger la liste des routeurs</p>
-            <p className="text-sm text-red-800/90 max-w-md mx-auto">
-              Vos routeurs sont toujours en base ; le serveur a peut‑être besoin d&apos;un redémarrage après mise à jour (schéma PostgreSQL). Réessayez ou contactez l&apos;administrateur si le problème continue.
-            </p>
-            {error instanceof Error && error.message && (
-              <p className="text-xs text-red-700 font-mono break-all px-2">{error.message}</p>
-            )}
-            <Button variant="outline" onClick={() => void refetch()} disabled={isFetching} className="gap-2">
-              {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Réessayer
-            </Button>
-          </CardContent>
-        </Card>
       ) : routers.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
@@ -589,20 +568,6 @@ export default function Routers() {
                   />
                 </div>
               </div>
-              <label className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4"
-                  checked={form.autoDeleteSalesScripts}
-                  onChange={(e) => setForm({ ...form, autoDeleteSalesScripts: e.target.checked })}
-                />
-                <span className="text-sm text-gray-700">
-                  Suppression auto des scripts de ventes MikroTik apres sauvegarde locale
-                  <span className="block text-xs text-gray-500 mt-0.5">
-                    Option facultative. Si desactivee, le fonctionnement reste inchangé.
-                  </span>
-                </span>
-              </label>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-4 mt-2 border-t">
