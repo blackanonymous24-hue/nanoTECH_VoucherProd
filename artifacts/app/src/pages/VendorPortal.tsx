@@ -66,6 +66,7 @@ type Voucher = {
   createdAt: string;
 };
 type PortalData = {
+  lastFreshAt?: string;
   vendor: VendorInfo;
   hotspotName: string | null;
   totalVouchers: number;
@@ -937,6 +938,7 @@ function Dashboard({ token, vendor, onLogout }: {
   const [reportYear,  setReportYear]  = useState(String(now.getFullYear()));
   const [reportView,  setReportView]  = useState<{ day: string; month: string; year: string } | null>(null);
   const [periodView,  setPeriodView]  = useState<"today" | "yesterday" | "week" | "month" | null>(null);
+  const [clockTick, setClockTick] = useState(Date.now());
 
   const notifiedProfilesRef = useRef<Set<string>>(new Set());
   const periodCacheRef = useRef<Map<string, PeriodSalesData>>(new Map());
@@ -1019,6 +1021,12 @@ function Dashboard({ token, vendor, onLogout }: {
     return () => { clearInterval(id); clearInterval(idPeriod); };
   }, [fetchData, prefetchPeriods]);
 
+  useEffect(() => {
+    if (!data?.lastFreshAt) return;
+    const id = setInterval(() => setClockTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [data?.lastFreshAt]);
+
   // Demander la permission de notification au montage
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {
@@ -1071,6 +1079,8 @@ function Dashboard({ token, vendor, onLogout }: {
 
   const years = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
   const days  = Array.from({ length: 31 }, (_, i) => i + 1);
+  const freshAt = data?.lastFreshAt ? new Date(data.lastFreshAt) : null;
+  const freshAgeSeconds = freshAt ? Math.max(0, Math.floor((clockTick - freshAt.getTime()) / 1000)) : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1119,6 +1129,11 @@ function Dashboard({ token, vendor, onLogout }: {
         <div>
           <h2 className="text-xl font-bold text-gray-900">Mes performances</h2>
           <p className="text-sm text-gray-500">Bienvenue, {vendor.name}</p>
+          {freshAt && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              Donnees a jour a {freshAt.toLocaleTimeString("fr-FR")} ({freshAgeSeconds}s)
+            </p>
+          )}
         </div>
 
         {loading && !data && (
@@ -1544,8 +1559,9 @@ function Dashboard({ token, vendor, onLogout }: {
                       <tbody>
                         {filtered.map((v, i) => {
                           const displayPrice = v.salePrice || v.price || "";
-                          const dateStr = v.printedAt ? (() => {
-                            const d = new Date(v.printedAt);
+                          const soldAt = v.usedAt || v.printedAt;
+                          const dateStr = soldAt ? (() => {
+                            const d = new Date(soldAt);
                             const day = String(d.getDate()).padStart(2, "0");
                             const month = MONTHS[d.getMonth()];
                             const hh = String(d.getHours()).padStart(2, "0");
