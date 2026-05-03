@@ -441,16 +441,21 @@ export default function GenerateVouchers() {
     // During generation, pause unrelated API traffic and keep only generation-critical
     // endpoints so RouterOS bandwidth is dedicated to voucher creation.
     setApiRequestPause(true, {
+      // Sous-chemin Vite (BASE_URL) : le pathname peut être `/app/api/...` — pas seulement `/api/...`.
       allowPathPatterns: [
-        /^\/api\/vouchers\/generate(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/generation-lock(?:$|\/|\?)/,
-        /^\/api\/routers\/\d+\/users(?:$|\/|\?)/,
+        /\/api\/vouchers\/generate(?:$|[/?#])/,
+        /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
+        /\/api\/routers\/\d+\/users(?:$|[/?#])/,
+        // Sinon waitForRouter() est bloqué par installAuthFetch et la reprise
+        // automatique ne peut jamais détecter que le routeur est de nouveau en ligne.
+        /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
       ],
     });
 
     const total = parseInt(qty, 10);
     setProgress({ done: 0, total });
     setGenPaused(false);
+    generateMutation.reset();
 
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
     const profilePrice = selectedProfile?.price ?? "";
@@ -498,6 +503,7 @@ export default function GenerateVouchers() {
           } catch (err) {
             if (isRouterUnreachable(err)) {
               setGenPaused(true);
+              generateMutation.reset();
               await waitForRouter(selectedRouterId, BASE);
               try {
                 if (effectiveComment) {
@@ -1058,7 +1064,7 @@ export default function GenerateVouchers() {
                 )}
               </div>
 
-              {generateMutation.isError && (
+              {generateMutation.isError && !genPaused && (
                 <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded p-2">
                   Erreur : Impossible de contacter le routeur. Vérifiez les paramètres de connexion.
                 </div>
