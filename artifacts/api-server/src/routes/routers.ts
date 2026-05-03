@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists, SQL } from "drizzle-orm";
+import { eq, and, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
@@ -2555,15 +2555,15 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   const withPresence = String(req.query.presence ?? "") === "1" || String(req.query.presence ?? "") === "true";
 
   try {
-    const conditions: SQL<unknown>[] = [eq(scriptSalesTable.routerId, id)];
+    const conditions: ReturnType<typeof eq>[] = [eq(scriptSalesTable.routerId, id) as any];
     if (yearRaw !== null && !Number.isNaN(yearRaw)) {
-      conditions.push(sql`EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yearRaw}`);
+      conditions.push(sql`EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yearRaw}` as any);
     }
     if (monthRaw !== null && !Number.isNaN(monthRaw)) {
-      conditions.push(sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${monthRaw}`);
+      conditions.push(sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${monthRaw}` as any);
     }
     if (dayRaw !== null && !Number.isNaN(dayRaw)) {
-      conditions.push(sql`EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dayRaw}`);
+      conditions.push(sql`EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dayRaw}` as any);
     }
 
     const rows = await db
