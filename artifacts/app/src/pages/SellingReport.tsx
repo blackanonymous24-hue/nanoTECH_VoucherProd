@@ -24,7 +24,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { foldText } from "@/lib/text";
-import { LIVE_SALES_POLL_MS } from "@/lib/live-sales-poll";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const ALL = "_all"; // sentinel for "no filter" in Select (empty string not allowed)
@@ -120,9 +119,7 @@ export default function SellingReport() {
       return res.json();
     },
     enabled: !!selectedRouterId,
-    staleTime: 8_000,
-    refetchInterval: LIVE_SALES_POLL_MS,
-    refetchIntervalInBackground: false,
+    staleTime: 30_000,
   });
 
   const entries = data ?? [];

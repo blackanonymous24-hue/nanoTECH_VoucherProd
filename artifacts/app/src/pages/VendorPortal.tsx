@@ -29,7 +29,6 @@ import {
   PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
 import { foldText } from "@/lib/text";
-import { LIVE_SALES_POLL_MS } from "@/lib/live-sales-poll";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
 
@@ -67,7 +66,6 @@ type Voucher = {
   createdAt: string;
 };
 type PortalData = {
-  lastFreshAt?: string;
   vendor: VendorInfo;
   hotspotName: string | null;
   totalVouchers: number;
@@ -330,30 +328,19 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
   const [vSearch, setVSearch] = useState("");
 
   useEffect(() => {
+    setLoading(true);
+    setError("");
     setVSearch("");
-  }, [day, month, year]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = (quiet: boolean) => {
-      if (!quiet) {
-        setError("");
-        setLoading(true);
-      }
-      api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
-        headers: { Authorization: `Bearer ${token}` },
+    api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+        return res.json();
       })
-        .then(async (res) => {
-          if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
-          return res.json();
-        })
-        .then((d) => { if (!cancelled) setData(d); })
-        .catch((e) => { if (!cancelled && !quiet) setError(e.message); })
-        .finally(() => { if (!cancelled && !quiet) setLoading(false); });
-    };
-    load(false);
-    const id = setInterval(() => load(true), LIVE_SALES_POLL_MS);
-    return () => { cancelled = true; clearInterval(id); };
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   }, [token, day, month, year]);
 
   const dateLabel = data
@@ -621,28 +608,23 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
   }, [period]);
 
   useEffect(() => {
+    // If we already have data from the prefetch cache, show it instantly.
+    // A background refresh will happen on the next prefetch cycle (every 15 s).
+    if (initialData) return;
     let cancelled = false;
-    setData(initialData ?? null);
+    setLoading(true);
     setError("");
-    setLoading(!initialData);
-
-    const load = (quiet: boolean) => {
-      if (!quiet) setError("");
-      api(`/vendor-portal/me/period-sales?period=${period}`, {
-        headers: { Authorization: `Bearer ${token}` },
+    api(`/vendor-portal/me/period-sales?period=${period}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+        return res.json();
       })
-        .then(async (res) => {
-          if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
-          return res.json() as PeriodSalesData;
-        })
-        .then((d) => { if (!cancelled) setData(d); })
-        .catch((e) => { if (!cancelled && !quiet) setError(e.message); })
-        .finally(() => { if (!cancelled && !quiet) setLoading(false); });
-    };
-
-    load(false);
-    const id = setInterval(() => load(true), LIVE_SALES_POLL_MS);
-    return () => { cancelled = true; clearInterval(id); };
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [token, period, initialData]);
 
   return (
@@ -955,7 +937,6 @@ function Dashboard({ token, vendor, onLogout }: {
   const [reportYear,  setReportYear]  = useState(String(now.getFullYear()));
   const [reportView,  setReportView]  = useState<{ day: string; month: string; year: string } | null>(null);
   const [periodView,  setPeriodView]  = useState<"today" | "yesterday" | "week" | "month" | null>(null);
-  const [clockTick, setClockTick] = useState(Date.now());
 
   const notifiedProfilesRef = useRef<Set<string>>(new Set());
   const periodCacheRef = useRef<Map<string, PeriodSalesData>>(new Map());
@@ -1029,18 +1010,14 @@ function Dashboard({ token, vendor, onLogout }: {
 
   useEffect(() => {
     fetchData(true).then(() => { prefetchPeriods(); });
-    // Refresh discret (stats, ventes récentes, versements, arriérés) — même rythme que les rapports détail.
-    // Côté serveur, le cache TTL=20 s + stale-while-revalidate limitent la charge.
-    const id = setInterval(() => { fetchData(false); }, LIVE_SALES_POLL_MS);
-    const idPeriod = setInterval(() => { prefetchPeriods(); }, LIVE_SALES_POLL_MS);
+    // Refresh discret toutes les 8 s pour un ressenti temps réel.
+    // Côté serveur, le cache TTL=20 s + stale-while-revalidate font que la
+    // plupart des requêtes sont servies instantanément (pure mémoire).
+    const id = setInterval(() => { fetchData(false); }, 8_000);
+    // Le prefetch des rapports périodes reste à 30 s (plus lourd, change peu).
+    const idPeriod = setInterval(() => { prefetchPeriods(); }, 30_000);
     return () => { clearInterval(id); clearInterval(idPeriod); };
   }, [fetchData, prefetchPeriods]);
-
-  useEffect(() => {
-    if (!data?.lastFreshAt) return;
-    const id = setInterval(() => setClockTick(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [data?.lastFreshAt]);
 
   // Demander la permission de notification au montage
   useEffect(() => {
@@ -1094,8 +1071,6 @@ function Dashboard({ token, vendor, onLogout }: {
 
   const years = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
   const days  = Array.from({ length: 31 }, (_, i) => i + 1);
-  const freshAt = data?.lastFreshAt ? new Date(data.lastFreshAt) : null;
-  const freshAgeSeconds = freshAt ? Math.max(0, Math.floor((clockTick - freshAt.getTime()) / 1000)) : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1144,11 +1119,6 @@ function Dashboard({ token, vendor, onLogout }: {
         <div>
           <h2 className="text-xl font-bold text-gray-900">Mes performances</h2>
           <p className="text-sm text-gray-500">Bienvenue, {vendor.name}</p>
-          {freshAt && (
-            <p className="text-xs text-gray-400 mt-0.5">
-              Donnees a jour a {freshAt.toLocaleTimeString("fr-FR")} ({freshAgeSeconds}s)
-            </p>
-          )}
         </div>
 
         {loading && !data && (
@@ -1574,9 +1544,8 @@ function Dashboard({ token, vendor, onLogout }: {
                       <tbody>
                         {filtered.map((v, i) => {
                           const displayPrice = v.salePrice || v.price || "";
-                          const soldAt = v.usedAt || v.printedAt;
-                          const dateStr = soldAt ? (() => {
-                            const d = new Date(soldAt);
+                          const dateStr = v.printedAt ? (() => {
+                            const d = new Date(v.printedAt);
                             const day = String(d.getDate()).padStart(2, "0");
                             const month = MONTHS[d.getMonth()];
                             const hh = String(d.getHours()).padStart(2, "0");

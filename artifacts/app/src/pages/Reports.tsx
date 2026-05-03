@@ -17,7 +17,6 @@ import {
   ArrowLeft, CalendarDays, CalendarClock, TrendingUp,
   RefreshCw, CheckCircle2, ArrowDownUp, XCircle, Printer,
 } from "lucide-react";
-import { LIVE_SALES_POLL_MS } from "@/lib/live-sales-poll";
 
 /* ─── 2-segment bar: vendu (green) | non vendu (gray) ─────────── */
 function SaleBar({ used, total }: { used: number; total: number }) {
@@ -109,7 +108,7 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
-  const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: LIVE_SALES_POLL_MS } });
+  const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: 15_000 } });
 
   if (isLoading || !data) {
     return (
@@ -432,7 +431,7 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 
 /* ─── main page ───────────────────────────────────────────────── */
 export default function Reports() {
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: LIVE_SALES_POLL_MS } });
+  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 15_000 } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
 

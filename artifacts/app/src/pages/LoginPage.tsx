@@ -1,63 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Wifi, LogIn, ShieldCheck, Store, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
-import { clearApiRequestPause, fetchWithoutInterceptors } from "@/lib/installAuthFetch";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-const LOGIN_RETRIES = 3;
-const LOGIN_RETRY_MS = [0, 350, 800];
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-async function fetchLogin(body: { login: string; password: string }): Promise<Response> {
-  const url = `${BASE}/api/login`;
-  let lastErr: unknown;
-  for (let i = 0; i < LOGIN_RETRIES; i++) {
-    if (LOGIN_RETRY_MS[i] > 0) await sleep(LOGIN_RETRY_MS[i]);
-    try {
-      // Ne pas utiliser window.fetch patché : pause « génération », Authorization ou abort global
-      // peuvent faire échouer la connexion alors que le serveur répond.
-      return await fetchWithoutInterceptors(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr;
-}
-
-function parseLoginResponse(
-  text: string,
-  res: Response,
-): { data: Record<string, unknown>; bodyOk: boolean } {
-  if (!text.trim()) {
-    if (!res.ok) {
-      return {
-        bodyOk: true,
-        data: { error: res.status >= 500 ? `Serveur indisponible (${res.status})` : `Erreur ${res.status}` },
-      };
-    }
-    return { bodyOk: true, data: {} };
-  }
-  try {
-    return { bodyOk: true, data: JSON.parse(text) as Record<string, unknown> };
-  } catch {
-    const hint = res.status >= 500
-      ? `Le serveur ne répond pas correctement (${res.status}). Réessayez dans un instant.`
-      : "Réponse du serveur illisible. Vérifiez la connexion ou contactez l’administrateur.";
-    return { bodyOk: false, data: { error: hint } };
-  }
-}
 
 interface LoginPageProps {
   mode: "admin" | "vendor" | "choose";
@@ -72,10 +21,6 @@ export default function LoginPage({ mode }: LoginPageProps) {
   const [loading, setLoading] = useState(false);
 
   const isAdmin = mode === "admin";
-
-  useEffect(() => {
-    if (mode !== "choose") clearApiRequestPause();
-  }, [mode]);
 
   /* ── Écran de choix du rôle ───────────────────────────────── */
   if (mode === "choose") {
@@ -134,63 +79,44 @@ export default function LoginPage({ mode }: LoginPageProps) {
     setError("");
     setLoading(true);
     try {
-      const res = await fetchLogin({ login: form.login.trim(), password: form.password });
-      const text = await res.text();
-      const { data, bodyOk } = parseLoginResponse(text, res);
-      if (!bodyOk) {
-        setError(String(data.error ?? "Réponse invalide"));
-        return;
-      }
+      const res = await fetch(`${BASE}/api/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login: form.login.trim(), password: form.password }),
+      });
+      const data = await res.json();
       if (!res.ok) {
-        setError(String(data.error ?? "Identifiants incorrects"));
+        setError(data.error ?? "Identifiants incorrects");
         return;
       }
 
-      const role = data.role as string | undefined;
-      const token = data.token as string | undefined;
-      if (!token || !role) {
-        setError("Réponse de connexion incomplète. Réessayez.");
-        return;
-      }
-
-      if (isAdmin && role === "vendor") {
+      if (isAdmin && data.role === "vendor") {
         setError("Ce compte est un compte vendeur. Veuillez utiliser l'espace Vendeurs/Revendeurs.");
         return;
       }
-      if (!isAdmin && (role === "admin" || role === "manager" || role === "collaborateur")) {
+      if (!isAdmin && (data.role === "admin" || data.role === "manager" || data.role === "collaborateur")) {
         setError("Ce compte est un compte administrateur. Veuillez utiliser l'espace Administrateurs/Gérant de zone.");
         return;
       }
 
-      const vendor = data.vendor as Parameters<typeof login>[2] | undefined;
-      const manager = data.manager as { routerId?: number | null } | undefined;
-      const collaborateur = data.collaborateur as { routerIds?: number[] } | undefined;
-
       login(
-        token,
-        role as "admin" | "manager" | "vendor" | "collaborateur",
-        vendor,
-        manager?.routerId ?? null,
-        collaborateur?.routerIds,
+        data.token,
+        data.role,
+        data.vendor ?? undefined,
+        data.manager?.routerId ?? null,
+        data.collaborateur?.routerIds ?? undefined,
         remember,
         data.isSuperAdmin === true,
       );
-      if (role === "vendor") {
+      if (data.role === "vendor") {
         navigate("/vendor-portal");
-      } else if (role === "manager" || role === "collaborateur") {
+      } else if (data.role === "manager" || data.role === "collaborateur") {
         navigate("/");
       } else {
         navigate("/routers");
       }
-    } catch (err) {
-      const msg = err && typeof err === "object" && "message" in err
-        ? String((err as { message: unknown }).message)
-        : "";
-      if (msg === "api-paused") {
-        setError("Connexion temporairement bloquée. Rechargez la page puis réessayez.");
-        return;
-      }
-      setError("Impossible de contacter le serveur. Vérifiez le réseau et que l’API tourne, puis réessayez.");
+    } catch {
+      setError("Impossible de contacter le serveur");
     } finally {
       setLoading(false);
     }

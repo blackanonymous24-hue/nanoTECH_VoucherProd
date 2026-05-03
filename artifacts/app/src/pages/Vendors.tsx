@@ -10,7 +10,6 @@ import {
 import type { Vendor, VendorSummary } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
-import { LIVE_SALES_POLL_MS } from "@/lib/live-sales-poll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -344,13 +343,7 @@ export default function Vendors() {
     staleTime: 30_000,
   });
 
-  const { data: summaries = [] } = useGetVendorReportsSummary({
-    query: {
-      staleTime: 8_000,
-      refetchInterval: LIVE_SALES_POLL_MS,
-      refetchIntervalInBackground: false,
-    },
-  });
+  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { staleTime: 60_000 } });
   const summaryMap = useMemo(
     () => new Map<number, VendorSummary>(summaries.map((s) => [s.vendor.id, s])),
     [summaries],

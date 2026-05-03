@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { getListRouterLogsQueryKey, listRouterLogs } from "@workspace/api-client-react";
@@ -81,6 +81,7 @@ function AppRoutes() {
   const { isAuthenticated, role, isSuperAdmin } = useAuth();
   const [routeReloadToken, setRouteReloadToken] = useState(0);
   const qc = useQueryClient();
+  const prevLocationRef = useRef(location);
   useEffect(() => {
     const onForceRemount = (event: Event) => {
       const customEvent = event as CustomEvent<{ path?: string }>;
@@ -94,6 +95,13 @@ function AppRoutes() {
       window.removeEventListener("app:route-remount", onForceRemount as EventListener);
     };
   }, [location]);
+
+  useEffect(() => {
+    if (prevLocationRef.current !== location) {
+      void qc.cancelQueries();
+      prevLocationRef.current = location;
+    }
+  }, [location, qc]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
