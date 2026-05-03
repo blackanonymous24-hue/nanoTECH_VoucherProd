@@ -97,7 +97,7 @@ type DailyArrearsDay = { date: string; count: number; amount: number; paid: numb
 type DailyArrearsData = { days: DailyArrearsDay[] };
 
 /** Consolidated arrears: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
-type ConsolidatableDailyArrearsDay = DailyArrearsDay & { __underlyingCount?: number };
+type ConsolidatableDailyArrearsDay = DailyArrearsDay & { __underlyingCount?: number; __firstDate?: string };
 function consolidateDailyArrears(days: DailyArrearsDay[]): ConsolidatableDailyArrearsDay[] {
   // Always return ascending (oldest first, most recent last)
   const asc = [...days].sort((a, b) => a.date.localeCompare(b.date));
@@ -111,6 +111,7 @@ function consolidateDailyArrears(days: DailyArrearsDay[]): ConsolidatableDailyAr
     paid:      older.reduce((s, d) => s + d.paid, 0),
     remaining: older.reduce((s, d) => s + d.remaining, 0),
     __underlyingCount: older.length,
+    __firstDate: older[0].date,
   };
   return [merged, ...recent];
 }
@@ -1210,8 +1211,16 @@ function Dashboard({ token, vendor, onLogout }: {
                         const monthNum = String(dateObj.getUTCMonth() + 1);
                         const yearNum  = String(dateObj.getUTCFullYear());
                         const monthLabel = cap(dateObj.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
+                        const firstDateFmt = (() => {
+                          if (!d.__firstDate) return "";
+                          const fd = new Date(d.__firstDate + "T00:00:00Z");
+                          const fDay   = String(fd.getUTCDate()).padStart(2, "0");
+                          const fMonth = cap(fd.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
+                          const fYear  = String(fd.getUTCFullYear());
+                          return `${fDay} ${fMonth} ${fYear}`;
+                        })();
                         const label    = d.__underlyingCount
-                          ? `Arriérés cumulés (${d.__underlyingCount} jours, dernier : ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum})`
+                          ? `Arriérés cumulés (${d.__underlyingCount} jours, du ${firstDateFmt} au ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum})`
                           : `Arriéré du ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum}`;
                         return (
                           <button
