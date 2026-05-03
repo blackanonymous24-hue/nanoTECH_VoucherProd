@@ -29,6 +29,7 @@ import {
   PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
 import { foldText } from "@/lib/text";
+import { LIVE_SALES_POLL_MS } from "@/lib/live-sales-poll";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
 
@@ -328,19 +329,30 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
   const [vSearch, setVSearch] = useState("");
 
   useEffect(() => {
-    setLoading(true);
-    setError("");
     setVSearch("");
-    api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
-        return res.json();
+  }, [day, month, year]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = (quiet: boolean) => {
+      if (!quiet) {
+        setError("");
+        setLoading(true);
+      }
+      api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+        .then(async (res) => {
+          if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+          return res.json();
+        })
+        .then((d) => { if (!cancelled) setData(d); })
+        .catch((e) => { if (!cancelled && !quiet) setError(e.message); })
+        .finally(() => { if (!cancelled && !quiet) setLoading(false); });
+    };
+    load(false);
+    const id = setInterval(() => load(true), LIVE_SALES_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
   }, [token, day, month, year]);
 
   const dateLabel = data
@@ -608,23 +620,28 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
   }, [period]);
 
   useEffect(() => {
-    // If we already have data from the prefetch cache, show it instantly.
-    // A background refresh will happen on the next prefetch cycle (every 15 s).
-    if (initialData) return;
     let cancelled = false;
-    setLoading(true);
+    setData(initialData ?? null);
     setError("");
-    api(`/vendor-portal/me/period-sales?period=${period}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
-        return res.json();
+    setLoading(!initialData);
+
+    const load = (quiet: boolean) => {
+      if (!quiet) setError("");
+      api(`/vendor-portal/me/period-sales?period=${period}`, {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setError(e.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+        .then(async (res) => {
+          if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
+          return res.json() as PeriodSalesData;
+        })
+        .then((d) => { if (!cancelled) setData(d); })
+        .catch((e) => { if (!cancelled && !quiet) setError(e.message); })
+        .finally(() => { if (!cancelled && !quiet) setLoading(false); });
+    };
+
+    load(false);
+    const id = setInterval(() => load(true), LIVE_SALES_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
   }, [token, period, initialData]);
 
   return (
@@ -1010,12 +1027,10 @@ function Dashboard({ token, vendor, onLogout }: {
 
   useEffect(() => {
     fetchData(true).then(() => { prefetchPeriods(); });
-    // Refresh discret toutes les 8 s pour un ressenti temps réel.
-    // Côté serveur, le cache TTL=20 s + stale-while-revalidate font que la
-    // plupart des requêtes sont servies instantanément (pure mémoire).
-    const id = setInterval(() => { fetchData(false); }, 8_000);
-    // Le prefetch des rapports périodes reste à 30 s (plus lourd, change peu).
-    const idPeriod = setInterval(() => { prefetchPeriods(); }, 30_000);
+    // Refresh discret (stats, ventes récentes, versements, arriérés) — même rythme que les rapports détail.
+    // Côté serveur, le cache TTL=20 s + stale-while-revalidate limitent la charge.
+    const id = setInterval(() => { fetchData(false); }, LIVE_SALES_POLL_MS);
+    const idPeriod = setInterval(() => { prefetchPeriods(); }, LIVE_SALES_POLL_MS);
     return () => { clearInterval(id); clearInterval(idPeriod); };
   }, [fetchData, prefetchPeriods]);
 

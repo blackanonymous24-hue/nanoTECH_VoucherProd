@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { LIVE_SALES_POLL_MS } from "@/lib/live-sales-poll";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -66,7 +67,10 @@ function VendorTodayReport({ vendorId, vendorName, onBack }: { vendorId: number;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     },
-    staleTime: 30_000,
+    staleTime: 8_000,
+    refetchInterval: LIVE_SALES_POLL_MS,
+    refetchIntervalInBackground: false,
+    placeholderData: (previousData) => previousData,
   });
 
   const today = new Date().toLocaleDateString("fr-FR", {
@@ -324,9 +328,9 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<VendorSummary[]>;
     },
-    refetchInterval: 30_000,
+    refetchInterval: LIVE_SALES_POLL_MS,
     refetchIntervalInBackground: false,
-    staleTime: 25_000,
+    staleTime: 8_000,
   });
 
   /* Pre-fetch each vendor's today report as soon as the list is loaded,
@@ -342,7 +346,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json() as Promise<PeriodSalesData>;
         },
-        staleTime: 30_000,
+        staleTime: 8_000,
       });
     }
   }, [data, isDaily, queryClient]);
