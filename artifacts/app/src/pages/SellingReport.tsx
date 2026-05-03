@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useDeferredValue, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -231,7 +231,7 @@ export default function SellingReport() {
             </Badge>
           ) : (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-amber-700 border-amber-300 bg-amber-50">
-              Local (DB)
+              Script base seule
             </Badge>
           )}
         </td>
@@ -367,7 +367,7 @@ export default function SellingReport() {
             <div className="flex items-center gap-2">
               {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
               {!isLoading && presenceRefreshing && (
-                <span className="text-[11px] text-gray-400">MAJ MikroTik...</span>
+                <span className="text-[11px] text-gray-400">Vérif. présence routeur…</span>
               )}
               {!isLoading && (
                 <>
@@ -384,12 +384,16 @@ export default function SellingReport() {
                     {sourceCounts.both} MikroTik + Local
                   </Badge>
                   <Badge variant="outline" className="text-[10px] font-normal text-amber-700 border-amber-300 bg-amber-50">
-                    {sourceCounts.local} Local (DB)
+                    {sourceCounts.local} script base seule
                   </Badge>
                 </>
               )}
             </div>
           </div>
+          <CardDescription className="text-[11px] text-gray-600 leading-snug pt-1 max-w-3xl">
+            Données actualisées depuis la <strong className="font-medium text-gray-800">base locale</strong>
+            {" "}(cache des ventes scripts synchronisé + bons utilisés). Le tableau ne dépend pas d’un appel MikroTik pour se remplir ; la colonne « Sync routeur » indique seulement si une ligne script du cache est encore retrouvée sur le routeur (contrôle optionnel en arrière-plan).
+          </CardDescription>
         </CardHeader>
 
         <CardContent className="pt-4 space-y-3">
@@ -477,7 +481,7 @@ export default function SellingReport() {
           {/* ── Search ─────────────────────────────────────────── */}
           {isAll && (
             <p className="text-[11px] text-gray-500">
-              Sans année sélectionnée, seul le cache scripts est chargé. Pour inclure les ventes « bon seul » (sans ligne script), choisissez une année puis filtrez.
+              Sans année, la base locale ne renvoie que le cache scripts. Pour afficher aussi les « bons seuls » (sans ligne script le même jour), choisissez une année puis filtrez.
             </p>
           )}
 
@@ -492,7 +496,7 @@ export default function SellingReport() {
           {isError && (
             <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              {(error as Error)?.message ?? "Erreur de connexion MikroTik"}
+              {(error as Error)?.message ?? "Erreur lors du chargement du rapport (API / base locale)."}
             </div>
           )}
 
