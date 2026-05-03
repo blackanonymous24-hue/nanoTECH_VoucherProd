@@ -177,7 +177,7 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
 }
 
 export default function Routers() {
-  const { data: routers = [], isLoading } = useListRouters();
+  const { data: routers = [], isLoading, isError, error, refetch, isFetching } = useListRouters();
   const createMutation = useCreateRouter();
   const deleteMutation = useDeleteRouter();
   const updateMutation = useUpdateRouter();
@@ -385,6 +385,23 @@ export default function Routers() {
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
         </div>
+      ) : isError ? (
+        <Card className="border-red-200 bg-red-50/80">
+          <CardContent className="py-10 text-center space-y-3">
+            <AlertTriangle className="h-10 w-10 text-red-500 mx-auto" />
+            <p className="text-red-900 font-medium">Impossible de charger la liste des routeurs</p>
+            <p className="text-sm text-red-800/90 max-w-md mx-auto">
+              Vos routeurs sont toujours en base ; le serveur a peut‑être besoin d&apos;un redémarrage après mise à jour (schéma PostgreSQL). Réessayez ou contactez l&apos;administrateur si le problème continue.
+            </p>
+            {error instanceof Error && error.message && (
+              <p className="text-xs text-red-700 font-mono break-all px-2">{error.message}</p>
+            )}
+            <Button variant="outline" onClick={() => void refetch()} disabled={isFetching} className="gap-2">
+              {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Réessayer
+            </Button>
+          </CardContent>
+        </Card>
       ) : routers.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
