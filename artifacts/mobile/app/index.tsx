@@ -14,6 +14,7 @@ import { WebView, WebViewNavigation, WebViewMessageEvent } from "react-native-we
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 
 const PROD_URL = "https://nanotech-voucher.replit.app";
 const RELOAD_SPINNER_TIMEOUT = 8000;
@@ -97,8 +98,34 @@ export default function AppScreen() {
   const handleMessage = useCallback(async (event: WebViewMessageEvent) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === "print" && typeof data.html === "string") {
-        await Print.printAsync({ html: data.html });
+      if (data.type !== "print" || typeof data.html !== "string") return;
+
+      const html: string = data.html;
+
+      if (Platform.OS === "ios") {
+        // iOS : AirPrint natif — fonctionne toujours
+        await Print.printAsync({ html });
+      } else {
+        // Android : essaie d'abord le dialogue d'impression natif
+        try {
+          await Print.printAsync({ html });
+        } catch {
+          // Fallback : génère un PDF et propose le partage (téléchargement / impression via app PDF)
+          const canShare = await Sharing.isAvailableAsync();
+          if (!canShare) {
+            Alert.alert(
+              "Impression",
+              "Aucun service d'impression disponible sur cet appareil. Installez un service d'impression Android ou activez-en un dans les paramètres.",
+            );
+            return;
+          }
+          const { uri } = await Print.printToFileAsync({ html });
+          await Sharing.shareAsync(uri, {
+            mimeType: "application/pdf",
+            dialogTitle: "Imprimer ou enregistrer",
+            UTI: "com.adobe.pdf",
+          });
+        }
       }
     } catch {
       Alert.alert("Impression", "Impossible de lancer l'impression.");
