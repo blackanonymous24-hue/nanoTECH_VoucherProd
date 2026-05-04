@@ -1377,112 +1377,119 @@ export default function Vouchers() {
 
               {/* Selection banner — shown when at least one user is ticked */}
               {(filterProfile !== "all" || selectedUsernames.size > 0) && (
-                <div className="flex items-center gap-3 mb-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 flex-wrap">
-                  {/* "Select all of profile" shortcut — fetches ALL, not just loaded page */}
-                  {filterProfile !== "all" && filteredTotal > 0 && (
-                    selectedUsernames.size > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedUsernames(new Set())}
-                        className="text-xs text-blue-500 hover:text-blue-700 underline underline-offset-2 transition-colors"
-                      >
-                        Désélectionner tout
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleSelectAllProfile}
-                        disabled={isSelectingAll}
-                        className="text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2 transition-colors disabled:opacity-50"
-                      >
-                        {isSelectingAll
-                          ? "..."
-                          : `Sélectionner tout (${filteredTotal.toLocaleString("fr")})`}
-                      </button>
-                    )
-                  )}
+                <div className="flex items-center gap-2 mb-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 flex-wrap min-h-[36px]">
 
+                  {/* Left — count badge + deselect / select-all */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {selectedUsernames.size > 0 ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedUsernames(new Set())}
+                          className="flex items-center justify-center h-5 w-5 rounded-full bg-blue-200 hover:bg-blue-300 text-blue-600 hover:text-blue-800 transition-colors flex-shrink-0"
+                          title="Désélectionner tout"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                        <span className="inline-flex items-center bg-blue-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full tabular-nums">
+                          {selectedUsernames.size} sélectionné{selectedUsernames.size > 1 ? "s" : ""}
+                        </span>
+                      </>
+                    ) : (
+                      filterProfile !== "all" && filteredTotal > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleSelectAllProfile}
+                          disabled={isSelectingAll}
+                          className="text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2 transition-colors disabled:opacity-50"
+                        >
+                          {isSelectingAll ? "…" : `Tout sélectionner (${filteredTotal.toLocaleString("fr")})`}
+                        </button>
+                      )
+                    )}
+                  </div>
+
+                  {/* Actions — only when something is selected */}
                   {selectedUsernames.size > 0 && (
                     <>
+                      <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
+
+                      {/* Imprimer */}
                       <button
                         type="button"
-                        onClick={() => setSelectedUsernames(new Set())}
-                        className="text-xs text-blue-500 hover:text-blue-700 underline underline-offset-2 transition-colors"
-                      >
-                        Désélectionner tout
-                      </button>
-                      <span className="text-sm text-blue-700 font-medium">
-                        {selectedUsernames.size} sélectionné(s)
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
                         onClick={handlePrintVouchers}
                         disabled={isPrinting}
-                        className="gap-1.5"
+                        className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-blue-100 px-2 py-1 rounded transition-colors disabled:opacity-40"
                       >
-                        {isPrinting
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <Printer className="h-3.5 w-3.5" />}
-                        {isPrinting ? "Impression en cours..." : "Imprimer"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setConfirmToggleSelected(false)}
-                        disabled={isTogglingSelected}
-                        className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
-                      >
-                        <PowerOff className="h-3.5 w-3.5" />
-                        Désactiver
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
+                        {isPrinting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
+                        <span>Imprimer</span>
+                      </button>
+
+                      <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
+
+                      {/* Activer / Désactiver */}
+                      <button
+                        type="button"
                         onClick={() => setConfirmToggleSelected(true)}
                         disabled={isTogglingSelected}
-                        className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
+                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
                       >
-                        <Power className="h-3.5 w-3.5" />
-                        Activer
-                      </Button>
+                        <Power className="h-3 w-3" />
+                        <span>Activer</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmToggleSelected(false)}
+                        disabled={isTogglingSelected}
+                        className="flex items-center gap-1 text-xs text-orange-600 hover:text-orange-800 hover:bg-orange-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                      >
+                        <PowerOff className="h-3 w-3" />
+                        <span>Désactiver</span>
+                      </button>
+
+                      {/* Modifier + Réinitialiser — 1 seul sélectionné */}
                       {selectedUsernames.size === 1 && (() => {
                         const username = [...selectedUsernames][0];
                         const selUser = filtered.find((u) => u.username === username) ?? ({ username } as HotspotUser);
                         return (
                           <>
-                            <Button
-                              size="sm"
-                              variant="ghost"
+                            <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
+                            <button
+                              type="button"
                               onClick={() => openEditUser(selUser)}
                               disabled={isSavingRename}
-                              className="gap-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+                              className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
                             >
-                              <Pencil className="h-3.5 w-3.5" />
-                              Modifier
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
+                              <Pencil className="h-3 w-3" />
+                              <span>Modifier</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => setConfirmResetUser(selUser)}
                               disabled={isResetting}
-                              className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
                             >
-                              <RotateCcw className="h-3.5 w-3.5" />
-                              Réinitialiser
-                            </Button>
+                              <RotateCcw className="h-3 w-3" />
+                              <span>Réinitialiser</span>
+                            </button>
                           </>
                         );
                       })()}
-                      <Button
-                        size="sm"
-                        variant="ghost"
+
+                      <div className="h-4 w-px bg-blue-200 flex-shrink-0 ml-auto" />
+
+                      {/* Supprimer — poussé à droite */}
+                      <button
+                        type="button"
                         onClick={() => setConfirmDeleteSelected(true)}
-                        className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded transition-colors"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Supprimer ({selectedUsernames.size})
-                      </Button>
+                        <Trash2 className="h-3 w-3" />
+                        <span>Supprimer</span>
+                        <span className="ml-0.5 bg-red-100 text-red-600 font-bold px-1 rounded tabular-nums">
+                          {selectedUsernames.size}
+                        </span>
+                      </button>
                     </>
                   )}
                 </div>
