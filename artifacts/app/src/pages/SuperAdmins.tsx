@@ -624,6 +624,7 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
             <Select value={months} onValueChange={(v) => setMonths(v as typeof months)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="unlimited">Illimité</SelectItem>
                 <SelectItem value="0">Aucun (login bloqué)</SelectItem>
                 <SelectItem value="24h">Test 24 heures</SelectItem>
                 {VALID_MONTHS.map((m) => (
@@ -631,7 +632,6 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
                     {m === 12 ? "1 an" : `${m} mois`}
                   </SelectItem>
                 ))}
-                <SelectItem value="unlimited">Illimité</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -836,13 +836,13 @@ function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
             <Select value={months} onValueChange={(v) => setMonths(v as typeof months)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="unlimited">Illimité</SelectItem>
                 <SelectItem value="24h">Test 24 heures</SelectItem>
                 {VALID_MONTHS.map((m) => (
                   <SelectItem key={m} value={String(m)}>
                     {m === 12 ? "1 an" : `${m} mois`}
                   </SelectItem>
                 ))}
-                <SelectItem value="unlimited">Illimité</SelectItem>
               </SelectContent>
             </Select>
           </div>
