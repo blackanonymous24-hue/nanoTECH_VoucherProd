@@ -465,19 +465,16 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
               <button
                 onClick={() => setHotspotOpen((v) => !v)}
-                className="w-full px-2 mb-1 flex items-center justify-between group/hotspot"
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100"
               >
-                <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
-                  {group.label}
-                </span>
-                <span className="flex items-center gap-1">
-                  {!hotspotOpen && (
-                    <span className="text-[9px] font-semibold tabular-nums bg-white/8 text-gray-500 rounded-full px-1.5 py-0.5">
-                      {group.items.length}
-                    </span>
-                  )}
-                  <ChevronDown className={cn("h-3 w-3 text-gray-600 transition-transform duration-200", hotspotOpen && "rotate-180")} />
-                </span>
+                <Wifi className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                <span className="flex-1 text-left">{group.label}</span>
+                {!hotspotOpen && (
+                  <span className="text-[10px] font-semibold tabular-nums bg-white/8 text-gray-500 rounded-full px-1.5 py-0.5">
+                    {group.items.length}
+                  </span>
+                )}
+                <ChevronDown className={cn("h-3.5 w-3.5 text-gray-500 transition-transform duration-200 flex-shrink-0", hotspotOpen && "rotate-180")} />
               </button>
               {hotspotOpen && (
                 <div className="space-y-0.5">
