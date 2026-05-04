@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, inArray, isNotNull, isNull, sql, gte, lt } from "drizzle-orm";
+import { eq, and, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
@@ -110,7 +110,7 @@ function getAdminScopeFromHeader(req: { headers: { authorization?: string } }): 
  * AND the tenant (ownerAdminId) they belong to. Returns null when the request
  * carries no recognized token at all.
  *
- *   - super-admin           → { kind: "super" }                (all routers)
+ *   - super-admin           → { kind: "super",   adminId }    (own routers only, same tenant rule as admin)
  *   - regular admin         → { kind: "admin",   adminId,    routerIds }
  *   - manager/vendor/collab → { kind: "<role>",  adminId?,   routerIds }
  *
@@ -246,14 +246,8 @@ router.get("/routers", async (req, res): Promise<void> => {
     })
     .from(routersTable);
 
-  if (scope.kind === "super") {
-    // Super-admin: liste globale (tous les tenants). Les routeurs créés pour un
-    // admin client ont son owner_admin_id — un filtre par l'id du super-admin
-    // laissait la page « Routeurs » vide alors que la plateforme en contient.
-    res.json(await baseSelect.orderBy(routersTable.name));
-    return;
-  }
-  if (scope.kind === "admin") {
+  // Super-admin et admin : uniquement les routeurs dont ils sont propriétaires (owner_admin_id).
+  if (scope.kind === "super" || scope.kind === "admin") {
     res.json(await baseSelect.where(eq(routersTable.ownerAdminId, scope.adminId)).orderBy(routersTable.name));
     return;
   }
@@ -365,7 +359,7 @@ router.post("/routers", async (req, res): Promise<void> => {
  *
  * Rules:
  *   - No recognized token  → 401
- *   - Super-admin          → allowed
+ *   - Super-admin          → router must belong to them (ownerAdminId === leur id)
  *   - Regular admin        → router must belong to their tenant (ownerAdminId)
  *   - Manager / vendor     → router id must equal their assigned routerId
  *   - Collaborateur        → router id must be in their assigned routerIds set
@@ -373,13 +367,12 @@ router.post("/routers", async (req, res): Promise<void> => {
 router.use("/routers/:id", async (req, res, next) => {
   const scope = await resolveCallerScope(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
-  if (scope.kind === "super") { next(); return; }
 
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (Number.isNaN(id)) { next(); return; } // let the handler report a clean 400
 
-  if (scope.kind === "admin") {
+  if (scope.kind === "super" || scope.kind === "admin") {
     const [r] = await db
       .select({ owner: routersTable.ownerAdminId })
       .from(routersTable)
@@ -1850,6 +1843,26 @@ const salesCache = new Map<number, SalesCacheEntry>();
 const salesRefreshing = new Set<number>();
 const SALES_TTL = 5 * 60 * 1000; // 5 minutes
 
+const voucherRowMoney = sql`coalesce(nullif(regexp_replace(coalesce(${vouchersTable.salePrice}, ${vouchersTable.price}), '[^0-9.]', '', 'g'), '')::numeric, 0)`;
+
+/** Pas de double comptage : bon ignoré s'il existe déjà une vente script même user + même jour UTC. */
+function voucherNotCoveredByScriptSameUtcDay() {
+  return notExists(
+    db.select({ id: scriptSalesTable.id })
+      .from(scriptSalesTable)
+      .where(and(
+        eq(scriptSalesTable.routerId, vouchersTable.routerId),
+        sql`lower(${scriptSalesTable.username}) = lower(${vouchersTable.username})`,
+        sql`((${scriptSalesTable.saleDate} AT TIME ZONE 'UTC')::date) = ((${vouchersTable.usedAt} AT TIME ZONE 'UTC')::date)`,
+      )),
+  );
+}
+
+/**
+ * Agrégats jour / mois pour le tableau de bord — **même périmètre** que
+ * `GET /routers/:id/sales-report` : `mikrotik_script_sales` + bons vendus
+ * **hors doublon** (pas de ligne script même login + même jour UTC), dates UTC.
+ */
 async function readSalesQuickFromDb(routerId: number): Promise<{
   dailyCount: number;
   dailyAmount: number;
@@ -1857,23 +1870,70 @@ async function readSalesQuickFromDb(routerId: number): Promise<{
   monthlyAmount: number;
 } | null> {
   const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const yUtc = now.getUTCFullYear();
+  const mUtc = now.getUTCMonth() + 1;
+  const dUtc = now.getUTCDate();
   try {
-    const [row] = await db
-      .select({
-        dailyCount: sql<number>`cast(count(*) filter (where ${scriptSalesTable.saleDate} >= ${startOfDay}) as int)`,
-        dailyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where ${scriptSalesTable.saleDate} >= ${startOfDay}), 0)`,
-        monthlyCount: sql<number>`cast(count(*) filter (where ${scriptSalesTable.saleDate} >= ${startOfMonth}) as int)`,
-        monthlyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where ${scriptSalesTable.saleDate} >= ${startOfMonth}), 0)`,
-      })
-      .from(scriptSalesTable)
-      .where(eq(scriptSalesTable.routerId, routerId));
+    const [scriptRow, voucherRow] = await Promise.all([
+      db
+        .select({
+          dailyCount: sql<number>`cast(count(*) filter (where
+            EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}
+            AND EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}
+            AND EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dUtc}
+          ) as int)`,
+          dailyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
+            EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}
+            AND EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}
+            AND EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dUtc}
+          ), 0)`,
+          monthlyCount: sql<number>`cast(count(*) filter (where
+            EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}
+            AND EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}
+          ) as int)`,
+          monthlyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
+            EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}
+            AND EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}
+          ), 0)`,
+        })
+        .from(scriptSalesTable)
+        .where(eq(scriptSalesTable.routerId, routerId)),
+      db
+        .select({
+          dailyCount: sql<number>`cast(count(*) filter (where
+            EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}
+            AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}
+            AND EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${dUtc}
+          ) as int)`,
+          dailyAmount: sql<number>`coalesce(sum(${voucherRowMoney}) filter (where
+            EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}
+            AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}
+            AND EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${dUtc}
+          ), 0)`,
+          monthlyCount: sql<number>`cast(count(*) filter (where
+            EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}
+            AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}
+          ) as int)`,
+          monthlyAmount: sql<number>`coalesce(sum(${voucherRowMoney}) filter (where
+            EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}
+            AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}
+          ), 0)`,
+        })
+        .from(vouchersTable)
+        .where(and(
+          eq(vouchersTable.routerId, routerId),
+          isNotNull(vouchersTable.usedAt),
+          voucherNotCoveredByScriptSameUtcDay(),
+        )),
+    ]);
+    const s = scriptRow[0];
+    const v = voucherRow[0];
     return {
-      dailyCount: Number(row?.dailyCount ?? 0),
-      dailyAmount: Number(row?.dailyAmount ?? 0),
-      monthlyCount: Number(row?.monthlyCount ?? 0),
-      monthlyAmount: Number(row?.monthlyAmount ?? 0),
+      dailyCount:    Number(s?.dailyCount    ?? 0) + Number(v?.dailyCount    ?? 0),
+      dailyAmount:   Number(s?.dailyAmount   ?? 0) + Number(v?.dailyAmount   ?? 0),
+      monthlyCount:  Number(s?.monthlyCount  ?? 0) + Number(v?.monthlyCount  ?? 0),
+      monthlyAmount: Number(s?.monthlyAmount ?? 0) + Number(v?.monthlyAmount ?? 0),
+
     };
   } catch {
     return null;
@@ -1981,7 +2041,9 @@ async function buildDashboardPrioritySnapshot(id: number) {
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   ensureUsageSyncScheduled(id, conn);
-  triggerSalesRefresh(id, r.host, r.port, r.username, r.password);
+  // Ventes des cartes : cache scripts + bons « seuls » (hors doublon jour UTC / login), comme GET …/sales-report.
+  // Ne pas lancer fetchSalesFromScripts ici : le SSE appelle ce snapshot ~1,5 s et écraserait les totaux
+  // avec ce qu’il reste sur le routeur (souvent quasi vide si auto-suppression des scripts).
 
   const now = Date.now();
 
@@ -2404,11 +2466,13 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
 
 /**
  * GET /routers/:id/sales-report
- * Serves MikHMon sales data from the local DB cache (mikrotik_script_sales).
+ * Ventes routeur : cache scripts MikHMon (`mikrotik_script_sales`) + bons vendus
+ * **sans doublon** (même login + même jour UTC qu’une ligne script → le bon est exclu).
+ * Sans filtre année : uniquement les scripts (volume potentiel des bons trop élevé).
  * Query params:
- *   ?year=2026&month=3       → monthly
+ *   ?year=2026&month=3       → monthly (+ bons hors doublon si année renseignée)
  *   ?year=2026&month=3&day=5 → daily
- *   (none)                   → all history
+ *   (none)                   → all history (scripts seulement)
  */
 router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
@@ -2421,9 +2485,15 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
 
   try {
     const conditions: ReturnType<typeof eq>[] = [eq(scriptSalesTable.routerId, id) as any];
-    if (yearRaw)  conditions.push(sql`EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yearRaw}` as any);
-    if (monthRaw) conditions.push(sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${monthRaw}` as any);
-    if (dayRaw)   conditions.push(sql`EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dayRaw}` as any);
+    if (yearRaw !== null && !Number.isNaN(yearRaw)) {
+      conditions.push(sql`EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yearRaw}` as any);
+    }
+    if (monthRaw !== null && !Number.isNaN(monthRaw)) {
+      conditions.push(sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${monthRaw}` as any);
+    }
+    if (dayRaw !== null && !Number.isNaN(dayRaw)) {
+      conditions.push(sql`EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dayRaw}` as any);
+    }
 
     const rows = await db
       .select({
@@ -2443,7 +2513,7 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       .orderBy(sql`${scriptSalesTable.saleDate} DESC`);
 
     let liveRawNames = new Set<string>();
-    if (withPresence && yearRaw && monthRaw && monthRaw >= 1 && monthRaw <= 12) {
+    if (withPresence && yearRaw !== null && !Number.isNaN(yearRaw) && monthRaw !== null && !Number.isNaN(monthRaw) && monthRaw >= 1 && monthRaw <= 12) {
       const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
       if (r) {
         const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
@@ -2461,13 +2531,68 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       }
     }
 
-    const entries = rows.map(({ price, rawName, ...rest }) => ({
+    const scriptEntries = rows.map(({ price, rawName, ...rest }) => ({
       ...rest,
+      rawName: rawName ?? null,
       price: parseFloat(price) || 0,
-      source: liveRawNames.size > 0 && rawName && liveRawNames.has(rawName) ? "mikrotik+local" : "local-db",
+      source: liveRawNames.size > 0 && rawName && liveRawNames.has(rawName) ? ("mikrotik+local" as const) : ("local-db" as const),
+      origin: "script" as const,
     }));
 
-    res.json(entries);
+    const voucherRows =
+      yearRaw !== null && !Number.isNaN(yearRaw)
+        ? await db
+            .select({
+              id: vouchersTable.id,
+              date: sql<string>`to_char(${vouchersTable.usedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+              time: sql<string>`to_char(${vouchersTable.usedAt} AT TIME ZONE 'UTC', 'HH24:MI:SS')`,
+              username: vouchersTable.username,
+              saleIp: vouchersTable.saleIp,
+              macAddress: vouchersTable.macAddress,
+              validity: vouchersTable.validity,
+              profileName: vouchersTable.profileName,
+              comment: vouchersTable.comment,
+              amt: sql<number>`(${voucherRowMoney})::double precision`,
+            })
+            .from(vouchersTable)
+            .where(and(
+              eq(vouchersTable.routerId, id),
+              isNotNull(vouchersTable.usedAt),
+              voucherNotCoveredByScriptSameUtcDay(),
+              sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yearRaw}`,
+              ...(monthRaw !== null && !Number.isNaN(monthRaw)
+                ? [sql`EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${monthRaw}`]
+                : []),
+              ...(dayRaw !== null && !Number.isNaN(dayRaw)
+                ? [sql`EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${dayRaw}`]
+                : []),
+            ))
+            .orderBy(desc(vouchersTable.usedAt))
+        : [];
+
+    const voucherEntries = voucherRows.map((v) => ({
+      date: v.date,
+      time: v.time,
+      username: v.username,
+      price: Number(v.amt) || 0,
+      ip: v.saleIp ?? "",
+      mac: v.macAddress ?? "",
+      validity: v.validity ?? "",
+      label: v.profileName ?? "",
+      batch: v.comment ?? null,
+      rawName: `voucher:${v.id}`,
+      source: "local-db" as const,
+      origin: "voucher" as const,
+    }));
+
+    const merged = [...scriptEntries, ...voucherEntries].sort((a, b) => {
+      const ta = Date.parse(`${a.date}T${a.time || "00:00:00"}Z`);
+      const tb = Date.parse(`${b.date}T${b.time || "00:00:00"}Z`);
+      if (tb !== ta) return tb - ta;
+      return a.username.localeCompare(b.username, "fr");
+    });
+
+    res.json(merged);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Erreur base de données" });
   }
