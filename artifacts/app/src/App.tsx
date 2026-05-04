@@ -9,6 +9,7 @@ import { RouterProvider } from "@/contexts/RouterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
+import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
@@ -142,9 +143,11 @@ function AppRoutes() {
 
   if (location.startsWith("/vendor-portal")) {
     return (
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
-        <VendorPortal />
-      </Suspense>
+      <PageErrorBoundary key={location}>
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
+          <VendorPortal />
+        </Suspense>
+      </PageErrorBoundary>
     );
   }
 
@@ -153,54 +156,60 @@ function AppRoutes() {
     const isChoosePage = location === "/" || location === "/login";
     const loginMode = isVendorPage ? "vendor" : isChoosePage ? "choose" : "admin";
     return (
-      <Suspense fallback={null}>
-        <LoginPage mode={loginMode} />
-      </Suspense>
+      <PageErrorBoundary key={location}>
+        <Suspense fallback={null}>
+          <LoginPage mode={loginMode} />
+        </Suspense>
+      </PageErrorBoundary>
     );
   }
 
   if (role === "vendor") {
     return (
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
-        <VendorPortal />
-      </Suspense>
+      <PageErrorBoundary key={location}>
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
+          <VendorPortal />
+        </Suspense>
+      </PageErrorBoundary>
     );
   }
 
   return (
     <RouterProvider>
       <Layout>
-        <Suspense fallback={<PageSkeleton />}>
-          <Switch key={`${location}:${routeReloadToken}`}>
-            <Route path="/" component={Dashboard} />
-            <Route path="/admin" component={Dashboard} />
-            <Route path="/vendeur" component={Dashboard} />
-            <Route path="/routers" component={role === "manager" ? Dashboard : Routers} />
-            <Route path="/forfaits" component={Forfaits} />
-            <Route path="/sessions" component={Sessions} />
-            <Route path="/ip-bindings" component={IpBindings} />
-            <Route path="/dhcp-leases" component={DhcpLeases} />
-            <Route path="/hotspot-cookies" component={HotspotCookies} />
-            <Route path="/generate" component={GenerateVouchers} />
-            <Route path="/vouchers" component={Vouchers} />
-            <Route path="/vendors" component={Vendors} />
-            <Route path="/reports" component={Reports} />
-            <Route path="/sales/daily" component={() => <SalesRanking period="daily" />} />
-            <Route path="/sales/monthly" component={() => <SalesRanking period="monthly" />} />
-            <Route path="/sales/report" component={SellingReport} />
-            <Route path="/vendors/tracking" component={VendorTracking} />
-            <Route path="/vendors/versements" component={VendorPayments} />
-            <Route path="/vendors/versement-du-jour" component={DailyPayments} />
-            <Route path="/ticket-template" component={TicketTemplate} />
-            <Route path="/managers" component={role === "admin" ? Managers : Dashboard} />
-            <Route path="/collaborateurs" component={role === "admin" ? Collaborateurs : Dashboard} />
-            <Route path="/stock-alerts" component={StockAlerts} />
-            <Route path="/maintenance" component={role === "admin" ? Maintenance : Dashboard} />
-            <Route path="/ticket-lookup" component={TicketLookup} />
-            <Route path="/super/admins" component={isSuperAdmin ? SuperAdmins : Dashboard} />
-            <Route component={NotFound} />
-          </Switch>
-        </Suspense>
+        <PageErrorBoundary key={location}>
+          <Suspense fallback={<PageSkeleton />}>
+            <Switch key={`${location}:${routeReloadToken}`}>
+              <Route path="/" component={Dashboard} />
+              <Route path="/admin" component={Dashboard} />
+              <Route path="/vendeur" component={Dashboard} />
+              <Route path="/routers" component={role === "manager" ? Dashboard : Routers} />
+              <Route path="/forfaits" component={Forfaits} />
+              <Route path="/sessions" component={Sessions} />
+              <Route path="/ip-bindings" component={IpBindings} />
+              <Route path="/dhcp-leases" component={DhcpLeases} />
+              <Route path="/hotspot-cookies" component={HotspotCookies} />
+              <Route path="/generate" component={GenerateVouchers} />
+              <Route path="/vouchers" component={Vouchers} />
+              <Route path="/vendors" component={Vendors} />
+              <Route path="/reports" component={Reports} />
+              <Route path="/sales/daily" component={() => <SalesRanking period="daily" />} />
+              <Route path="/sales/monthly" component={() => <SalesRanking period="monthly" />} />
+              <Route path="/sales/report" component={SellingReport} />
+              <Route path="/vendors/tracking" component={VendorTracking} />
+              <Route path="/vendors/versements" component={VendorPayments} />
+              <Route path="/vendors/versement-du-jour" component={DailyPayments} />
+              <Route path="/ticket-template" component={TicketTemplate} />
+              <Route path="/managers" component={role === "admin" ? Managers : Dashboard} />
+              <Route path="/collaborateurs" component={role === "admin" ? Collaborateurs : Dashboard} />
+              <Route path="/stock-alerts" component={StockAlerts} />
+              <Route path="/maintenance" component={role === "admin" ? Maintenance : Dashboard} />
+              <Route path="/ticket-lookup" component={TicketLookup} />
+              <Route path="/super/admins" component={isSuperAdmin ? SuperAdmins : Dashboard} />
+              <Route component={NotFound} />
+            </Switch>
+          </Suspense>
+        </PageErrorBoundary>
       </Layout>
     </RouterProvider>
   );
