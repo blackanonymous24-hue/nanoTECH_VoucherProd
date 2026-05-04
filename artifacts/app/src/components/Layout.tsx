@@ -906,8 +906,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <NavContent onNavigate={() => setMobileOpen(false)} />
             </div>
 
-            {/* Main content */}
-            <main className="flex-1 overflow-y-auto">
+            {/* Main content — blocked from scrolling while menu is open */}
+            <main className={cn("flex-1", mobileOpen ? "overflow-hidden" : "overflow-y-auto")}>
               <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
             </main>
           </div>
