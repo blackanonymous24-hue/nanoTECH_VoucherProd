@@ -265,14 +265,35 @@ function getRouterSemaphore(host: string, port: number): Semaphore {
   return routerSemaphores.get(key)!;
 }
 
+/**
+ * Minimum gap (ms) between consecutive API connections to the same router.
+ * Acts as a global safety net against "Rate exceeded" errors from RouterOS.
+ * High-priority calls (mutations, user actions) are not throttled separately —
+ * the semaphore ensures fairness, and 500ms is imperceptible for user actions.
+ * Set ROUTER_MIN_GAP_MS=0 in env to disable.
+ */
+const ROUTER_MIN_GAP_MS = parseInt(process.env.ROUTER_MIN_GAP_MS ?? "500", 10);
+const lastRouterConnectedAt = new Map<string, number>();
+
 export async function withRouter<T>(
   conn: RouterConnection,
   fn: (api: RouterOSAPI) => Promise<T>,
   timeout = 15000,
   priority: "high" | "normal" = "normal",
 ): Promise<T> {
+  const key = `${conn.host}:${conn.port}`;
   const sem = getRouterSemaphore(conn.host, conn.port);
   await sem.acquire(priority);
+
+  // Rate-limit: enforce minimum gap between consecutive connections to the same router.
+  // Checked AFTER semaphore acquire so the gap is per-slot (not global), which
+  // means 2 slots × 500ms gap = max 4 connections/s — well within RouterOS limits.
+  if (ROUTER_MIN_GAP_MS > 0) {
+    const last = lastRouterConnectedAt.get(key) ?? 0;
+    const wait = ROUTER_MIN_GAP_MS - (Date.now() - last);
+    if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
+  }
+  lastRouterConnectedAt.set(key, Date.now());
 
   const api = new RouterOSAPI({
     host: conn.host,

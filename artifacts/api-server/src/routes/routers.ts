@@ -11,6 +11,7 @@ import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js"
 import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
+import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -909,6 +910,7 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
 // count instantly (stale-while-revalidate). Never blocks on MikroTik when a
 // previous value (even expired) is available; refreshes in background.
 const _sessionsRefreshing = new Set<number>();
+const _infoRefreshing     = new Set<number>();
 router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
@@ -2205,17 +2207,19 @@ async function buildDashboardPrioritySnapshot(id: number) {
     });
   }
 
-  // Router info (stale-while-revalidate)
+  // Router info (stale-while-revalidate + inFlight guard to avoid duplicate calls)
   const infoKey = `info:${sc}`;
   const infoFresh = mGet(infoKey);
   const infoStale = mGetStale(infoKey);
   const info = (infoFresh ?? infoStale ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
-  if (!infoFresh) {
+  if (!infoFresh && !_infoRefreshing.has(id)) {
+    _infoRefreshing.add(id);
     setImmediate(async () => {
       try {
         const liveInfo = await getRouterInfo(conn);
         mSet(infoKey, MIK_TTL.info, liveInfo);
       } catch { /* keep stale */ }
+      finally { _infoRefreshing.delete(id); }
     });
   }
 
@@ -2517,6 +2521,11 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
 /**
  * GET /routers/:id/dashboard-priority/stream
  * Server-Sent Events push stream for dashboard-priority snapshots.
+ *
+ * Anti-spam: all SSE clients for the same routerId share ONE background poller
+ * (via mikrotik-poller.ts). MikroTik is queried at most once per
+ * MIK_POLLER_INTERVAL_MS (default 5 s) regardless of how many clients are
+ * connected — instead of once per client per 1.5 s as before.
  */
 router.get("/routers/:id/dashboard-priority/stream", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -2529,37 +2538,29 @@ router.get("/routers/:id/dashboard-priority/stream", async (req, res): Promise<v
   res.flushHeaders?.();
 
   let closed = false;
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let inFlight = false;
 
-  const push = async () => {
-    if (closed || inFlight) return;
-    inFlight = true;
-    try {
-      const snapshot = await buildDashboardPrioritySnapshot(id);
+  const unsubscribe = subscribeRouterPoller(
+    id,
+    () => buildDashboardPrioritySnapshot(id),
+    (snapshot) => {
+      if (closed) return;
       res.write(`event: priority\n`);
       res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
-    } catch (err) {
-      const message = err instanceof Error && err.message === "ROUTER_NOT_FOUND"
-        ? "Routeur introuvable"
-        : (err instanceof Error ? err.message : "Erreur routeur");
+    },
+    (msg) => {
+      if (closed) return;
       res.write(`event: error\n`);
-      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
-    } finally {
-      inFlight = false;
-    }
-  };
-
-  await push();
-  timer = setInterval(push, 1500);
+      res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+    },
+  );
 
   const heartbeat = setInterval(() => {
     if (!closed) res.write(": keep-alive\n\n");
-  }, 20000);
+  }, 20_000);
 
   req.on("close", () => {
     closed = true;
-    if (timer) clearInterval(timer);
+    unsubscribe();
     clearInterval(heartbeat);
     res.end();
   });
