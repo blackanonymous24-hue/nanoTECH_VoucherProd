@@ -2,7 +2,8 @@ import { Router } from "express";
 import { eq, and, isNull, isNotNull, desc, sql, or, ilike, gte } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable, scriptSalesTable } from "@workspace/db";
 import { generateVouchers, listProfiles, enableDisableHotspotUsers } from "../lib/mikrotik.js";
-import { invalidateUserCache, resolveCallerScope } from "./routers.js";
+import type { HotspotUser } from "../lib/mikrotik.js";
+import { invalidateUserCache, appendCachedUsers, resolveCallerScope } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { withRouterLock } from "../lib/router-lock.js";
 
@@ -316,12 +317,26 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
       }));
     });
 
-    // Drop the cached MikroTik user list so any reconciliation read-back
-    // (e.g. the client checking how many users actually exist for a lot
-    // after a retry) sees the freshly-added users.
-    await invalidateUserCache(routerId);
-
+    // Respond immediately — do not block on cache work.
     res.status(201).json(responseRows);
+
+    // Inject the freshly-generated users into the in-memory cache so that the
+    // next /users or /lots request (e.g. the lot reload after generation) is
+    // served instantly from memory — no MikroTik round-trip needed.
+    // If the cache is empty (cold start), this is a no-op and the next request
+    // will warm the cache from MikroTik as usual.
+    const newHotspotUsers: HotspotUser[] = responseRows.map((v) => ({
+      username: v.username,
+      password: v.password,
+      profile: v.profileName,
+      comment: v.comment ?? null,
+      limitUptime: timelimit || null,
+      limitBytesTotal: datalimit ? String(datalimit) : null,
+      macAddress: null,
+      server: server || null,
+      disabled: false,
+    }));
+    appendCachedUsers(routerId, r.ownerAdminId, newHotspotUsers);
 
     // Background: auto-attribute vouchers without vendorId to the matching vendor by comment suffix
     void autoAttributeInserted(responseRows.map((v) => v.id));

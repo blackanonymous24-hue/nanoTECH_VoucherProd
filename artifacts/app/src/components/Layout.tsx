@@ -346,7 +346,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       label: "Tickets",
       collapsible: false,
       items: [
-        { href: "/generate",     label: "Générer",             icon: Zap },
+        { href: "/generate",     label: "Générer un ticket",   icon: Zap },
         { href: "/vouchers",     label: "Mes Tickets",         icon: Ticket },
         { href: "/ticket-lookup", label: "Vérifier un ticket", icon: SearchCheck },
         { href: "/vendors",      label: "Vendeurs",            icon: Users },

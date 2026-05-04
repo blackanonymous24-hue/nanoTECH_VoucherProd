@@ -1027,6 +1027,24 @@ function removeCachedUsersByComment(scope: string, comment: string): void {
 }
 
 /**
+ * Inject freshly-generated users into the cache without invalidation.
+ * Called after voucher generation so that subsequent /users and /lots
+ * requests are served instantly from memory (no MikroTik round-trip needed).
+ * No-op when the cache entry is absent (first cold load).
+ */
+export function appendCachedUsers(
+  routerId: number,
+  ownerAdminId: number | null,
+  newUsers: Awaited<ReturnType<typeof listHotspotUsers>>,
+): void {
+  const scope = routerCacheScope(ownerAdminId, routerId);
+  const cached = userCache.get(scope);
+  if (!cached) return;
+  cached.users.push(...newUsers);
+  _usersCountCache.delete(scope);
+}
+
+/**
  * GET /routers/:id/users/count
  * Lightweight: returns just `{ total, available, used, disabled, cachedAt }`.
  * Mikhmon-style stale-while-revalidate: as long as we have a previous user

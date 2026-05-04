@@ -2521,5 +2521,5 @@ export async function generateVouchers(
       validity: opts.validity,
       comment: opts.comment ?? "",
     }));
-  }, 120_000);
+  }, 120_000, "high");
 }
