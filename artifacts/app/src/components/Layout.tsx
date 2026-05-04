@@ -880,8 +880,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span className="font-bold text-white truncate text-sm leading-none">nanoTECH Vouchers Bills</span>
               </div>
             </div>
-            {/* Row 2: router selector — full width, no crowding */}
-            <RouterSelector compact className="w-full" />
+            {/* Row 2: router selector — masqué quand le menu est ouvert (il est déjà visible dedans) */}
+            {!mobileOpen && <RouterSelector compact className="w-full" />}
           </header>
         )}
 
