@@ -25,7 +25,7 @@ import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const VALID_MONTHS = [1, 2, 3, 4, 5, 6, 12] as const;
-type ForfaitChoice = "24h" | `${(typeof VALID_MONTHS)[number]}`;
+type ForfaitChoice = "24h" | "unlimited" | `${(typeof VALID_MONTHS)[number]}`;
 type CreateForfaitChoice = "0" | ForfaitChoice;
 
 interface AdminRow {
@@ -74,6 +74,7 @@ function fmt(d: string | null): string {
 
 function forfaitStatus(a: AdminRow): { label: string; tone: "success" | "danger" | "warning" | "neutral" } {
   if (a.isSuperAdmin) return { label: "Illimité", tone: "success" };
+  if (a.forfaitStartedAt && !a.forfaitEndsAt) return { label: "Illimité", tone: "success" };
   if (!a.forfaitEndsAt) return { label: "Aucun forfait", tone: "danger" };
   const end = new Date(a.forfaitEndsAt).getTime();
   const now = Date.now();
@@ -125,7 +126,7 @@ export default function SuperAdmins() {
 
   /* ---------- mutations ---------- */
   const createM = useMutation({
-    mutationFn: async (v: { login: string; password: string; displayName?: string; forfaitMonths?: number; forfaitTest24h?: boolean }) => {
+    mutationFn: async (v: { login: string; password: string; displayName?: string; forfaitMonths?: number; forfaitTest24h?: boolean; forfaitUnlimited?: boolean }) => {
       const r = await fetch(`${BASE}/api/super/admins`, { method: "POST", headers, body: JSON.stringify(v) });
       if (!r.ok) throw new Error((await r.json()).error ?? "Création impossible");
       return r.json();
@@ -177,7 +178,11 @@ export default function SuperAdmins() {
       const url = v.mode === "extend"
         ? `${BASE}/api/super/admins/${v.id}/forfait/extend`
         : `${BASE}/api/super/admins/${v.id}/forfait`;
-      const payload = v.duration === "24h" ? { test24h: true } : { months: Number(v.duration) };
+      const payload = v.duration === "unlimited"
+        ? { unlimited: true }
+        : v.duration === "24h"
+        ? { test24h: true }
+        : { months: Number(v.duration) };
       const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
       if (!r.ok) throw new Error((await r.json()).error ?? "Forfait non mis à jour");
       return r.json();
@@ -584,7 +589,7 @@ function AddRouterForAdminDialog({
 function CreateDialog({ open, onClose, onSubmit, pending }: {
   open: boolean;
   onClose: () => void;
-  onSubmit: (v: { login: string; password: string; displayName?: string; forfaitMonths?: number; forfaitTest24h?: boolean }) => void;
+  onSubmit: (v: { login: string; password: string; displayName?: string; forfaitMonths?: number; forfaitTest24h?: boolean; forfaitUnlimited?: boolean }) => void;
   pending: boolean;
 }) {
   const [login, setLogin] = useState("");
@@ -626,6 +631,7 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
                     {m === 12 ? "1 an" : `${m} mois`}
                   </SelectItem>
                 ))}
+                <SelectItem value="unlimited">Illimité</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -638,8 +644,9 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
               login: login.trim(),
               password,
               displayName: displayName.trim() || undefined,
-              forfaitMonths: months === "0" || months === "24h" ? undefined : Number(months),
+              forfaitMonths: months === "0" || months === "24h" || months === "unlimited" ? undefined : Number(months),
               ...(months === "24h" ? { forfaitTest24h: true } : {}),
+              ...(months === "unlimited" ? { forfaitUnlimited: true } : {}),
             })}
           >
             {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -835,6 +842,7 @@ function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
                     {m === 12 ? "1 an" : `${m} mois`}
                   </SelectItem>
                 ))}
+                <SelectItem value="unlimited">Illimité</SelectItem>
               </SelectContent>
             </Select>
           </div>

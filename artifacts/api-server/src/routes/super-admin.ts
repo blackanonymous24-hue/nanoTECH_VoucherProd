@@ -23,10 +23,11 @@ function addHours(date: Date, hours: number): Date {
   return new Date(date.getTime() + hours * 60 * 60 * 1000);
 }
 
-type ForfaitDuration = { kind: "months"; months: number } | { kind: "test24h" };
+type ForfaitDuration = { kind: "months"; months: number } | { kind: "test24h" } | { kind: "unlimited" };
 
 function parseForfaitDuration(body: unknown): ForfaitDuration | null {
-  const b = (body ?? {}) as { months?: unknown; test24h?: unknown };
+  const b = (body ?? {}) as { months?: unknown; test24h?: unknown; unlimited?: unknown };
+  if (b.unlimited === true) return { kind: "unlimited" };
   if (b.test24h === true) return { kind: "test24h" };
   const months = Number(b.months);
   if (VALID_MONTHS.has(months)) return { kind: "months", months };
@@ -85,12 +86,13 @@ router.get("/super/admins", async (req, res): Promise<void> => {
 router.post("/super/admins", async (req, res): Promise<void> => {
   if (!requireSuperAdminScope(req, res)) return;
 
-  const { login, password, displayName, forfaitMonths, forfaitTest24h, credits } = req.body as {
+  const { login, password, displayName, forfaitMonths, forfaitTest24h, forfaitUnlimited, credits } = req.body as {
     login?: string;
     password?: string;
     displayName?: string;
     forfaitMonths?: number;
     forfaitTest24h?: boolean;
+    forfaitUnlimited?: boolean;
     credits?: number;
   };
 
@@ -110,7 +112,10 @@ router.post("/super/admins", async (req, res): Promise<void> => {
 
   let forfaitStartedAt: Date | null = null;
   let forfaitEndsAt: Date | null   = null;
-  if (forfaitTest24h === true) {
+  if (forfaitUnlimited === true) {
+    forfaitStartedAt = new Date();
+    forfaitEndsAt = null;
+  } else if (forfaitTest24h === true) {
     forfaitStartedAt = new Date();
     forfaitEndsAt = addHours(forfaitStartedAt, 24);
   } else if (forfaitMonths !== undefined && forfaitMonths !== null) {
@@ -267,7 +272,11 @@ router.post("/super/admins/:id/forfait", async (req, res): Promise<void> => {
   }
 
   const start = new Date();
-  const end = duration.kind === "test24h" ? addHours(start, 24) : addMonths(start, duration.months);
+  const end = duration.kind === "unlimited"
+    ? null
+    : duration.kind === "test24h"
+    ? addHours(start, 24)
+    : addMonths(start, duration.months);
   const [updated] = await db
     .update(adminSettingsTable)
     .set({ forfaitStartedAt: start, forfaitEndsAt: end })
@@ -306,6 +315,19 @@ router.post("/super/admins/:id/forfait/extend", async (req, res): Promise<void> 
   }
 
   const now = new Date();
+  if (duration.kind === "unlimited") {
+    const [updated] = await db
+      .update(adminSettingsTable)
+      .set({ forfaitStartedAt: now, forfaitEndsAt: null })
+      .where(eq(adminSettingsTable.id, id))
+      .returning();
+    const [{ count: routerCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(routersTable)
+      .where(eq(routersTable.ownerAdminId, id));
+    res.json(publicAdminShape(updated, Number(routerCount)));
+    return;
+  }
   const baseEnd  = target.forfaitEndsAt && target.forfaitEndsAt.getTime() > now.getTime()
     ? target.forfaitEndsAt
     : now;
