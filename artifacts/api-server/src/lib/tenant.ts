@@ -4,8 +4,9 @@ import { verifyAdminTokenFull } from "./admin-auth.js";
 /**
  * Tenant scope derived from an admin Bearer token.
  * - `adminId`     : id of the authenticated admin (for ownerAdminId filtering)
- * - `isSuperAdmin`: when true, queries should return ALL tenants' data
- *                   (the super admin manages everyone).
+ * - `isSuperAdmin`: rôle plateforme ; le périmètre des données (tous tenants vs
+ *   un seul) dépend de chaque route (ex. liste routeurs = propriétaire JWT ;
+ *   console super = endpoints `/api/super/...`).
  */
 export interface AdminScope {
   adminId: number;

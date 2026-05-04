@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useDeferredValue, useEffect } from "react";
+import { useState, useMemo, useDeferredValue, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

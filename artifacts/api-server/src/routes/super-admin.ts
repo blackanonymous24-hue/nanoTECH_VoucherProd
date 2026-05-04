@@ -365,6 +365,42 @@ router.post("/super/admins/:id/credits", async (req, res): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/super/admins/:id/routers — liste des routeurs dont l’admin cible est
+// propriétaire (`owner_admin_id`). Même forme que GET /api/routers pour l’admin connecté.
+// ---------------------------------------------------------------------------
+router.get("/super/admins/:id/routers", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+
+  const adminId = parseInt(req.params.id, 10);
+  if (!adminId || Number.isNaN(adminId)) { res.status(400).json({ error: "ID admin invalide" }); return; }
+
+  const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, adminId));
+  if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
+  if (target.isSuperAdmin) { res.json([]); return; }
+
+  const rows = await db
+    .select({
+      id: routersTable.id,
+      name: routersTable.name,
+      hotspotName: routersTable.hotspotName,
+      contact: routersTable.contact,
+      currency: routersTable.currency,
+      host: routersTable.host,
+      port: routersTable.port,
+      username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
+      isActive: routersTable.isActive,
+      ownerAdminId: routersTable.ownerAdminId,
+      createdAt: routersTable.createdAt,
+      updatedAt: routersTable.updatedAt,
+    })
+    .from(routersTable)
+    .where(eq(routersTable.ownerAdminId, adminId))
+    .orderBy(routersTable.name);
+  res.json(rows);
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/super/admins/:id/routers — create a router for a target admin.
 // Body: { name, host, port?, username, password, hotspotName?, contact?, isActive? }
 // ---------------------------------------------------------------------------
