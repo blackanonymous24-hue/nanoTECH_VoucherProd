@@ -2,9 +2,9 @@ import { Router } from "express";
 import { eq, and, ne, sql } from "drizzle-orm";
 import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
-import { verifyPassword as verifyVendorPassword, createToken as createVendorToken } from "../lib/vendor-auth.js";
-import { verifyPassword as verifyManagerPassword, createToken as createManagerToken } from "../lib/manager-auth.js";
-import { verifyPassword as verifyCollabPassword, createToken as createCollabToken } from "../lib/collaborateur-auth.js";
+import { verifyPassword as verifyVendorPassword, createToken as createVendorToken, verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
+import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
+import { verifyPassword as verifyCollabPassword, createToken as createCollabToken, verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
 import { purgeOldMikhmonScripts } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
@@ -291,6 +291,77 @@ router.post("/admin/buy-routers", async (req, res): Promise<void> => {
     extraRouterSlots: updated[0].extraRouterSlots,
     routerLimit: 5 + updated[0].extraRouterSlots,
   });
+});
+
+/**
+ * GET /api/tenant/ticket-template
+ * Même contenu que GET /api/admin/ticket-template, mais accepte aussi les jetons
+ * vendeur / manager / collaborateur (template du propriétaire du tenant).
+ */
+router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+  const token = auth.slice(7);
+
+  let tenantAdminId: number | null = null;
+  const adminClaims = verifyAdminTokenFull(token);
+  if (adminClaims) {
+    tenantAdminId = adminClaims.adminId;
+  } else {
+    const vnd = verifyVendorToken(token);
+    if (vnd) {
+      const [row] = await db
+        .select({ ownerAdminId: vendorsTable.ownerAdminId, isActive: vendorsTable.isActive })
+        .from(vendorsTable)
+        .where(eq(vendorsTable.id, vnd.vendorId));
+      if (!row?.isActive) {
+        res.status(401).json({ error: "Non authentifié" });
+        return;
+      }
+      tenantAdminId = row.ownerAdminId;
+    } else {
+      const mgr = verifyManagerToken(token);
+      if (mgr) {
+        const [row] = await db
+          .select({ ownerAdminId: managersTable.ownerAdminId, isActive: managersTable.isActive })
+          .from(managersTable)
+          .where(eq(managersTable.id, mgr.managerId));
+        if (!row?.isActive) {
+          res.status(401).json({ error: "Non authentifié" });
+          return;
+        }
+        tenantAdminId = row.ownerAdminId;
+      } else {
+        const col = verifyCollaborateurToken(token);
+        if (col) {
+          const [row] = await db
+            .select({ ownerAdminId: collaborateursTable.ownerAdminId, isActive: collaborateursTable.isActive })
+            .from(collaborateursTable)
+            .where(eq(collaborateursTable.id, col.collaborateurId));
+          if (!row?.isActive) {
+            res.status(401).json({ error: "Non authentifié" });
+            return;
+          }
+          tenantAdminId = row.ownerAdminId;
+        }
+      }
+    }
+  }
+
+  if (tenantAdminId == null) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+
+  const [row] = await db
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.id, tenantAdminId));
+
+  res.json({ template: row?.ticketTemplate ?? null });
 });
 
 /**

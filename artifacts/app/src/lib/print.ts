@@ -1,9 +1,17 @@
 const PRINT_CSS = `
-  body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; border:2px solid black; margin:2px; }
   #num { float:right; display:inline-block; }
   @page { size:auto; margin:4mm; }
+  @media screen {
+    body { padding-bottom: 100px; }
+  }
   @media print {
+    #__nt_ios_print_bar { display:none !important; }
+    body { padding-bottom:0 !important; }
+    /* Un ticket par page en multi-impression (Safari iOS regroupait tout sur une page). */
+    body > table { display:table; page-break-inside:avoid; break-inside:avoid; max-width:100%; }
+    body > table + table { page-break-before:always; break-before:page; }
     table { page-break-after:auto; }
     tr { page-break-inside:avoid; page-break-after:auto; }
     td { page-break-inside:avoid; page-break-after:auto; }
@@ -53,7 +61,7 @@ function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
-/** iOS Safari ne supporte pas window.print() — détection spécifique. */
+/** Détection iOS / iPadOS (comportement impression navigateur différent d’Android). */
 function isIOS(): boolean {
   return (
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -61,12 +69,33 @@ function isIOS(): boolean {
   );
 }
 
+/** Barre tactile iOS : Safari bloque souvent print() sans geste utilisateur ; le bouton déclenche la feuille native. */
+function injectIosPrintBar(html: string): string {
+  const bar =
+    `<div id="__nt_ios_print_bar" style="position:fixed;bottom:0;left:0;right:0;z-index:2147483647;` +
+    `background:#0f172a;color:#f8fafc;padding:12px 14px calc(12px + env(safe-area-inset-bottom,0));` +
+    `font-family:system-ui,-apple-system,sans-serif;font-size:14px;box-shadow:0 -4px 24px rgba(0,0,0,.35);` +
+    `display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;text-align:center;">` +
+    `<span style="flex:1 1 220px;line-height:1.35">` +
+    `Impression : touchez <strong>Imprimer</strong> ci-dessous (iOS peut refuser l’ouverture automatique du dialogue).` +
+    `</span>` +
+    `<button type="button" onclick="window.print()" style="padding:11px 20px;border-radius:10px;border:none;font-weight:600;` +
+    `background:#2563eb;color:#fff;-webkit-tap-highlight-color:transparent;cursor:pointer">Imprimer</button>` +
+    `<button type="button" onclick="this.parentElement.style.display='none'" style="padding:9px 14px;border-radius:10px;` +
+    `border:1px solid #475569;background:transparent;color:#cbd5e1;font-size:13px;cursor:pointer">Masquer</button>` +
+    `</div>`;
+  if (/<body[^>]*>/i.test(html)) {
+    return html.replace(/<body([^>]*)>/i, `<body$1>${bar}`);
+  }
+  return html;
+}
+
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean): string {
   return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${title}</title>
     <style>${PRINT_CSS}</style>
     ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
@@ -130,20 +159,20 @@ function printWithIframe(html: string, title: string): void {
 
 /**
  * Ouvre le HTML dans un nouvel onglet via une Blob URL.
- * Compatible iOS Safari (pas de window.print()) et Android Chrome.
- * Sur iOS : l'utilisateur utilise Partager → Imprimer.
- * Sur Android : le navigateur peut déclencher window.print() auto ou l'utilisateur imprime via le menu.
+ * Android : print() au chargement. iOS : tentative différée + barre « Imprimer »
+ * (Safari exige souvent un tap explicite pour ouvrir la feuille d’impression).
  */
 function printForMobileWeb(html: string, title: string): void {
-  // Sur Android Chrome, window.print() fonctionne — on l'inclut dans le HTML.
-  // Sur iOS Safari, il n'a aucun effet, mais l'onglet ouvert permet Partager → Imprimer.
-  const autoprint = !isIOS();
-  const fullHtml = html.replace(
-    /<\/head>/i,
-    autoprint
-      ? `<script>window.onload=function(){window.focus();window.print();}<\/script></head>`
-      : `</head>`,
-  );
+  const ios = isIOS();
+  let doc = ios ? injectIosPrintBar(html) : html;
+  const printScript = ios
+    ? `<script>(function(){
+  function run(){try{window.focus();window.print();}catch(_){}}
+  if(document.readyState==="complete")setTimeout(run,450);
+  else window.addEventListener("load",function(){setTimeout(run,450);},{once:true});
+})();<\/script></head>`
+    : `<script>window.onload=function(){window.focus();window.print();}<\/script></head>`;
+  const fullHtml = doc.replace(/<\/head>/i, printScript);
 
   try {
     const blob = new Blob([fullHtml], { type: "text/html;charset=utf-8" });

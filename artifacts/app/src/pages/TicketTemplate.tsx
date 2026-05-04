@@ -195,7 +195,8 @@ export function getStoredPHP(): string {
  */
 export async function fetchServerTemplate(): Promise<string> {
   try {
-    const r = await fetch(`${BASE}/api/admin/ticket-template`);
+    // /tenant/… : admin, vendeur, manager, collaborateur (l’ancien /admin/… échoue en 401 pour les vendeurs).
+    const r = await fetch(`${BASE}/api/tenant/ticket-template`);
     if (r.ok) {
       const data = (await r.json()) as { template: string | null };
       if (data.template && data.template.trim().length > 0) {
@@ -331,6 +332,7 @@ export default function TicketTemplate() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const raw = ev.target?.result as string;
+      try { localStorage.setItem(PHP_KEY, raw); } catch { /* ignore */ }
       setPhpCode(raw);
       setTab("code");
       toast({
