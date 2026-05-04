@@ -873,7 +873,7 @@ export default function Dashboard() {
                 </span>
               )}
             </CardTitle>
-                <span className="text-xs text-gray-400">↻ 4s</span>
+                <span className="text-xs text-gray-400">↻ 10s</span>
           </div>
         </CardHeader>
 
