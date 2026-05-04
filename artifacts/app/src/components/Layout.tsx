@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie, ChevronDown,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -85,12 +85,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isAdmin = role === "admin";
   const isManager = role === "manager";
   const isCollaborateur = role === "collaborateur";
-  /* ── Hotspot collapsible ── */
-  const hotspotPaths = ["/sessions", "/ip-bindings", "/dhcp-leases", "/hotspot-cookies"];
-  const isHotspotPage = hotspotPaths.some((p) => location.startsWith(p));
-  const [hotspotOpen, setHotspotOpen] = useState(() => hotspotPaths.some((p) => location.startsWith(p)));
-  useEffect(() => { if (isHotspotPage) setHotspotOpen(true); }, [isHotspotPage]);
-
   /* ── Vendor count — masquer les items vendeur si aucun vendeur sur ce routeur ── */
   const { data: vendorsList } = useQuery<{ id: number }[]>({
     queryKey: ["vendors-nav-count", selectedRouterId],
@@ -332,19 +326,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       label: "Réseau",
       collapsible: false,
       items: [
-        { href: "/",         label: "Tableau de bord", icon: LayoutDashboard },
+        { href: "/",              label: "Tableau de bord", icon: LayoutDashboard },
         ...(!isManager && !isCollaborateur ? [{ href: "/routers", label: "Routeurs", icon: Router }] : []),
-        { href: "/forfaits", label: "Forfaits",          icon: PackageOpen },
-      ],
-    },
-    {
-      label: "Hotspot",
-      collapsible: true,
-      items: [
-        { href: "/sessions",        label: "Clients actifs",   icon: Activity },
-        { href: "/ip-bindings",     label: "Bypass MAC",       icon: ShieldCheck },
-        { href: "/dhcp-leases",     label: "DHCP Leases",      icon: Database },
-        { href: "/hotspot-cookies", label: "Cookies Hotspot",  icon: Cookie },
+        { href: "/forfaits",      label: "Forfaits",        icon: PackageOpen },
+        { href: "/sessions",      label: "Clients actifs",  icon: Activity },
+        { href: "/ip-bindings",   label: "Bypass MAC",      icon: ShieldCheck },
+        { href: "/dhcp-leases",   label: "DHCP Leases",     icon: Database },
+        { href: "/hotspot-cookies", label: "Cookies Hotspot", icon: Cookie },
       ],
     },
     {
@@ -460,47 +448,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         })()}
 
         {navGroups.map((group, gi) => (
-          group.collapsible ? (
-            /* ── Groupe collapsible (Hotspot) ── */
-            <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
-              <button
-                onClick={() => setHotspotOpen((v) => !v)}
-                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100"
-              >
-                <Wifi className="h-4 w-4 flex-shrink-0 text-gray-500" />
-                <span className="flex-1 text-left">{group.label}</span>
-                {!hotspotOpen && (
-                  <span className="text-[10px] font-semibold tabular-nums bg-white/8 text-gray-500 rounded-full px-1.5 py-0.5">
-                    {group.items.length}
-                  </span>
-                )}
-                <ChevronDown className={cn("h-3.5 w-3.5 text-gray-500 transition-transform duration-200 flex-shrink-0", hotspotOpen && "rotate-180")} />
-              </button>
-              {hotspotOpen && (
-                <div className="space-y-0.5">
-                  {group.items.map(({ href, label, icon: Icon }) => {
-                    const isActive = isNavActive(href);
-                    return (
-                      <Link
-                        key={href}
-                        href={href}
-                        onClick={(e) => handleTabClick(href, e)}
-                        className={cn(
-                          "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
-                          isActive
-                            ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
-                            : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
-                        )}
-                      >
-                        <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
-                        <span className="flex-1 truncate">{label}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ) : (
             /* ── Groupe normal ── */
             <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
               <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
@@ -549,7 +496,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 })}
               </div>
             </div>
-          )
         ))}
       </nav>
 
