@@ -19,6 +19,7 @@ run = "pnpm --filter @workspace/app run dev"
 
 [services.production]
 serve = "static"
+publicDir = "dist/public"
 build = ["pnpm", "--filter", "@workspace/app", "run", "build"]
 
 [services.env]
