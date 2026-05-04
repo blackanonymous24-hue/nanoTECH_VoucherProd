@@ -899,7 +899,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {/* Sliding nav panel */}
             <div
               className={cn(
-                "absolute top-0 left-0 w-64 bg-[#0d1117] text-white border-r border-b border-white/[0.06] rounded-br-xl z-20 flex flex-col overflow-y-auto transition-transform duration-300 ease-in-out",
+                "absolute top-0 left-0 h-full w-64 bg-[#0d1117] text-white border-r border-white/[0.06] z-20 flex flex-col overflow-y-auto transition-transform duration-300 ease-in-out",
                 mobileOpen ? "translate-x-0" : "-translate-x-full"
               )}
             >
