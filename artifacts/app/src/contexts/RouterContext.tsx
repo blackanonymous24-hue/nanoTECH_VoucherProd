@@ -45,15 +45,12 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     query: { staleTime: 30_000, gcTime: 5 * 60_000 },
   });
 
-  const [allRouters, setAllRouters] = useState<Router[]>([]);
-  const initializedRef = useRef(false);
-
-  useEffect(() => {
-    if (freshRouters) {
-      setAllRouters(freshRouters);
-      initializedRef.current = true;
-    }
-  }, [freshRouters]);
+  // Use freshRouters directly — no intermediate state — so that when
+  // routersFetched becomes true, `routers` is already the real list.
+  // The previous pattern (setAllRouters in a useEffect) caused a one-render
+  // lag where routersFetched=true but allRouters=[], which wiped the stored
+  // selectedRouterId and fell back to the first router on every refresh.
+  const allRouters: Router[] = freshRouters ?? [];
 
   // For collaborateurs: filter to only their assigned routers
   const routers: Router[] = (role === "collaborateur" && collaborateurRouterIds.length > 0)
@@ -152,7 +149,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   }, [allRouters, selectedRouterId]);
 
   const selectedRouter = routers.find((r) => r.id === selectedRouterId);
-  const isFirstLoad = routersQueryLoading && !initializedRef.current;
+  // isFirstLoad: true only while the very first fetch is in-flight (no cached data yet)
+  const isFirstLoad = routersQueryLoading && freshRouters == null;
 
   return (
     <RouterContext.Provider value={{
