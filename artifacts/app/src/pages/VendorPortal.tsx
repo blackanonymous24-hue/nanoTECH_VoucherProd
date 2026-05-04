@@ -1012,10 +1012,9 @@ function Dashboard({ token, vendor, onLogout }: {
 
   useEffect(() => {
     fetchData(true).then(() => { prefetchPeriods(); });
-    // Refresh discret toutes les 8 s pour un ressenti temps réel.
-    // Côté serveur, le cache TTL=20 s + stale-while-revalidate font que la
-    // plupart des requêtes sont servies instantanément (pure mémoire).
-    const id = setInterval(() => { fetchData(false); }, 8_000);
+    // Refresh discret toutes les 5 s pour afficher les nouvelles ventes en temps réel.
+    // Côté serveur, le cache TTL=5 s garantit des données fraîches à chaque cycle.
+    const id = setInterval(() => { fetchData(false); }, 5_000);
     // Le prefetch des rapports périodes reste à 30 s (plus lourd, change peu).
     const idPeriod = setInterval(() => { prefetchPeriods(); }, 30_000);
     return () => { clearInterval(id); clearInterval(idPeriod); };

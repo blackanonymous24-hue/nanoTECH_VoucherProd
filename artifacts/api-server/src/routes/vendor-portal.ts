@@ -28,10 +28,10 @@ const PSC_TTL: Record<string, number> = {
   today: 45_000, yesterday: 3_600_000, week: 3_600_000, month: 120_000,
 };
 /* dashboard TTLs */
-const DASH_TTL     = 20_000;   // /vendor-portal/me  (15s refresh cycle + buffer)
+const DASH_TTL     = 5_000;    // /vendor-portal/me  — réduit pour ventes temps réel
 const PAYMENTS_TTL = 30_000;   // /vendor-portal/me/payments
 const ARREARS_TTL  = 45_000;   // /vendor-portal/me/daily-arrears
-const DASH_MAX_STALE_MS = 2 * 60_000;
+const DASH_MAX_STALE_MS = 10_000; // max stale: 10s pour rester quasi temps réel
 
 function buildTotals(vendorId: number) {
   return db.select({
