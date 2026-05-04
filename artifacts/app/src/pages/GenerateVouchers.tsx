@@ -127,23 +127,42 @@ const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2"];
 function isRouterUnreachable(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as Record<string, unknown>;
+  // Interruption intentionnelle du fetch (logout, AbortController) — pas une panne réseau.
+  if (e.name === "AbortError") return false;
   const response = e.response as Record<string, unknown> | undefined;
   if (response?.status === 502) return true;
   const msg = String(e.message ?? "").toLowerCase();
-  return msg.includes("502") || msg.includes("contacter") || msg.includes("unreachable") || msg.includes("network error");
+  return (
+    msg.includes("502") ||
+    msg.includes("contacter") ||
+    msg.includes("unreachable") ||
+    msg.includes("network error") ||
+    msg.includes("failed to fetch") ||   // Chrome / Firefox hors-ligne
+    msg.includes("load failed")           // Safari hors-ligne
+  );
 }
 
-/** Attend que le routeur soit à nouveau accessible (ping toutes les 4s). */
+/** Attend que le routeur soit à nouveau accessible (ping toutes les 4s).
+ *  Chaque tentative est limitée à 10 s pour ne pas rester figé si le serveur
+ *  API lui-même met du temps à répondre après un redémarrage.
+ */
 async function waitForRouter(routerId: number, base: string): Promise<void> {
   for (;;) {
     await new Promise<void>((r) => setTimeout(r, 4000));
     try {
-      const res = await fetch(`${base}/api/routers/${routerId}/ping?force=1`);
-      if (res.ok) {
-        const data = await res.json() as { success: boolean };
-        if (data.success) return;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10_000);
+      try {
+        const res = await fetch(`${base}/api/routers/${routerId}/ping?force=1`, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json() as { success: boolean };
+          if (data.success) return;
+        }
+      } finally {
+        clearTimeout(timer);
       }
-    } catch { /* réseau encore indisponible, on réessaie */ }
+    } catch { /* réseau encore indisponible ou timeout — on réessaie */ }
   }
 }
 
@@ -161,10 +180,18 @@ async function fetchLotUsers(
   base: string,
 ): Promise<Array<{ username: string; password: string; profile: string; comment: string | null }>> {
   const url = `${base}/api/routers/${routerId}/users?comment=${encodeURIComponent(comment)}&limit=5000&refresh=1`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const data = (await res.json()) as { users?: Array<{ username: string; password: string; profile: string; comment: string | null }> };
-  return data.users ?? [];
+  // Timeout de 20 s : évite de rester figé sur la réconciliation si le routeur
+  // est lent à répondre juste après être revenu en ligne.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { users?: Array<{ username: string; password: string; profile: string; comment: string | null }> };
+    return data.users ?? [];
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 type ProfileForLot = { name: string; price?: string | null; validity?: string | null };
@@ -461,7 +488,9 @@ export default function GenerateVouchers() {
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
     const profilePrice = selectedProfile?.price ?? "";
     const profileValidity = selectedProfile?.validity ?? "";
-    const BATCH_SIZE = 50;
+    // 200 par batch : 4× moins d'aller-retours HTTP pour les gros lots (>1000).
+    // Le serveur gère jusqu'à 64 writers parallèles et tolère 120 s par batch.
+    const BATCH_SIZE = 200;
     const allVouchers: Voucher[] = [];
     let done = 0;
     let lockAcquired = false;
