@@ -17,6 +17,10 @@ localPort = 5173
 [services.development]
 run = "pnpm --filter @workspace/app run dev"
 
+[services.production]
+serve = "static"
+build = ["pnpm", "--filter", "@workspace/app", "run", "build"]
+
 [services.env]
 PORT = "5173"
 BASE_PATH = "/"
