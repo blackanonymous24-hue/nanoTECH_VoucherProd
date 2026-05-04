@@ -768,7 +768,7 @@ export default function Dashboard() {
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <span className="whitespace-nowrap">Logs hotspot (utilisateurs)</span>
+              <span className="whitespace-nowrap">Logs hotspot</span>
               {selectedRouterId && !logsLoading && (
                 <span className="flex items-center gap-1 text-xs font-normal text-green-600">
                   <span className="relative flex h-2 w-2">
