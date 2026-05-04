@@ -2031,13 +2031,30 @@ interface UsageSyncEntry { updatedAt: number; updated: number; total: number; }
 const usageSyncCache  = new Map<number, UsageSyncEntry>();
 const usageSyncActive = new Set<number>(); // routers currently syncing
 const usageSyncTimer  = new Map<number, ReturnType<typeof setTimeout>>();
-const USAGE_SYNC_INTERVAL = 15_000; // 15 seconds — matches script-cache incremental gap
+const USAGE_SYNC_INTERVAL   = 15_000;      // 15 s  — matches script-cache incremental gap
+const ROUTER_IDLE_TIMEOUT   = 5 * 60_000;  // 5 min — stop syncing if no requests
 
-/** Core sync logic — shared by background and manual trigger */
+/** Tracks the last time each router received a user request */
+const lastRouterActivityAt = new Map<number, number>();
 
-/** Background auto-sync — self-reschedules every USAGE_SYNC_INTERVAL */
+/** Call from any route that actively uses a router to keep its sync loop alive */
+function markRouterActive(routerId: number): void {
+  lastRouterActivityAt.set(routerId, Date.now());
+}
+
+/** Background auto-sync — self-reschedules every USAGE_SYNC_INTERVAL.
+ *  Stops automatically when the router has been idle for ROUTER_IDLE_TIMEOUT. */
 async function scheduleUsageSync(routerId: number, conn: RouterConnection) {
   if (usageSyncActive.has(routerId)) return;
+
+  // Stop the loop if nobody has touched this router recently.
+  const lastActivity = lastRouterActivityAt.get(routerId) ?? 0;
+  if (Date.now() - lastActivity > ROUTER_IDLE_TIMEOUT) {
+    usageSyncTimer.delete(routerId);
+    logger.info({ routerId }, "usage sync: routeur inactif — boucle arrêtée");
+    return;
+  }
+
   // If a user-initiated operation has locked this router, skip this cycle
   // and come back next interval rather than fighting for a connection.
   if (isRouterLocked(routerId)) {
@@ -2085,7 +2102,8 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   if (needsRefresh || agingRefresh) {
     triggerSalesRefresh(r.ownerAdminId, id, r.host, r.port, r.username, r.password);
   }
-  // Also ensure usage sync is running for this router
+  // Mark active + ensure sync is running for this router
+  markRouterActive(id);
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   ensureUsageSyncScheduled(id, conn);
 
@@ -2115,6 +2133,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const sc = routerCacheScope(r.ownerAdminId, id);
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  markRouterActive(id);
   ensureUsageSyncScheduled(id, conn);
   // Ventes des cartes : cache scripts + bons « seuls » (hors doublon jour UTC / login), comme GET …/sales-report.
   // Ne pas lancer fetchSalesFromScripts ici : le SSE appelle ce snapshot ~1,5 s et écraserait les totaux
@@ -2532,6 +2551,7 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  markRouterActive(id);
   ensureUsageSyncScheduled(id, conn);
 
   const entry = usageSyncCache.get(id);
@@ -2574,6 +2594,8 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       .limit(1);
     if (routerRow) {
       const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+      markRouterActive(id);
+      ensureUsageSyncScheduled(id, conn);
       await Promise.race([
         syncScriptCache(id, conn),
         new Promise<void>((resolve) => setTimeout(resolve, 12_000)),
@@ -2954,34 +2976,6 @@ router.post("/routers/:id/sync-usage", async (req, res): Promise<void> => {
   }
 });
 
-/* ── Startup cache warm-up ──────────────────────────────────────────────
- * Proactively fetch /info for all active routers right after the server
- * boots so the very first dashboard request is served from cache.
- * Failures are silently ignored — the endpoint falls back to a live call.
- */
-setImmediate(async () => {
-  try {
-    const activeRouters = await db
-      .select()
-      .from(routersTable)
-      .where(eq(routersTable.isActive, true));
-    await Promise.all(
-      activeRouters.map(async (r) => {
-        const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-        // Warm the /info cache
-        const warmSc = routerCacheScope(r.ownerAdminId, r.id);
-        const ck = `info:${warmSc}`;
-        if (!mGet(ck)) {
-          try {
-            const info = await getRouterInfo(conn);
-            mSet(ck, MIK_TTL.info, info);
-          } catch { /* ignore individual router failures */ }
-        }
-        // Auto-start usage sync so per-vendor stats are fresh from the first request
-        ensureUsageSyncScheduled(r.id, conn);
-      }),
-    );
-  } catch { /* ignore DB errors at startup */ }
-});
+// Info cache and usage sync are warmed on-demand when a router is first accessed.
 
 export default router;
