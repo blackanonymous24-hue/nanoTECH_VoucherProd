@@ -973,7 +973,7 @@ export default function VendorTracking() {
                                           <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
                                           <span className="text-xs font-medium">
                                             {underlying
-                                              ? `Arriérés cumulés (${underlying.length} jours, du ${fmtDateFr(underlying[0].date)} au ${fmtDateFr(arr.date)})`
+                                              ? `Arriérés cumulés (${underlying.length} jours, dernier : ${fmtDateFr(arr.date)})`
                                               : `Arriéré du ${fmtDateFr(arr.date)}`}
                                           </span>
                                         </div>

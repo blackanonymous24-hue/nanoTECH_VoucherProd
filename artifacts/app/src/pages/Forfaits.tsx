@@ -97,14 +97,13 @@ export default function Forfaits() {
         staleTime: 5 * 60_000,
         gcTime: 10 * 60_000,
         refetchOnWindowFocus: false,
+        placeholderData: (prev) => prev,
       },
     },
   );
 
   const [showDialog, setShowDialog] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null); // original name when editing
-  /** RouterOS `.id` for PUT fast path (optional). */
-  const [editingMikrotikId, setEditingMikrotikId] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,7 +174,6 @@ export default function Forfaits() {
   function openCreate() {
     setError(null);
     setEditingName(null);
-    setEditingMikrotikId(null);
     setForm(defaultForm);
     if (selectedRouterId && _poolsCache[selectedRouterId]) setPools(_poolsCache[selectedRouterId]);
     setShowDialog(true);
@@ -185,8 +183,6 @@ export default function Forfaits() {
   function openEdit(p: (typeof profiles)[0]) {
     setError(null);
     setEditingName(p.name);
-    const mid = p.mikrotikId?.trim();
-    setEditingMikrotikId(mid || null);
     setForm({
       name: p.name,
       addrPool: p.addrPool ?? "",
@@ -216,21 +212,16 @@ export default function Forfaits() {
         ? `/api/routers/${selectedRouterId}/profiles/${encodeURIComponent(editingName)}`
         : `/api/routers/${selectedRouterId}/profiles`;
       const method = editingName ? "PUT" : "POST";
-      const body =
-        editingName && editingMikrotikId
-          ? { ...form, mikrotikId: editingMikrotikId }
-          : form;
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(form),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Erreur lors de la sauvegarde"); setSaving(false); return; }
       setShowDialog(false);
       setForm(defaultForm);
       setEditingName(null);
-      setEditingMikrotikId(null);
       const qk = getListRouterProfilesQueryKey(selectedRouterId);
       queryClient.invalidateQueries({ queryKey: qk });
       void queryClient.refetchQueries({ queryKey: qk, type: "active" });
@@ -353,22 +344,7 @@ export default function Forfaits() {
               <Card key={p.name} className="hover:shadow-md transition-shadow">
                 <div className="flex p-4 gap-2">
                   <div className="flex-1 min-w-0 space-y-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ring-1 ring-offset-1 ring-offset-white ${
-                          p.schedulerMonitorActive === true
-                            ? "bg-emerald-500 ring-emerald-600/30"
-                            : "bg-orange-400 ring-orange-500/30"
-                        }`}
-                        title={
-                          p.schedulerMonitorActive === true
-                            ? "Moniteur d’expiration actif (scheduler)"
-                            : "Pas de scheduler actif pour ce profil (comme Mikhmon : orange)"
-                        }
-                        aria-hidden
-                      />
-                      <p className="text-base font-bold text-gray-900 truncate" title={p.name}>{p.name}</p>
-                    </div>
+                    <p className="text-base font-bold text-gray-900 truncate" title={p.name}>{p.name}</p>
 
                     <div className="flex items-center gap-2 text-sm">
                       <Clock className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />

@@ -49,7 +49,6 @@ interface SaleEntry {
   origin?: "script" | "voucher";
   source?: "mikrotik+local" | "local-db";
 }
-type PreparedSaleEntry = SaleEntry & { _search: string; _ts: number };
 
 function fmtAmount(n: number) {
   return n.toLocaleString("fr-FR");
@@ -185,35 +184,31 @@ export default function SellingReport() {
       }),
     [entriesWithPresence],
   );
-
   const filtered = useMemo(() => {
-    const q = foldText(deferredSearch.trim());
-    if (!q) return preparedEntries;
-    return preparedEntries.filter((e) => e._search.includes(q));
-  }, [preparedEntries, deferredSearch]);
+    if (!deferredSearch.trim()) return entriesWithPresence;
+    const q = foldText(deferredSearch);
+    return entriesWithPresence.filter(
+      (e) =>
+        foldText(e.username).includes(q) ||
+        foldText(e.label).includes(q) ||
+        foldText(e.batch).includes(q) ||
+        foldText(e.date).includes(q) ||
+        foldText(e.vendorName ?? "").includes(q),
+    );
+  }, [entriesWithPresence, deferredSearch]);
 
-  // Affichage chronologique pour le mois: 01 → xx, puis heure croissante.
-  const orderedFiltered = useMemo(
-    () =>
-      [...filtered].sort((a, b) => {
-        if (a._ts !== b._ts) return a._ts - b._ts;
-        return a.username.localeCompare(b.username, "fr");
-      }),
-    [filtered],
-  );
-
-  const totalAmount = useMemo(() => orderedFiltered.reduce((s, e) => s + e.price, 0), [orderedFiltered]);
+  const totalAmount = useMemo(() => filtered.reduce((s, e) => s + e.price, 0), [filtered]);
   const sourceCounts = useMemo(() => {
     let both = 0;
     let local = 0;
-    for (const e of orderedFiltered) {
+    for (const e of filtered) {
       if (e.source === "mikrotik+local") both++;
       else local++;
     }
     return { both, local };
-  }, [orderedFiltered]);
+  }, [filtered]);
   const tableRows = useMemo(
-    () => orderedFiltered.map((e, i) => (
+    () => filtered.map((e, i) => (
       <tr
         key={saleEntryKey(e)}
         className="border-b border-gray-50 hover:bg-gray-50 transition-colors"
@@ -253,7 +248,7 @@ export default function SellingReport() {
         </td>
       </tr>
     )),
-    [orderedFiltered],
+    [filtered],
   );
 
   const yearOptions = useMemo(() => {
@@ -372,7 +367,7 @@ export default function SellingReport() {
               {!isLoading && (
                 <>
                   <span className="text-xs text-gray-500 tabular-nums">
-                    {orderedFiltered.length} vente{orderedFiltered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
+                    {filtered.length} vente{filtered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
                   </span>
                   <Badge variant="outline" className="text-[10px] font-normal text-gray-700 border-gray-200 bg-gray-50">
                     {sourceCounts.scriptRows} cache script
@@ -456,8 +451,8 @@ export default function SellingReport() {
             <Button
               size="sm" variant="outline"
               className="h-8 gap-1.5 text-xs ml-auto"
-              onClick={() => exportCSV(orderedFiltered, csvFilename)}
-              disabled={orderedFiltered.length === 0}
+              onClick={() => exportCSV(filtered, csvFilename)}
+              disabled={filtered.length === 0}
             >
               <FileDown className="h-3.5 w-3.5" /> CSV
             </Button>
@@ -537,7 +532,7 @@ export default function SellingReport() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orderedFiltered.length === 0 ? (
+                  {filtered.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-3 py-8 text-center text-gray-400">
                         Aucune vente trouvée
@@ -545,7 +540,7 @@ export default function SellingReport() {
                     </tr>
                   ) : tableRows}
                 </tbody>
-                {orderedFiltered.length > 0 && (
+                {filtered.length > 0 && (
                   <tfoot>
                     <tr className="bg-gray-50 border-t border-gray-200">
                       <td colSpan={7} className="px-3 py-2 text-xs text-gray-500 font-medium">

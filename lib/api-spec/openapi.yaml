@@ -186,58 +186,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /routers/{id}/profiles/{profileName}:
-    put:
-      operationId: updateRouterProfile
-      summary: Update a hotspot user profile on the router
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-        - in: path
-          name: profileName
-          required: true
-          schema:
-            type: string
-          description: Original profile name (URL-encoded). When `mikrotikId` is sent, it must still match that row on the router.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateHotspotProfileRequest"
-      responses:
-        "200":
-          description: Profile updated
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [ok]
-                properties:
-                  ok:
-                    type: boolean
-        "400":
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: Not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: Cannot reach router or MikroTik error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
   /routers/{id}/sessions:
     get:
       operationId: listRouterSessions
@@ -840,13 +788,10 @@ components:
 
     HotspotProfile:
       type: object
-      required: [name, schedulerMonitorActive]
+      required: [name]
       properties:
         name:
           type: string
-        mikrotikId:
-          type: string
-          description: Internal RouterOS id of the profile row
         rateLimit:
           type: ["string", "null"]
         validity:
@@ -865,40 +810,6 @@ components:
           type: ["string", "null"]
         parentQueue:
           type: ["string", "null"]
-        schedulerMonitorActive:
-          type: boolean
-          description: True when a /system scheduler entry exists for this profile name and is enabled (Mikhmon-style monitor).
-
-    UpdateHotspotProfileRequest:
-      type: object
-      required: [name, price, validity]
-      properties:
-        name:
-          type: string
-        validity:
-          type: string
-        price:
-          type: string
-        sellingPrice:
-          type: string
-        sharedUsers:
-          type: string
-        addrPool:
-          type: string
-        rateLimit:
-          type: string
-        expiredMode:
-          type: string
-        lockMac:
-          type: boolean
-        parentQueue:
-          type: string
-        mikrotikId:
-          type: string
-          description: >
-            Optional internal RouterOS `.id` of the profile (same as `mikrotikId` from list profiles).
-            When valid and matching the path profile name, the server resolves the row with a single
-            `print ?.id=` instead of `print ?name=`, which is faster on routers with many profiles.
 
     HotspotSession:
       type: object

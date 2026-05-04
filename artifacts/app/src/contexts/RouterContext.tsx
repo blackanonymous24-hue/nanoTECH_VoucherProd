@@ -41,7 +41,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   // but the router list is filtered.
   const isRouterLocked = isManagerLocked;
 
-  const { data: freshRouters, isLoading: routersQueryLoading, isFetched: routersFetched } = useListRouters({
+  const { data: freshRouters, isLoading: routersLoading } = useListRouters({
     query: { staleTime: 30_000, gcTime: 5 * 60_000 },
   });
 
@@ -76,33 +76,30 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, [isManagerLocked, managerRouterId]);
 
-  // Quand la liste des routeurs autorisés est connue : aligner la sélection.
-  // - liste vide → effacer l'ID (sinon un ancien localStorage / cache peut viser
-  //   un routeur d'un autre compte → 403 sur toutes les pages).
-  // - sélection absente de la liste → premier routeur autorisé.
+  // For collaborateurs: if the currently selected router is not in their list, auto-select the first one
+  useEffect(() => {
+    if (role === "collaborateur" && routers.length > 0) {
+      if (selectedRouterId === null || !routers.find((r) => r.id === selectedRouterId)) {
+        const firstId = routers[0].id;
+        setSelectedRouterIdState(firstId);
+        localStorage.setItem(STORAGE_KEY, String(firstId));
+      }
+    }
+  }, [role, routers, selectedRouterId]);
+
+  // For admin/vendor (and any non-manager unlocked role): if selection is
+  // empty or stale after reconnect, auto-select the first available router.
   useEffect(() => {
     if (!isAuthenticated) return;
     if (isManagerLocked) return;
-    if (!routersFetched) return;
-
-    if (routers.length === 0) {
-      if (selectedRouterId !== null) {
-        setSelectedRouterIdState(null);
-        try {
-          localStorage.removeItem(STORAGE_KEY);
-        } catch {
-          /* noop */
-        }
-      }
-      return;
-    }
-
+    if (role === "collaborateur") return; // handled above
+    if (routers.length === 0) return;
     if (selectedRouterId === null || !routers.some((r) => r.id === selectedRouterId)) {
       const firstId = routers[0].id;
       setSelectedRouterIdState(firstId);
       localStorage.setItem(STORAGE_KEY, String(firstId));
     }
-  }, [isAuthenticated, isManagerLocked, routersFetched, routers, selectedRouterId]);
+  }, [isAuthenticated, isManagerLocked, role, routers, selectedRouterId]);
 
   const [pingTrigger, setPingTrigger] = useState(0);
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
@@ -152,7 +149,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   }, [allRouters, selectedRouterId]);
 
   const selectedRouter = routers.find((r) => r.id === selectedRouterId);
-  const isFirstLoad = routersQueryLoading && !initializedRef.current;
+  const isFirstLoad = routersLoading && !initializedRef.current;
 
   return (
     <RouterContext.Provider value={{
