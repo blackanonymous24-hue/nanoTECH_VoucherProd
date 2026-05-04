@@ -635,14 +635,11 @@ export default function VendorTracking() {
     staleTime: 5 * 60_000,
   });
 
-  // L'endpoint /vendors/daily-arrears utilise une fenêtre [date−31j ; date−1j],
-  // donc le jour `applied` lui-même serait exclu si on l'envoyait tel quel.
-  // Pour inclure le jour sélectionné dans les arriérés (cohérent avec la
-  // page « Versement du jour »), on requête avec date+1.
-  const arrearsQueryDate = (() => {
-    const d = new Date(applied + "T00:00:00Z");
-    return new Date(d.getTime() + 86_400_000).toISOString().slice(0, 10);
-  })();
+  // L'endpoint /vendors/daily-arrears utilise une fenêtre [date−31j ; date−1j].
+  // On envoie `applied` directement pour que seuls les jours STRICTEMENT
+  // antérieurs au jour consulté apparaissent en arriérés — le jour `applied`
+  // est déjà affiché dans le résumé journalier, il ne doit pas figurer ici.
+  const arrearsQueryDate = applied;
   const { data: arrearsData } = useQuery<DailyArrearsResponse>({
     queryKey: ["vendor-daily-arrears", selectedRouterId, arrearsQueryDate],
     queryFn: async ({ signal }) => {
