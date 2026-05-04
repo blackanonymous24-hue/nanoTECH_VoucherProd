@@ -470,14 +470,15 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                           <tbody>
                             {vFiltered.map((v, i) => {
                               const displayPrice = v.salePrice || v.price || "";
-                              const dateObj = (() => {
+                              const dateStr = (() => {
                                 const raw = v.usedAt || v.printedAt;
                                 if (!raw) return null;
                                 const d = new Date(raw);
                                 const dy = String(d.getDate()).padStart(2, "0");
                                 const hh = String(d.getHours()).padStart(2, "0");
                                 const mn = String(d.getMinutes()).padStart(2, "0");
-                                return { date: `${dy} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`, time: `${hh}:${mn}` };
+                                const ss = String(d.getSeconds()).padStart(2, "0");
+                                return `${dy} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${hh}:${mn}:${ss}`;
                               })();
                               return (
                                 <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
@@ -497,12 +498,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                                     <span className="font-mono text-[10px] text-gray-500">{v.saleIp || <span className="text-gray-300">—</span>}</span>
                                   </td>
                                   <td className="px-3 py-2 whitespace-nowrap">
-                                    {dateObj ? (
-                                      <>
-                                        <p className="text-gray-700">{dateObj.date}</p>
-                                        <p className="text-[10px] text-gray-400 font-mono">{dateObj.time}</p>
-                                      </>
-                                    ) : <span className="text-gray-300">—</span>}
+                                    <span className="text-gray-600">{dateStr ?? "—"}</span>
                                   </td>
                                   <td className="px-3 py-2 text-center">
                                     <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-500 ring-1 ring-red-200 whitespace-nowrap">Vendu</span>
@@ -763,14 +759,15 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                         <tbody>
                           {vFiltered.map((v, i) => {
                             const displayPrice = v.salePrice || v.price || "";
-                            const dateObj = (() => {
+                            const dateStr = (() => {
                               const raw = v.usedAt || v.printedAt;
                               if (!raw) return null;
                               const dt = new Date(raw);
                               const dy = String(dt.getDate()).padStart(2, "0");
                               const hh = String(dt.getHours()).padStart(2, "0");
                               const mn = String(dt.getMinutes()).padStart(2, "0");
-                              return { date: `${dy} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`, time: `${hh}:${mn}` };
+                              const ss = String(dt.getSeconds()).padStart(2, "0");
+                              return `${dy} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()} ${hh}:${mn}:${ss}`;
                             })();
                             return (
                               <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
@@ -790,12 +787,7 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                                   <span className="font-mono text-[10px] text-gray-500">{v.saleIp || <span className="text-gray-300">—</span>}</span>
                                 </td>
                                 <td className="px-3 py-2 whitespace-nowrap">
-                                  {dateObj ? (
-                                    <>
-                                      <p className="text-gray-700">{dateObj.date}</p>
-                                      <p className="text-[10px] text-gray-400 font-mono">{dateObj.time}</p>
-                                    </>
-                                  ) : <span className="text-gray-300">—</span>}
+                                  <span className="text-gray-600">{dateStr ?? "—"}</span>
                                 </td>
                                 <td className="px-3 py-2 text-center">
                                   <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-500 ring-1 ring-red-200 whitespace-nowrap">Vendu</span>
@@ -1386,15 +1378,15 @@ function Dashboard({ token, vendor, onLogout }: {
               <Card>
                 <CardHeader className="pb-2 border-b border-gray-100">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <PackageOpen className="h-4 w-4 text-gray-400" />
-                      Stock tickets — ce mois
+                    <CardTitle className="text-sm flex items-center gap-1.5">
+                      <PackageOpen className="h-3.5 w-3.5 text-gray-400" />
+                      Stock tickets (ce mois)
                     </CardTitle>
-                    <span className="text-xs text-gray-400">↻ 30s</span>
+                    <span className="text-[10px] text-gray-400">↻ 30s</span>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-4">
-                  <div className="space-y-3">
+                <CardContent className="pt-3 pb-3">
+                  <div className="space-y-2">
                     {data.byProfile.map((p) => {
                       const available      = p.total - p.used;
                       const soldThisMonth  = p.soldThisMonth ?? 0;
@@ -1408,27 +1400,27 @@ function Dashboard({ token, vendor, onLogout }: {
 
                       return (
                         <div key={p.profileName}>
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="text-sm font-medium text-gray-700 truncate">{p.profileName}</span>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="text-xs font-semibold text-gray-700 truncate">{p.profileName}</span>
                               {isLow && (
-                                <span className="flex items-center gap-0.5 text-xs font-semibold text-orange-500">
-                                  <Bell className="h-3 w-3" /> Stock faible
+                                <span className="flex items-center gap-0.5 text-[10px] font-semibold text-orange-500">
+                                  <Bell className="h-2.5 w-2.5" /> Faible
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-3 text-xs flex-shrink-0">
+                            <div className="flex items-center gap-2 text-[10px] flex-shrink-0">
                               <span className="text-gray-400">
-                                {soldThisMonth} vendu{soldThisMonth !== 1 ? "s" : ""} ce mois
+                                {soldThisMonth} vendu{soldThisMonth !== 1 ? "s" : ""}
                               </span>
-                              <span className={`font-semibold ${textColor}`}>
-                                {available} disponible{available !== 1 ? "s" : ""}
+                              <span className={`font-bold ${textColor}`}>
+                                {available} dispo
                               </span>
                             </div>
                           </div>
 
                           {/* Jauge */}
-                          <div className={`relative h-2.5 rounded-full overflow-hidden ${trackColor}`}>
+                          <div className={`relative h-1.5 rounded-full overflow-hidden ${trackColor}`}>
                             <div
                               className="absolute inset-y-0 left-0 bg-gray-300 rounded-l-full transition-all duration-500"
                               style={{ width: `${usedPct}%` }}
@@ -1437,11 +1429,6 @@ function Dashboard({ token, vendor, onLogout }: {
                               className={`absolute inset-y-0 rounded-full transition-all duration-500 ${barColor}`}
                               style={{ left: `${usedPct}%`, right: 0 }}
                             />
-                          </div>
-
-                          <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                            <span>Vendus ce mois ({usedPct}%)</span>
-                            <span>Disponibles ({100 - usedPct}%)</span>
                           </div>
                         </div>
                       );
@@ -1470,22 +1457,23 @@ function Dashboard({ token, vendor, onLogout }: {
 
             {data.byProfile.length > 0 && (
               <Card>
-                <CardHeader className="pb-2 border-b border-gray-100">
-                  <CardTitle className="text-base">Vendus par forfait (ce mois)</CardTitle>
+                <CardHeader className="py-2 px-4 border-b border-gray-100">
+                  <CardTitle className="text-sm">Vendus par forfait (ce mois)</CardTitle>
                 </CardHeader>
-                <CardContent className="pt-3">
-                  <div className="space-y-2">
+                <CardContent className="p-0">
+                  <div className="divide-y divide-gray-100">
                     {[...data.byProfile]
                       .sort((a, b) => (parseFloat(String((a as any).price ?? "0").replace(/\s/g, "")) || 0) - (parseFloat(String((b as any).price ?? "0").replace(/\s/g, "")) || 0))
                       .map((p) => {
                         const available = p.total - p.used;
                         const soldThisMonth = p.soldThisMonth ?? 0;
                         return (
-                          <div key={p.profileName} className="flex items-center justify-between py-2 border-b last:border-0">
-                            <span className="text-sm font-medium text-gray-700">{p.profileName}</span>
-                            <div className="flex gap-3 text-sm">
-                              <span className="text-red-600">Vendu: <strong>{soldThisMonth}</strong></span>
-                              <span className="text-green-600">Restants: <strong>{available}</strong></span>
+                          <div key={p.profileName} className="flex items-center justify-between px-4 py-1.5">
+                            <span className="text-xs font-medium text-gray-700 truncate min-w-0 flex-1">{p.profileName}</span>
+                            <div className="flex items-center gap-2 text-[10px] flex-shrink-0 ml-2">
+                              <span className="text-red-600 font-semibold tabular-nums">{soldThisMonth} vendu{soldThisMonth !== 1 ? "s" : ""}</span>
+                              <span className="text-gray-300">·</span>
+                              <span className="text-emerald-600 font-semibold tabular-nums">{available} restant{available !== 1 ? "s" : ""}</span>
                             </div>
                           </div>
                         );

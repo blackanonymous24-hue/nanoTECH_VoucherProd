@@ -195,21 +195,22 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
                             <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">User</th>
                             <th className="text-right px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">Prix</th>
                             <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px] hidden sm:table-cell">MAC</th>
-                            <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">Heure</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">Date</th>
                             <th className="text-center px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">État</th>
                           </tr>
                         </thead>
                         <tbody>
                           {data.vouchers.map((v, i) => {
                             const displayPrice = v.salePrice || v.price || "";
-                            const usedAtObj = (() => {
+                            const dateStr = (() => {
                               const raw = v.usedAt || v.printedAt;
                               if (!raw) return null;
                               const d = new Date(raw);
+                              const dy = String(d.getDate()).padStart(2, "0");
                               const hh = String(d.getHours()).padStart(2, "0");
                               const mn = String(d.getMinutes()).padStart(2, "0");
-                              const day = String(d.getDate()).padStart(2, "0");
-                              return { time: `${hh}:${mn}`, date: `${day} ${MONTHS[d.getMonth()]}` };
+                              const ss = String(d.getSeconds()).padStart(2, "0");
+                              return `${dy} ${MONTHS[d.getMonth()]} ${d.getFullYear()} ${hh}:${mn}:${ss}`;
                             })();
                             return (
                               <tr key={v.id} className={`transition-colors hover:bg-gray-50 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
@@ -229,12 +230,7 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
                                   <span className="font-mono text-[10px] text-gray-500">{v.macAddress || <span className="text-gray-300">—</span>}</span>
                                 </td>
                                 <td className="px-3 py-2 whitespace-nowrap">
-                                  {usedAtObj ? (
-                                    <>
-                                      <p className="text-gray-700 font-mono">{usedAtObj.time}</p>
-                                      <p className="text-[10px] text-gray-400">{usedAtObj.date}</p>
-                                    </>
-                                  ) : <span className="text-gray-300">—</span>}
+                                  <span className="text-gray-600">{dateStr ?? "—"}</span>
                                 </td>
                                 <td className="px-3 py-2 text-center">
                                   <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-500 ring-1 ring-red-200 whitespace-nowrap">
