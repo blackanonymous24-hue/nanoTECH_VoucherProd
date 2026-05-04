@@ -42,7 +42,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const isRouterLocked = isManagerLocked;
 
   const { data: freshRouters, isLoading: routersQueryLoading, isFetched: routersFetched } = useListRouters({
-    query: { staleTime: 30_000, gcTime: 5 * 60_000 },
+    query: { queryKey: [], staleTime: 30_000, gcTime: 5 * 60_000 },
   });
 
   // Use freshRouters directly — no intermediate state — so that when

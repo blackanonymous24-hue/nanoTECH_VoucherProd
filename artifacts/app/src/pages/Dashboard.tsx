@@ -419,6 +419,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
 export default function Dashboard() {
   const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: {
+      queryKey: [],
       refetchInterval: 10_000,
       staleTime: 9_000,
       gcTime: 30 * 60_000,
@@ -462,8 +463,8 @@ export default function Dashboard() {
     staleTime: 10_000,
     retry: false,
     throwOnError: false,
-    initialData: readPriorityCache(selectedRouterId),
-    initialDataUpdatedAt: readPriorityCache(selectedRouterId)?.serverTs,
+    initialData: readPriorityCache(selectedRouterId) ?? undefined,
+    initialDataUpdatedAt: readPriorityCache(selectedRouterId)?.serverTs ?? undefined,
   });
 
   useEffect(() => {
@@ -547,6 +548,7 @@ export default function Dashboard() {
     DASH_LOGS_PARAMS,
     {
       query: {
+        queryKey: [],
         enabled: !!selectedRouterId && enableSecondaries,
         refetchInterval: 4_000,
         refetchIntervalInBackground: false,

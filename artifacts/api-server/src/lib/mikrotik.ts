@@ -1828,7 +1828,7 @@ export async function deleteHotspotUsersByNames(
  * names contain mojibake bytes that no single encoding will reproduce.
  */
 async function findHotspotUserByName(
-  api: { write: (path: string, params?: string[]) => Promise<Record<string, unknown>[]> },
+  api: { write: (path: string | string[], ...params: (string | string[])[]) => Promise<Record<string, unknown>[]> },
   username: string,
 ): Promise<Record<string, unknown> | null> {
   const UNICODE_SPACES = /[\u00A0\u2007\u202F\u2009\u200A\u2008\u2006\u2005\u2004\u2003\u2002]/g;
@@ -1929,7 +1929,7 @@ export async function updateHotspotUser(
     return {
       found: true,
       username: nextUsername,
-      comment: fixEncoding((user["comment"] as string) || null) || null,
+      comment: user["comment"] ? fixEncoding(user["comment"] as string) || null : null,
     };
   }, 20_000, "high");
 }

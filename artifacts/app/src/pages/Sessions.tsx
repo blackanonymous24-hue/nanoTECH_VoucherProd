@@ -67,6 +67,7 @@ export default function Sessions() {
     selectedRouterId ?? 0,
     {
       query: {
+        queryKey: [],
         enabled: !!selectedRouterId,
         refetchInterval: 30_000,
         staleTime: 14_000,       // juste sous le TTL serveur (15s) → pas de double-fetch inutile

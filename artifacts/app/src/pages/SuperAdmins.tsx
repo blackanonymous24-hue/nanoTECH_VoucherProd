@@ -601,7 +601,7 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
           </div>
           <div>
             <Label>Forfait initial (mois)</Label>
-            <Select value={months} onValueChange={setMonths}>
+            <Select value={months} onValueChange={(v) => setMonths(v as typeof months)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="0">Aucun (login bloqué)</SelectItem>
@@ -728,7 +728,7 @@ function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
           )}
           <div>
             <Label>Durée</Label>
-            <Select value={months} onValueChange={setMonths}>
+            <Select value={months} onValueChange={(v) => setMonths(v as typeof months)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="24h">Test 24 heures</SelectItem>

@@ -2645,7 +2645,7 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
             liveRawNames = new Set(live.map((e) => [
               e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch,
             ].join("-|-")));
-          }, 90_000);
+          });
         } catch {
           // Non-blocking marker check: keep report available from local DB.
           liveRawNames = new Set<string>();

@@ -10,18 +10,21 @@ export const app = express();
 
 app.use(express.json({ limit: "10mb" }));
 
+// pino-http v10: default export is callable at runtime but TS types declare it
+// as a namespace when esModuleInterop is off — suppress the false-positive.
 app.use(
+  // @ts-ignore TS2349
   pinoHttp({
     logger,
     serializers: {
-      req(req) {
+      req(req: { id: unknown; method: string; url?: string }) {
         return {
           id: req.id,
           method: req.method,
           url: req.url?.split("?")[0],
         };
       },
-      res(res) {
+      res(res: { statusCode: number }) {
         return {
           statusCode: res.statusCode,
         };

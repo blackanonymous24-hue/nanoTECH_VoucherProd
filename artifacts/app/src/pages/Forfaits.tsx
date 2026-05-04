@@ -93,6 +93,7 @@ export default function Forfaits() {
     selectedRouterId ?? 0,
     {
       query: {
+        queryKey: [],
         enabled: !!selectedRouterId,
         staleTime: 5 * 60_000,
         gcTime: 10 * 60_000,

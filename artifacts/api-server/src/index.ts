@@ -19,24 +19,36 @@ process.on("unhandledRejection", (reason) => {
   logger.error({ reason }, "Unhandled promise rejection — keeping process alive");
 });
 
+// Clean shutdown on SIGTERM (sent by workflow manager on restart).
+process.on("SIGTERM", () => {
+  logger.info("SIGTERM received — shutting down");
+  process.exit(0);
+});
+
 async function start() {
+  // Open the port first so health checks pass immediately.
+  await new Promise<void>((resolve) => {
+    app.listen(port, "0.0.0.0", () => {
+      logger.info({ port }, "API server started");
+      resolve();
+    });
+  });
+
+  // DB compat migrations (idempotent, fast on subsequent startups).
   await ensureRouterCurrencyColumn();
   await ensureRouterAutoDeleteSalesScriptsColumn();
-  app.listen(port, "0.0.0.0", () => {
-    logger.info({ port }, "API server started");
-    startRealtimeVendorSync();
-    // After each vendor sync, invalidate the vendor portal cache so the next
-    // request gets fresh data (stale-while-revalidate).
-    setOnVendorSyncComplete(invalidateVendorPortalCache);
-    // Pre-warm profile snapshots in background — ensures fast response even
-    // after a restart and provides a DB fallback for offline routers.
+
+  startRealtimeVendorSync();
+  setOnVendorSyncComplete(invalidateVendorPortalCache);
+  startMaintenanceScheduler();
+  startAutoBypassSync();
+
+  // Defer heavy MikroTik startup operations by 30 s so the process is
+  // fully ready to serve HTTP requests before opening router connections.
+  setTimeout(() => {
     void warmProfileSnapshots();
-    // Maintenance automatique : purge des vouchers fantômes toutes les heures
-    // et suppression des anciens scripts MikHmon le 1er de chaque mois.
-    startMaintenanceScheduler();
-    startAutoBypassSync();
     startDashboardPriorityWarmer();
-  });
+  }, 30_000);
 }
 
 void start();

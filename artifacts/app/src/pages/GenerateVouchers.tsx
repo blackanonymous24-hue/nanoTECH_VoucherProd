@@ -481,6 +481,9 @@ export default function GenerateVouchers() {
         while (!batchOk) {
           try {
             const generated = await generateMutation.mutateAsync({
+          // Cast to any — the server accepts extra fields (charType, userLength,
+          // timelimit, datalimit) not yet reflected in the generated OpenAPI types.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           data: {
             routerId: selectedRouterId,
             profile,
@@ -495,7 +498,7 @@ export default function GenerateVouchers() {
             datalimit: dlBytes,
                 profilePrice,
                 profileValidity,
-          },
+          } as any,
         });
             allVouchers.push(...generated);
             done += generated.length;

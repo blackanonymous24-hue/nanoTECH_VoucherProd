@@ -10,7 +10,7 @@ function rewriteApiUrl(url: string | undefined): string | undefined {
     url = "/api" + url;
   }
   if (url !== "/api" && !url.startsWith("/api/")) return url;
-  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  const base = ((import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? "/").replace(/\/$/, "");
   const prefix = base ? `${base}/api` : "/api";
   return url.replace(/^\/api/, prefix);
 }

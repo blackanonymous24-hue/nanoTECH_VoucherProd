@@ -108,7 +108,7 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
-  const { data, isLoading } = useGetVendorReport(vendorId, { query: { refetchInterval: 15_000 } });
+  const { data, isLoading } = useGetVendorReport(vendorId, { query: { queryKey: [], refetchInterval: 15_000 } });
 
   if (isLoading || !data) {
     return (
@@ -122,7 +122,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
     );
   }
 
-  const nonSold   = data.totalAvailable ?? (data.totalVouchers - data.totalUsed);
+  const nonSold   = data.totalVouchers - data.totalUsed;
   const ss        = data.salesStats;
   const todaySold = ss.todaySold;
   const totalJour = nonSold + todaySold;
@@ -431,7 +431,7 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 
 /* ─── main page ───────────────────────────────────────────────── */
 export default function Reports() {
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { refetchInterval: 15_000 } });
+  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { queryKey: [], refetchInterval: 15_000 } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
 

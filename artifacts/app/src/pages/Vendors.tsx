@@ -343,7 +343,7 @@ export default function Vendors() {
     staleTime: 30_000,
   });
 
-  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { staleTime: 60_000 } });
+  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { queryKey: [], staleTime: 60_000 } });
   const summaryMap = useMemo(
     () => new Map<number, VendorSummary>(summaries.map((s) => [s.vendor.id, s])),
     [summaries],

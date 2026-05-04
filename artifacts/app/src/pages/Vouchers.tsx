@@ -334,11 +334,13 @@ export default function Vouchers() {
     {
       search: debouncedSearch || undefined,
       profile: filterProfile !== "all" ? filterProfile : undefined,
-      comment: filterComment !== "all" ? filterComment : undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...(filterComment !== "all" ? { comment: filterComment } : {}),
       limit: usersLimit,
-    },
+    } as Parameters<typeof useListRouterUsers>[1],
     {
       query: {
+        queryKey: [],
         enabled: !!activeRouterId && view === "list",
         // staleTime:0 → React Query déclenche TOUJOURS un background-refetch au montage,
         // même si initialData est présent. Un utilisateur supprimé de MikroTik disparaît
@@ -362,12 +364,12 @@ export default function Vouchers() {
   const refetch = () => { void refetchLots(); void refetchUsers(); };
 
   const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
-    query: { enabled: !!activeRouterId, staleTime: 120_000 },
+    query: { queryKey: [], enabled: !!activeRouterId, staleTime: 120_000 },
   });
   useProfileAutoResync(activeRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
   const profileExpiryModeByName = useMemo(() => {
     const map = new Map<string, string>();
-    for (const p of profilesList as Array<Record<string, unknown>>) {
+    for (const p of (profilesList as unknown as Array<Record<string, unknown>>)) {
       const name = String(p.name ?? "").trim();
       if (!name) continue;
       const mode = String(p.expiredMode ?? p.expmode ?? "").trim().toLowerCase();

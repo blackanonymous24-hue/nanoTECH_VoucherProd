@@ -1009,7 +1009,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     const amt  = raw > 0 ? raw : cnt * unit;
     if (!weekMap.has(key)) {
       const vname = key ? (vendorMap.get(key)?.name ?? "Inconnu") : "Sans vendeur";
-      weekMap.set(key, { vendorId: key, vendorName: vname, count: 0, amount: 0 });
+      weekMap.set(key, { vendorId: key, vendorName: vname, count: 0, amount: 0, commissionRate: 0 });
     }
     const w = weekMap.get(key)!;
     w.count  += cnt;
@@ -1632,10 +1632,10 @@ async function autoSettleDailyRowsForValidatedWeek(
  * Query: routerId, weekStart (YYYY-MM-DD, any day of the week — forced to Monday)
  * Returns per-vendor: sales for the week + payments + remaining
  */
-router.get("/vendors/weekly-summary", async (req, res) => {
+router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
   try {
     const routerId = parseInt(req.query.routerId as string);
-    if (isNaN(routerId)) return res.status(400).json({ error: "routerId required" });
+    if (isNaN(routerId)) { res.status(400).json({ error: "routerId required" }); return; }
 
     const rawWeek = (req.query.weekStart as string) ?? new Date().toISOString().slice(0, 10);
     const weekStart = mondayOf(rawWeek);
@@ -1688,7 +1688,7 @@ router.get("/vendors/weekly-summary", async (req, res) => {
 
     const priceMap = getCachedProfilePricesSync(routerId);
     const lower    = new Map<string, number>();
-    for (const [k, v] of priceMap) lower.set(k.toLowerCase(), v);
+    for (const [k, v] of priceMap) lower.set(k.toLowerCase(), Number(v));
     const resolveUnit = (name: string) => lower.get(name.toLowerCase()) ?? 0;
 
     const salesMap = new Map<number | null, { count: number; amount: number }>();
@@ -1766,13 +1766,13 @@ router.get("/vendors/weekly-summary", async (req, res) => {
 });
 
 /** POST /api/vendors/payments — record a versement */
-router.post("/vendors/payments", async (req, res) => {
+router.post("/vendors/payments", async (req, res): Promise<void> => {
   try {
     const { vendorId, routerId, weekStart, amount, note } = req.body as {
       vendorId: number; routerId: number; weekStart: string; amount: number; note?: string;
     };
     if (!vendorId || !routerId || !weekStart || !amount) {
-      return res.status(400).json({ error: "vendorId, routerId, weekStart, amount required" });
+      res.status(400).json({ error: "vendorId, routerId, weekStart, amount required" }); return;
     }
     const ws = mondayOf(weekStart);
     const wStart = new Date(ws + "T00:00:00Z");
@@ -1780,7 +1780,7 @@ router.post("/vendors/payments", async (req, res) => {
     const weekEnded = wEnd.getTime() <= Date.now();
 
     const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, +vendorId));
-    if (!vendor) return res.status(404).json({ error: "vendor introuvable" });
+    if (!vendor) { res.status(404).json({ error: "vendor introuvable" }); return; }
 
     const [salesRow] = await db
       .select({
@@ -1820,7 +1820,7 @@ router.post("/vendors/payments", async (req, res) => {
     const expectedNet = Math.max(0, salesAmount - commission);
     const alreadyPaid = Number(weeklyPaidRow?.amount ?? 0) + Number(dailyPaidRow?.amount ?? 0);
     const remaining = Math.max(0, Math.round(expectedNet - alreadyPaid));
-    if (remaining <= 0) return res.status(400).json({ error: "Semaine déjà soldée (commission déduite)" });
+    if (remaining <= 0) { res.status(400).json({ error: "Semaine déjà soldée (commission déduite)" }); return; }
 
     const requested = Math.round(+amount);
     const appliedAmount = Math.min(requested, remaining);
@@ -1848,10 +1848,10 @@ router.post("/vendors/payments", async (req, res) => {
 });
 
 /** DELETE /api/vendors/payments/:id — cancel a versement */
-router.delete("/vendors/payments/:id", async (req, res) => {
+router.delete("/vendors/payments/:id", async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: "invalid id" });
+    if (isNaN(id)) { res.status(400).json({ error: "invalid id" }); return; }
     const [deleted] = await db
       .delete(vendorPaymentsTable)
       .where(eq(vendorPaymentsTable.id, id))
@@ -1861,7 +1861,7 @@ router.delete("/vendors/payments/:id", async (req, res) => {
         weekStart: vendorPaymentsTable.weekStart,
         note: vendorPaymentsTable.note,
       });
-    if (!deleted) return res.status(404).json({ error: "Versement déjà supprimé ou inexistant" });
+    if (!deleted) { res.status(404).json({ error: "Versement déjà supprimé ou inexistant" }); return; }
     // If a weekly payment is removed, rollback auto-generated daily-settlement
     // rows for that same week so arrears can reappear naturally.
     const ws = deleted.weekStart;
