@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "javascript", "postgresql-16"]
+modules = ["nodejs-24", "javascript", "postgresql-16", "python-3.11"]
 run = ["sh", "-c", "corepack enable && pnpm install && (PORT=${VITE_PORT:-23863} pnpm --filter @workspace/app run dev &) && VITE_PORT=${VITE_PORT:-23863} pnpm --filter @workspace/api-server run dev"]
 
 [[artifacts]]
