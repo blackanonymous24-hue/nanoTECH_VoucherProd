@@ -7,7 +7,12 @@ import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
 import { startMaintenanceScheduler } from "./lib/maintenance-scheduler.js";
 import { startAutoBypassSync } from "./lib/auto-bypass-sync.js";
-import { startDashboardPriorityWarmer } from "./routes/routers.js";
+// startDashboardPriorityWarmer est désactivé : le poller SSE partagé (mikrotik-poller.ts)
+// prend en charge le préchauffage des caches à la demande par routeur actif.
+// Le warmer interrogeait TOUS les routeurs toutes les 20 s même sans client connecté,
+// ce qui provoquait des erreurs "Rate exceeded" sur les routeurs non utilisés.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { startDashboardPriorityWarmer as _unused } from "./routes/routers.js";
 
 const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
@@ -47,7 +52,8 @@ async function start() {
   // fully ready to serve HTTP requests before opening router connections.
   setTimeout(() => {
     void warmProfileSnapshots();
-    startDashboardPriorityWarmer();
+    // startDashboardPriorityWarmer() supprimé : le poller SSE partagé remplace le warmer
+    // et ne tourne QUE pour les routeurs ayant des clients SSE actifs.
   }, 30_000);
 }
 

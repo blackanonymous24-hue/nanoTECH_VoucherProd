@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRouterLogsQueryKey } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -255,10 +256,11 @@ function yTickFmt(v: number) {
 }
 
 function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | null; enabled?: boolean }) {
+  const isVisible = usePageVisibility();
   const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
   const [selectedIface, setSelectedIface] = useState<string>("");
 
-  // Fetch interface list when router changes
+  // Fetch interface list when router changes — gated on tab visibility
   const { data: ifaceList } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
     queryKey: ["interfaces", routerId],
     queryFn: async ({ signal }) => {
@@ -266,7 +268,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
       if (!res.ok) throw new Error("interfaces unavailable");
       return res.json();
     },
-    enabled: !!routerId && enabled,
+    enabled: isVisible && !!routerId && enabled,
     staleTime: 60_000,
     retry: false,
     throwOnError: false,
@@ -292,10 +294,9 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
       if (!res.ok) throw new Error("traffic unavailable");
       return res.json();
     },
-    // Keep traffic visible even if interface list is delayed/unavailable:
-    // fetch router aggregate traffic as fallback (no iface query param).
-    enabled: !!routerId && enabled,
-    refetchInterval: 3_000,
+    // Gated sur la visibilité : pause quand onglet caché / navigateur minimisé.
+    enabled: isVisible && !!routerId && enabled,
+    refetchInterval: isVisible ? 3_000 : false,
     refetchIntervalInBackground: false,
     staleTime: 1_500,
     retry: false,
@@ -419,10 +420,13 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
 }
 
 export default function Dashboard() {
+  const isVisible = usePageVisibility();
+
   const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: {
       queryKey: getGetDashboardQueryKey(),
-      refetchInterval: 10_000,
+      // DB-only, pas de MikroTik — on garde le polling mais on le stoppe si onglet caché.
+      refetchInterval: isVisible ? 10_000 : false,
       staleTime: 9_000,
       gcTime: 30 * 60_000,
       refetchIntervalInBackground: false,
@@ -472,10 +476,10 @@ export default function Dashboard() {
       if (!res.ok) throw new Error("dashboard priority unavailable");
       return res.json() as Promise<PrioritySnapshot>;
     },
-    enabled: !!selectedRouterId,
-    // Fallback poll toutes les 60s — le SSE gère le temps-réel (5s via poller partagé).
-    // Désactivé en arrière-plan : inutile si l'onglet est caché, le SSE suffit.
-    refetchInterval: sseConnected ? false : 20_000,
+    // Gated sur visibilité + token : aucune requête MikroTik si onglet caché ou déconnecté.
+    enabled: isVisible && !!selectedRouterId,
+    // Fallback poll — désactivé si SSE actif OU onglet caché (le SSE suffit quand visible).
+    refetchInterval: (sseConnected || !isVisible) ? false : 20_000,
     refetchIntervalInBackground: false,
     staleTime: 10_000,
     retry: false,
@@ -521,12 +525,14 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (!selectedRouterId) {
-      setSsePriority(null);
+    // Fermer le SSE si : pas de routeur sélectionné, utilisateur déconnecté, ou onglet caché.
+    // Quand isVisible repasse à true, l'effet se réexécute et rouvre la connexion.
+    if (!selectedRouterId || !authToken || !isVisible) {
       setSseConnected(false);
+      // On garde ssePriority en cache pour que les cartes restent affichées en caché.
       return;
     }
-    const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
+    const tokenParam = `?token=${encodeURIComponent(authToken)}`;
     const es = new EventSource(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority/stream${tokenParam}`);
     es.onopen = () => setSseConnected(true);
     const onPriority = (ev: MessageEvent) => {
@@ -553,7 +559,7 @@ export default function Dashboard() {
       es.close();
       setSseConnected(false);
     };
-  }, [selectedRouterId, setRouterOnline, authToken, handleMikrotikFailure, handleMikrotikRecovery]);
+  }, [selectedRouterId, authToken, isVisible, setRouterOnline, handleMikrotikFailure, handleMikrotikRecovery]);
 
   const livePriority = ssePriority ?? priority;
   useEffect(() => {
@@ -609,10 +615,11 @@ export default function Dashboard() {
     {
       query: {
         queryKey: getListRouterLogsQueryKey(selectedRouterId ?? 0, DASH_LOGS_PARAMS),
-        enabled: !!selectedRouterId && enableSecondaries,
-        // Logs live : 10s au lieu de 4s — le serveur cache à 4s (MIK_TTL.logs),
-        // réduire le polling client évite des connexions MikroTik inutiles.
-        refetchInterval: 10_000,
+        // Gated : aucune requête logs si onglet caché, pas de routeur, ou pas encore prêt.
+        enabled: isVisible && !!selectedRouterId && enableSecondaries,
+        // Logs live : 10s — serveur cache à 4s (MIK_TTL.logs), polling plus fréquent = inutile.
+        // Stopper le polling si onglet caché (isVisible = false → enabled = false suffit).
+        refetchInterval: isVisible ? 10_000 : false,
         refetchIntervalInBackground: false,
         staleTime: 800,
         initialData: readDashLogsCache(selectedRouterId),
