@@ -335,7 +335,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                           </td>
                           {/* État */}
                           <td className="px-3 py-2 text-center">
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-50 text-green-700 border border-green-200">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200">
                               Vendu
                             </span>
                           </td>
