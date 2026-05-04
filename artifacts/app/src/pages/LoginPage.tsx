@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Wifi, LogIn, ShieldCheck, Store, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
@@ -170,9 +171,8 @@ export default function LoginPage({ mode }: LoginPageProps) {
             </div>
             <div>
               <Label className="text-gray-300 text-sm">Mot de passe</Label>
-              <Input
+              <PasswordInput
                 className="mt-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500 focus:border-blue-500"
-                type="password"
                 placeholder="••••••••"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}

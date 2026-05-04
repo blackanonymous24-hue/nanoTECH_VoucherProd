@@ -6,6 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -250,10 +251,9 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
             </div>
             <div>
               <Label className="text-gray-300 text-sm">Mot de passe</Label>
-              <Input
+              <PasswordInput
                 id="vp-password"
                 className="mt-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500 focus:border-blue-500"
-                type="password"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -1648,9 +1648,8 @@ function Dashboard({ token, vendor, onLogout }: {
               )}
               <div>
                 <Label htmlFor="pwd-current">Ancien mot de passe</Label>
-                <Input
+                <PasswordInput
                   id="pwd-current"
-                  type="password"
                   className="mt-1"
                   placeholder="••••••••"
                   value={pwdCurrent}
@@ -1660,9 +1659,8 @@ function Dashboard({ token, vendor, onLogout }: {
               </div>
               <div>
                 <Label htmlFor="pwd-new">Nouveau mot de passe</Label>
-                <Input
+                <PasswordInput
                   id="pwd-new"
-                  type="password"
                   className="mt-1"
                   placeholder="••••••••"
                   value={pwdNew}
@@ -1672,9 +1670,8 @@ function Dashboard({ token, vendor, onLogout }: {
               </div>
               <div>
                 <Label htmlFor="pwd-confirm">Confirmer le nouveau mot de passe</Label>
-                <Input
+                <PasswordInput
                   id="pwd-confirm"
-                  type="password"
                   className="mt-1"
                   placeholder="••••••••"
                   value={pwdConfirm}

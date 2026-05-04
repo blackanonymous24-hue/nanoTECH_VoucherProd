@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw, Percent, Receipt } from "lucide-react";
@@ -185,9 +186,8 @@ export function PersonForm({
                   {isEdit ? "(laisser vide = inchangé)" : "(min. 4 caractères)"}
                 </span>
               </Label>
-              <Input
+              <PasswordInput
                 id="pf-password"
-                type="password"
                 className="mt-1"
                 placeholder="••••••••"
                 value={password}

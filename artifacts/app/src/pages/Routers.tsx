@@ -15,6 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -142,9 +143,8 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
           <div>
             <Label>Nouveau mot de passe</Label>
-            <Input
+            <PasswordInput
               className="mt-1"
-              type="password"
               placeholder="Laisser vide pour conserver"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
@@ -152,9 +152,8 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
           <div>
             <Label>Confirmer le mot de passe</Label>
-            <Input
+            <PasswordInput
               className="mt-1"
-              type="password"
               placeholder="••••••••"
               value={form.confirm}
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
@@ -233,7 +232,7 @@ export default function Routers() {
       currency: normalizeRouterCurrency(r.currency ?? ""),
       address: `${r.host}:${r.port}`,
       username: r.username,
-      password: "",
+      password: (r as { password?: string }).password ?? "",
       autoDeleteSalesScripts: (r as { autoDeleteSalesScripts?: boolean }).autoDeleteSalesScripts ?? false,
     });
     setEditRouter(r);
@@ -579,9 +578,8 @@ export default function Routers() {
                 </div>
                 <div>
                   <Label>Mot de passe</Label>
-                  <Input
+                  <PasswordInput
                     className="mt-1"
-                    type="password"
                     placeholder={editRouter ? "(inchangé)" : ""}
                     value={form.password}
                     onChange={(e) => setForm({ ...form, password: e.target.value })}

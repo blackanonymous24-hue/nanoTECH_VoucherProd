@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
+import { PasswordInput } from "@/components/ui/password-input";
 
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -631,8 +632,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               <div className="space-y-3 py-2">
                 <div className="space-y-1">
                   <Label className="text-xs">Mot de passe actuel</Label>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={pwdCurrent}
                     onChange={(e) => setPwdCurrent(e.target.value)}
                     placeholder="••••••••"
@@ -642,8 +642,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Nouveau mot de passe</Label>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={pwdNew}
                     onChange={(e) => setPwdNew(e.target.value)}
                     placeholder="4 caractères minimum"
@@ -653,8 +652,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Confirmer le nouveau mot de passe</Label>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     value={pwdConfirm}
                     onChange={(e) => setPwdConfirm(e.target.value)}
                     placeholder="••••••••"

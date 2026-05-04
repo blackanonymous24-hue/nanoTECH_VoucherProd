@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
@@ -546,7 +547,7 @@ function AddRouterForAdminDialog({
           <div><Label>Adresse (hôte:port)</Label><Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.88.1:8728" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><Label>Utilisateur</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} /></div>
-            <div><Label>Mot de passe</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+            <div><Label>Mot de passe</Label><PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} /></div>
           </div>
         </div>
         <DialogFooter>
@@ -597,7 +598,7 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
           </div>
           <div>
             <Label>Mot de passe</Label>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min. 4 caractères" />
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min. 4 caractères" />
           </div>
           <div>
             <Label>Forfait initial (mois)</Label>
@@ -660,7 +661,7 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
           </div>
           <div>
             <Label>Nouveau mot de passe</Label>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="laisser vide pour conserver" />
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="laisser vide pour conserver" />
           </div>
           {!admin.isSuperAdmin && (
             <div className="flex items-center justify-between rounded-lg border p-3">
@@ -864,9 +865,8 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
           </div>
           <div>
             <Label htmlFor="acc-password">Nouveau mot de passe</Label>
-            <Input
+            <PasswordInput
               id="acc-password"
-              type="password"
               autoComplete="new-password"
               placeholder="Laisser vide pour conserver"
               value={password}
@@ -878,9 +878,8 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
           </div>
           <div>
             <Label htmlFor="acc-confirm">Confirmer le mot de passe</Label>
-            <Input
+            <PasswordInput
               id="acc-confirm"
-              type="password"
               autoComplete="new-password"
               placeholder="Confirmer"
               value={confirm}
