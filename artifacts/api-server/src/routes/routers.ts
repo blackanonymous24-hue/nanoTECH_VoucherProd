@@ -2031,7 +2031,7 @@ interface UsageSyncEntry { updatedAt: number; updated: number; total: number; }
 const usageSyncCache  = new Map<number, UsageSyncEntry>();
 const usageSyncActive = new Set<number>(); // routers currently syncing
 const usageSyncTimer  = new Map<number, ReturnType<typeof setTimeout>>();
-const USAGE_SYNC_INTERVAL = 30_000; // 30 seconds
+const USAGE_SYNC_INTERVAL = 15_000; // 15 seconds — matches script-cache incremental gap
 
 /** Core sync logic — shared by background and manual trigger */
 

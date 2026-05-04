@@ -49,7 +49,7 @@ const FULL_LOAD_BACKOFF_MAX_MS = 10 * 60 * 1000; // 10 min  (after many)
  * router from each issuing the same incremental query within the same tick.
  */
 const lastIncrementalAt = new Map<number, number>();
-const INCREMENTAL_MIN_GAP_MS = 60 * 1000; // 1 minute
+const INCREMENTAL_MIN_GAP_MS = 15 * 1000; // 15 seconds — near-real-time script discovery
 
 /**
  * In-flight dedup: when several vendors on the same router call syncScriptCache
@@ -144,8 +144,9 @@ export async function syncScriptCache(
       if (Date.now() - lastInc < INCREMENTAL_MIN_GAP_MS) {
         return 0;
       }
-      lastIncrementalAt.set(routerId, Date.now());
-      // Incremental: fetch this month + last month only
+      // Incremental: fetch this month + last month only.
+      // NOTE: lastIncrementalAt is set AFTER a successful fetch so that a
+      // MikroTik timeout or auth error does not block the next retry for 15 s.
       const now = new Date();
       const thisYear  = now.getFullYear();
       const thisMonth = now.getMonth() + 1; // 1-12
@@ -156,6 +157,8 @@ export async function syncScriptCache(
         fetchScriptSales(conn, { type: "month", year: thisYear,  month: thisMonth }, 30_000),
         fetchScriptSales(conn, { type: "month", year: lastYear,  month: lastMonth }, 30_000),
       ]);
+      // Only stamp the throttle after a successful fetch
+      lastIncrementalAt.set(routerId, Date.now());
       entries = [...a, ...b];
     }
 
