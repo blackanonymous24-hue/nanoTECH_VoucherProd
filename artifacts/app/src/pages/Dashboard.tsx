@@ -453,6 +453,10 @@ export default function Dashboard() {
   const mikLastSuccessTsRef = useRef(0);
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // Priority snapshot — architecture SSE-first :
+  // Le vrai temps-réel vient du SSE (mikrotik-poller côté serveur, 1 appel MikroTik/5s partagé).
+  // Ce useQuery ne sert qu'au chargement initial et comme filet de secours si le SSE est coupé.
+  // refetchInterval allongé à 60s (au lieu de 15s) pour ne pas doubler les appels MikroTik.
   const {
     data: priority,
     isFetching: priorityQueryFetching,
@@ -469,8 +473,10 @@ export default function Dashboard() {
       return res.json() as Promise<PrioritySnapshot>;
     },
     enabled: !!selectedRouterId,
-    refetchInterval: 15_000,
-    refetchIntervalInBackground: true,
+    // Fallback poll toutes les 60s — le SSE gère le temps-réel (5s via poller partagé).
+    // Désactivé en arrière-plan : inutile si l'onglet est caché, le SSE suffit.
+    refetchInterval: sseConnected ? false : 20_000,
+    refetchIntervalInBackground: false,
     staleTime: 10_000,
     retry: false,
     throwOnError: false,
@@ -604,7 +610,9 @@ export default function Dashboard() {
       query: {
         queryKey: getListRouterLogsQueryKey(selectedRouterId ?? 0, DASH_LOGS_PARAMS),
         enabled: !!selectedRouterId && enableSecondaries,
-        refetchInterval: 4_000,
+        // Logs live : 10s au lieu de 4s — le serveur cache à 4s (MIK_TTL.logs),
+        // réduire le polling client évite des connexions MikroTik inutiles.
+        refetchInterval: 10_000,
         refetchIntervalInBackground: false,
         staleTime: 800,
         initialData: readDashLogsCache(selectedRouterId),
