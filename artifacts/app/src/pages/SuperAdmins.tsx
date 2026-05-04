@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save, ChevronDown, ChevronUp,
+  FileCode, Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,6 +97,7 @@ export default function SuperAdmins() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "expired">("all");
   const [deletingAdminId, setDeletingAdminId] = useState<number | null>(null);
+  const [templateTarget, setTemplateTarget] = useState<AdminRow | null>(null);
 
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
@@ -434,6 +435,10 @@ export default function SuperAdmins() {
                                 onClick={() => setCreditsTarget(a)}>
                                 <Coins className="h-4 w-4" />
                               </Button>
+                              <Button size="icon" variant="ghost" title="Modèle de ticket"
+                                onClick={() => setTemplateTarget(a)}>
+                                <FileCode className="h-4 w-4 text-violet-600" />
+                              </Button>
                             </>
                           )}
                           <Button size="icon" variant="ghost" title="Modifier"
@@ -505,6 +510,14 @@ export default function SuperAdmins() {
           onClose={() => setRouterTarget(null)}
           onSubmit={(payload) => createRouterM.mutate({ adminId: routerTarget.id, payload })}
           pending={createRouterM.isPending}
+        />
+      )}
+
+      {/* Template de ticket dialog */}
+      {templateTarget && (
+        <TemplateDialog
+          admin={templateTarget}
+          onClose={() => setTemplateTarget(null)}
         />
       )}
 
@@ -644,55 +657,13 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
   onSubmit: (v: { displayName?: string | null; password?: string; isActive?: boolean }) => void;
   pending: boolean;
 }) {
-  const { toast } = useToast();
   const [displayName, setDisplayName] = useState(admin.displayName ?? "");
   const [password, setPassword] = useState("");
   const [isActive, setIsActive] = useState(admin.isActive);
 
-  // ── Section template de ticket ────────────────────────────────────────────
-  const [templateOpen, setTemplateOpen] = useState(false);
-  const [templateCode, setTemplateCode] = useState("");
-  const [templateLoading, setTemplateLoading] = useState(false);
-  const [templateSaving, setTemplateSaving] = useState(false);
-  const templateLoaded = useRef(false);
-
-  // Chargement du template dès que la section s'ouvre (une seule fois)
-  useEffect(() => {
-    if (!templateOpen || templateLoaded.current) return;
-    templateLoaded.current = true;
-    setTemplateLoading(true);
-    fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`)
-      .then((r) => r.ok ? r.json() : { template: null })
-      .then((data: { template: string | null }) => {
-        setTemplateCode(data.template ?? "");
-      })
-      .catch(() => { setTemplateCode(""); })
-      .finally(() => setTemplateLoading(false));
-  }, [templateOpen, admin.id]);
-
-  const handleSaveTemplate = async () => {
-    setTemplateSaving(true);
-    try {
-      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ template: templateCode }),
-      });
-      if (r.ok) {
-        toast({ title: "Template sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
-      } else {
-        toast({ title: "Erreur", description: "Impossible de sauvegarder le template.", variant: "destructive" });
-      }
-    } catch {
-      toast({ title: "Erreur réseau", description: "Vérifiez votre connexion.", variant: "destructive" });
-    } finally {
-      setTemplateSaving(false);
-    }
-  };
-
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Modifier {admin.displayName || admin.login}</DialogTitle>
           <DialogDescription>L'identifiant ne peut pas être changé.</DialogDescription>
@@ -715,60 +686,6 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
               <Switch checked={isActive} onCheckedChange={setIsActive} />
             </div>
           )}
-
-          {/* ── Template de ticket (super admin uniquement) ─────────────────── */}
-          {!admin.isSuperAdmin && (
-            <div className="rounded-lg border">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between p-3 text-sm font-medium hover:bg-muted/50 transition-colors"
-                onClick={() => setTemplateOpen((v) => !v)}
-              >
-                <span className="flex items-center gap-2">
-                  <FileCode className="h-4 w-4 text-muted-foreground" />
-                  Modèle de ticket par défaut
-                </span>
-                {templateOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </button>
-              {templateOpen && (
-                <div className="border-t p-3 space-y-2">
-                  {templateLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Chargement du template…
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-xs text-muted-foreground">
-                        Template PHP Mikhmon v3 appliqué à cet admin sur tous ses appareils (mobile, APK, desktop).
-                        Laisser vide pour utiliser le template par défaut.
-                      </p>
-                      <textarea
-                        className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        rows={8}
-                        value={templateCode}
-                        onChange={(e) => setTemplateCode(e.target.value)}
-                        placeholder="Collez ici le template PHP Mikhmon v3…"
-                        spellCheck={false}
-                      />
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={templateSaving}
-                        onClick={handleSaveTemplate}
-                        className="w-full"
-                      >
-                        {templateSaving
-                          ? <><Loader2 className="h-3 w-3 mr-2 animate-spin" />Sauvegarde…</>
-                          : <><Save className="h-3 w-3 mr-2" />Sauvegarder le template</>
-                        }
-                      </Button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annuler</Button>
@@ -784,6 +701,89 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
           >
             {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TemplateDialog({ admin, onClose }: {
+  admin: AdminRow;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [templateCode, setTemplateCode] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`)
+      .then((r) => r.ok ? r.json() : { template: null })
+      .then((data: { template: string | null }) => setTemplateCode(data.template ?? ""))
+      .catch(() => setTemplateCode(""))
+      .finally(() => setLoading(false));
+  }, [admin.id]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template: templateCode }),
+      });
+      if (r.ok) {
+        toast({ title: "Template sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
+        onClose();
+      } else {
+        toast({ title: "Erreur", description: "Impossible de sauvegarder le template.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Erreur réseau", description: "Vérifiez votre connexion.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileCode className="h-5 w-5 text-violet-600" />
+            Modèle de ticket — {admin.displayName || admin.login}
+          </DialogTitle>
+          <DialogDescription>
+            Template PHP Mikhmon v3 appliqué à cet admin sur tous ses appareils (mobile, APK, desktop).
+            Laisser vide pour utiliser le template par défaut.
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Chargement du template…
+          </div>
+        ) : (
+          <textarea
+            className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            rows={16}
+            value={templateCode}
+            onChange={(e) => setTemplateCode(e.target.value)}
+            placeholder="Collez ici le template PHP Mikhmon v3…"
+            spellCheck={false}
+          />
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button disabled={saving || loading} onClick={handleSave}>
+            {saving
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sauvegarde…</>
+              : <><Save className="h-4 w-4 mr-2" />Sauvegarder</>
+            }
           </Button>
         </DialogFooter>
       </DialogContent>
