@@ -2562,6 +2562,27 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   const dayRaw   = req.query.day   ? parseInt(req.query.day   as string, 10) : null;
   const withPresence = String(req.query.presence ?? "") === "1" || String(req.query.presence ?? "") === "true";
 
+  // Sync the script cache before reading so the report includes the latest
+  // MikroTik sales entries. syncScriptCache() is throttled to 1 min so this
+  // is effectively a no-op when called repeatedly. We cap the wait at 12 s to
+  // keep the response snappy even on slow routers.
+  try {
+    const [routerRow] = await db
+      .select({ host: routersTable.host, port: routersTable.port, username: routersTable.username, password: routersTable.password })
+      .from(routersTable)
+      .where(eq(routersTable.id, id))
+      .limit(1);
+    if (routerRow) {
+      const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+      await Promise.race([
+        syncScriptCache(id, conn),
+        new Promise<void>((resolve) => setTimeout(resolve, 12_000)),
+      ]);
+    }
+  } catch {
+    // Non-blocking: if the router is unreachable we still serve data from DB.
+  }
+
   try {
     const conditions: ReturnType<typeof eq>[] = [eq(scriptSalesTable.routerId, id) as any];
     if (yearRaw !== null && !Number.isNaN(yearRaw)) {

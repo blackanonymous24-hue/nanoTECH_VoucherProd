@@ -116,7 +116,7 @@ export default function SellingReport() {
     "selling-report", selectedRouterId, appliedDay, appliedMonth, appliedYear,
   ], [selectedRouterId, appliedDay, appliedMonth, appliedYear]);
 
-  const { data, isLoading, isError, error } = useQuery<SaleEntry[]>({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<SaleEntry[]>({
     queryKey,
     queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
@@ -452,6 +452,18 @@ export default function SellingReport() {
             </Button>
             <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={showAll}>
               <RotateCcw className="h-3.5 w-3.5" /> Tout
+            </Button>
+            <Button
+              size="sm" variant="outline"
+              className="h-8 gap-1.5 text-xs text-sky-700 hover:text-sky-800 hover:bg-sky-50 border-sky-200"
+              disabled={isFetching || !selectedRouterId}
+              onClick={() => refetch()}
+              title="Synchroniser le cache depuis MikroTik puis recharger"
+            >
+              {isFetching
+                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                : <RefreshCw className="h-3.5 w-3.5" />}
+              Actualiser
             </Button>
             <Button
               size="sm" variant="outline"
