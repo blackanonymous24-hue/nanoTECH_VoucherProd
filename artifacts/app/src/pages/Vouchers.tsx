@@ -1066,7 +1066,7 @@ export default function Vouchers() {
               title="Ajouter un utilisateur (Mikhmon-style)"
             >
               <UserPlus className="h-4 w-4" />
-              <span className="hidden sm:inline">Add User</span>
+              <span className="hidden sm:inline">Ajouter un client</span>
             </Button>
             {view === "list" && (
               <Button
@@ -2144,7 +2144,7 @@ export default function Vouchers() {
           {/* Header */}
           <DialogHeader className="px-4 pt-3 pb-2 border-b border-slate-600 bg-slate-700">
             <DialogTitle className="text-base font-semibold flex items-center gap-2 text-slate-100">
-              <UserPlus className="h-4 w-4" /> Add User
+              <UserPlus className="h-4 w-4" /> Ajouter un client
             </DialogTitle>
           </DialogHeader>
 
