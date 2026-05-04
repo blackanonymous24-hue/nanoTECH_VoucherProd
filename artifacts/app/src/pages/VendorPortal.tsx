@@ -1498,7 +1498,7 @@ function Dashboard({ token, vendor, onLogout }: {
             <Card className="flex flex-col overflow-hidden">
               <CardHeader className="pb-2 flex-shrink-0">
                 <div className="flex items-center justify-between mb-2">
-                  <CardTitle className="text-base">Ventes récentes <span className="text-[10px] font-normal text-gray-400">(90 jours)</span></CardTitle>
+                  <CardTitle className="text-base">Ventes récentes</CardTitle>
                   {data.recentSales.length > 0 && (
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full tabular-nums">
                       {recentSearch.trim()

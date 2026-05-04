@@ -104,7 +104,6 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
       db.select().from(vouchersTable).where(and(
         eq(vouchersTable.vendorId, id),
         sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt}) is not null`,
-        gte(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt})`, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
       )).orderBy(desc(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt})`)),
       db.select().from(vouchersTable).where(eq(vouchersTable.vendorId, id)).orderBy(desc(vouchersTable.createdAt)),
       vendor.routerId != null
