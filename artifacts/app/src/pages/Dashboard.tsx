@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { Link } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
@@ -8,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity } from "lucide-react";
+import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity, WifiOff } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -445,10 +446,19 @@ export default function Dashboard() {
   const prevIdsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
 
+  // ── MikroTik offline detection ─────────────────────────────────────────────
+  const [showErrorPage, setShowErrorPage] = useState(false);
+  const mikFailCountRef = useRef(0);
+  const mikLastFailTsRef = useRef(0);
+  const mikLastSuccessTsRef = useRef(0);
+  // ─────────────────────────────────────────────────────────────────────────────
+
   const {
     data: priority,
     isFetching: priorityQueryFetching,
     isLoading: priorityLoading,
+    isError: priorityIsError,
+    errorUpdatedAt: priorityErrorUpdatedAt,
     refetch: refetchPriority,
     dataUpdatedAt: priorityUpdatedAt,
   } = useQuery<PrioritySnapshot>({
@@ -468,6 +478,42 @@ export default function Dashboard() {
     initialDataUpdatedAt: readPriorityCache(selectedRouterId)?.serverTs ?? undefined,
   });
 
+  // Stable callback — uses refs to avoid stale closures
+  const handleMikrotikFailure = useCallback(() => {
+    const now = Date.now();
+    if (now - mikLastFailTsRef.current < 10_000) return; // debounce: 1 failure per 10s max
+    mikLastFailTsRef.current = now;
+    mikFailCountRef.current += 1;
+    const n = mikFailCountRef.current;
+    if (n === 1) {
+      toast.warning("Impossible de contacter le MikroTik", {
+        id: "mikrotik-status",
+        duration: 3000,
+      });
+    } else {
+      toast.error("Impossible de récupérer les infos du routeur", {
+        id: "mikrotik-status",
+        description: "MikroTik éteint ou hors ligne !!!",
+        duration: 6000,
+      });
+    }
+    if (n >= 3) {
+      setShowErrorPage(true);
+    }
+  }, []);
+
+  const handleMikrotikRecovery = useCallback(() => {
+    const now = Date.now();
+    if (now - mikLastSuccessTsRef.current < 3_000) return; // debounce recovery
+    mikLastSuccessTsRef.current = now;
+    if (mikFailCountRef.current > 0) {
+      mikFailCountRef.current = 0;
+      mikLastFailTsRef.current = 0;
+      setShowErrorPage(false);
+      toast.dismiss("mikrotik-status");
+    }
+  }, []);
+
   useEffect(() => {
     if (!selectedRouterId) {
       setSsePriority(null);
@@ -483,18 +529,25 @@ export default function Dashboard() {
         setSsePriority(payload);
         writePriorityCache(selectedRouterId, payload);
         setRouterOnline(true);
+        handleMikrotikRecovery();
       } catch {
         // fallback polling still active
       }
     };
+    const onSseError = (_ev: MessageEvent) => {
+      // Server-sent "event: error" = MikroTik unreachable
+      handleMikrotikFailure();
+    };
     es.addEventListener("priority", onPriority as EventListener);
+    es.addEventListener("error", onSseError as EventListener);
     es.onerror = () => setSseConnected(false);
     return () => {
       es.removeEventListener("priority", onPriority as EventListener);
+      es.removeEventListener("error", onSseError as EventListener);
       es.close();
       setSseConnected(false);
     };
-  }, [selectedRouterId, setRouterOnline, authToken]);
+  }, [selectedRouterId, setRouterOnline, authToken, handleMikrotikFailure, handleMikrotikRecovery]);
 
   const livePriority = ssePriority ?? priority;
   useEffect(() => {
@@ -615,6 +668,32 @@ export default function Dashboard() {
   }, [selectedRouterId]);
   // ─────────────────────────────────────────────────────────────────────────
 
+  // ── MikroTik offline effects ───────────────────────────────────────────────
+  // Count HTTP poll failures (each time errorUpdatedAt advances)
+  const prevPriorityErrorTsRef = useRef(0);
+  useEffect(() => {
+    if (!selectedRouterId || !priorityIsError) return;
+    if (priorityErrorUpdatedAt <= prevPriorityErrorTsRef.current) return;
+    prevPriorityErrorTsRef.current = priorityErrorUpdatedAt;
+    handleMikrotikFailure();
+  }, [selectedRouterId, priorityIsError, priorityErrorUpdatedAt, handleMikrotikFailure]);
+
+  // Recovery from HTTP poll success
+  useEffect(() => {
+    if (!selectedRouterId || priorityUpdatedAt <= 0) return;
+    handleMikrotikRecovery();
+  }, [selectedRouterId, priorityUpdatedAt, handleMikrotikRecovery]);
+
+  // Reset all failure state when router changes
+  useEffect(() => {
+    mikFailCountRef.current = 0;
+    mikLastFailTsRef.current = 0;
+    mikLastSuccessTsRef.current = 0;
+    setShowErrorPage(false);
+    toast.dismiss("mikrotik-status");
+  }, [selectedRouterId]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (routerInfo?.identity) setRouterIdentity(routerInfo.identity);
   }, [routerInfo, setRouterIdentity]);
@@ -638,7 +717,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div>
+    <div className="relative">
       <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
@@ -895,6 +974,67 @@ export default function Dashboard() {
         </CardContent>
       </Card>
       </div>
+
+      {/* ── Page d'erreur MikroTik hors ligne ─────────────────────────────── */}
+      {showErrorPage && selectedRouterId && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/98 backdrop-blur-sm rounded-xl py-16 px-4 min-h-[420px]">
+          {/* Animation visuelle */}
+          <div className="relative flex flex-col items-center mb-8">
+            {/* Anneaux de pulsation */}
+            <div className="relative flex items-center justify-center mb-4">
+              <div className="absolute h-28 w-28 rounded-full bg-red-100 opacity-30" style={{ animation: "ping 2s cubic-bezier(0,0,.2,1) infinite" }} />
+              <div className="absolute h-20 w-20 rounded-full bg-red-100 opacity-50 animate-pulse" />
+              <div className="relative h-16 w-16 rounded-full bg-red-50 border-2 border-red-200 shadow-sm flex items-center justify-center">
+                <WifiOff className="h-8 w-8 text-red-400" />
+              </div>
+            </div>
+
+            {/* Points animés = signal cassé */}
+            <div className="flex flex-col items-center gap-1.5 my-1">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-1.5 w-1.5 rounded-full bg-red-300 animate-bounce"
+                  style={{ animationDelay: `${i * 0.18}s`, animationDuration: "1.1s" }}
+                />
+              ))}
+            </div>
+
+            {/* Icône routeur éteint */}
+            <div className="mt-1 h-12 w-12 rounded-full bg-gray-100 border-2 border-gray-200 flex items-center justify-center">
+              <Router className="h-6 w-6 text-gray-300" />
+            </div>
+          </div>
+
+          {/* Message */}
+          <h2 className="text-xl font-bold text-gray-800 text-center leading-snug">
+            Impossible de récupérer les infos du routeur
+          </h2>
+          <p className="text-base font-bold text-red-500 text-center mt-1">
+            MikroTik éteint ou hors ligne&nbsp;!!!
+          </p>
+          <p className="text-sm text-gray-400 text-center mt-3 max-w-xs leading-relaxed">
+            La connexion avec le routeur MikroTik est momentanément indisponible.<br />
+            Reconnexion automatique en cours…
+          </p>
+
+          {/* Bouton de réessai */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-6 border-red-200 text-red-600 hover:bg-red-50 gap-2"
+            onClick={() => { refetchPriority(); refetch(); refetchLogs(); }}
+          >
+            <RefreshCw className="h-4 w-4" />
+            Réessayer maintenant
+          </Button>
+
+          <p className="text-[11px] text-gray-400 mt-4 flex items-center gap-1.5">
+            <RefreshCw className="h-3 w-3 animate-spin" style={{ animationDuration: "3s" }} />
+            Reconnexion automatique toutes les 15 secondes
+          </p>
+        </div>
+      )}
     </div>
   );
 }

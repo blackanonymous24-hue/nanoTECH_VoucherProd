@@ -3,6 +3,7 @@ import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { getListRouterLogsQueryKey, listRouterLogs } from "@workspace/api-client-react";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RouterProvider } from "@/contexts/RouterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -215,6 +216,7 @@ function App() {
           </AuthProvider>
         </WouterRouter>
         <Toaster />
+        <Sonner position="top-center" richColors closeButton />
       </TooltipProvider>
     </QueryClientProvider>
   );
