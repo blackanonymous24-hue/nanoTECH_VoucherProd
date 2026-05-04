@@ -509,11 +509,11 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
 
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
 
-  // Trigger sync before building report so available counts are accurate.
-  // Throttled by SYNC_TTL — returns immediately if recently synced.
+  // Déclenche un sync en arrière-plan (non-bloquant) — le sync temps réel (10 s)
+  // maintient déjà la DB fraîche ; pas besoin de bloquer la réponse sur MikroTik.
   if (vendor.routerId) {
     const suffixes = [vendor.commentSuffix, vendor.commentSuffix2].filter(Boolean) as string[];
-    await syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
+    void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes);
   }
 
   // Fetch the vendor's router to get profile prices from MikroTik
