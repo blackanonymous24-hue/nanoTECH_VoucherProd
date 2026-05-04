@@ -102,9 +102,29 @@ export async function syncScriptCache(
         .where(eq(scriptSalesTable.routerId, routerId));
 
       const isEmpty = Number(countRow?.n ?? 0) === 0;
+
+      // ── Bootstrap: after a server restart the in-memory flags are cleared, but
+      // the DB already holds the full history from a previous session.  Without
+      // this guard every router enters the "needsFullLoad" path immediately; if
+      // the full load fails (timeout / wrong password) the router gets stuck in
+      // the exponential-backoff retry loop and incremental syncs NEVER run —
+      // meaning new scripts generated on MikroTik are never inserted into the DB.
+      //
+      // Fix: when the DB is non-empty and this process has not yet recorded a
+      // full-load timestamp, treat the existing rows as the baseline and defer
+      // the first full reload by 5 minutes.  Incremental syncs (current + last
+      // month) start immediately and pick up all new sales.
+      if (!isEmpty && !lastFullLoadAt.has(routerId)) {
+        fullyPopulated.add(routerId);
+        // Pretend the last full load finished 55 min ago so the 1-h refresh
+        // fires ~5 min from now rather than on the very first call.
+        lastFullLoadAt.set(routerId, Date.now() - FULL_RELOAD_INTERVAL_MS + 5 * 60_000);
+        logger.info({ routerId }, "script cache: bootstrapped from existing DB rows — incremental mode");
+      }
+
       const lastFull = lastFullLoadAt.get(routerId) ?? 0;
       const fullLoadStale = Date.now() - lastFull > FULL_RELOAD_INTERVAL_MS;
-      const needsFullLoad = isEmpty || !fullyPopulated.has(routerId) || fullLoadStale;
+      const needsFullLoad = isEmpty || fullLoadStale;
 
       let entries: Awaited<ReturnType<typeof fetchScriptSales>>;
 
@@ -124,7 +144,7 @@ export async function syncScriptCache(
       }
 
       // Full load: all historical scripts — heavy, done once per router then every 1 h
-      logger.info({ routerId, reason: isEmpty ? "empty" : fullLoadStale ? "stale(1h)" : "first-run" },
+      logger.info({ routerId, reason: isEmpty ? "empty" : "stale(1h)" },
         "script cache: full load started");
       lastFullLoadAttemptAt.set(routerId, Date.now()); // mark BEFORE the call
       try {
