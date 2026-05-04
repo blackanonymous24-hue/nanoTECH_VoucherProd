@@ -194,21 +194,27 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
       .limit(200),
   ]);
 
-  const fromScripts = scriptRows.map((s) => ({
-    id: -s.id,
-    username: s.username,
-    profileName: (s.label?.trim() || s.validity?.trim() || "—") as string,
-    comment: s.batch?.trim() || null,
-    price: s.price ?? "",
-    salePrice: s.price ?? null,
-    macAddress: s.mac?.trim() || null,
-    saleIp: s.ip?.trim() || null,
-    printedAt: null as string | null,
-    createdAt: s.saleDate.toISOString(),
-    usedAt: s.saleDate.toISOString(),
-    vendorId: null as number | null,
-    vendorName: "Script MikroTik" as string | null,
-  }));
+  // Usernames already tracked via the vendors table — script entries for
+  // these are duplicates and must be excluded to avoid double-listing.
+  const knownUsernames = new Set(voucherRows.map((v) => v.username.toLowerCase()));
+
+  const fromScripts = scriptRows
+    .filter((s) => !knownUsernames.has(s.username.toLowerCase()))
+    .map((s) => ({
+      id: -s.id,
+      username: s.username,
+      profileName: (s.label?.trim() || s.validity?.trim() || "—") as string,
+      comment: s.batch?.trim() || null,
+      price: s.price ?? "",
+      salePrice: s.price ?? null,
+      macAddress: s.mac?.trim() || null,
+      saleIp: s.ip?.trim() || null,
+      printedAt: null as string | null,
+      createdAt: s.saleDate.toISOString(),
+      usedAt: s.saleDate.toISOString(),
+      vendorId: null as number | null,
+      vendorName: "Script MikroTik" as string | null,
+    }));
 
   type TicketRow = (typeof voucherRows)[number];
   const merged: TicketRow[] = [...voucherRows, ...fromScripts] as TicketRow[];
