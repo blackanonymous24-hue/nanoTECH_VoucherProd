@@ -1732,8 +1732,8 @@ export async function enableDisableHotspotUsers(
   conn: RouterConnection,
   usernames: string[],
   enable: boolean,
-): Promise<{ done: number; notFound: string[] }> {
-  if (usernames.length === 0) return { done: 0, notFound: [] };
+): Promise<{ done: number; notFound: string[]; sessionsKicked: number; cookiesRemoved: number }> {
+  if (usernames.length === 0) return { done: 0, notFound: [], sessionsKicked: 0, cookiesRemoved: 0 };
 
   const target = new Set(usernames.map((u) => u.toLowerCase()));
 
@@ -1741,16 +1741,19 @@ export async function enableDisableHotspotUsers(
     // Fetch all hotspot users once
     const all = await api.write("/ip/hotspot/user/print");
 
-    const toSet: string[] = [];   // .id values to update
+    const toSet: string[] = [];
     const found = new Set<string>();
+    const foundNames: string[] = []; // original casing for session/cookie matching
 
     for (const u of all) {
-      const name = fixEncoding((u["name"] as string) ?? "").toLowerCase();
-      const id   = (u[".id"]  as string) ?? "";
-      if (!name || !id) continue;
-      if (target.has(name)) {
+      const decoded = fixEncoding((u["name"] as string) ?? "");
+      const nameLower = decoded.toLowerCase();
+      const id = (u[".id"] as string) ?? "";
+      if (!nameLower || !id) continue;
+      if (target.has(nameLower)) {
         toSet.push(id);
-        found.add(name);
+        found.add(nameLower);
+        foundNames.push(decoded);
       }
     }
 
@@ -1766,8 +1769,42 @@ export async function enableDisableHotspotUsers(
       ]);
     }
 
-    return { done: toSet.length, notFound };
-  }, 30_000, "high");
+    let sessionsKicked = 0;
+    let cookiesRemoved = 0;
+
+    // When DISABLING: kick active sessions and remove cookies for affected users
+    if (!enable && foundNames.length > 0) {
+      const disabledSet = new Set(foundNames.map((u) => u.toLowerCase()));
+
+      // 1. Kick active sessions
+      const sessions = await api.write("/ip/hotspot/active/print");
+      for (const s of sessions) {
+        const rawUser = fixEncoding((s["user"] as string) ?? "").trim();
+        if (disabledSet.has(rawUser.toLowerCase())) {
+          const sid = (s[".id"] as string) ?? "";
+          if (sid) {
+            await api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]);
+            sessionsKicked++;
+          }
+        }
+      }
+
+      // 2. Remove hotspot cookies
+      const cookies = await api.write("/ip/hotspot/cookie/print");
+      for (const c of cookies) {
+        const rawUser = fixEncoding((c["user"] as string) ?? "").trim();
+        if (disabledSet.has(rawUser.toLowerCase())) {
+          const cid = (c[".id"] as string) ?? "";
+          if (cid) {
+            await api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]);
+            cookiesRemoved++;
+          }
+        }
+      }
+    }
+
+    return { done: toSet.length, notFound, sessionsKicked, cookiesRemoved };
+  }, 60_000, "high");
 }
 
 /**
