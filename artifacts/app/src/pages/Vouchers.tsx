@@ -70,7 +70,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { getStoredPHP } from "@/pages/TicketTemplate";
+import { fetchServerTemplate } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
@@ -637,15 +637,7 @@ export default function Vouchers() {
 
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
-    const php = getStoredPHP();
-    if (!php) {
-      toast({
-        title: "Aucun modèle de ticket configuré",
-        description: "Allez dans Modèle de ticket pour charger votre template PHP.",
-        variant: "destructive",
-      });
-      return;
-    }
+    const php = await fetchServerTemplate();
     setPrintingLot(lot.name);
     try {
       const users = await fetchLotUsers(lot);
@@ -700,15 +692,7 @@ export default function Vouchers() {
 
   // ── Print ────────────────────────────────────────────────────────────────────
   const handlePrintVouchers = async () => {
-    const php = getStoredPHP();
-    if (!php) {
-      toast({
-        title: "Aucun modèle de ticket configuré",
-        description: "Allez dans Modèle de ticket pour charger votre template PHP.",
-        variant: "destructive",
-      });
-      return;
-    }
+    const php = await fetchServerTemplate();
     const usersForPrint = selectedUsernames.size > 0
       ? filtered.filter((u) => selectedUsernames.has(u.username))
       : filtered;

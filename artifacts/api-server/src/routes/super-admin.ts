@@ -476,4 +476,60 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
   res.status(201).json(created);
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/super/admins/:id/ticket-template — super admin lit le template d'un admin.
+// ---------------------------------------------------------------------------
+router.get("/super/admins/:id/ticket-template", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+
+  const id = parseInt(req.params.id, 10);
+  if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [row] = await db
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.id, id));
+  if (!row) { res.status(404).json({ error: "Admin introuvable" }); return; }
+
+  res.json({ template: row.ticketTemplate ?? null });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/super/admins/:id/ticket-template — super admin définit le template
+// par défaut d'un admin (ce que l'admin verra à la connexion sur n'importe quel appareil).
+// Body: { template: string }
+// ---------------------------------------------------------------------------
+router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+
+  const id = parseInt(req.params.id, 10);
+  if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const { template } = req.body as { template?: string };
+  if (typeof template !== "string") {
+    res.status(400).json({ error: "Champ template requis (string)" });
+    return;
+  }
+
+  const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, id));
+  if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
+  if (target.isSuperAdmin) {
+    res.status(403).json({ error: "Impossible de modifier le super administrateur via cette voie" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(adminSettingsTable)
+    .set({ ticketTemplate: template.trim() || null })
+    .where(eq(adminSettingsTable.id, id))
+    .returning();
+
+  const [{ count: routerCount }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(routersTable)
+    .where(eq(routersTable.ownerAdminId, id));
+
+  res.json(publicAdminShape(updated, Number(routerCount)));
+});
+
 export default router;

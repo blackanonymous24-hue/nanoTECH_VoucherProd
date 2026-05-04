@@ -293,6 +293,48 @@ router.post("/admin/buy-routers", async (req, res): Promise<void> => {
   });
 });
 
+/**
+ * GET /api/admin/ticket-template
+ * Retourne le template PHP Mikhmon v3 de l'admin connecté.
+ * null = l'admin n'a pas encore sauvegardé de template (utiliser le défaut côté client).
+ */
+router.get("/admin/ticket-template", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
+
+  const [row] = await db
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.id, claims.adminId));
+
+  res.json({ template: row?.ticketTemplate ?? null });
+});
+
+/**
+ * PUT /api/admin/ticket-template
+ * Sauvegarde le template PHP Mikhmon v3 de l'admin connecté côté serveur.
+ * Body: { template: string }  — chaîne vide = réinitialiser au défaut.
+ */
+router.put("/admin/ticket-template", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
+
+  const { template } = req.body as { template?: string };
+  if (typeof template !== "string") {
+    res.status(400).json({ error: "Champ template requis (string)" });
+    return;
+  }
+
+  await db
+    .update(adminSettingsTable)
+    .set({ ticketTemplate: template.trim() || null })
+    .where(eq(adminSettingsTable.id, claims.adminId));
+
+  res.json({ ok: true });
+});
+
 router.post("/admin/purge-phantoms", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {

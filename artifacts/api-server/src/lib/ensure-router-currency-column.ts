@@ -40,3 +40,20 @@ export async function ensureRouterAutoDeleteSalesScriptsColumn(): Promise<void> 
     );
   }
 }
+
+/**
+ * Ajoute la colonne ticket_template sur admin_settings si elle n'existe pas.
+ * Stocke le template PHP Mikhmon v3 côté serveur pour synchronisation cross-device
+ * (mobile web, APK WebView, desktop). null = template par défaut Mikhmon.
+ */
+export async function ensureTicketTemplateColumn(): Promise<void> {
+  try {
+    await db.execute(sql`
+      ALTER TABLE admin_settings
+      ADD COLUMN IF NOT EXISTS ticket_template text
+    `);
+    logger.info("DB compat: colonne admin_settings.ticket_template vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.ticket_template");
+  }
+}

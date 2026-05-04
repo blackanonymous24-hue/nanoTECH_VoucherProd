@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -181,10 +181,30 @@ export function parsePHPTemplate(raw: string): string {
 
 // ─── Helpers PHP mode ──────────────────────────────────────────────────────────
 
-const PHP_KEY = "voucher-ticket-php";
+export const PHP_KEY = "voucher-ticket-php";
 
-export function getStoredPHP(): string | null {
+export function getStoredPHP(): string {
   try { return localStorage.getItem(PHP_KEY) ?? DEFAULT_MIKHMON_PHP; } catch { return DEFAULT_MIKHMON_PHP; }
+}
+
+/**
+ * Charge le template depuis le serveur (source de vérité cross-device).
+ * Met à jour le cache localStorage si un template serveur existe.
+ * Fallback : localStorage → DEFAULT_MIKHMON_PHP.
+ * Appelé avant chaque impression et au montage de la page Template.
+ */
+export async function fetchServerTemplate(): Promise<string> {
+  try {
+    const r = await fetch(`${BASE}/api/admin/ticket-template`);
+    if (r.ok) {
+      const data = (await r.json()) as { template: string | null };
+      if (data.template && data.template.trim().length > 0) {
+        try { localStorage.setItem(PHP_KEY, data.template); } catch {}
+        return data.template;
+      }
+    }
+  } catch { /* réseau indisponible — fallback local */ }
+  return getStoredPHP();
 }
 
 export function isPHPMode(): boolean {
@@ -289,10 +309,14 @@ export default function TicketTemplate() {
   const isManager = role === "manager";
   const { toast } = useToast();
 
-  // ── Contenu PHP brut
-  const [phpCode, setPhpCode] = useState<string>(
-    () => getStoredPHP() ?? ""
-  );
+  // ── Contenu PHP brut — initialisé depuis le cache local, puis mis à jour depuis le serveur
+  const [phpCode, setPhpCode] = useState<string>(() => getStoredPHP());
+
+  // Chargement depuis le serveur au montage (source de vérité cross-device)
+  useEffect(() => {
+    fetchServerTemplate().then((tpl) => setPhpCode(tpl));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [tab, setTab] = useState<"code" | "preview">("code");
   const [saved, setSaved] = useState(false);
@@ -318,15 +342,23 @@ export default function TicketTemplate() {
     e.target.value = "";
   }, [toast]);
 
-  // ── Sauvegarder
-  const handleSave = useCallback(() => {
+  // ── Sauvegarder — local + serveur (source de vérité cross-device)
+  const handleSave = useCallback(async () => {
     try {
       localStorage.setItem(PHP_KEY, phpCode);
       localStorage.removeItem(TEMPLATE_KEY);
     } catch { /* ignore */ }
+    // Sauvegarde serveur : synchronise mobile, APK et tous les appareils
+    try {
+      await fetch(`${BASE}/api/admin/ticket-template`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template: phpCode }),
+      });
+    } catch { /* hors ligne — le cache local reste valide */ }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
-    toast({ title: "Modèle sauvegardé", description: "Appliqué à toutes les impressions." });
+    toast({ title: "Modèle sauvegardé", description: "Synchronisé sur tous vos appareils." });
   }, [phpCode, toast]);
 
   // ── Réinitialiser

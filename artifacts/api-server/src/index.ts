@@ -1,7 +1,7 @@
 import "source-map-support/register.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
-import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn } from "./lib/ensure-router-currency-column.js";
+import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureTicketTemplateColumn } from "./lib/ensure-router-currency-column.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
@@ -42,6 +42,7 @@ async function start() {
   // DB compat migrations (idempotent, fast on subsequent startups).
   await ensureRouterCurrencyColumn();
   await ensureRouterAutoDeleteSalesScriptsColumn();
+  await ensureTicketTemplateColumn();
 
   startRealtimeVendorSync();
   setOnVendorSyncComplete(invalidateVendorPortalCache);
