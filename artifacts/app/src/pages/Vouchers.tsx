@@ -952,21 +952,40 @@ export default function Vouchers() {
     setIsExtending(true);
     try {
       const existing = parseExpirationDate(user.comment);
-      const base = existing && existing.getTime() > Date.now() ? existing : new Date();
+      const isExpired = !existing || existing.getTime() <= Date.now();
+
+      // Si expiré → réinitialiser le compte (compteurs, session, MAC) avant d'appliquer la nouvelle date
+      if (isExpired) {
+        const resetRes = await fetch(
+          `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}/reset`,
+          { method: "POST", headers: { "Content-Type": "application/json" } },
+        );
+        if (!resetRes.ok) {
+          const err = await resetRes.json() as { error?: string };
+          throw new Error(err.error ?? `HTTP ${resetRes.status}`);
+        }
+      }
+
+      // Calculer la nouvelle date d'expiration
+      const base = isExpired ? new Date() : existing!;
       const next = new Date(base);
       if (extendUnit === "Heure") next.setHours(next.getHours() + n);
       else if (extendUnit === "Jour") next.setDate(next.getDate() + n);
       else next.setMonth(next.getMonth() + n);
       const newComment = formatMikrotikDate(next);
-      const res = await fetch(
+
+      const patchRes = await fetch(
         `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}`,
         { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment: newComment }) },
       );
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? `HTTP ${res.status}`);
+      if (!patchRes.ok) {
+        const err = await patchRes.json() as { error?: string };
+        throw new Error(err.error ?? `HTTP ${patchRes.status}`);
       }
-      toast({ title: "Forfait prolongé", description: `${user.username} — expire : ${newComment}` });
+      toast({
+        title: isExpired ? "Compte réinitialisé et prolongé" : "Forfait prolongé",
+        description: `${user.username} — expire : ${newComment}`,
+      });
       void Promise.all([refetchUsers(), refetchLots()]);
     } catch (err) {
       toast({ title: "Erreur prolongation", description: String(err), variant: "destructive" });
@@ -1924,16 +1943,28 @@ export default function Vouchers() {
             )}
           </div>
           <div className="px-6 py-5 space-y-4">
-            {extendUser && (
-              <div className="text-xs text-muted-foreground space-y-0.5">
-                <p>
-                  Expiration actuelle :{" "}
-                  {parseExpirationDate(extendUser.comment)
-                    ? <span className="font-mono text-foreground">{parseExpirationDate(extendUser.comment)!.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-                    : <span className="italic">aucune date</span>}
-                </p>
-              </div>
-            )}
+            {extendUser && (() => {
+              const expDate = parseExpirationDate(extendUser.comment);
+              const alreadyExpired = !expDate || expDate.getTime() <= Date.now();
+              return (
+                <>
+                  <div className="text-xs text-muted-foreground">
+                    <p>
+                      Expiration actuelle :{" "}
+                      {expDate
+                        ? <span className="font-mono text-foreground">{expDate.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                        : <span className="italic">aucune date</span>}
+                    </p>
+                  </div>
+                  {alreadyExpired && (
+                    <div className="flex items-start gap-2 rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-xs text-orange-700">
+                      <RotateCcw className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                      <span>Forfait expiré — le compte sera <strong>réinitialisé</strong> (compteurs remis à zéro, session coupée) avant d'appliquer la nouvelle date.</span>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Durée à ajouter</Label>
               <div className="flex gap-2">
