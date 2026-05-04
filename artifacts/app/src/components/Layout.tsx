@@ -91,19 +91,23 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [hotspotOpen, setHotspotOpen] = useState(() => hotspotPaths.some((p) => location.startsWith(p)));
   useEffect(() => { if (isHotspotPage) setHotspotOpen(true); }, [isHotspotPage]);
 
-  /* ── Vendor count — hide vendor nav items when no vendor registered ── */
+  /* ── Vendor count — masquer les items vendeur si aucun vendeur sur ce routeur ── */
   const { data: vendorsList } = useQuery<{ id: number }[]>({
-    queryKey: ["vendors-nav-count"],
+    queryKey: ["vendors-nav-count", selectedRouterId],
     queryFn: async ({ signal }) => {
-      const res = await fetch(`${BASE}/api/vendors`, { signal });
-      if (!res.ok) return [{ id: 0 }];
+      if (!selectedRouterId) return [];
+      const res = await fetch(`${BASE}/api/vendors?routerId=${selectedRouterId}`, { signal });
+      if (!res.ok) return [];
       const data: unknown = await res.json();
-      return Array.isArray(data) ? (data as { id: number }[]) : [{ id: 0 }];
+      return Array.isArray(data) ? (data as { id: number }[]) : [];
     },
-    staleTime: 5 * 60_000,
+    staleTime: 60_000,
     retry: 1,
   });
-  const hasVendors = vendorsList === undefined || vendorsList.length > 0;
+  // undefined = chargement en cours → on affiche par défaut pour éviter le flash
+  const hasVendors = selectedRouterId
+    ? (vendorsList === undefined || vendorsList.length > 0)
+    : false;
   const isVouchersPage = location.startsWith("/vouchers");
 
   const isNavActive = (href: string) => {
