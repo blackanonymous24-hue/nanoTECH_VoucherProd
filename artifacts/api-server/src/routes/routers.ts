@@ -1005,6 +1005,28 @@ function patchCachedUser(
 }
 
 /**
+ * Surgically remove users from the cache by username instead of invalidating.
+ * The next /users request is served instantly from the patched cache.
+ */
+function removeCachedUsersByNames(scope: string, usernames: string[]): void {
+  const cached = userCache.get(scope);
+  if (!cached) return;
+  const target = new Set(usernames.map((u) => u.toLowerCase()));
+  cached.users = cached.users.filter((u) => !target.has(u.username.toLowerCase()));
+  _usersCountCache.delete(scope);
+}
+
+/**
+ * Surgically remove users from the cache by comment instead of invalidating.
+ */
+function removeCachedUsersByComment(scope: string, comment: string): void {
+  const cached = userCache.get(scope);
+  if (!cached) return;
+  cached.users = cached.users.filter((u) => (u.comment ?? "") !== comment);
+  _usersCountCache.delete(scope);
+}
+
+/**
  * GET /routers/:id/users/count
  * Lightweight: returns just `{ total, available, used, disabled, cachedAt }`.
  * Mikhmon-style stale-while-revalidate: as long as we have a previous user
@@ -1285,8 +1307,14 @@ router.delete("/routers/:id/users", async (req, res): Promise<void> => {
       if (commentFilter) return deleteHotspotUsersByComment(conn, commentFilter);
       return deleteHotspotUsersByNames(conn, usernames!);
     });
-    // Invalidate cache so subsequent requests get fresh data
-    userCache.delete(routerCacheScope(r.ownerAdminId, id));
+    // Patch cache surgically: remove only the deleted users so the next
+    // frontend refetch is served instantly from memory (no MikroTik round-trip).
+    const cacheScope = routerCacheScope(r.ownerAdminId, id);
+    if (commentFilter) {
+      removeCachedUsersByComment(cacheScope, commentFilter);
+    } else if (Array.isArray(usernames) && usernames.length > 0) {
+      removeCachedUsersByNames(cacheScope, usernames);
+    }
     res.json({ deleted });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

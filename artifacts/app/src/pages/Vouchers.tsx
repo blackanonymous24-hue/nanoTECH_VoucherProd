@@ -561,7 +561,8 @@ export default function Vouchers() {
         title: `${data.deleted} voucher(s) supprimé(s)`,
         description: `Profil : ${filterProfile}`,
       });
-      await Promise.all([refetchUsers(), refetchLots()]);
+      void refetchUsers();
+      void refetchLots();
     } catch (err) {
       toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
     } finally {
@@ -595,7 +596,8 @@ export default function Vouchers() {
     } finally {
       setIsDeletingEditUser(false);
       setConfirmDeleteEditUser(null);
-      await Promise.all([refetchUsers(), refetchLots()]);
+      void refetchUsers();
+      void refetchLots();
     }
   };
 
@@ -622,7 +624,8 @@ export default function Vouchers() {
     } finally {
       setIsDeletingLot(false);
       setDeletingLotName(null);
-      await Promise.all([refetchUsers(), refetchLots()]);
+      void refetchUsers();
+      void refetchLots();
     }
   };
 

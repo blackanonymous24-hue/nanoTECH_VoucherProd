@@ -1778,14 +1778,32 @@ export async function deleteHotspotUsersByComment(
   comment: string,
 ): Promise<number> {
   return withRouter(conn, async (api) => {
-    const all = await api.write("/ip/hotspot/user/print");
     const toDelete: string[] = [];
-    for (const u of all) {
-      if (fixEncoding((u["comment"] as string) ?? "") === comment) {
-        const id = u[".id"] as string | undefined;
-        if (id) toDelete.push(id);
+
+    // Try targeted query filter first (avoids full scan) — try both
+    // UTF-8 and Win1252-encoded variants of the comment to handle any encoding.
+    for (const variant of [comment, toWin1252(comment)]) {
+      const filtered = await api.write("/ip/hotspot/user/print", [`?comment=${variant}`]);
+      if (filtered.length > 0) {
+        for (const u of filtered) {
+          const id = u[".id"] as string | undefined;
+          if (id) toDelete.push(id);
+        }
+        break;
       }
     }
+
+    // Fallback: full scan (handles edge-cases with unusual encodings)
+    if (toDelete.length === 0) {
+      const all = await api.write("/ip/hotspot/user/print");
+      for (const u of all) {
+        if (fixEncoding((u["comment"] as string) ?? "") === comment) {
+          const id = u[".id"] as string | undefined;
+          if (id) toDelete.push(id);
+        }
+      }
+    }
+
     if (toDelete.length > 0) {
       await api.write("/ip/hotspot/user/remove", [`=.id=${toDelete.join(",")}`]);
     }
@@ -1801,15 +1819,53 @@ export async function deleteHotspotUsersByNames(
   usernames: string[],
 ): Promise<number> {
   if (usernames.length === 0) return 0;
-  const target = new Set(usernames.map((u) => u.toLowerCase()));
   return withRouter(conn, async (api) => {
-    const all = await api.write("/ip/hotspot/user/print");
     const toDelete: string[] = [];
-    for (const u of all) {
-      const name = fixEncoding((u["name"] as string) ?? "").toLowerCase();
-      const id = u[".id"] as string | undefined;
-      if (name && id && target.has(name)) toDelete.push(id);
+
+    if (usernames.length <= 50) {
+      // Targeted per-name queries: much faster than fetching all users when
+      // deleting a small selection. Try exact name then Win1252-encoded variant.
+      for (const username of usernames) {
+        let found = false;
+        for (const variant of [username, toWin1252(username)]) {
+          const results = await api.write("/ip/hotspot/user/print", [`?name=${variant}`]);
+          if (results.length > 0) {
+            const id = results[0][".id"] as string | undefined;
+            if (id && !toDelete.includes(id)) toDelete.push(id);
+            found = true;
+            break;
+          }
+        }
+        // Last-resort: if both variants returned nothing, it might be a
+        // double-encoded name — the full-scan fallback below will catch it.
+        if (!found) {
+          // Mark for fallback by breaking and letting the scan handle it
+        }
+      }
+      // If targeted queries found all usernames, skip the scan
+      if (toDelete.length < usernames.length) {
+        // Some usernames weren't found via filter — fall back to full scan
+        const alreadyFound = new Set(toDelete);
+        const target = new Set(usernames.map((u) => u.toLowerCase()));
+        const all = await api.write("/ip/hotspot/user/print");
+        for (const u of all) {
+          const id = u[".id"] as string | undefined;
+          if (!id || alreadyFound.has(id)) continue;
+          const name = fixEncoding((u["name"] as string) ?? "").toLowerCase();
+          if (name && target.has(name)) toDelete.push(id);
+        }
+      }
+    } else {
+      // Large batch: single full scan is more efficient than N targeted queries
+      const target = new Set(usernames.map((u) => u.toLowerCase()));
+      const all = await api.write("/ip/hotspot/user/print");
+      for (const u of all) {
+        const name = fixEncoding((u["name"] as string) ?? "").toLowerCase();
+        const id = u[".id"] as string | undefined;
+        if (name && id && target.has(name)) toDelete.push(id);
+      }
     }
+
     if (toDelete.length > 0) {
       await api.write("/ip/hotspot/user/remove", [`=.id=${toDelete.join(",")}`]);
     }
