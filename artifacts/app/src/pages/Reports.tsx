@@ -3,6 +3,8 @@ import {
   useGetVendorReportsSummary,
   useGetVendorReport,
   useSyncVoucherUsage,
+  getGetVendorReportQueryKey,
+  getGetVendorReportsSummaryQueryKey,
 } from "@workspace/api-client-react";
 import type { VendorSummary } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,7 +110,7 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
-  const { data, isLoading } = useGetVendorReport(vendorId, { query: { queryKey: [], refetchInterval: 15_000 } });
+  const { data, isLoading } = useGetVendorReport(vendorId, { query: { queryKey: getGetVendorReportQueryKey(vendorId), refetchInterval: 15_000 } });
 
   if (isLoading || !data) {
     return (
@@ -431,7 +433,7 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 
 /* ─── main page ───────────────────────────────────────────────── */
 export default function Reports() {
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { queryKey: [], refetchInterval: 15_000 } });
+  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), refetchInterval: 15_000 } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
 

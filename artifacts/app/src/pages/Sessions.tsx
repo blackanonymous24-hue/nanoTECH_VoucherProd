@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   useListRouterSessions,
   useDisconnectRouterSession,
+  getListRouterSessionsQueryKey,
 } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +30,7 @@ import {
 import { Activity, RefreshCw, Wifi, Users, Search, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
+import { useQueryClient } from "@tanstack/react-query";
 
 // Module-level cache — persists across component unmount/remount (navigating away and back).
 // Provides instant display via initialData so the session list never shows a loading skeleton on re-visit.
@@ -49,6 +51,8 @@ function formatBytes(bytes: string | null | undefined): string {
 export default function Sessions() {
   const { selectedRouterId } = useRouterContext();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const lastSyncedCountRef = useRef<number>(-1);
 
   const [search, setSearch] = useState("");
   const [disconnectUser, setDisconnectUser] = useState<string | null>(null);
@@ -67,7 +71,7 @@ export default function Sessions() {
     selectedRouterId ?? 0,
     {
       query: {
-        queryKey: [],
+        queryKey: getListRouterSessionsQueryKey(selectedRouterId ?? 0),
         enabled: !!selectedRouterId,
         refetchInterval: 30_000,
         staleTime: 14_000,       // juste sous le TTL serveur (15s) → pas de double-fetch inutile
@@ -93,6 +97,18 @@ export default function Sessions() {
       }
     }
   }, [sessions, selectedRouterId, isLoading, error]);
+
+  // Synchronise le compteur "Clients actifs" du Dashboard avec la valeur live
+  // Quand la page Sessions récupère un nombre de sessions différent du dernier,
+  // invalider le cache priority du dashboard pour qu'il affiche la même valeur.
+  useEffect(() => {
+    if (isLoading || error || !selectedRouterId) return;
+    if (sessions.length === lastSyncedCountRef.current) return;
+    lastSyncedCountRef.current = sessions.length;
+    void queryClient.invalidateQueries({
+      queryKey: ["router-dashboard-priority", selectedRouterId],
+    });
+  }, [sessions.length, isLoading, error, selectedRouterId, queryClient]);
 
   const disconnectMutation = useDisconnectRouterSession();
 

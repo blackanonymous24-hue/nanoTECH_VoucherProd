@@ -93,7 +93,7 @@ export default function Forfaits() {
     selectedRouterId ?? 0,
     {
       query: {
-        queryKey: [],
+        queryKey: getListRouterProfilesQueryKey(selectedRouterId ?? 0),
         enabled: !!selectedRouterId,
         staleTime: 5 * 60_000,
         gcTime: 10 * 60_000,

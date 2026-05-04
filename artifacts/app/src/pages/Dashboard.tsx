@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
-import { useGetDashboard, useListRouterLogs } from "@workspace/api-client-react";
+import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRouterLogsQueryKey } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -156,7 +156,8 @@ function amountTextStyle(amount: number, currency = "FCFA"): React.CSSProperties
  *   "1sm6k76j (172.16.0.15): logged out: keepalive timeout"
  *   "1sm6k76j (172.16.0.15): login failed: invalid username or password"
  */
-function parseHotspotMessage(raw: string): { user: string | null; ip: string | null; action: string } {
+function parseHotspotMessage(raw: string | null | undefined): { user: string | null; ip: string | null; action: string } {
+  if (!raw) return { user: null, ip: null, action: "" };
   const stripped = raw.replace(/^->:\s*/, "").trim();
   // Allow ANY characters (incl. spaces and accents) for the username, then a
   // strict IPv4 in parens, then ":" + action. Examples that must parse:
@@ -419,7 +420,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
 export default function Dashboard() {
   const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: {
-      queryKey: [],
+      queryKey: getGetDashboardQueryKey(),
       refetchInterval: 10_000,
       staleTime: 9_000,
       gcTime: 30 * 60_000,
@@ -548,7 +549,7 @@ export default function Dashboard() {
     DASH_LOGS_PARAMS,
     {
       query: {
-        queryKey: [],
+        queryKey: getListRouterLogsQueryKey(selectedRouterId ?? 0, DASH_LOGS_PARAMS),
         enabled: !!selectedRouterId && enableSecondaries,
         refetchInterval: 4_000,
         refetchIntervalInBackground: false,

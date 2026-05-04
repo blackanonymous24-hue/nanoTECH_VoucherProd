@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
-import { useListRouters } from "@workspace/api-client-react";
+import { useListRouters, getListRoutersQueryKey } from "@workspace/api-client-react";
 import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -42,7 +42,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const isRouterLocked = isManagerLocked;
 
   const { data: freshRouters, isLoading: routersQueryLoading, isFetched: routersFetched } = useListRouters({
-    query: { queryKey: [], staleTime: 30_000, gcTime: 5 * 60_000 },
+    query: { queryKey: getListRoutersQueryKey(), staleTime: 30_000, gcTime: 5 * 60_000 },
   });
 
   // Use freshRouters directly — no intermediate state — so that when

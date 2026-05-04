@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   useListRouterUsers,
   useListRouterProfiles,
+  getListRouterUsersQueryKey,
+  getListRouterProfilesQueryKey,
 } from "@workspace/api-client-react";
 import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
@@ -323,6 +325,13 @@ export default function Vouchers() {
   // For the default (unfiltered) case, use module-level cache so list shows instantly on re-visit.
   const isDefaultFilter = !debouncedSearch && filterProfile === "all" && filterComment === "all";
   const usersLimit = filterVendor !== "all" ? 20_000 : 2_000;
+  const usersParams = {
+    search: debouncedSearch || undefined,
+    profile: filterProfile !== "all" ? filterProfile : undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(filterComment !== "all" ? { comment: filterComment } : {}),
+    limit: usersLimit,
+  } as Parameters<typeof useListRouterUsers>[1];
   const {
     data: allUsersData,
     isLoading: usersLoading,
@@ -331,16 +340,10 @@ export default function Vouchers() {
     error,
   } = useListRouterUsers(
     activeRouterId ?? 0,
-    {
-      search: debouncedSearch || undefined,
-      profile: filterProfile !== "all" ? filterProfile : undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ...(filterComment !== "all" ? { comment: filterComment } : {}),
-      limit: usersLimit,
-    } as Parameters<typeof useListRouterUsers>[1],
+    usersParams,
     {
       query: {
-        queryKey: [],
+        queryKey: getListRouterUsersQueryKey(activeRouterId ?? 0, usersParams),
         enabled: !!activeRouterId && view === "list",
         // staleTime:0 → React Query déclenche TOUJOURS un background-refetch au montage,
         // même si initialData est présent. Un utilisateur supprimé de MikroTik disparaît
@@ -364,7 +367,7 @@ export default function Vouchers() {
   const refetch = () => { void refetchLots(); void refetchUsers(); };
 
   const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
-    query: { queryKey: [], enabled: !!activeRouterId, staleTime: 120_000 },
+    query: { queryKey: getListRouterProfilesQueryKey(activeRouterId ?? 0), enabled: !!activeRouterId, staleTime: 120_000 },
   });
   useProfileAutoResync(activeRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
   const profileExpiryModeByName = useMemo(() => {

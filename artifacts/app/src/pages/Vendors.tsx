@@ -6,6 +6,7 @@ import {
   useUpdateVendor,
   useDeleteVendor,
   useGetVendorReportsSummary,
+  getGetVendorReportsSummaryQueryKey,
 } from "@workspace/api-client-react";
 import type { Vendor, VendorSummary } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -343,7 +344,7 @@ export default function Vendors() {
     staleTime: 30_000,
   });
 
-  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { queryKey: [], staleTime: 60_000 } });
+  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), staleTime: 60_000 } });
   const summaryMap = useMemo(
     () => new Map<number, VendorSummary>(summaries.map((s) => [s.vendor.id, s])),
     [summaries],
