@@ -1962,6 +1962,7 @@ export interface UpdateHotspotUserOpts {
   newUsername?: string;
   password?: string;
   profile?: string;
+  comment?: string;
 }
 
 export async function updateHotspotUser(
@@ -1980,6 +1981,7 @@ export async function updateHotspotUser(
     if (opts.newUsername !== undefined) args.push(`=name=${toWin1252(nextUsername)}`);
     if (opts.password !== undefined) args.push(`=password=${toWin1252(opts.password.trim())}`);
     if (opts.profile !== undefined) args.push(`=profile=${toWin1252(opts.profile.trim())}`);
+    if (opts.comment !== undefined) args.push(`=comment=${toWin1252(opts.comment.trim())}`);
     await api.write("/ip/hotspot/user/set", args);
 
     return {

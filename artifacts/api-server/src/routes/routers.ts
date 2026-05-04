@@ -1523,13 +1523,14 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const oldUsername = decodeURIComponent(req.params.username as string);
-  const { newUsername, password, profile, bypassMacAddress, bypassComment, linkBypass } = (req.body ?? {}) as {
+  const { newUsername, password, profile, bypassMacAddress, bypassComment, linkBypass, comment } = (req.body ?? {}) as {
     newUsername?: string;
     password?: string;
     profile?: string;
     bypassMacAddress?: string;
     bypassComment?: string;
     linkBypass?: boolean;
+    comment?: string;
   };
   if (newUsername !== undefined && (!newUsername || !newUsername.trim())) {
     res.status(400).json({ error: "newUsername invalide" });
@@ -1558,6 +1559,7 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
       newUsername: trimmed,
       password: password?.trim(),
       profile: profile?.trim(),
+      comment: comment !== undefined ? comment.trim() : undefined,
     });
     if (!updated.found) { res.status(404).json({ error: "Utilisateur introuvable sur le routeur" }); return; }
     const finalUsername = updated.username;

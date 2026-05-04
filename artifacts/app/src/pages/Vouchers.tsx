@@ -51,6 +51,7 @@ import {
   X,
   Save,
   BookOpen,
+  CalendarPlus,
 } from "lucide-react";
 import {
   Dialog,
@@ -183,6 +184,10 @@ export default function Vouchers() {
   const [confirmDeleteEditUser, setConfirmDeleteEditUser] = useState<HotspotUser | null>(null);
   const [isDeletingEditUser, setIsDeletingEditUser] = useState(false);
   const [isTogglingEditUserDisabled, setIsTogglingEditUserDisabled] = useState(false);
+  const [extendUser, setExtendUser] = useState<HotspotUser | null>(null);
+  const [extendAmount, setExtendAmount] = useState("1");
+  const [extendUnit, setExtendUnit] = useState<"Heure" | "Jour" | "Mois">("Mois");
+  const [isExtending, setIsExtending] = useState(false);
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
@@ -929,6 +934,47 @@ export default function Vouchers() {
     }
   };
 
+  const openExtendUser = (user: HotspotUser) => {
+    setExtendUser(user);
+    setExtendAmount("1");
+    setExtendUnit("Mois");
+  };
+
+  const handleExtend = async () => {
+    if (!activeRouterId || !extendUser || isExtending) return;
+    const n = parseInt(extendAmount, 10);
+    if (!n || n <= 0) {
+      toast({ title: "Durée invalide", description: "Entrez un nombre positif.", variant: "destructive" });
+      return;
+    }
+    const user = extendUser;
+    setExtendUser(null);
+    setIsExtending(true);
+    try {
+      const existing = parseExpirationDate(user.comment);
+      const base = existing && existing.getTime() > Date.now() ? existing : new Date();
+      const next = new Date(base);
+      if (extendUnit === "Heure") next.setHours(next.getHours() + n);
+      else if (extendUnit === "Jour") next.setDate(next.getDate() + n);
+      else next.setMonth(next.getMonth() + n);
+      const newComment = formatMikrotikDate(next);
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}`,
+        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment: newComment }) },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      toast({ title: "Forfait prolongé", description: `${user.username} — expire : ${newComment}` });
+      void Promise.all([refetchUsers(), refetchLots()]);
+    } catch (err) {
+      toast({ title: "Erreur prolongation", description: String(err), variant: "destructive" });
+    } finally {
+      setIsExtending(false);
+    }
+  };
+
   const handleSearchChange = (v: string) => {
     setSearch(v);
     setPage(0);
@@ -1472,6 +1518,15 @@ export default function Vouchers() {
                               <RotateCcw className="h-3 w-3" />
                               <span>Réinitialiser</span>
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => openExtendUser(selUser)}
+                              disabled={isExtending}
+                              className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                            >
+                              <CalendarPlus className="h-3 w-3" />
+                              <span>Prolonger</span>
+                            </button>
                           </>
                         );
                       })()}
@@ -1589,6 +1644,7 @@ export default function Vouchers() {
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
                           onReset={() => setConfirmResetUser(user)}
+                          onExtend={() => openExtendUser(user)}
                         />
                       ))}
                     </div>
@@ -1852,6 +1908,82 @@ export default function Vouchers() {
           )}
         </>
       )}
+
+      {/* Prolonger dialog */}
+      <Dialog open={!!extendUser} onOpenChange={(o) => { if (!o && !isExtending) setExtendUser(null); }}>
+        <DialogContent className="max-w-sm gap-0 overflow-hidden p-0 [&>button]:hidden">
+          <div className="border-b bg-muted/30 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CalendarPlus className="h-4 w-4 text-blue-600" />
+                Prolonger le forfait
+              </DialogTitle>
+            </DialogHeader>
+            {extendUser && (
+              <p className="mt-1 text-xs text-muted-foreground font-mono">{extendUser.username}</p>
+            )}
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            {extendUser && (
+              <div className="text-xs text-muted-foreground space-y-0.5">
+                <p>
+                  Expiration actuelle :{" "}
+                  {parseExpirationDate(extendUser.comment)
+                    ? <span className="font-mono text-foreground">{parseExpirationDate(extendUser.comment)!.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                    : <span className="italic">aucune date</span>}
+                </p>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Durée à ajouter</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min="1"
+                  max="999"
+                  value={extendAmount}
+                  onChange={(e) => setExtendAmount(e.target.value)}
+                  disabled={isExtending}
+                  className="flex-1 font-mono text-center text-base"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === "Enter") void handleExtend(); }}
+                />
+                <select
+                  value={extendUnit}
+                  onChange={(e) => setExtendUnit(e.target.value as "Heure" | "Jour" | "Mois")}
+                  disabled={isExtending}
+                  className="flex h-9 w-28 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="Heure">Heure(s)</option>
+                  <option value="Jour">Jour(s)</option>
+                  <option value="Mois">Mois</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setExtendUser(null)}
+                disabled={isExtending}
+              >
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
+                onClick={() => void handleExtend()}
+                disabled={isExtending || !extendAmount || parseInt(extendAmount, 10) <= 0}
+              >
+                {isExtending
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> En cours…</>
+                  : <><CalendarPlus className="h-4 w-4" /> Prolonger</>}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Reset user confirmation dialog */}
       <AlertDialog open={!!confirmResetUser} onOpenChange={(o) => { if (!o && !isResetting) setConfirmResetUser(null); }}>
@@ -2407,6 +2539,18 @@ export default function Vouchers() {
   );
 }
 
+// Format a Date as MikroTik hotspot comment date: "mmm/dd/yyyy HH:mm:ss"
+const MK_MONTHS_OUT = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+function formatMikrotikDate(d: Date): string {
+  const mon = MK_MONTHS_OUT[d.getMonth()];
+  const day = String(d.getDate()).padStart(2, "0");
+  const yr = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${mon}/${day}/${yr} ${hh}:${mm}:${ss}`;
+}
+
 // Parse a MikroTik comment that may contain an expiration date set by the
 // hotspot on-login script. Common formats observed:
 //   "mmm/dd/yyyy HH:mm:ss"   e.g. "jan/12/2026 14:30:00"
@@ -2475,6 +2619,7 @@ function UserRow({
   onToggle,
   onEdit,
   onReset,
+  onExtend,
 }: {
   user: HotspotUser;
   isExpired: boolean;
@@ -2482,6 +2627,7 @@ function UserRow({
   onToggle: () => void;
   onEdit: () => void;
   onReset: () => void;
+  onExtend: () => void;
 }) {
   return (
     <div
@@ -2569,6 +2715,13 @@ function UserRow({
           >
             <Pencil className="h-3.5 w-3.5" />
             Modifier utilisateur
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => { e.stopPropagation(); onExtend(); }}
+            className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-600"
+          >
+            <CalendarPlus className="h-3.5 w-3.5" />
+            Prolonger
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={(e) => { e.stopPropagation(); onReset(); }}
