@@ -104,8 +104,8 @@ router.put("/managers/me/password", async (req, res): Promise<void> => {
   const payload = verifyToken(auth.slice(7));
   if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
 
-  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
-  if (!currentPassword || !newPassword) {
+  const { newPassword } = req.body as { newPassword?: string };
+  if (!newPassword) {
     res.status(400).json({ error: "Champs requis manquants" }); return;
   }
   if (newPassword.length < 4) {
@@ -113,10 +113,7 @@ router.put("/managers/me/password", async (req, res): Promise<void> => {
   }
 
   const [manager] = await db.select().from(managersTable).where(eq(managersTable.id, payload.managerId));
-  if (!manager || !manager.passwordHash) { res.status(404).json({ error: "Gérant introuvable" }); return; }
-
-  const valid = await verifyPassword(currentPassword, manager.passwordHash);
-  if (!valid) { res.status(401).json({ error: "Ancien mot de passe incorrect" }); return; }
+  if (!manager) { res.status(404).json({ error: "Gérant introuvable" }); return; }
 
   const passwordHash = await hashPassword(newPassword);
   await db.update(managersTable).set({ passwordHash }).where(eq(managersTable.id, manager.id));

@@ -153,13 +153,11 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const lowStockCount = stockAlerts?.count ?? 0;
 
   /* ── Password change dialog state (managers only) ── */
-  const [showPwd, setShowPwd]         = useState(false);
-  const [pwdCurrent, setPwdCurrent]   = useState("");
-  const [pwdNew, setPwdNew]           = useState("");
-  const [pwdConfirm, setPwdConfirm]   = useState("");
-  const [pwdError, setPwdError]       = useState("");
-  const [pwdSuccess, setPwdSuccess]   = useState(false);
-  const [pwdLoading, setPwdLoading]   = useState(false);
+  const [showPwd, setShowPwd]     = useState(false);
+  const [pwdNew, setPwdNew]       = useState("");
+  const [pwdError, setPwdError]   = useState("");
+  const [pwdSuccess, setPwdSuccess] = useState(false);
+  const [pwdLoading, setPwdLoading] = useState(false);
 
   /* ── Add hotspot user dialog state (admin + manager) ── */
   const [showAddUser, setShowAddUser]           = useState(false);
@@ -265,21 +263,18 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   function openPwdDialog() {
-    setPwdCurrent(""); setPwdNew(""); setPwdConfirm("");
+    setPwdNew("");
     setPwdError(""); setPwdSuccess(false);
     setShowPwd(true);
   }
 
   async function handleChangePwd() {
     setPwdError("");
-    if (!pwdCurrent || !pwdNew || !pwdConfirm) {
-      setPwdError("Tous les champs sont requis."); return;
+    if (!pwdNew) {
+      setPwdError("Le mot de passe est requis."); return;
     }
     if (pwdNew.length < 4) {
-      setPwdError("Le nouveau mot de passe doit comporter au moins 4 caractères."); return;
-    }
-    if (pwdNew !== pwdConfirm) {
-      setPwdError("Les nouveaux mots de passe ne correspondent pas."); return;
+      setPwdError("Le mot de passe doit comporter au moins 4 caractères."); return;
     }
     setPwdLoading(true);
     const pwdEndpoint = isCollaborateur
@@ -292,7 +287,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ currentPassword: pwdCurrent, newPassword: pwdNew }),
+        body: JSON.stringify({ newPassword: pwdNew }),
       });
       if (!res.ok) {
         const data = await res.json() as { error?: string };
@@ -631,34 +626,15 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             <>
               <div className="space-y-3 py-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Mot de passe actuel</Label>
-                  <PasswordInput
-                    value={pwdCurrent}
-                    onChange={(e) => setPwdCurrent(e.target.value)}
-                    placeholder="••••••••"
-                    className="h-9 text-sm"
-                    autoComplete="current-password"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Nouveau mot de passe</Label>
+                  <Label className="text-xs">Mot de passe</Label>
                   <PasswordInput
                     value={pwdNew}
                     onChange={(e) => setPwdNew(e.target.value)}
-                    placeholder="4 caractères minimum"
-                    className="h-9 text-sm"
-                    autoComplete="new-password"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Confirmer le nouveau mot de passe</Label>
-                  <PasswordInput
-                    value={pwdConfirm}
-                    onChange={(e) => setPwdConfirm(e.target.value)}
                     placeholder="••••••••"
                     className="h-9 text-sm"
                     autoComplete="new-password"
                     onKeyDown={(e) => e.key === "Enter" && void handleChangePwd()}
+                    autoFocus
                   />
                 </div>
                 {pwdError && (

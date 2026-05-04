@@ -121,8 +121,8 @@ router.put("/collaborateurs/me/password", async (req, res): Promise<void> => {
   const payload = verifyToken(auth.slice(7));
   if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
 
-  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
-  if (!currentPassword || !newPassword) {
+  const { newPassword } = req.body as { newPassword?: string };
+  if (!newPassword) {
     res.status(400).json({ error: "Champs requis manquants" }); return;
   }
   if (newPassword.length < 4) {
@@ -130,10 +130,7 @@ router.put("/collaborateurs/me/password", async (req, res): Promise<void> => {
   }
 
   const [collab] = await db.select().from(collaborateursTable).where(eq(collaborateursTable.id, payload.collaborateurId));
-  if (!collab || !collab.passwordHash) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
-
-  const valid = await verifyPassword(currentPassword, collab.passwordHash);
-  if (!valid) { res.status(401).json({ error: "Ancien mot de passe incorrect" }); return; }
+  if (!collab) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
 
   const passwordHash = await hashPassword(newPassword);
   await db.update(collaborateursTable).set({ passwordHash }).where(eq(collaborateursTable.id, collab.id));

@@ -817,21 +817,14 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
 }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
 
-  const reset = () => { setLogin(""); setPassword(""); setConfirm(""); };
+  const reset = () => { setLogin(""); setPassword(""); };
 
   const loginInvalid = login.length > 0 && login.trim().length < 3;
   const passwordInvalid = password.length > 0 && password.length < 4;
-  const confirmMismatch = password.length > 0 && confirm !== password;
   const nothingToChange = login.trim().length === 0 && password.length === 0;
 
-  const canSubmit =
-    !pending &&
-    !nothingToChange &&
-    !loginInvalid &&
-    !passwordInvalid &&
-    !confirmMismatch;
+  const canSubmit = !pending && !nothingToChange && !loginInvalid && !passwordInvalid;
 
   const handleSubmit = () => {
     const payload: { login?: string; password?: string } = {};
@@ -874,20 +867,6 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
             />
             {passwordInvalid && (
               <p className="mt-1 text-xs text-red-600">Min. 4 caractères</p>
-            )}
-          </div>
-          <div>
-            <Label htmlFor="acc-confirm">Confirmer le mot de passe</Label>
-            <PasswordInput
-              id="acc-confirm"
-              autoComplete="new-password"
-              placeholder="Confirmer"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              disabled={password.length === 0}
-            />
-            {confirmMismatch && (
-              <p className="mt-1 text-xs text-red-600">Les mots de passe ne correspondent pas</p>
             )}
           </div>
         </div>

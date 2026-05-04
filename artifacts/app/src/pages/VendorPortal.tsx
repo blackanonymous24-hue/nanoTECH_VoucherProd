@@ -899,24 +899,21 @@ function Dashboard({ token, vendor, onLogout }: {
 
   // Password change dialog
   const [showChangePwd, setShowChangePwd] = useState(false);
-  const [pwdCurrent, setPwdCurrent] = useState("");
   const [pwdNew, setPwdNew] = useState("");
-  const [pwdConfirm, setPwdConfirm] = useState("");
   const [pwdLoading, setPwdLoading] = useState(false);
   const [pwdError, setPwdError] = useState("");
   const [pwdSuccess, setPwdSuccess] = useState(false);
 
   const handleChangePassword = async () => {
     setPwdError("");
-    if (!pwdCurrent || !pwdNew || !pwdConfirm) { setPwdError("Tous les champs sont obligatoires"); return; }
-    if (pwdNew.length < 4) { setPwdError("Le nouveau mot de passe doit comporter au moins 4 caractères"); return; }
-    if (pwdNew !== pwdConfirm) { setPwdError("Les mots de passe ne correspondent pas"); return; }
+    if (!pwdNew) { setPwdError("Le mot de passe est obligatoire"); return; }
+    if (pwdNew.length < 4) { setPwdError("Le mot de passe doit comporter au moins 4 caractères"); return; }
     setPwdLoading(true);
     try {
       const res = await api("/vendor-portal/me/password", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ currentPassword: pwdCurrent, newPassword: pwdNew }),
+        body: JSON.stringify({ newPassword: pwdNew }),
       });
       if (!res.ok) {
         const d = await res.json() as { error?: string };
@@ -924,7 +921,7 @@ function Dashboard({ token, vendor, onLogout }: {
         return;
       }
       setPwdSuccess(true);
-      setTimeout(() => { setShowChangePwd(false); setPwdSuccess(false); setPwdCurrent(""); setPwdNew(""); setPwdConfirm(""); }, 1800);
+      setTimeout(() => { setShowChangePwd(false); setPwdSuccess(false); setPwdNew(""); }, 1800);
     } catch {
       setPwdError("Erreur réseau, veuillez réessayer");
     } finally {
@@ -1112,7 +1109,7 @@ function Dashboard({ token, vendor, onLogout }: {
             variant="ghost"
             className="gap-1.5"
             title="Modifier mot de passe"
-            onClick={() => { setPwdCurrent(""); setPwdNew(""); setPwdConfirm(""); setPwdError(""); setPwdSuccess(false); setShowChangePwd(true); }}
+            onClick={() => { setPwdNew(""); setPwdError(""); setPwdSuccess(false); setShowChangePwd(true); }}
           >
             <KeyRound className="h-4 w-4" />
             <span className="hidden sm:inline">Modifier mot de passe</span>
@@ -1647,18 +1644,7 @@ function Dashboard({ token, vendor, onLogout }: {
                 <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pwdError}</p>
               )}
               <div>
-                <Label htmlFor="pwd-current">Ancien mot de passe</Label>
-                <PasswordInput
-                  id="pwd-current"
-                  className="mt-1"
-                  placeholder="••••••••"
-                  value={pwdCurrent}
-                  onChange={(e) => setPwdCurrent(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </div>
-              <div>
-                <Label htmlFor="pwd-new">Nouveau mot de passe</Label>
+                <Label htmlFor="pwd-new">Mot de passe</Label>
                 <PasswordInput
                   id="pwd-new"
                   className="mt-1"
@@ -1666,17 +1652,7 @@ function Dashboard({ token, vendor, onLogout }: {
                   value={pwdNew}
                   onChange={(e) => setPwdNew(e.target.value)}
                   autoComplete="new-password"
-                />
-              </div>
-              <div>
-                <Label htmlFor="pwd-confirm">Confirmer le nouveau mot de passe</Label>
-                <PasswordInput
-                  id="pwd-confirm"
-                  className="mt-1"
-                  placeholder="••••••••"
-                  value={pwdConfirm}
-                  onChange={(e) => setPwdConfirm(e.target.value)}
-                  autoComplete="new-password"
+                  autoFocus
                 />
               </div>
             </div>

@@ -389,8 +389,8 @@ router.put("/vendor-portal/me/password", async (req, res): Promise<void> => {
   const payload = verifyToken(auth.slice(7));
   if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
 
-  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
-  if (!currentPassword || !newPassword) {
+  const { newPassword } = req.body as { newPassword?: string };
+  if (!newPassword) {
     res.status(400).json({ error: "Champs requis manquants" }); return;
   }
   if (newPassword.length < 4) {
@@ -398,10 +398,7 @@ router.put("/vendor-portal/me/password", async (req, res): Promise<void> => {
   }
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
-  if (!vendor || !vendor.passwordHash) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
-
-  const valid = await verifyPassword(currentPassword, vendor.passwordHash);
-  if (!valid) { res.status(401).json({ error: "Ancien mot de passe incorrect" }); return; }
+  if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
 
   const passwordHash = await hashPassword(newPassword);
   await db.update(vendorsTable).set({ passwordHash }).where(eq(vendorsTable.id, vendor.id));
