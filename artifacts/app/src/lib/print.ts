@@ -53,6 +53,14 @@ function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
+/** iOS Safari ne supporte pas window.print() — détection spécifique. */
+function isIOS(): boolean {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean): string {
   return `<!doctype html>
 <html>
@@ -67,7 +75,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean): stri
 </html>`;
 }
 
-function buildReportHtml(bodyHtml: string, title: string): string {
+function buildReportHtml(bodyHtml: string, title: string, autoprint = true): string {
   return `<!doctype html>
 <html>
   <head>
@@ -75,7 +83,7 @@ function buildReportHtml(bodyHtml: string, title: string): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${title}</title>
     <style>${REPORT_CSS}</style>
-    <script>window.onload=function(){window.focus();window.print();}<\/script>
+    ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
   </head>
   <body>${bodyHtml}</body>
 </html>`;
@@ -98,14 +106,10 @@ function printWithIframe(html: string, title: string): void {
   doc.close();
   doc.title = title;
 
-  // Attendre que les images (QR codes en data URI) soient effectivement décodées,
-  // sinon Chrome imprime parfois des cases vides. On retire l'iframe APRÈS la
-  // boîte de dialogue (afterprint) plutôt qu'avec un timeout fixe.
   const cleanup = () => {
     try { document.body.removeChild(iframe); } catch (_) {}
   };
   iframe.contentWindow?.addEventListener("afterprint", cleanup, { once: true });
-  // Filet de sécurité au cas où afterprint ne se déclencherait pas (mobile)
   const safetyTimeout = window.setTimeout(cleanup, 60_000);
 
   setTimeout(() => {
@@ -124,52 +128,43 @@ function printWithIframe(html: string, title: string): void {
   }, 600);
 }
 
-function printWithNewWindow(html: string, title: string): void {
-  // window.open après un await fetch → fréquemment bloqué par les navigateurs
-  // (perte du "user gesture"). On retombe sur l'iframe transparent qui marche
-  // dans tous les contextes mobile/desktop.
+/**
+ * Ouvre le HTML dans un nouvel onglet via une Blob URL.
+ * Compatible iOS Safari (pas de window.print()) et Android Chrome.
+ * Sur iOS : l'utilisateur utilise Partager → Imprimer.
+ * Sur Android : le navigateur peut déclencher window.print() auto ou l'utilisateur imprime via le menu.
+ */
+function printForMobileWeb(html: string, title: string): void {
+  // Sur Android Chrome, window.print() fonctionne — on l'inclut dans le HTML.
+  // Sur iOS Safari, il n'a aucun effet, mais l'onglet ouvert permet Partager → Imprimer.
+  const autoprint = !isIOS();
+  const fullHtml = html.replace(
+    /<\/head>/i,
+    autoprint
+      ? `<script>window.onload=function(){window.focus();window.print();}<\/script></head>`
+      : `</head>`,
+  );
+
+  try {
+    const blob = new Blob([fullHtml], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (win) {
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
+      return;
+    }
+    URL.revokeObjectURL(url);
+  } catch (_) { /* chute vers fallback */ }
+
+  // Fallback : écriture directe dans une nouvelle fenêtre
   let win: Window | null = null;
   try { win = window.open("", "_blank"); } catch (_) { win = null; }
-  if (!win) {
-    printWithIframe(html, title);
-    return;
+  if (win) {
+    win.document.open();
+    win.document.write(fullHtml);
+    win.document.close();
+    win.document.title = title;
   }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.document.title = title;
-}
-
-/**
- * Fallback robuste pour APK/WebView: imprime dans la page courante sans popup.
- * Évite les blocages de window.open/iframe dans certains moteurs Android.
- */
-function printInline(html: string, title: string): void {
-  const host = document.createElement("div");
-  host.id = "apk-print-host";
-  host.style.position = "fixed";
-  host.style.inset = "0";
-  host.style.background = "#fff";
-  host.style.zIndex = "2147483647";
-  host.style.overflow = "auto";
-  host.innerHTML = html;
-  document.body.appendChild(host);
-  const prevTitle = document.title;
-  document.title = title;
-  const restore = () => {
-    try { document.body.removeChild(host); } catch { /* noop */ }
-    document.title = prevTitle;
-  };
-  window.addEventListener("afterprint", restore, { once: true });
-  setTimeout(() => {
-    try {
-      window.print();
-    } catch {
-      restore();
-    }
-    // Certains WebView ne déclenchent pas afterprint.
-    setTimeout(restore, 2000);
-  }, 100);
 }
 
 /**
@@ -185,25 +180,20 @@ function printWithNativeBridge(html: string, title: string): void {
 /**
  * Imprime des tickets HTML.
  * — APK WebView : pont natif via postMessage → expo-print.
- * — Mobile web  : ouvre un nouvel onglet avec auto-print.
+ * — Mobile web  : nouvel onglet Blob (iOS Partager→Imprimer / Android auto-print).
  * — Desktop     : utilise un <iframe> invisible.
  */
 export function printTickets(htmlItems: string[], title: string): void {
+  const html = buildHtml(htmlItems, title, false);
+
   if (isNativeWebView()) {
-    const html = buildHtml(htmlItems, title, false);
     printWithNativeBridge(html, title);
     return;
   }
-  const inlineHtml = `<style>${PRINT_CSS}</style>${htmlItems.join("")}`;
+
   if (isMobile()) {
-    try {
-      printInline(inlineHtml, title);
-    } catch {
-      const html = buildHtml(htmlItems, title, true);
-      printWithNewWindow(html, title);
-    }
+    printForMobileWeb(html, title);
   } else {
-    const html = buildHtml(htmlItems, title, false);
     printWithIframe(html, title);
   }
 }
@@ -211,14 +201,18 @@ export function printTickets(htmlItems: string[], title: string): void {
 /**
  * Imprime un rapport de ventes depuis le portail vendeur.
  * — APK WebView : pont natif via postMessage → expo-print.
- * — Mobile web  : ouvre un nouvel onglet avec auto-print.
+ * — Mobile web  : nouvel onglet Blob (iOS Partager→Imprimer / Android auto-print).
  * — Desktop     : utilise un <iframe> invisible.
  */
 export function printReport(title: string): void {
   const section = document.getElementById("report-print-section");
 
   if (!section) {
-    window.print();
+    if (isMobile() && !isNativeWebView()) {
+      printForMobileWeb(`<!doctype html><html><head><meta charset="utf-8"/><style>${REPORT_CSS}</style></head><body>${document.body.innerHTML}</body></html>`, title);
+    } else {
+      window.print();
+    }
     return;
   }
 
@@ -228,19 +222,15 @@ export function printReport(title: string): void {
     el.style.display = "block";
   });
 
-  const html = buildReportHtml(clone.innerHTML, title);
-  const inlineHtml = `<style>${REPORT_CSS}</style>${clone.innerHTML}`;
+  const html = buildReportHtml(clone.innerHTML, title, !isIOS());
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);
     return;
   }
+
   if (isMobile()) {
-    try {
-      printInline(inlineHtml, title);
-    } catch {
-      printWithNewWindow(html, title);
-    }
+    printForMobileWeb(html, title);
   } else {
     printWithIframe(html, title);
   }
