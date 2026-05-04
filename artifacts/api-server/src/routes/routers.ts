@@ -145,10 +145,16 @@ export type CallerScope =
   | { kind: "vendor"; adminId: number | null; routerIds: number[] }
   | { kind: "collaborateur"; adminId: number | null; routerIds: number[] };
 
-export async function resolveCallerScope(req: { headers: { authorization?: string } }): Promise<CallerScope | null> {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ")) return null;
-  const token = auth.slice(7);
+export async function resolveCallerScope(req: {
+  headers: { authorization?: string };
+  query?: Record<string, unknown>;
+}): Promise<CallerScope | null> {
+  const headerToken = req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.slice(7)
+    : null;
+  const queryToken = typeof req.query?.token === "string" ? req.query.token : null;
+  const token = headerToken ?? queryToken;
+  if (!token) return null;
 
   // Try admin token first (super-admin or regular admin).
   const adminScope = verifyAdminTokenFull(token);

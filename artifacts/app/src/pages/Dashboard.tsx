@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useQuery } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -434,6 +435,7 @@ export default function Dashboard() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any = _freshData ?? _dashboardCache.data;
   const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity } = useRouterContext();
+  const { token: authToken } = useAuth();
   const [enableSecondaries, setEnableSecondaries] = useState(false);
   const [ssePriority, setSsePriority] = useState<PrioritySnapshot | null>(null);
   const [sseConnected, setSseConnected] = useState(false);
@@ -470,7 +472,8 @@ export default function Dashboard() {
       setSseConnected(false);
       return;
     }
-    const es = new EventSource(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority/stream`);
+    const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
+    const es = new EventSource(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority/stream${tokenParam}`);
     es.onopen = () => setSseConnected(true);
     const onPriority = (ev: MessageEvent) => {
       try {
@@ -489,7 +492,7 @@ export default function Dashboard() {
       es.close();
       setSseConnected(false);
     };
-  }, [selectedRouterId, setRouterOnline]);
+  }, [selectedRouterId, setRouterOnline, authToken]);
 
   const livePriority = ssePriority ?? priority;
   useEffect(() => {
@@ -762,7 +765,7 @@ export default function Dashboard() {
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              Logs hotspot (utilisateurs)
+              <span className="whitespace-nowrap">Logs hotspot (utilisateurs)</span>
               {selectedRouterId && !logsLoading && (
                 <span className="flex items-center gap-1 text-xs font-normal text-green-600">
                   <span className="relative flex h-2 w-2">
