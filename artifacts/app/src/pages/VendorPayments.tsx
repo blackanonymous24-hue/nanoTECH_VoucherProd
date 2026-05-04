@@ -11,6 +11,12 @@ import {
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
+import {
+  applyMaskedWeeksToDailyArrearsResponse,
+  groupArrearsByCalendarWeek,
+  weekArrearLabelWithFmt,
+} from "@/lib/arrearsWeekGrouping";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -109,6 +115,8 @@ interface VendorWeekEntry {
   dailyPaid?: number;        // daily payments only
   weeklyExpected?: number;   // amount - commission - dailyPaid (what still must be paid weekly)
   totalPaid: number;
+  /** Reliquats nets des semaines antérieures (GET /vendors/weekly-summary). */
+  carryOverAmount?: number;
   remaining: number;
   payments: PaymentEntry[];
 }
@@ -129,25 +137,7 @@ interface DailyArrearEntry {
 interface DailyArrearsResponse {
   arrears: Record<string, DailyArrearEntry[]>;
   vendorInfo?: Record<string, { name: string }>;
-}
-
-/** Consolidated arrears entry: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
-type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrearEntry[] };
-function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
-  // Always return ascending (oldest first, most recent last)
-  const asc = [...entries].sort((a, b) => a.date.localeCompare(b.date));
-  if (asc.length <= 3) return asc;
-  const older = asc.slice(0, asc.length - 2); // all but the 2 most recent
-  const recent = asc.slice(asc.length - 2);   // 2 most recent, ascending
-  const merged: ConsolidatableArrearEntry = {
-    date: older[older.length - 1].date, // most recent of the merged (older) days
-    salesAmount: older.reduce((s, e) => s + e.salesAmount, 0),
-    paidAmount:  older.reduce((s, e) => s + e.paidAmount,  0),
-    remaining:   older.reduce((s, e) => s + e.remaining,   0),
-    payments:    older.flatMap((e) => e.payments),
-    __underlying: older,
-  };
-  return [merged, ...recent];
+  settledWeeks?: Record<string, string[]>;
 }
 
 /* ── Single vendor row with payment form ─────────────────────────────── */
@@ -170,6 +160,19 @@ function VendorRow({
   const { toast } = useToast();
 
   const isFullyPaid = vendor.remaining === 0 && vendor.totalPaid > 0;
+  const { daily: dailyShown, weekly: weeklyShown } = splitDailyWeeklyPaidShown(
+    vendor.dailyPaid,
+    vendor.weeklyPaid,
+    vendor.amount,
+    vendor.commission,
+    vendor.carryOverAmount,
+  );
+  const totalPaidShown = paidShownVersusWeekContext(
+    vendor.totalPaid,
+    vendor.amount,
+    vendor.commission,
+    vendor.carryOverAmount,
+  );
 
   const addPayment = async () => {
     const amt = parseInt(amount.replace(/\s/g, ""), 10);
@@ -283,13 +286,13 @@ function VendorRow({
               <span className="whitespace-nowrap">Commission : <span className="font-medium text-violet-600">−{fmtAmount(vendor.commission)} FCFA ({vendor.commissionRate}%)</span></span>
             )}
             {(vendor.dailyPaid ?? 0) > 0 && (
-              <span className="whitespace-nowrap">Versé jour : <span className="font-medium text-sky-700">{fmtAmount(vendor.dailyPaid!)} FCFA</span></span>
+              <span className="whitespace-nowrap">Versé jour : <span className="font-medium text-sky-700">{fmtAmount(dailyShown)} FCFA</span></span>
             )}
             {(vendor.weeklyPaid ?? 0) > 0 && (
-              <span className="whitespace-nowrap">Versé sem. : <span className="font-medium text-emerald-700">{fmtAmount(vendor.weeklyPaid!)} FCFA</span></span>
+              <span className="whitespace-nowrap">Versé sem. : <span className="font-medium text-emerald-700">{fmtAmount(weeklyShown)} FCFA</span></span>
             )}
             {vendor.dailyPaid === undefined && vendor.totalPaid > 0 && (
-              <span className="whitespace-nowrap">Versé : <span className="font-medium text-emerald-700">{fmtAmount(vendor.totalPaid)} FCFA</span></span>
+              <span className="whitespace-nowrap">Versé : <span className="font-medium text-emerald-700">{fmtAmount(totalPaidShown)} FCFA</span></span>
             )}
             {(vendor.dailyPaid ?? 0) > 0 && (vendor.weeklyExpected ?? 0) > 0 && (
               <span className="whitespace-nowrap">Hebdo. à régler : <span className="font-semibold text-blue-700">{fmtAmount(vendor.weeklyExpected!)} FCFA</span></span>
@@ -457,7 +460,13 @@ function WeekCard({
 
   const grandSales      = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.amount, 0), [data]);
   const grandCommission = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.commission, 0), [data]);
-  const grandPaid       = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.totalPaid, 0), [data]);
+  const grandPaid       = useMemo(
+    () => (data?.vendors ?? []).reduce(
+      (s, v) => s + paidShownVersusWeekContext(v.totalPaid, v.amount, v.commission, v.carryOverAmount),
+      0,
+    ),
+    [data],
+  );
   const grandLeft       = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.remaining, 0), [data]);
 
   const hasNav = onPrev !== undefined || onNext !== undefined;
@@ -714,7 +723,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
   });
 
   const vendorInfo = data?.vendorInfo ?? {};
-  const arrears = data?.arrears ?? {};
+  const arrears = useMemo(() => applyMaskedWeeksToDailyArrearsResponse(data)?.arrears ?? {}, [data]);
 
   const vendorIds = Object.keys(arrears).sort((a, b) => {
     const nameA = vendorInfo[a]?.name ?? a;
@@ -722,9 +731,9 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
     return nameA.localeCompare(nameB);
   });
 
-  const totalRemaining = useMemo(() =>
-    Object.values(arrears).flat().reduce((s, e) => s + e.remaining, 0),
-    [arrears]
+  const totalRemaining = useMemo(
+    () => Object.values(arrears).flat().reduce((s, e) => s + e.remaining, 0),
+    [arrears],
   );
 
   const submitPayment = useCallback(async (vendorId: string, date: string, amount: number, underlying?: DailyArrearEntry[]) => {
@@ -841,8 +850,8 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
 
       {vendorIds.map((vid) => {
         const entries = arrears[vid] ?? [];
-        const displayEntries = consolidateArrears(entries);
-        const isConsolidated = entries.length >= 3;
+        const displayEntries = groupArrearsByCalendarWeek(entries);
+        const isWeekGrouped = displayEntries.length < entries.length;
         const vendorName = vendorInfo[vid]?.name ?? `Vendeur ${vid}`;
         const vendorTotal = entries.reduce((s, e) => s + e.remaining, 0);
         const isOpen = expanded.has(vid);
@@ -859,7 +868,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                 <AlertTriangle className={`h-3.5 w-3.5 ${c.icon} flex-shrink-0`} />
                 <span className="font-semibold text-sm text-gray-800 truncate">{vendorName}</span>
                 <span className={`text-[10px] ${c.sub} whitespace-nowrap`}>
-                  {entries.length} jour{entries.length > 1 ? "s" : ""}{isConsolidated ? " (regroupés)" : ""}
+                  {entries.length} jour{entries.length > 1 ? "s" : ""}{isWeekGrouped ? " (par semaine)" : ""}
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -877,27 +886,34 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
 
             {/* Day entries */}
             {isOpen && (
-              <div className={`divide-y ${c.divide}`}>
+              <div className="space-y-2 p-2 bg-slate-50/80">
                 {displayEntries.map((entry) => {
-                  const pKey = `${vid}|${entry.date}`;
+                  const pKey = `${vid}|w:${entry.__weekMonday}`;
                   const isPaying = payingKey === pKey;
-                  const underlying = entry.__underlying;
+                  const underlying = entry.__underlying && entry.__underlying.length > 1 ? entry.__underlying : undefined;
+                  const dayCount = entry.__underlying?.length ?? 1;
                   return (
-                    <div key={entry.date} className="px-3 py-2 bg-white">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-gray-700">
-                            {underlying ? `Arriérés cumulés (${underlying.length} jours, du ${fmtDateFr(underlying[0].date)} au ${fmtDateFr(entry.date)})` : fmtDateFr(entry.date)}
+                    <div
+                      key={entry.__weekMonday}
+                      className={`rounded-lg border bg-white px-3 py-2.5 shadow-sm ${c.border}`}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-gray-800 break-words">
+                            {weekArrearLabelWithFmt(entry.__weekMonday, fmtDateFr)}
+                            <span className={`text-[10px] font-normal ${c.sub} block sm:inline sm:ml-1`}>
+                              ({dayCount} jour{dayCount > 1 ? "s" : ""})
+                            </span>
                           </p>
                           {entry.paidAmount > 0 ? (
                             <p className="text-[10px] text-gray-400">
-                              Ventes: {fmtAmount(entry.salesAmount)} · Versé: {fmtAmount(entry.paidAmount)} FCFA
+                              Ventes: {fmtAmount(entry.salesAmount)} · Versé: {fmtAmount(paidShownVersusWeekContext(entry.paidAmount, entry.salesAmount, 0, 0))} FCFA
                             </p>
                           ) : (
                             <p className="text-[10px] text-gray-400">Ventes: {fmtAmount(entry.salesAmount)} FCFA</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:flex-shrink-0 sm:justify-end">
                           <span className={`text-xs font-bold ${c.amount} tabular-nums`}>{fmtAmount(entry.remaining)} FCFA</span>
                           {!isPaying && (
                             <>

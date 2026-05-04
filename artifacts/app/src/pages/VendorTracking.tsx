@@ -11,6 +11,13 @@ import {
   CalendarDays, ImageDown, AlertTriangle, CalendarRange,
 } from "lucide-react";
 import { foldText } from "@/lib/text";
+import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
+import {
+  applyMaskedWeeksToDailyArrearsResponse,
+  groupArrearsByCalendarWeek,
+  mondayOfDateUtc,
+  weekArrearLabelWithFmt,
+} from "@/lib/arrearsWeekGrouping";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -116,34 +123,8 @@ interface DailyArrearEntry {
 interface DailyArrearsResponse {
   arrears: Record<string, DailyArrearEntry[]>;
   vendorInfo?: Record<string, { name: string }>;
-}
-
-/** Consolidated arrears: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
-type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrearEntry[] };
-function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
-  // Always return ascending (oldest first, most recent last)
-  const asc = [...entries].sort((a, b) => a.date.localeCompare(b.date));
-  if (asc.length <= 3) return asc;
-  const older = asc.slice(0, asc.length - 2);
-  const recent = asc.slice(asc.length - 2);
-  const merged: ConsolidatableArrearEntry = {
-    date: older[older.length - 1].date,
-    salesAmount: older.reduce((s, e) => s + e.salesAmount, 0),
-    paidAmount:  older.reduce((s, e) => s + e.paidAmount,  0),
-    remaining:   older.reduce((s, e) => s + e.remaining,   0),
-    payments:    older.flatMap((e) => e.payments),
-    __underlying: older,
-  };
-  return [merged, ...recent];
-}
-
-/** Returns YYYY-MM-DD of Monday of the week containing the given iso date (UTC) */
-function mondayOfDate(iso: string): string {
-  const d = new Date(iso + "T00:00:00Z");
-  const day = d.getUTCDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setUTCDate(d.getUTCDate() + diff);
-  return d.toISOString().slice(0, 10);
+  /** Lundis (YYYY-MM-DD) des semaines soldées — aligne l’affichage si cache partiel. */
+  settledWeeks?: Record<string, string[]>;
 }
 
 function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
@@ -262,9 +243,8 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
   const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
   const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
-  const totalPaid   = ws.reduce((s, r) => s + (r.paidAmount ?? 0), 0);
+  const totalPaid   = ws.reduce((s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount), 0);
   const totalReste  = ws.reduce((s, r) => s + (r.totalToPay ?? r.remainingAmount ?? 0), 0);
-  const totalComm   = ws.reduce((s, r) => s + (r.commission ?? 0), 0);
 
   const vendorCards = ws.map((s) => {
     const badge = statusBadge(s.paymentStatus);
@@ -291,7 +271,7 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   </div>
 <table>
     <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
-    <tr><td>Versé</td><td class="val">${fmtAmount(s.paidAmount ?? 0)} FCFA</td></tr>
+    <tr><td>Versé</td><td class="val">${fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount))} FCFA</td></tr>
     ${coRow}
     <tr><td>Total à verser</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(toPay)} FCFA</td></tr>
     <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
@@ -538,7 +518,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
       const coWeeks = s.carryOverWeekCount ?? (coAmt > 0 ? 1 : 0);
       const rows: [string, string, string?][] = [
         ["Montant vendu", fmtAmount(s.amount) + " FCFA"],
-        ["Versé",         fmtAmount(s.paidAmount ?? 0) + " FCFA"],
+        ["Versé",         fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount)) + " FCFA"],
         ...(coAmt > 0
           ? [[carryOverWeekLabel(coWeeks), fmtAmount(coAmt) + " FCFA", "#991b1b"]] as [string, string, string?][]
           : []),
@@ -559,9 +539,8 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
 
     // Totals section
     const totalAmount = ws.reduce((s, r2) => s + r2.amount, 0);
-    const totalPaid   = ws.reduce((s, r2) => s + (r2.paidAmount ?? 0), 0);
+    const totalPaid   = ws.reduce((s, r2) => s + paidShownVersusWeekContext(r2.paidAmount, r2.amount, r2.commission, r2.carryOverAmount), 0);
     const totalReste  = ws.reduce((s, r2) => s + (r2.totalToPay ?? r2.remainingAmount ?? 0), 0);
-    const totalComm   = ws.reduce((s, r2) => s + (r2.commission ?? 0), 0);
     const ty = TITLE_H + ROW_COUNT * (CARD_H + CARD_GAP) + CARD_GAP;
     const tw = W - PAD * 2;
 
@@ -574,7 +553,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
 
     const totRows: [string, string, string?][] = [
       ["Montant total vendu", fmtAmount(totalAmount) + " FCFA"],
-      ["Total versé",         fmtAmount(totalPaid + totalComm) + " FCFA"],
+      ["Total versé",         fmtAmount(totalPaid) + " FCFA"],
       ["Total à verser",      fmtAmount(totalReste) + " FCFA", totalReste > 0 ? "#b91c1c" : "#3730a3"],
     ];
     const totRowH = (TOTAL_SECTION_H - 34) / totRows.length;
@@ -653,10 +632,15 @@ export default function VendorTracking() {
     staleTime: 60_000,
   });
 
+  const arrearsDataEffective = useMemo(
+    () => applyMaskedWeeksToDailyArrearsResponse(arrearsData),
+    [arrearsData],
+  );
+
   const handleSaveDailyJpeg = useCallback(() => {
     if (!data) return;
-    saveJpegDaily(data, applied, setSaving, arrearsData);
-  }, [applied, data, arrearsData]);
+    saveJpegDaily(data, applied, setSaving, arrearsDataEffective);
+  }, [applied, data, arrearsDataEffective]);
 
   const handleSaveWeekJpeg = useCallback(() => {
     if (!prevWeekData) return;
@@ -685,7 +669,10 @@ export default function VendorTracking() {
 
   const weekTotal_amount = useMemo(() => weekSummary.reduce((s, r) => s + r.amount, 0), [weekSummary]);
   const weekTotal_count  = useMemo(() => weekSummary.reduce((s, r) => s + r.count, 0), [weekSummary]);
-  const weekTotal_paid   = useMemo(() => weekSummary.reduce((s, r) => s + (r.paidAmount ?? 0), 0), [weekSummary]);
+  const weekTotal_paid   = useMemo(
+    () => weekSummary.reduce((s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount), 0),
+    [weekSummary],
+  );
   const weekTotal_reste  = useMemo(() => weekSummary.reduce((s, r) => s + (r.totalToPay ?? r.remainingAmount ?? 0), 0), [weekSummary]);
   const weekTotal_comm   = useMemo(() => weekSummary.reduce((s, r) => s + (r.commission ?? 0), 0), [weekSummary]);
 
@@ -832,7 +819,7 @@ export default function VendorTracking() {
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
               </Button>
               {/* Daily print */}
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!data || grandCount === 0} onClick={() => data && openPrintWindow(data, search, arrearsData)}>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!data || grandCount === 0} onClick={() => data && openPrintWindow(data, search, arrearsDataEffective)}>
                 <Printer className="h-3.5 w-3.5" /> Imprimer
               </Button>
               {/* Hebdo JPEG */}
@@ -903,8 +890,8 @@ export default function VendorTracking() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {activeSummary.map((s) => {
-                    const allArrears = arrearsData?.arrears[String(s.vendorId)] ?? [];
-                    const currentWeekStart = mondayOfDate(applied);
+                    const allArrears = arrearsDataEffective?.arrears[String(s.vendorId)] ?? [];
+                    const currentWeekStart = mondayOfDateUtc(applied);
                     // Split arriérés: previous weeks vs current week
                     const prevArrears = allArrears.filter((a) => a.date < currentWeekStart);
                     const currentArrears = allArrears.filter((a) => a.date >= currentWeekStart);
@@ -927,116 +914,124 @@ export default function VendorTracking() {
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
-                        {/* Arrears only (forfait breakdown + total row removed) */}
-                        <table className="w-full border-collapse">
-                <tbody>
-                            {/* ── Arriérés semaine(s) précédente(s) — ligne agrégée ── */}
-                            {prevTotal > 0 && (
-                              <tr className="border-t-2 border-red-300 bg-red-50">
-                                <td colSpan={3} className="px-3 py-2">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-red-500" />
-                                      <div className="min-w-0">
-                                        <span className="text-xs font-semibold text-red-700">Arriérés sem. précédente</span>
-                                        <span className="text-[10px] text-red-500 ml-1">({prevArrears.length} jour{prevArrears.length > 1 ? "s" : ""})</span>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                                      <span className="text-xs font-bold text-red-700 tabular-nums">{fmtAmount(prevTotal)} FCFA</span>
-                                      <button
-                                        className="text-[10px] px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors whitespace-nowrap"
-                                        disabled={payLoading}
-                                        onClick={() => solderPrevArrears(s.vendorId, prevArrears)}
-                                      >
-                                        {payLoading ? "…" : "Solder tout"}
-                                      </button>
-                                    </div>
-                                  </div>
-                      </td>
-                    </tr>
-                            )}
-                            {/* ── Arriérés semaine en cours — lignes individuelles (regroupées si ≥3) ── */}
-                            {consolidateArrears(currentArrears).map((arr) => {
-                              const pKey = `${s.vendorId}|${arr.date}`;
-                              const isPaying = payingKey === pKey;
-                              const underlying = arr.__underlying;
-                              return (
-                                <tr key={arr.date} className="border-t border-orange-200 bg-orange-50">
-                                  <td colSpan={3} className="px-3 py-1.5">
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div className="flex flex-col gap-0.5 min-w-0">
-                                        <div className="flex items-center gap-1 text-orange-700">
-                                          <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
-                                          <span className="text-xs font-medium">
-                                            {underlying
-                                              ? `Arriérés cumulés (${underlying.length} jours, du ${fmtDateFr(underlying[0].date)} au ${fmtDateFr(arr.date)})`
-                                              : `Arriéré du ${fmtDateFr(arr.date)}`}
+                        {/* Arriérés : un bloc distinct par semaine (pas une seule bande continue) */}
+                        <div className="space-y-2 p-2 bg-white/60">
+                            {prevTotal > 0 &&
+                              groupArrearsByCalendarWeek(prevArrears).map((grp) => {
+                                const weekRows = grp.__underlying ?? [grp];
+                                const weekRem = grp.remaining;
+                                return (
+                                  <div
+                                    key={grp.__weekMonday}
+                                    className="rounded-lg border-2 border-red-300 bg-red-50/95 px-3 py-2.5 shadow-sm"
+                                  >
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                      <div className="flex gap-1.5 min-w-0 flex-1">
+                                        <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-red-500 mt-0.5" />
+                                        <div className="min-w-0">
+                                          <span className="text-xs font-semibold text-red-800 break-words">
+                                            {weekArrearLabelWithFmt(grp.__weekMonday, fmtDateFr)}
+                                          </span>
+                                          <span className="text-[10px] text-red-600 block sm:inline sm:ml-1">
+                                            ({weekRows.length} jour{weekRows.length > 1 ? "s" : ""})
                                           </span>
                                         </div>
-                                        {arr.paidAmount > 0 && (
-                                          <span className="text-[10px] text-gray-500 pl-4">
-                                            Ventes: {fmtAmount(arr.salesAmount)} · Versé: {fmtAmount(arr.paidAmount)}
-                                          </span>
-                                        )}
                                       </div>
-                                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                        <span className="text-xs font-bold text-orange-700 tabular-nums">{fmtAmount(arr.remaining)} FCFA</span>
-                                        {!isPaying && (
-                                          <button
-                                            className="text-[10px] px-2 py-0.5 rounded bg-orange-600 text-white hover:bg-orange-700 transition-colors"
-                                            onClick={() => { setPayingKey(pKey); setPayAmount(String(arr.remaining)); }}
-                                          >
-                                            Verser
-                                          </button>
-                                        )}
+                                      <div className="flex flex-wrap items-center gap-1.5 sm:justify-end sm:flex-shrink-0">
+                                        <span className="text-xs font-bold text-red-800 tabular-nums">{fmtAmount(weekRem)} FCFA</span>
+                                        <button
+                                          className="text-[10px] px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                                          disabled={payLoading}
+                                          onClick={() => solderPrevArrears(s.vendorId, weekRows)}
+                                        >
+                                          {payLoading ? "…" : "Solder tout"}
+                                        </button>
                                       </div>
                                     </div>
-                                    {isPaying && (
-                                      <div className="mt-2 flex items-center gap-1.5 pl-4">
-                                        <Input
-                                          type="number"
-                                          min={1}
-                                          max={arr.remaining}
-                                          className="h-7 w-28 text-xs"
-                                          value={payAmount}
-                                          onChange={(e) => setPayAmount(e.target.value)}
-                                          placeholder="Montant"
-                                        />
-                                        <span className="text-[10px] text-gray-500">FCFA</span>
-                                        <button
-                                          className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
-                                          disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                          onClick={() => submitDailyPayment(s.vendorId, arr.date, Number(payAmount), underlying)}
-                                        >
-                                          {payLoading ? "…" : "Confirmer"}
-                                        </button>
-                                        <button
-                                          className="text-[10px] px-2 py-0.5 rounded bg-gray-300 text-gray-700 hover:bg-gray-400 transition-colors"
-                                          onClick={() => { setPayingKey(null); setPayAmount(""); }}
-                                        >
-                                          Annuler
-                                        </button>
+                                  </div>
+                                );
+                              })}
+                            {groupArrearsByCalendarWeek(currentArrears).map((arr) => {
+                              const pKey = `${s.vendorId}|w:${arr.__weekMonday}`;
+                              const isPaying = payingKey === pKey;
+                              const underlying = arr.__underlying;
+                              const payUnderlying = underlying && underlying.length > 1 ? underlying : undefined;
+                              const dayCount = underlying?.length ?? 1;
+                              return (
+                                <div
+                                  key={arr.__weekMonday}
+                                  className="rounded-lg border border-orange-300 bg-orange-50/95 px-3 py-2.5 shadow-sm"
+                                >
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                      <div className="flex gap-1 text-orange-800 items-start">
+                                        <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500 mt-0.5" />
+                                        <span className="text-xs font-medium break-words">
+                                          {weekArrearLabelWithFmt(arr.__weekMonday, fmtDateFr)}
+                                          <span className="text-[10px] text-orange-700/90 font-normal block sm:inline sm:ml-1">
+                                            ({dayCount} jour{dayCount > 1 ? "s" : ""})
+                                          </span>
+                                        </span>
                                       </div>
-                                    )}
-                    </td>
-                  </tr>
+                                      {arr.paidAmount > 0 && (
+                                        <span className="text-[10px] text-gray-600 pl-4 sm:pl-7">
+                                          Ventes: {fmtAmount(arr.salesAmount)} · Versé: {fmtAmount(paidShownVersusWeekContext(arr.paidAmount, arr.salesAmount, 0, 0))}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col items-stretch sm:items-end gap-1 sm:flex-shrink-0">
+                                      <span className="text-xs font-bold text-orange-800 tabular-nums sm:text-right">{fmtAmount(arr.remaining)} FCFA</span>
+                                      {!isPaying && (
+                                        <button
+                                          className="text-[10px] px-2 py-0.5 rounded bg-orange-600 text-white hover:bg-orange-700 transition-colors self-start sm:self-end"
+                                          onClick={() => { setPayingKey(pKey); setPayAmount(String(arr.remaining)); }}
+                                        >
+                                          Verser
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {isPaying && (
+                                    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-orange-200/80 pt-2 pl-1 sm:pl-4">
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        max={arr.remaining}
+                                        className="h-7 w-28 text-xs"
+                                        value={payAmount}
+                                        onChange={(e) => setPayAmount(e.target.value)}
+                                        placeholder="Montant"
+                                      />
+                                      <span className="text-[10px] text-gray-500">FCFA</span>
+                                      <button
+                                        className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                                        disabled={payLoading || !payAmount || Number(payAmount) <= 0}
+                                        onClick={() => submitDailyPayment(s.vendorId, arr.date, Number(payAmount), payUnderlying)}
+                                      >
+                                        {payLoading ? "…" : "Confirmer"}
+                                      </button>
+                                      <button
+                                        className="text-[10px] px-2 py-0.5 rounded bg-gray-300 text-gray-700 hover:bg-gray-400 transition-colors"
+                                        onClick={() => { setPayingKey(null); setPayAmount(""); }}
+                                      >
+                                        Annuler
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               );
                             })}
-                            {/* ── Total à verser ── */}
                             {hasArrears && (() => {
                               const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
                               const totalDu = s.amount + allArrearsTotal;
                               return (
-                                <tr className="border-t-2 border-blue-900 bg-blue-900">
-                                  <td className="px-3 py-2 font-bold text-white text-xs">Total à verser</td>
-                                  <td />
-                                  <td className="px-3 py-2 text-right font-bold text-white text-sm tabular-nums">{fmtAmount(totalDu)} FCFA</td>
-                                </tr>
+                                <div className="rounded-lg bg-blue-900 text-white flex items-center justify-between gap-2 px-3 py-2.5 shadow-sm">
+                                  <span className="font-bold text-xs">Total à verser</span>
+                                  <span className="font-bold text-sm tabular-nums">{fmtAmount(totalDu)} FCFA</span>
+                                </div>
                               );
                             })()}
-                          </tbody>
-              </table>
+                        </div>
                       </div>
                     );
                   })}
@@ -1060,6 +1055,14 @@ export default function VendorTracking() {
                 {/* Grille de cartes 2 colonnes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[...weekSummary].sort((a, b) => b.amount - a.amount).map((s) => {
+                    const { daily: dailyShown, weekly: weeklyShown } = splitDailyWeeklyPaidShown(
+                      s.dailyPaid,
+                      s.weeklyPaid,
+                      s.amount,
+                      s.commission,
+                      s.carryOverAmount,
+                    );
+                    const paidAggregateShown = paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount);
                     const badge = statusBadge(s.paymentStatus);
                     const commRate = s.commissionRate ?? 0;
                     const cardBorder = s.paymentStatus === "full"
@@ -1088,19 +1091,19 @@ export default function VendorTracking() {
                             {(s.dailyPaid ?? 0) > 0 && (
                               <tr className="border-b border-gray-50 bg-sky-50/40">
                                 <td className="px-3 py-1.5 text-sky-700">Versé en journalier</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-sky-700 tabular-nums">{fmtAmount(s.dailyPaid!)} FCFA</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-sky-700 tabular-nums">{fmtAmount(dailyShown)} FCFA</td>
                   </tr>
                             )}
                             {(s.weeklyPaid ?? 0) > 0 && (
                               <tr className="border-b border-gray-50 bg-emerald-50/40">
                                 <td className="px-3 py-1.5 text-emerald-700">Versé en hebdomadaire</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-700 tabular-nums">{fmtAmount(s.weeklyPaid!)} FCFA</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-700 tabular-nums">{fmtAmount(weeklyShown)} FCFA</td>
                               </tr>
                             )}
                             {s.dailyPaid === undefined && (s.paidAmount ?? 0) > 0 && (
                               <tr className="border-b border-gray-50 bg-gray-50/50">
                                 <td className="px-3 py-1.5 text-gray-500">Versé</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(s.paidAmount ?? 0)} FCFA</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(paidAggregateShown)} FCFA</td>
                               </tr>
                             )}
                             {(s.dailyPaid ?? 0) > 0 && (s.weeklyExpected ?? 0) > 0 && (

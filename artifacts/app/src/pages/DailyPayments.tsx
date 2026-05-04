@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { CalendarDays, Loader2, CreditCard, CheckCircle2, ChevronDown, ChevronUp, Users, AlertTriangle, X } from "lucide-react";
@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { paidShownVersusWeekContext } from "@/lib/vendorWeekPaymentDisplay";
+import {
+  filterDailyArrearsForMaskedWeeks,
+  groupArrearsByCalendarWeek,
+  weekArrearLabelWithFmt,
+} from "@/lib/arrearsWeekGrouping";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -43,6 +49,7 @@ interface DailyArrearEntry {
 interface DailyArrearsResponse {
   arrears: Record<string, DailyArrearEntry[]>;
   vendorInfo?: Record<string, { name: string }>;
+  settledWeeks?: Record<string, string[]>;
 }
 
 interface VendorRow {
@@ -123,7 +130,7 @@ function ArrearRow({
           <span className="font-medium text-gray-700">{fmtDateFr(entry.date)}</span>
           {entry.paidAmount > 0 && (
             <span className="text-gray-400 tabular-nums">
-              versé {fmtAmount(entry.paidAmount)} / {fmtAmount(entry.salesAmount)} FCFA
+              versé {fmtAmount(paidShownVersusWeekContext(entry.paidAmount, entry.salesAmount, 0, 0))} / {fmtAmount(entry.salesAmount)} FCFA
             </span>
           )}
         </div>
@@ -215,9 +222,14 @@ function VendorCard({
 }) {
   const [expanded, setExpanded] = useState(true);
 
+  const arrearsByWeek = useMemo(
+    () => groupArrearsByCalendarWeek([...row.arrears].sort((a, b) => a.date.localeCompare(b.date))),
+    [row.arrears],
+  );
+
   return (
     <Card className={`overflow-hidden border ${row.totalRemaining > 0 ? "border-orange-200" : "border-gray-100"}`}>
-      {/* Card header */}
+      {/* Card header — liste déroulante = ce panneau repliable */}
       <button
         className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors ${
           row.totalRemaining > 0 ? "bg-orange-50 hover:bg-orange-100" : "bg-gray-50 hover:bg-gray-100"
@@ -228,7 +240,9 @@ function VendorCard({
           <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${row.totalRemaining > 0 ? "text-orange-500" : "text-gray-300"}`} />
           <span className="font-semibold text-gray-800 truncate">{row.vendorName}</span>
           <span className="text-xs text-gray-400 flex-shrink-0">
-            ({row.arrears.length} jour{row.arrears.length > 1 ? "s" : ""})
+            {arrearsByWeek.length > 1
+              ? `${arrearsByWeek.length} sem. · ${row.arrears.length} jour${row.arrears.length > 1 ? "s" : ""}`
+              : `(${row.arrears.length} jour${row.arrears.length > 1 ? "s" : ""})`}
           </span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
@@ -241,19 +255,39 @@ function VendorCard({
         </div>
       </button>
 
-      {/* Arrear rows */}
+      {/* Arriérés : une sous-liste par semaine (pas tout mélangé dans la même liste déroulante) */}
       {expanded && row.arrears.length > 0 && (
-        <CardContent className="p-0">
-          {row.arrears.map((a) => (
-            <ArrearRow
-              key={a.date}
-              vendorId={row.vendorId}
-              entry={a}
-              routerId={routerId}
-              onDone={onRefresh}
-              onOptimisticDeletePayment={onOptimisticDeletePayment}
-            />
-          ))}
+        <CardContent className="p-2 space-y-2 bg-slate-50/60">
+          {arrearsByWeek.map((week) => {
+            const days = week.__underlying ?? [week];
+            return (
+              <div
+                key={week.__weekMonday}
+                className="rounded-lg border border-orange-100 bg-white overflow-hidden shadow-sm"
+              >
+                <div className="px-3 py-1.5 bg-orange-50/90 border-b border-orange-100">
+                  <p className="text-[10px] font-semibold text-orange-900 leading-snug break-words">
+                    {weekArrearLabelWithFmt(week.__weekMonday, fmtDateFr)}
+                    <span className="font-normal text-orange-700/90 ml-1">
+                      ({days.length} jour{days.length > 1 ? "s" : ""})
+                    </span>
+                  </p>
+                </div>
+                <div className="divide-y divide-orange-50/80">
+                  {days.map((a) => (
+                    <ArrearRow
+                      key={a.date}
+                      vendorId={row.vendorId}
+                      entry={a}
+                      routerId={routerId}
+                      onDone={onRefresh}
+                      onOptimisticDeletePayment={onOptimisticDeletePayment}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </CardContent>
       )}
       {expanded && row.arrears.length === 0 && (
@@ -322,8 +356,9 @@ export default function DailyPayments() {
     for (const [vIdStr, arrears] of Object.entries(data.arrears)) {
       const vId   = Number(vIdStr);
       const name  = data.vendorInfo?.[vIdStr]?.name ?? `Vendeur ${vId}`;
-      const total = arrears.reduce((s, a) => s + a.remaining, 0);
-      rows.push({ vendorId: vId, vendorName: name, arrears, totalRemaining: total });
+      const filtered = filterDailyArrearsForMaskedWeeks(arrears, data.settledWeeks?.[vIdStr]);
+      const total = filtered.reduce((s, a) => s + a.remaining, 0);
+      rows.push({ vendorId: vId, vendorName: name, arrears: filtered, totalRemaining: total });
     }
     rows.sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr", { sensitivity: "base" }));
   }

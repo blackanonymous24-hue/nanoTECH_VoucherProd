@@ -1099,14 +1099,8 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
 
   const weekSummary = [...weekMap.values()]
     .map((w) => {
-      const vendorCarryOver = (() => {
-        if (!w.vendorId || !weekEndedForSummary) return 0;
-        return carryOverByVendor.get(w.vendorId) ?? 0;
-      })();
-      const vendorCarryOverWeekCount = (() => {
-        if (!w.vendorId || !weekEndedForSummary) return 0;
-        return carryOverWeekCountByVendor.get(w.vendorId) ?? 0;
-      })();
+      const vendorCarryOver = !w.vendorId ? 0 : (carryOverByVendor.get(w.vendorId) ?? 0);
+      const vendorCarryOverWeekCount = !w.vendorId ? 0 : (carryOverWeekCountByVendor.get(w.vendorId) ?? 0);
       const weeklyPaid = w.vendorId ? (weeklyPaidByVendor.get(w.vendorId) ?? 0) : 0;
       const dailyPaid  = w.vendorId ? (dailyPaidByVendor.get(w.vendorId) ?? 0) : 0;
       const paidAmount = weeklyPaid + dailyPaid;
@@ -1425,8 +1419,7 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
   }
 
   // Build arrears: per-day, with weekly cutoff (same logic as vendor portal).
-  // A week is "settled" when total paid for that week >= total sales.
-  // Any day before the Monday of the most recent settled week is hidden.
+  // Semaine soldée (masquée) ⇒ aucun arriéré journalier pour cette semaine ni pour les semaines ≤ dernière semaine soldée.
   const arrears: Record<string, { date: string; salesAmount: number; paidAmount: number; remaining: number; payments: { id: number; amount: number }[] }[]> = {};
   const settledWeeks: Record<string, string[]> = {};
 
@@ -1518,12 +1511,10 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
       settledWeekMap.set(monday, paidWeek >= Math.max(0, expectedWeek - 1));
     }
 
-    const vendorArr: typeof arrears[string] = [];
-    const settledForVendor = new Set<string>();
+    let vendorArr: typeof arrears[string] = [];
     for (const [date, grossSalesAmount] of dayMap) {
       const monday = getMondayOf(date);
       if (settledWeekMap.get(monday)) {
-        settledForVendor.add(monday);
         continue;
       }
       const k = `${vendorId}|${date}`;
@@ -1537,10 +1528,23 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
       }
     }
 
+    // Semaines masquées (soldées) : aucun arriéré journalier pour ces semaines ni pour les semaines ≤ dernière semaine soldée.
+    let latestSettledMonday: string | null = null;
+    for (const [m, ok] of settledWeekMap) {
+      if (ok && (!latestSettledMonday || m > latestSettledMonday)) latestSettledMonday = m;
+    }
+    vendorArr = vendorArr.filter((e) => {
+      const m = getMondayOf(e.date);
+      if (settledWeekMap.get(m)) return false;
+      if (latestSettledMonday && m <= latestSettledMonday) return false;
+      return true;
+    });
+
     // Sort oldest first
     vendorArr.sort((a, b) => a.date.localeCompare(b.date));
     if (vendorArr.length > 0) arrears[String(vendorId)] = vendorArr;
-    if (settledForVendor.size > 0) settledWeeks[String(vendorId)] = [...settledForVendor].sort();
+    const maskedWeekMondays = [...settledWeekMap.entries()].filter(([, ok]) => ok).map(([m]) => m).sort();
+    if (maskedWeekMondays.length > 0) settledWeeks[String(vendorId)] = maskedWeekMondays;
   }
 
   const vendorInfoMap: Record<string, { name: string }> = {};
@@ -1727,6 +1731,74 @@ router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
       dailyPaidMap.set(p.vendorId, (dailyPaidMap.get(p.vendorId) ?? 0) + p.amount);
     }
 
+    const vendorIds = vendors.map((v) => v.id);
+    const vendorById = new Map(vendors.map((v) => [v.id, v]));
+    const carryOverByVendor = new Map<number, number>();
+    if (vendorIds.length > 0) {
+      const [historicalSalesRaw, historicalWeeklyPaidRaw, historicalDailyPaidRaw] = await Promise.all([
+        db.select({
+          vendorId: vouchersTable.vendorId,
+          weekStart: sql<string>`date_trunc('week', ${vouchersTable.usedAt})::date::text`,
+          amount: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
+        })
+          .from(vouchersTable)
+          .where(and(
+            eq(vouchersTable.routerId, routerId),
+            isNotNull(vouchersTable.usedAt),
+            inArray(vouchersTable.vendorId, vendorIds),
+            sql`date_trunc('week', ${vouchersTable.usedAt})::date::text < ${weekStart}`,
+          ))
+          .groupBy(vouchersTable.vendorId, sql`date_trunc('week', ${vouchersTable.usedAt})::date::text`),
+        db.select({
+          vendorId: vendorPaymentsTable.vendorId,
+          weekStart: vendorPaymentsTable.weekStart,
+          amount: sql<number>`sum(${vendorPaymentsTable.amount})::int`,
+        })
+          .from(vendorPaymentsTable)
+          .where(and(
+            eq(vendorPaymentsTable.routerId, routerId),
+            inArray(vendorPaymentsTable.vendorId, vendorIds),
+            sql`${vendorPaymentsTable.weekStart} < ${weekStart}`,
+            gt(vendorPaymentsTable.amount, 0),
+          ))
+          .groupBy(vendorPaymentsTable.vendorId, vendorPaymentsTable.weekStart),
+        db.select({
+          vendorId: vendorDailyPaymentsTable.vendorId,
+          weekStart: sql<string>`date_trunc('week', ${vendorDailyPaymentsTable.date}::date)::date::text`,
+          amount: sql<number>`sum(${vendorDailyPaymentsTable.amount})::int`,
+        })
+          .from(vendorDailyPaymentsTable)
+          .where(and(
+            eq(vendorDailyPaymentsTable.routerId, routerId),
+            inArray(vendorDailyPaymentsTable.vendorId, vendorIds),
+            sql`${vendorDailyPaymentsTable.date} < ${weekStart}`,
+          ))
+          .groupBy(vendorDailyPaymentsTable.vendorId, sql`date_trunc('week', ${vendorDailyPaymentsTable.date}::date)::date::text`),
+      ]);
+
+      const historicalPaidByVendorWeek = new Map<string, number>();
+      const normWeek = (w: unknown) => (typeof w === "string" ? w : (w as Date).toISOString().slice(0, 10));
+      for (const p of historicalWeeklyPaidRaw) {
+        const k = `${p.vendorId}|${normWeek(p.weekStart)}`;
+        historicalPaidByVendorWeek.set(k, (historicalPaidByVendorWeek.get(k) ?? 0) + Number(p.amount || 0));
+      }
+      for (const p of historicalDailyPaidRaw) {
+        const k = `${p.vendorId}|${normWeek(p.weekStart)}`;
+        historicalPaidByVendorWeek.set(k, (historicalPaidByVendorWeek.get(k) ?? 0) + Number(p.amount || 0));
+      }
+
+      for (const s of historicalSalesRaw) {
+        if (!s.vendorId) continue;
+        const commRate = vendorById.get(s.vendorId)?.commissionRate ?? 0;
+        const expected = Math.max(0, Number(s.amount || 0) - Math.round(Number(s.amount || 0) * commRate) / 100);
+        const paid = historicalPaidByVendorWeek.get(`${s.vendorId}|${normWeek(s.weekStart)}`) ?? 0;
+        const missing = Math.max(0, Math.round(expected - paid));
+        if (missing > 0) {
+          carryOverByVendor.set(s.vendorId, (carryOverByVendor.get(s.vendorId) ?? 0) + missing);
+        }
+      }
+    }
+
     // Commission only applies to completed weeks
     const weekEnded = wEnd.getTime() <= Date.now();
 
@@ -1750,6 +1822,7 @@ router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
           weeklyPaid,
           dailyPaid,
           totalPaid,
+          carryOverAmount: carryOverByVendor.get(v.id) ?? 0,
           weeklyExpected: Math.max(0, sales.amount - commission - dailyPaid),
           remaining:   Math.max(0, sales.amount - commission - totalPaid),
           payments:    paid,
