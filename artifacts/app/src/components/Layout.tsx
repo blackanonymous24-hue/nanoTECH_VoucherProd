@@ -91,6 +91,11 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isHotspotPage = hotspotPaths.some((p) => location.startsWith(p));
   const [hotspotOpen, setHotspotOpen] = useState(() => isHotspotPage);
   useEffect(() => { if (isHotspotPage) setHotspotOpen(true); }, [isHotspotPage]);
+  /* ── Vendeurs collapsible (sous-section dans Tickets) ── */
+  const vendorNavPaths = ["/vendors"];
+  const isVendorPage = vendorNavPaths.some((p) => location.startsWith(p));
+  const [vendorsOpen, setVendorsOpen] = useState(() => isVendorPage);
+  useEffect(() => { if (isVendorPage) setVendorsOpen(true); }, [isVendorPage]);
   /* ── Vendor count — masquer les items vendeur si aucun vendeur sur ce routeur ── */
   const { data: vendorsList } = useQuery<{ id: number }[]>({
     queryKey: ["vendors-nav-count", selectedRouterId],
@@ -346,15 +351,22 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       label: "Tickets",
       collapsible: false,
       items: [
-        { href: "/generate",     label: "Générer un ticket",   icon: Zap },
-        { href: "/vouchers",     label: "Mes Tickets",         icon: Ticket },
-        { href: "/ticket-lookup", label: "Vérifier un ticket", icon: SearchCheck },
-        { href: "/vendors",      label: "Vendeurs",            icon: Users },
-        ...(hasVendors ? [{ href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard }] : []),
-        ...(hasVendors ? [{ href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet }] : []),
-        ...(hasVendors ? [{ href: "/vendors/tracking",          label: "Rapport par vendeur",  icon: ListOrdered }] : []),
-        { href: "/sales/report", label: "Rapport de vente",   icon: Receipt },
+        { href: "/generate",      label: "Générer un ticket",   icon: Zap },
+        { href: "/vouchers",      label: "Mes Tickets",         icon: Ticket },
+        { href: "/ticket-lookup", label: "Vérifier un ticket",  icon: SearchCheck },
+        { href: "/sales/report",  label: "Rapport de vente",    icon: Receipt },
       ],
+      sub: {
+        key: "vendors",
+        label: "Suivi de vente par vendeur",
+        icon: Users,
+        items: [
+          { href: "/vendors",                    label: "Vendeurs",             icon: Users },
+          ...(hasVendors ? [{ href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard }] : []),
+          ...(hasVendors ? [{ href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet }] : []),
+          ...(hasVendors ? [{ href: "/vendors/tracking",          label: "Rapport par vendeur",  icon: ListOrdered }] : []),
+        ],
+      },
     },
     {
       label: "Outils",
@@ -503,30 +515,35 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 })}
               </div>
               {"sub" in group && group.sub && (() => {
-                const sub = group.sub as { label: string; icon: React.ElementType; items: { href: string; label: string; icon: React.ElementType }[] };
+                const sub = group.sub as { key?: string; label: string; icon: React.ElementType; items: { href: string; label: string; icon: React.ElementType }[] };
+                const isVendorSub = sub.key === "vendors";
+                const subIsOpen  = isVendorSub ? vendorsOpen  : hotspotOpen;
+                const toggleSub  = isVendorSub
+                  ? () => setVendorsOpen((v) => !v)
+                  : () => setHotspotOpen((v) => !v);
                 const SubIcon = sub.icon;
                 const isSubActive = sub.items.some(({ href }) => isNavActive(href));
                 return (
                   <div className="mt-0.5">
                     <button
-                      onClick={() => setHotspotOpen((v) => !v)}
+                      onClick={toggleSub}
                       className={cn(
                         "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
-                        isSubActive && !hotspotOpen
+                        isSubActive && !subIsOpen
                           ? "text-blue-300"
                           : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
                       )}
                     >
-                      <SubIcon className={cn("h-4 w-4 flex-shrink-0", isSubActive && !hotspotOpen ? "text-blue-400" : "text-gray-500")} />
+                      <SubIcon className={cn("h-4 w-4 flex-shrink-0", isSubActive && !subIsOpen ? "text-blue-400" : "text-gray-500")} />
                       <span className="flex-1 text-left">{sub.label}</span>
-                      {!hotspotOpen && (
+                      {!subIsOpen && (
                         <span className="text-[10px] font-semibold tabular-nums bg-white/8 text-gray-500 rounded-full px-1.5 py-0.5">
                           {sub.items.length}
                         </span>
                       )}
-                      <ChevronDown className={cn("h-3.5 w-3.5 text-gray-500 flex-shrink-0 transition-transform duration-200", hotspotOpen && "rotate-180")} />
+                      <ChevronDown className={cn("h-3.5 w-3.5 text-gray-500 flex-shrink-0 transition-transform duration-200", subIsOpen && "rotate-180")} />
                     </button>
-                    {hotspotOpen && (
+                    {subIsOpen && (
                       <div className="space-y-0.5 mt-0.5">
                         {sub.items.map(({ href, label, icon: Icon }) => {
                           const isActive = isNavActive(href);
