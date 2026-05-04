@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie, ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -85,7 +85,25 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isAdmin = role === "admin";
   const isManager = role === "manager";
   const isCollaborateur = role === "collaborateur";
-  const isStockAlertsPage = location.startsWith("/stock-alerts");
+  /* ── Hotspot collapsible ── */
+  const hotspotPaths = ["/sessions", "/ip-bindings", "/dhcp-leases", "/hotspot-cookies"];
+  const isHotspotPage = hotspotPaths.some((p) => location.startsWith(p));
+  const [hotspotOpen, setHotspotOpen] = useState(() => hotspotPaths.some((p) => location.startsWith(p)));
+  useEffect(() => { if (isHotspotPage) setHotspotOpen(true); }, [isHotspotPage]);
+
+  /* ── Vendor count — hide vendor nav items when no vendor registered ── */
+  const { data: vendorsList } = useQuery<{ id: number }[]>({
+    queryKey: ["vendors-nav-count"],
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/vendors`, { signal });
+      if (!res.ok) return [{ id: 0 }];
+      const data: unknown = await res.json();
+      return Array.isArray(data) ? (data as { id: number }[]) : [{ id: 0 }];
+    },
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+  const hasVendors = vendorsList === undefined || vendorsList.length > 0;
   const isVouchersPage = location.startsWith("/vouchers");
 
   const isNavActive = (href: string) => {
@@ -308,41 +326,50 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const navGroups = [
     {
       label: "Réseau",
+      collapsible: false,
       items: [
         { href: "/",         label: "Tableau de bord", icon: LayoutDashboard },
         ...(!isManager && !isCollaborateur ? [{ href: "/routers", label: "Routeurs", icon: Router }] : []),
         { href: "/forfaits", label: "Forfaits",          icon: PackageOpen },
-        { href: "/sessions", label: "Clients actifs",   icon: Activity },
-        { href: "/ip-bindings", label: "Bypass MAC",     icon: ShieldCheck },
-        { href: "/dhcp-leases", label: "DHCP Leases",    icon: Database },
-        { href: "/hotspot-cookies", label: "Cookies Hotspot", icon: Cookie },
+      ],
+    },
+    {
+      label: "Hotspot",
+      collapsible: true,
+      items: [
+        { href: "/sessions",        label: "Clients actifs",   icon: Activity },
+        { href: "/ip-bindings",     label: "Bypass MAC",       icon: ShieldCheck },
+        { href: "/dhcp-leases",     label: "DHCP Leases",      icon: Database },
+        { href: "/hotspot-cookies", label: "Cookies Hotspot",  icon: Cookie },
       ],
     },
     {
       label: "Tickets",
+      collapsible: false,
       items: [
-        { href: "/generate",     label: "Générer",         icon: Zap },
-        { href: "/vouchers",        label: "Mes Tickets",          icon: Ticket },
-        { href: "/ticket-lookup",   label: "Vérifier un ticket",  icon: SearchCheck },
-        { href: "/vendors",                   label: "Vendeurs",            icon: Users },
-        { href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard },
-        { href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet },
-        { href: "/vendors/tracking",          label: "Rapport par vendeur",  icon: ListOrdered },
-        { href: "/sales/report",      label: "Rapport de vente",  icon: Receipt },
+        { href: "/generate",     label: "Générer",             icon: Zap },
+        { href: "/vouchers",     label: "Mes Tickets",         icon: Ticket },
+        { href: "/ticket-lookup", label: "Vérifier un ticket", icon: SearchCheck },
+        { href: "/vendors",      label: "Vendeurs",            icon: Users },
+        ...(hasVendors ? [{ href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard }] : []),
+        ...(hasVendors ? [{ href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet }] : []),
+        ...(hasVendors ? [{ href: "/vendors/tracking",          label: "Rapport par vendeur",  icon: ListOrdered }] : []),
+        { href: "/sales/report", label: "Rapport de vente",   icon: Receipt },
       ],
     },
     {
       label: "Outils",
+      collapsible: false,
       items: [
         { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode },
-        ...(isAdmin ? [{ href: "/managers", label: "Gérants de zone", icon: UserCog }] : []),
-        ...(isAdmin ? [{ href: "/collaborateurs", label: "Collaborateurs", icon: Users }] : []),
+        ...((isAdmin || isSuperAdmin) ? [{ href: "/managers",      label: "Gérants de zone", icon: UserCog }] : []),
+        ...((isAdmin || isSuperAdmin) ? [{ href: "/collaborateurs", label: "Collaborateurs",  icon: Users }] : []),
         ...(isAdmin ? [{ href: "/maintenance", label: "Maintenance", icon: Wrench }] : []),
       ],
     },
-    // Super Admin section: only the platform super-admin sees this group.
     ...(isSuperAdmin ? [{
       label: "Super Admin",
+      collapsible: false,
       items: [
         { href: "/super/admins", label: "Administrateurs", icon: Crown },
       ],
@@ -429,53 +456,90 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         })()}
 
         {navGroups.map((group, gi) => (
-          <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
-            <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
-              {group.label}
-            </p>
-            <div className="space-y-0.5">
-              {group.items.map(({ href, label, icon: Icon }) => {
-                const isActive = isNavActive(href);
-                const showVoucherBadge = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
-                return (
-                  <div key={href}>
-                    <Link
-                      href={href}
-                      onClick={(e) => handleTabClick(href, e)}
-                      className={cn(
-                        "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
-                        isActive
-                          ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
-                          : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
-                      )}
-                    >
-                      <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
-                      <span className="flex-1 truncate">{label}</span>
-                      {showVoucherBadge && (
-                        <span className={cn(
-                          "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
-                          isActive ? "bg-blue-500/20 text-blue-300" : "bg-white/8 text-gray-400",
-                        )}>
-                          {voucherCount!.toLocaleString("fr-FR")}
-                        </span>
-                      )}
-                    </Link>
-                    {/* Ajouter un utilisateur hotspot — juste après Générer */}
-                    {href === "/generate" && (isAdmin || isManager || isCollaborateur) && (
-                      <button
-                        onClick={openAddUserDialog}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:text-gray-100"
-                        title="Ajouter un utilisateur hotspot"
+          group.collapsible ? (
+            /* ── Groupe collapsible (Hotspot) ── */
+            <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
+              <button
+                onClick={() => setHotspotOpen((v) => !v)}
+                className="w-full px-2 mb-1 flex items-center justify-between text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600 hover:text-gray-400 transition-colors"
+              >
+                <span>{group.label}</span>
+                <ChevronDown className={cn("h-3 w-3 transition-transform duration-200", hotspotOpen && "rotate-180")} />
+              </button>
+              {hotspotOpen && (
+                <div className="space-y-0.5">
+                  {group.items.map(({ href, label, icon: Icon }) => {
+                    const isActive = isNavActive(href);
+                    return (
+                      <Link
+                        key={href}
+                        href={href}
+                        onClick={(e) => handleTabClick(href, e)}
+                        className={cn(
+                          "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                          isActive
+                            ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
+                            : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
+                        )}
                       >
-                        <UserPlus className="h-4 w-4 flex-shrink-0 text-gray-500" />
-                        <span className="flex-1 truncate text-left">Ajouter un client</span>
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                        <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
+                        <span className="flex-1 truncate">{label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            /* ── Groupe normal ── */
+            <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
+              <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map(({ href, label, icon: Icon }) => {
+                  const isActive = isNavActive(href);
+                  const showVoucherBadge = href === "/vouchers" && selectedRouterId && voucherCount !== undefined && voucherCount > 0;
+                  return (
+                    <div key={href}>
+                      <Link
+                        href={href}
+                        onClick={(e) => handleTabClick(href, e)}
+                        className={cn(
+                          "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                          isActive
+                            ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
+                            : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
+                        )}
+                      >
+                        <Icon className={cn("h-4 w-4 flex-shrink-0 transition-colors", isActive ? "text-blue-400" : "text-gray-500")} />
+                        <span className="flex-1 truncate">{label}</span>
+                        {showVoucherBadge && (
+                          <span className={cn(
+                            "text-[10px] font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center tabular-nums",
+                            isActive ? "bg-blue-500/20 text-blue-300" : "bg-white/8 text-gray-400",
+                          )}>
+                            {voucherCount!.toLocaleString("fr-FR")}
+                          </span>
+                        )}
+                      </Link>
+                      {/* Ajouter un utilisateur hotspot — juste après Générer */}
+                      {href === "/generate" && (isAdmin || isManager || isCollaborateur) && (
+                        <button
+                          onClick={openAddUserDialog}
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:text-gray-100"
+                          title="Ajouter un utilisateur hotspot"
+                        >
+                          <UserPlus className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                          <span className="flex-1 truncate text-left">Ajouter un client</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )
         ))}
       </nav>
 
