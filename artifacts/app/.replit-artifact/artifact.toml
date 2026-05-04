@@ -12,11 +12,11 @@ version = "1.0.0"
 [[services]]
 name = "web"
 paths = [ "/" ]
-localPort = 5173
+localPort = 23863
 
 [services.development]
 run = "pnpm --filter @workspace/app run dev"
 
 [services.env]
-PORT = "5173"
+PORT = "23863"
 BASE_PATH = "/"

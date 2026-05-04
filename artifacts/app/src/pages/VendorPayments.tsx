@@ -887,7 +887,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-xs font-medium text-gray-700">
-                            {underlying ? `Arriérés cumulés (${underlying.length} jours, dernier : ${fmtDateFr(entry.date)})` : fmtDateFr(entry.date)}
+                            {underlying ? `Arriérés cumulés (${underlying.length} jours, du ${fmtDateFr(underlying[0].date)} au ${fmtDateFr(entry.date)})` : fmtDateFr(entry.date)}
                           </p>
                           {entry.paidAmount > 0 ? (
                             <p className="text-[10px] text-gray-400">

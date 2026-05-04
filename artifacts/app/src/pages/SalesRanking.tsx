@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouterContext } from "@/contexts/RouterContext";
+const LIVE_SALES_POLL_MS = 10_000;
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -57,21 +58,34 @@ function getRankStyle(rank: number) {
   return { bg: "bg-white border-gray-100", badge: "bg-gray-100 text-gray-600", icon: null };
 }
 
-/* ── Rapport du jour d'un vendeur (vue admin) ─────────────────── */
-function VendorTodayReport({ vendorId, vendorName, onBack }: { vendorId: number; vendorName: string; onBack: () => void }) {
+/* ── Rapport période d'un vendeur (vue admin) ─────────────────── */
+function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
+  vendorId: number;
+  vendorName: string;
+  period: "today" | "month";
+  onBack: () => void;
+}) {
   const { data, isLoading, error } = useQuery<PeriodSalesData>({
-    queryKey: ["vendor-period-sales", vendorId, "today"],
+    queryKey: ["vendor-period-sales", vendorId, period],
     queryFn: async ({ signal }) => {
-      const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=today`, { signal });
+      const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=${period}`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     },
-    staleTime: 30_000,
+    staleTime: 8_000,
+    refetchInterval: LIVE_SALES_POLL_MS,
+    refetchIntervalInBackground: false,
+    placeholderData: (previousData) => previousData,
   });
 
   const today = new Date().toLocaleDateString("fr-FR", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
+  const monthLabel = new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  const subtitle = period === "today" ? today : monthLabel;
+  const soldLabel = period === "today" ? "Vendus aujourd'hui" : "Vendus ce mois";
+  const emptyLabel = period === "today" ? "Aucune vente aujourd'hui" : "Aucune vente ce mois";
+  const printTitle = period === "today" ? "Rapport de ventes du jour" : "Rapport de ventes du mois";
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -82,7 +96,7 @@ function VendorTodayReport({ vendorId, vendorName, onBack }: { vendorId: number;
         <div className="h-5 w-px bg-gray-200" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-gray-900 truncate">{data?.vendorName ?? vendorName}</p>
-          <p className="text-xs text-gray-500 capitalize">{today}</p>
+          <p className="text-xs text-gray-500 capitalize">{subtitle}</p>
         </div>
         {data && data.total > 0 && (
           <Button size="sm" variant="outline" onClick={() => window.print()} className="gap-1.5">
@@ -119,7 +133,7 @@ function VendorTodayReport({ vendorId, vendorName, onBack }: { vendorId: number;
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-gray-900">{data.total}</p>
-                      <p className="text-xs text-gray-500">Vendus aujourd'hui</p>
+                      <p className="text-xs text-gray-500">{soldLabel}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -172,7 +186,7 @@ function VendorTodayReport({ vendorId, vendorName, onBack }: { vendorId: number;
                 </CardHeader>
                 <CardContent className="p-0">
                   {data.vouchers.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-6 px-4">Aucune vente aujourd'hui</p>
+                    <p className="text-sm text-gray-400 text-center py-6 px-4">{emptyLabel}</p>
                   ) : (
                     <div className="max-h-80 overflow-x-auto overflow-y-auto scroll-card">
                       <table className="w-full min-w-[520px] text-xs border-collapse">
@@ -240,9 +254,9 @@ function VendorTodayReport({ vendorId, vendorName, onBack }: { vendorId: number;
 
             {/* ── Impression ── */}
             <div className="print-only">
-              <p className="report-print-title">{data.vendorName ?? vendorName} — Rapport de ventes du jour</p>
+              <p className="report-print-title">{data.vendorName ?? vendorName} — {printTitle}</p>
               <p className="report-print-meta">
-                {today.charAt(0).toUpperCase() + today.slice(1)} &nbsp;·&nbsp; Imprimé le{" "}
+                {subtitle.charAt(0).toUpperCase() + subtitle.slice(1)} &nbsp;·&nbsp; Imprimé le{" "}
                 {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
               </p>
               <p className="report-print-section-label">Résumé</p>
@@ -324,34 +338,36 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<VendorSummary[]>;
     },
-    refetchInterval: 30_000,
+    refetchInterval: LIVE_SALES_POLL_MS,
     refetchIntervalInBackground: false,
-    staleTime: 25_000,
+    staleTime: 8_000,
   });
 
-  /* Pre-fetch each vendor's today report as soon as the list is loaded,
+  /* Pre-fetch each vendor's period report as soon as the list is loaded,
      so clicking a vendor is instant instead of waiting for the API. */
   useEffect(() => {
-    if (!isDaily || !data) return;
+    if (!data) return;
+    const reportPeriod = isDaily ? "today" : "month";
     for (const entry of data) {
       const vendorId = entry.vendor.id;
       queryClient.prefetchQuery({
-        queryKey: ["vendor-period-sales", vendorId, "today"],
+        queryKey: ["vendor-period-sales", vendorId, reportPeriod],
         queryFn: async ({ signal }) => {
-          const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=today`, { signal });
+          const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=${reportPeriod}`, { signal });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json() as Promise<PeriodSalesData>;
         },
-        staleTime: 30_000,
+        staleTime: 8_000,
       });
     }
   }, [data, isDaily, queryClient]);
 
-  if (selectedVendor && isDaily) {
+  if (selectedVendor) {
     return (
-      <VendorTodayReport
+      <VendorPeriodReport
         vendorId={selectedVendor.id}
         vendorName={selectedVendor.name}
+        period={isDaily ? "today" : "month"}
         onBack={() => setSelectedVendor(null)}
       />
     );
@@ -428,8 +444,8 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
             return (
               <div
                 key={entry.vendor.id}
-                onClick={() => isDaily ? setSelectedVendor({ id: entry.vendor.id, name: entry.vendor.name }) : undefined}
-                className={`border rounded-xl px-4 py-3 flex items-center gap-4 transition-shadow ${bg} ${isDaily ? "cursor-pointer hover:shadow-sm" : ""}`}
+                onClick={() => setSelectedVendor({ id: entry.vendor.id, name: entry.vendor.name })}
+                className={`border rounded-xl px-4 py-3 flex items-center gap-4 transition-shadow ${bg} cursor-pointer hover:shadow-sm`}
               >
                 <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold flex-shrink-0 ${badge}`}>
                   {icon ?? rank}

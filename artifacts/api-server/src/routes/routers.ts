@@ -7,7 +7,7 @@ import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
-import { syncScriptCache } from "../lib/script-cache.js";
+import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
@@ -21,44 +21,53 @@ interface ProfileListCache {
   profiles: Awaited<ReturnType<typeof listProfiles>>;
   expiresAt: number;
 }
-const profileListCache = new Map<number, ProfileListCache>();
-const profileListInFlight = new Map<number, Promise<Awaited<ReturnType<typeof listProfiles>>>>();
+const profileListCache = new Map<string, ProfileListCache>();
+const profileListInFlight = new Map<string, Promise<Awaited<ReturnType<typeof listProfiles>>>>();
 const PROFILE_LIST_CACHE_TTL = 900_000; // 15 min
 
-function getFreshProfileCache(routerId: number) {
-  const cached = profileListCache.get(routerId);
+/** RAM cache key segment: tenant owner + DB row id (two rows on same MikroTik → two keys). */
+export function routerCacheScope(ownerAdminId: number | null, routerId: number): string {
+  const t = ownerAdminId == null ? "na" : String(ownerAdminId);
+  return `${t}_${routerId}`;
+}
+
+function getFreshProfileCache(scope: string) {
+  const cached = profileListCache.get(scope);
   if (cached && Date.now() < cached.expiresAt) return cached.profiles;
   return null;
 }
 
-function setProfileCache(routerId: number, profiles: Awaited<ReturnType<typeof listProfiles>>) {
-  profileListCache.set(routerId, { profiles, expiresAt: Date.now() + PROFILE_LIST_CACHE_TTL });
+function setProfileCache(scope: string, profiles: Awaited<ReturnType<typeof listProfiles>>) {
+  profileListCache.set(scope, { profiles, expiresAt: Date.now() + PROFILE_LIST_CACHE_TTL });
 }
 
-function invalidateProfileListCache(routerId: number) {
-  profileListCache.delete(routerId);
+function invalidateProfileListCache(ownerAdminId: number | null, routerId: number) {
+  const scope = routerCacheScope(ownerAdminId, routerId);
+  profileListCache.delete(scope);
+  profileListInFlight.delete(scope);
 }
 
-async function fetchProfilesWithCache(routerId: number, conn: RouterConnection) {
-  const inFlight = profileListInFlight.get(routerId);
+async function fetchProfilesWithCache(ownerAdminId: number | null, routerId: number, conn: RouterConnection) {
+  const scope = routerCacheScope(ownerAdminId, routerId);
+  const inFlight = profileListInFlight.get(scope);
   if (inFlight) return inFlight;
 
   const task = listProfiles(conn)
     .then((profiles) => {
-      setProfileCache(routerId, profiles);
+      setProfileCache(scope, profiles);
       return profiles;
     })
     .finally(() => {
-      profileListInFlight.delete(routerId);
+      profileListInFlight.delete(scope);
     });
 
-  profileListInFlight.set(routerId, task);
+  profileListInFlight.set(scope, task);
   return task;
 }
 
 /* ── Generic in-memory TTL cache for MikroTik live-data endpoints ───────
  *
- * Key format: "<type>:<routerId>"  or  "<type>:<routerId>:<extra>"
+ * Key format: "<type>:<owner>_<routerId>"  or  "<type>:<owner>_<routerId>:<extra>"
  * TTLs are chosen so the UI feels instant while data stays acceptably fresh.
  *
  *   ping        30 s  — status probe, polled often by dashboard
@@ -74,6 +83,18 @@ function mGet(k: string) { const e = _mik.get(k); return (e && Date.now() < e.ex
 /** Returns cached data even if expired (stale-while-revalidate pattern). */
 function mGetStale(k: string) { return _mik.get(k)?.data ?? null; }
 function mSet(k: string, ttl: number, d: unknown) { _mik.set(k, { data: d, exp: Date.now() + ttl }); }
+
+function purgeMikKeysForScope(scope: string): void {
+  const simple = ["ping", "info", "pools", "sessions", "leases", "interfaces"] as const;
+  for (const p of simple) {
+    _mik.delete(`${p}:${scope}`);
+  }
+  for (const k of [..._mik.keys()]) {
+    if (k.startsWith(`traffic:${scope}:`) || k.startsWith(`logs:${scope}:`)) {
+      _mik.delete(k);
+    }
+  }
+}
 
 const MIK_TTL = {
   ping:       30_000,
@@ -117,14 +138,14 @@ function getAdminScopeFromHeader(req: { headers: { authorization?: string } }): 
  * `adminId` for non-super callers is the tenant they belong to.
  * `routerIds` is the exact set of routers the caller is allowed to touch.
  */
-type CallerScope =
+export type CallerScope =
   | { kind: "super"; adminId: number }
   | { kind: "admin"; adminId: number; routerIds: number[] }
   | { kind: "manager"; adminId: number | null; routerIds: number[] }
   | { kind: "vendor"; adminId: number | null; routerIds: number[] }
   | { kind: "collaborateur"; adminId: number | null; routerIds: number[] };
 
-async function resolveCallerScope(req: { headers: { authorization?: string } }): Promise<CallerScope | null> {
+export async function resolveCallerScope(req: { headers: { authorization?: string } }): Promise<CallerScope | null> {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) return null;
   const token = auth.slice(7);
@@ -239,6 +260,7 @@ router.get("/routers", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       ownerAdminId: routersTable.ownerAdminId,
       createdAt: routersTable.createdAt,
@@ -262,7 +284,7 @@ router.post("/routers", async (req, res): Promise<void> => {
   const scope = getAdminScopeFromHeader(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const { name, hotspotName, contact, currency, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, currency, host, port, username, password, autoDeleteSalesScripts, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
     contact?: string;
@@ -271,6 +293,7 @@ router.post("/routers", async (req, res): Promise<void> => {
     port?: number;
     username?: string;
     password?: string;
+    autoDeleteSalesScripts?: boolean;
     isActive?: boolean;
   };
 
@@ -336,6 +359,7 @@ router.post("/routers", async (req, res): Promise<void> => {
       port: port ?? 8728,
       username,
       password,
+      autoDeleteSalesScripts: autoDeleteSalesScripts ?? false,
       isActive: isActive ?? true,
     })
     .returning({
@@ -347,6 +371,7 @@ router.post("/routers", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       ownerAdminId: routersTable.ownerAdminId,
       createdAt: routersTable.createdAt,
@@ -380,6 +405,13 @@ router.use("/routers/:id", async (req, res, next) => {
       .from(routersTable)
       .where(eq(routersTable.id, id));
     if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+    if (r.owner == null) {
+      res.status(403).json({
+        error:
+          "Ce routeur n'est pas rattaché à un compte client (propriétaire manquant). Ouvrez Super administrateur → Administrateurs → Routeurs du client, ou réattribuez le routeur.",
+      });
+      return;
+    }
     if (r.owner !== scope.adminId) {
       res.status(403).json({ error: "Accès refusé à ce routeur" });
       return;
@@ -411,6 +443,7 @@ router.get("/routers/:id", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       createdAt: routersTable.createdAt,
       updatedAt: routersTable.updatedAt,
@@ -427,7 +460,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, hotspotName, contact, currency, host, port, username, password, isActive } = req.body as {
+  const { name, hotspotName, contact, currency, host, port, username, password, autoDeleteSalesScripts, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
     contact?: string;
@@ -436,6 +469,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
     port?: number;
     username?: string;
     password?: string;
+    autoDeleteSalesScripts?: boolean;
     isActive?: boolean;
   };
 
@@ -451,6 +485,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   if (port !== undefined) updates.port = port;
   if (username !== undefined) updates.username = username;
   if (password !== undefined) updates.password = password;
+  if (autoDeleteSalesScripts !== undefined) updates.autoDeleteSalesScripts = autoDeleteSalesScripts;
   if (isActive !== undefined) updates.isActive = isActive;
 
   if (Object.keys(updates).length === 0) {
@@ -464,6 +499,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
     .where(eq(routersTable.id, id))
     .returning({
       id: routersTable.id,
+      ownerAdminId: routersTable.ownerAdminId,
       name: routersTable.name,
       hotspotName: routersTable.hotspotName,
       contact: routersTable.contact,
@@ -471,12 +507,14 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       createdAt: routersTable.createdAt,
       updatedAt: routersTable.updatedAt,
     });
 
   if (!updated) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  purgeRouterRowVolatileCaches(updated.ownerAdminId, updated.id);
   res.json(updated);
 });
 
@@ -487,6 +525,7 @@ router.delete("/routers/:id", async (req, res): Promise<void> => {
 
   const [deleted] = await db.delete(routersTable).where(eq(routersTable.id, id)).returning();
   if (!deleted) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  purgeRouterRowVolatileCaches(deleted.ownerAdminId, deleted.id);
   res.sendStatus(204);
 });
 
@@ -507,15 +546,15 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const ck = `ping:${id}`;
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `ping:${sc}`;
   const force = req.query.force === "1";
   if (!force) {
     const hit = mGet(ck);
     if (hit) { res.json(hit); return; }
   }
-
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   const online = await pingRouter({ host: r.host, port: r.port, username: r.username, password: r.password });
   const payload = { success: online };
@@ -556,14 +595,14 @@ router.get("/routers/:id/info", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const ck = `info:${id}`;
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `info:${sc}`;
 
   // Fresh hit — return immediately
   const fresh = mGet(ck);
   if (fresh) { res.json(fresh); return; }
-
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   // Stale hit — return immediately, refresh in background (stale-while-revalidate)
   const stale = mGetStale(ck);
@@ -597,9 +636,10 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-  const freshCached = getFreshProfileCache(id);
+  const pScope = routerCacheScope(r.ownerAdminId, id);
+  const freshCached = getFreshProfileCache(pScope);
   const forceRefresh = String(req.query.refresh ?? "") === "1";
-  const staleCached = profileListCache.get(id)?.profiles ?? null;
+  const staleCached = profileListCache.get(pScope)?.profiles ?? null;
 
   /** Persist a successful fetch to DB so it survives server restarts. */
   async function saveSnapshot(profiles: typeof freshCached) {
@@ -627,13 +667,13 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   // Always return cached data immediately when available (even if ?refresh=1).
   // Refresh in background so the caller never has to wait for MikroTik.
   if (freshCached) {
-    if (forceRefresh) void fetchProfilesWithCache(id, conn).then(saveSnapshot).catch(() => undefined);
+    if (forceRefresh) void fetchProfilesWithCache(r.ownerAdminId, id, conn).then(saveSnapshot).catch(() => undefined);
     res.json(freshCached);
     return;
   }
   if (staleCached) {
     // Stale-while-revalidate: return instantly, refresh in background.
-    void fetchProfilesWithCache(id, conn).then(saveSnapshot).catch(() => undefined);
+    void fetchProfilesWithCache(r.ownerAdminId, id, conn).then(saveSnapshot).catch(() => undefined);
     res.json(staleCached);
     return;
   }
@@ -641,7 +681,7 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
   // Cache is empty (first request after server start).
   // Try MikroTik; on failure fall back to DB snapshot so the UI is never blank.
   try {
-    const fetched = await fetchProfilesWithCache(id, conn);
+    const fetched = await fetchProfilesWithCache(r.ownerAdminId, id, conn);
     void saveSnapshot(fetched);
     res.json(fetched);
   } catch (err) {
@@ -684,7 +724,7 @@ router.post("/routers/:id/profiles", async (req, res): Promise<void> => {
         parentQueue: (parentQueue ?? "").trim(),
       },
     );
-    invalidateProfileListCache(id);
+    invalidateProfileListCache(r.ownerAdminId, id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de créer le profil" });
@@ -700,10 +740,11 @@ router.put("/routers/:id/profiles/:profileName", async (req, res): Promise<void>
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const { name, validity, price, sellingPrice, sharedUsers, addrPool, rateLimit, expiredMode, lockMac, parentQueue } = req.body as {
+  const { name, validity, price, sellingPrice, sharedUsers, addrPool, rateLimit, expiredMode, lockMac, parentQueue, mikrotikId } = req.body as {
     name?: string; validity?: string; price?: string; sellingPrice?: string;
     sharedUsers?: string; addrPool?: string; rateLimit?: string;
     expiredMode?: string; lockMac?: boolean; parentQueue?: string;
+    mikrotikId?: string;
   };
   if (!name || !price || !validity) {
     res.status(400).json({ error: "Champs obligatoires manquants : name, price, validity" }); return;
@@ -724,9 +765,10 @@ router.put("/routers/:id/profiles/:profileName", async (req, res): Promise<void>
         expiredMode: (expiredMode ?? "None").trim(),
         lockMac: lockMac === true,
         parentQueue: (parentQueue ?? "").trim(),
+        mikrotikId: typeof mikrotikId === "string" ? mikrotikId.trim() : undefined,
       },
     );
-    invalidateProfileListCache(id);
+    invalidateProfileListCache(r.ownerAdminId, id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de modifier le profil" });
@@ -787,7 +829,7 @@ router.post("/routers/:id/profiles/sync-names", async (req, res): Promise<void> 
 
   try {
     await syncProfileRenames(id, { host: r.host, port: r.port, username: r.username, password: r.password });
-    invalidateProfileListCache(id);
+    invalidateProfileListCache(r.ownerAdminId, id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -808,7 +850,7 @@ router.delete("/routers/:id/profiles/:profileName", async (req, res): Promise<vo
       { host: r.host, port: r.port, username: r.username, password: r.password },
       profileName,
     );
-    invalidateProfileListCache(id);
+    invalidateProfileListCache(r.ownerAdminId, id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de supprimer le profil" });
@@ -820,12 +862,12 @@ router.get("/routers/:id/pools", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const ck = `pools:${id}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
-
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `pools:${sc}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
 
   try {
     const pools = await listAddressPools({ host: r.host, port: r.port, username: r.username, password: r.password });
@@ -841,12 +883,12 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const ck = `sessions:${id}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
-
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `sessions:${sc}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
 
   try {
     const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
@@ -866,12 +908,12 @@ router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const ck = `sessions:${id}`;
-  const fresh = mGet(ck) as unknown[] | null;
-  if (fresh) { res.json({ count: fresh.length, cached: true }); return; }
-
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `sessions:${sc}`;
+  const fresh = mGet(ck) as unknown[] | null;
+  if (fresh) { res.json({ count: fresh.length, cached: true }); return; }
 
   // Stale hit — return immediately, refresh in background (Mikhmon-style)
   const stale = mGetStale(ck) as unknown[] | null;
@@ -901,25 +943,32 @@ router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
 });
 
 interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expiresAt: number; }
-const userCache = new Map<number, UserCache>();
+const userCache = new Map<string, UserCache>();
 const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expires first
 
 async function getCachedUsers(
-  id: number,
+  router: { id: number; ownerAdminId: number | null },
   conn: Parameters<typeof listHotspotUsers>[0],
   opts: { force?: boolean } = {},
 ) {
-  const cached = userCache.get(id);
+  const scope = routerCacheScope(router.ownerAdminId, router.id);
+  const cached = userCache.get(scope);
   if (!opts.force && cached && Date.now() < cached.expiresAt) return cached.users;
   const users = await listHotspotUsers(conn, 60_000);
-  userCache.set(id, { users, expiresAt: Date.now() + USER_CACHE_TTL });
+  userCache.set(scope, { users, expiresAt: Date.now() + USER_CACHE_TTL });
   return users;
 }
 
 /** Call this after any action that modifies hotspot users (disable/enable/reset/delete/rename). */
-export function invalidateUserCache(routerId: number) {
-  userCache.delete(routerId);
-  _usersCountCache.delete(routerId);
+export async function invalidateUserCache(routerId: number): Promise<void> {
+  const [row] = await db
+    .select({ o: routersTable.ownerAdminId })
+    .from(routersTable)
+    .where(eq(routersTable.id, routerId));
+  if (!row) return;
+  const scope = routerCacheScope(row.o, routerId);
+  userCache.delete(scope);
+  _usersCountCache.delete(scope);
 }
 
 /**
@@ -928,11 +977,11 @@ export function invalidateUserCache(routerId: number) {
  * Returns true if a row was patched.
  */
 function patchCachedUser(
-  routerId: number,
+  scope: string,
   username: string,
   patch: Partial<Awaited<ReturnType<typeof listHotspotUsers>>[number]>,
 ): boolean {
-  const cached = userCache.get(routerId);
+  const cached = userCache.get(scope);
   if (!cached) return false;
   const target = username.toLowerCase();
   for (const u of cached.users) {
@@ -941,7 +990,7 @@ function patchCachedUser(
       // The /count payload depends on usedSet from DB, not on user fields we
       // just patched, so leave it alone — but we do bump cachedAt so it
       // doesn't look "stale" to the next reader.
-      const cnt = _usersCountCache.get(routerId);
+      const cnt = _usersCountCache.get(scope);
       if (cnt) cnt.cachedAt = Date.now();
       return true;
     }
@@ -965,7 +1014,7 @@ type UsersCountPayload = {
   cached: boolean;
   stale?: boolean;
 };
-const _usersCountCache = new Map<number, UsersCountPayload>();
+const _usersCountCache = new Map<string, UsersCountPayload>();
 
 async function computeUsersCount(
   routerId: number,
@@ -1006,10 +1055,11 @@ router.get("/routers/:id/users/count", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+  const sc = routerCacheScope(r.ownerAdminId, id);
 
-  const userHit = userCache.get(id);
+  const userHit = userCache.get(sc);
   const userFresh = !!userHit && Date.now() < userHit.expiresAt;
-  const cachedPayload = _usersCountCache.get(id);
+  const cachedPayload = _usersCountCache.get(sc);
 
   // Counts go stale much faster than the user-list snapshot (the DB-derived
   // `used`/`available` numbers depend on usage sync, which runs every ~30s).
@@ -1028,9 +1078,9 @@ router.get("/routers/:id/users/count", async (req, res): Promise<void> => {
       _usersRefreshing.add(id);
       setImmediate(async () => {
         try {
-          const users = await getCachedUsers(id, conn, { force: !userFresh });
+          const users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: !userFresh });
           const payload = await computeUsersCount(id, conn, users);
-          _usersCountCache.set(id, payload);
+          _usersCountCache.set(sc, payload);
         } catch { /* keep stale */ }
         finally { _usersRefreshing.delete(id); }
       });
@@ -1040,9 +1090,9 @@ router.get("/routers/:id/users/count", async (req, res): Promise<void> => {
 
   // Cold start — must block to compute the very first payload
   try {
-    const users = await getCachedUsers(id, conn);
+    const users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
     const payload = await computeUsersCount(id, conn, users);
-    _usersCountCache.set(id, payload);
+    _usersCountCache.set(sc, payload);
     res.json(payload);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -1063,7 +1113,7 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    let users = await getCachedUsers(id, conn, { force: refresh === "1" || refresh === "true" });
+    let users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: refresh === "1" || refresh === "true" });
 
     if (search) {
       const q = foldText(search);
@@ -1123,7 +1173,7 @@ router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
       macAddress: macAddress?.trim() || undefined,
     }));
     // Invalidate user/list/count caches so subsequent reads see the new user immediately
-    invalidateUserCache(id);
+    await invalidateUserCache(id);
     res.status(201).json({ success: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erreur MikroTik";
@@ -1143,7 +1193,7 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
     const [users, soldRows] = await Promise.all([
-      getCachedUsers(id, conn),
+      getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn),
       db
         .select({ username: vouchersTable.username })
         .from(vouchersTable)
@@ -1230,7 +1280,7 @@ router.delete("/routers/:id/users", async (req, res): Promise<void> => {
       return deleteHotspotUsersByNames(conn, usernames!);
     });
     // Invalidate cache so subsequent requests get fresh data
-    userCache.delete(id);
+    userCache.delete(routerCacheScope(r.ownerAdminId, id));
     res.json({ deleted });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -1476,7 +1526,7 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
       await upsertLinkedBypass(conn, finalUsername, mac, updated.comment, bypassComment?.trim());
     }
 
-    userCache.delete(id);
+    userCache.delete(routerCacheScope(r.ownerAdminId, id));
     if (finalUsername !== oldUsername) {
       await db
         .update(vouchersTable)
@@ -1497,6 +1547,7 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const uScope = routerCacheScope(r.ownerAdminId, id);
 
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
@@ -1514,13 +1565,13 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
     // post-reset state instantly (no MikroTik round-trip for thousands of
     // users). The fields below mirror what `resetHotspotUser` writes back:
     // a pristine voucher with no quota override/MAC binding and normalized comment.
-    const patched = patchCachedUser(id, username, {
+    const patched = patchCachedUser(uScope, username, {
       comment: result.comment,
       limitUptime: null,
       limitBytesTotal: null,
       macAddress: null,
     });
-    if (!patched) userCache.delete(id);
+    if (!patched) userCache.delete(uScope);
 
     // DB consistency tasks are moved to background to keep reset instant.
     void (async () => {
@@ -1561,48 +1612,49 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
 // ─── Hotspot IP-bindings (MAC bypass) ────────────────────────────────────────
 //
 // Kept in a short-lived cache for instant bootstrap/page-open response.
-const ipBindingsCache = new Map<number, { bindings: Awaited<ReturnType<typeof listIpBindings>>; exp: number }>();
+const ipBindingsCache = new Map<string, { bindings: Awaited<ReturnType<typeof listIpBindings>>; exp: number }>();
 const IP_BINDINGS_TTL = 30_000;
-function getIpBindingsCached(routerId: number) {
-  const hit = ipBindingsCache.get(routerId);
+function getIpBindingsCached(scope: string) {
+  const hit = ipBindingsCache.get(scope);
   if (hit && Date.now() < hit.exp) return hit.bindings;
   return null;
 }
-function getIpBindingsStale(routerId: number) {
-  return ipBindingsCache.get(routerId)?.bindings ?? null;
+function getIpBindingsStale(scope: string) {
+  return ipBindingsCache.get(scope)?.bindings ?? null;
 }
-function setIpBindingsCache(routerId: number, bindings: Awaited<ReturnType<typeof listIpBindings>>) {
-  ipBindingsCache.set(routerId, { bindings, exp: Date.now() + IP_BINDINGS_TTL });
+function setIpBindingsCache(scope: string, bindings: Awaited<ReturnType<typeof listIpBindings>>) {
+  ipBindingsCache.set(scope, { bindings, exp: Date.now() + IP_BINDINGS_TTL });
 }
-function invalidateIpBindingsCache(routerId: number) {
-  ipBindingsCache.delete(routerId);
+function invalidateIpBindingsCache(ownerAdminId: number | null, routerId: number) {
+  ipBindingsCache.delete(routerCacheScope(ownerAdminId, routerId));
 }
 
-const hotspotCookiesCache = new Map<number, { cookies: Awaited<ReturnType<typeof listHotspotCookies>>; exp: number }>();
+const hotspotCookiesCache = new Map<string, { cookies: Awaited<ReturnType<typeof listHotspotCookies>>; exp: number }>();
 const HOTSPOT_COOKIES_TTL = 10_000;
-function getHotspotCookiesCached(routerId: number) {
-  const hit = hotspotCookiesCache.get(routerId);
+function getHotspotCookiesCached(scope: string) {
+  const hit = hotspotCookiesCache.get(scope);
   if (hit && Date.now() < hit.exp) return hit.cookies;
   return null;
 }
-function setHotspotCookiesCache(routerId: number, cookies: Awaited<ReturnType<typeof listHotspotCookies>>) {
-  hotspotCookiesCache.set(routerId, { cookies, exp: Date.now() + HOTSPOT_COOKIES_TTL });
+function setHotspotCookiesCache(scope: string, cookies: Awaited<ReturnType<typeof listHotspotCookies>>) {
+  hotspotCookiesCache.set(scope, { cookies, exp: Date.now() + HOTSPOT_COOKIES_TTL });
 }
-function invalidateHotspotCookiesCache(routerId: number) {
-  hotspotCookiesCache.delete(routerId);
+function invalidateHotspotCookiesCache(ownerAdminId: number | null, routerId: number) {
+  hotspotCookiesCache.delete(routerCacheScope(ownerAdminId, routerId));
 }
 
 router.get("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  const hit = getIpBindingsCached(id);
-  if (hit) { res.json({ bindings: hit }); return; }
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const hit = getIpBindingsCached(sc);
+  if (hit) { res.json({ bindings: hit }); return; }
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     const bindings = await listIpBindings(conn);
-    setIpBindingsCache(id, bindings);
+    setIpBindingsCache(sc, bindings);
     res.json({ bindings });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -1630,8 +1682,8 @@ router.get("/routers/:id/dhcp-leases", async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
-
-  const ck = `leases:${id}`;
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `leases:${sc}`;
   const fresh = mGet(ck);
   if (fresh) { res.json({ leases: fresh }); return; }
 
@@ -1664,16 +1716,16 @@ router.get("/routers/:id/hotspot-cookies", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const hit = getHotspotCookiesCached(id);
-  if (hit) { res.json({ cookies: hit }); return; }
-
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const ckSc = routerCacheScope(r.ownerAdminId, id);
+  const hit = getHotspotCookiesCached(ckSc);
+  if (hit) { res.json({ cookies: hit }); return; }
 
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     const cookies = await listHotspotCookies(conn);
-    setHotspotCookiesCache(id, cookies);
+    setHotspotCookiesCache(ckSc, cookies);
     res.json({ cookies });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -1692,7 +1744,7 @@ router.delete("/routers/:id/hotspot-cookies/:cookieId", async (req, res): Promis
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await deleteHotspotCookie(conn, cookieId);
-    invalidateHotspotCookiesCache(id);
+    invalidateHotspotCookiesCache(r.ownerAdminId, id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -1721,7 +1773,7 @@ router.delete("/routers/:id/hotspot-cookies", async (req, res): Promise<void> =>
         removed++;
       }
     }
-    invalidateHotspotCookiesCache(id);
+    invalidateHotspotCookiesCache(r.ownerAdminId, id);
     res.json({ ok: true, removed });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -1787,7 +1839,7 @@ router.post("/routers/:id/ip-bindings", async (req, res): Promise<void> => {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await addIpBinding(conn, parsed);
     await triggerQueueSyncForCreatedBinding(id, conn, parsed);
-    invalidateIpBindingsCache(id);
+    invalidateIpBindingsCache(r.ownerAdminId, id);
     res.status(201).json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
@@ -1814,7 +1866,7 @@ router.patch("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<vo
     } else {
       await triggerQueueSyncForBindingId(id, conn, bindingId);
     }
-    invalidateIpBindingsCache(id);
+    invalidateIpBindingsCache(r.ownerAdminId, id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
@@ -1832,7 +1884,7 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     await deleteIpBinding(conn, bindingId);
     await triggerQueueDeleteForBinding(id, conn, { id: bindingId });
-    invalidateIpBindingsCache(id);
+    invalidateIpBindingsCache(r.ownerAdminId, id);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur MikroTik" });
@@ -1841,7 +1893,7 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
 
 // ─── Sales cache ─────────────────────────────────────────────────────────────
 interface SalesCacheEntry { data: SalesReport; updatedAt: number; }
-const salesCache = new Map<number, SalesCacheEntry>();
+const salesCache = new Map<string, SalesCacheEntry>();
 const salesRefreshing = new Set<number>();
 const SALES_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -1935,24 +1987,37 @@ async function readSalesQuickFromDb(routerId: number): Promise<{
       dailyAmount:   Number(s?.dailyAmount   ?? 0) + Number(v?.dailyAmount   ?? 0),
       monthlyCount:  Number(s?.monthlyCount  ?? 0) + Number(v?.monthlyCount  ?? 0),
       monthlyAmount: Number(s?.monthlyAmount ?? 0) + Number(v?.monthlyAmount ?? 0),
-
     };
   } catch {
     return null;
   }
 }
 
-async function triggerSalesRefresh(id: number, host: string, port: number, username: string, password: string) {
+async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host: string, port: number, username: string, password: string) {
   if (salesRefreshing.has(id)) return;
   salesRefreshing.add(id);
   try {
     const conn = { host, port, username, password };
     // Use 90s timeout — background, not constrained by Replit proxy
     const data = await fetchSalesFromScripts(conn, 90_000);
-    salesCache.set(id, { data, updatedAt: Date.now() });
+    const scope = routerCacheScope(ownerAdminId, id);
+    salesCache.set(scope, { data, updatedAt: Date.now() });
   } catch { /* keep stale cache on error */ } finally {
     salesRefreshing.delete(id);
   }
+}
+
+/** Full RAM purge for one routers row (credentials change, delete, tenant isolation). */
+export function purgeRouterRowVolatileCaches(ownerAdminId: number | null, routerId: number): void {
+  const scope = routerCacheScope(ownerAdminId, routerId);
+  invalidateProfileListCache(ownerAdminId, routerId);
+  userCache.delete(scope);
+  _usersCountCache.delete(scope);
+  ipBindingsCache.delete(scope);
+  hotspotCookiesCache.delete(scope);
+  salesCache.delete(scope);
+  purgeMikKeysForScope(scope);
+  clearRouterScriptCache(routerId);
 }
 
 // ─── Usage sync (real-time sold voucher detection) ───────────────────────────
@@ -2004,14 +2069,15 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const cached = salesCache.get(id);
+  const salesScope = routerCacheScope(r.ownerAdminId, id);
+  const cached = salesCache.get(salesScope);
   const now = Date.now();
 
   // Trigger background refresh if cache is absent, stale (> TTL), or aging (> 2min)
   const needsRefresh = !cached || (now - cached.updatedAt) > SALES_TTL;
   const agingRefresh = cached && (now - cached.updatedAt) > 2 * 60 * 1000;
   if (needsRefresh || agingRefresh) {
-    triggerSalesRefresh(id, r.host, r.port, r.username, r.password);
+    triggerSalesRefresh(r.ownerAdminId, id, r.host, r.port, r.username, r.password);
   }
   // Also ensure usage sync is running for this router
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
@@ -2040,6 +2106,7 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
 async function buildDashboardPrioritySnapshot(id: number) {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) throw new Error("ROUTER_NOT_FOUND");
+  const sc = routerCacheScope(r.ownerAdminId, id);
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   ensureUsageSyncScheduled(id, conn);
@@ -2050,7 +2117,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const now = Date.now();
 
   // Sessions count (stale-while-revalidate)
-  const sessionsKey = `sessions:${id}`;
+  const sessionsKey = `sessions:${sc}`;
   const sessionsFresh = mGet(sessionsKey) as unknown[] | null;
   const sessionsStale = mGetStale(sessionsKey) as unknown[] | null;
   const sessionsCount = sessionsFresh?.length ?? sessionsStale?.length ?? 0;
@@ -2066,7 +2133,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
   }
 
   // Router info (stale-while-revalidate)
-  const infoKey = `info:${id}`;
+  const infoKey = `info:${sc}`;
   const infoFresh = mGet(infoKey);
   const infoStale = mGetStale(infoKey);
   const info = (infoFresh ?? infoStale ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
@@ -2080,57 +2147,60 @@ async function buildDashboardPrioritySnapshot(id: number) {
   }
 
   // Users count from cache if possible, refresh asynchronously when needed
-  const usersCached = _usersCountCache.get(id) ?? null;
+  const usersCached = _usersCountCache.get(sc) ?? null;
   const users = usersCached
     ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
     : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
 
-  const userHit = userCache.get(id);
+  const userHit = userCache.get(sc);
   const userFresh = !!userHit && now < userHit.expiresAt;
   const COUNT_FRESH_MS = 20_000;
   if ((!usersCached || (now - usersCached.cachedAt) > COUNT_FRESH_MS) && !_usersRefreshing.has(id)) {
     _usersRefreshing.add(id);
     setImmediate(async () => {
       try {
-        const list = await getCachedUsers(id, conn, { force: !userFresh });
+        const list = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: !userFresh });
         const payload = await computeUsersCount(id, conn, list);
-        _usersCountCache.set(id, payload);
+        _usersCountCache.set(sc, payload);
       } catch { /* keep stale */ }
       finally { _usersRefreshing.delete(id); }
     });
   }
 
-  // Sales from dedicated cache (already refreshed above)
-  const salesCached = salesCache.get(id);
-  const dbQuickSales = salesCached ? null : await readSalesQuickFromDb(id);
+  // Jour / mois : agrégation DB (alignée rapport local). Autres périodes : cache RAM live si dispo.
+  const salesCached = salesCache.get(sc);
+  const dbQuickSales = await readSalesQuickFromDb(id);
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
   const d = String(new Date().getDate()).padStart(2, "0");
-  const sales: SalesReport & { _cachedAt: number | null } = salesCached
-    ? { ...salesCached.data, _cachedAt: salesCached.updatedAt }
-    : dbQuickSales
+  const dm = dbQuickSales
+    ?? (salesCached
       ? {
-        dailyCount: dbQuickSales.dailyCount,
-        dailyAmount: dbQuickSales.dailyAmount,
-        yesterdayCount: 0, yesterdayAmount: 0,
-        weekCount: 0, weekAmount: 0,
-        lastWeekCount: 0, lastWeekAmount: 0,
-        monthlyCount: dbQuickSales.monthlyCount,
-        monthlyAmount: dbQuickSales.monthlyAmount,
-        lastMonthCount: 0, lastMonthAmount: 0,
-        totalCount: 0, totalAmount: 0,
-        dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`, _cachedAt: Date.now(),
+        dailyCount: salesCached.data.dailyCount,
+        dailyAmount: salesCached.data.dailyAmount,
+        monthlyCount: salesCached.data.monthlyCount,
+        monthlyAmount: salesCached.data.monthlyAmount,
       }
-    : {
-      dailyCount: 0, dailyAmount: 0,
-      yesterdayCount: 0, yesterdayAmount: 0,
-      weekCount: 0, weekAmount: 0,
-      lastWeekCount: 0, lastWeekAmount: 0,
-      monthlyCount: 0, monthlyAmount: 0,
-      lastMonthCount: 0, lastMonthAmount: 0,
-      totalCount: 0, totalAmount: 0,
-      dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`, _cachedAt: null,
-    };
+      : { dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0 });
+  const sales: SalesReport & { _cachedAt: number | null } = {
+    dailyCount: dm.dailyCount,
+    dailyAmount: dm.dailyAmount,
+    yesterdayCount: salesCached?.data.yesterdayCount ?? 0,
+    yesterdayAmount: salesCached?.data.yesterdayAmount ?? 0,
+    weekCount: salesCached?.data.weekCount ?? 0,
+    weekAmount: salesCached?.data.weekAmount ?? 0,
+    lastWeekCount: salesCached?.data.lastWeekCount ?? 0,
+    lastWeekAmount: salesCached?.data.lastWeekAmount ?? 0,
+    monthlyCount: dm.monthlyCount,
+    monthlyAmount: dm.monthlyAmount,
+    lastMonthCount: salesCached?.data.lastMonthCount ?? 0,
+    lastMonthAmount: salesCached?.data.lastMonthAmount ?? 0,
+    totalCount: salesCached?.data.totalCount ?? 0,
+    totalAmount: salesCached?.data.totalAmount ?? 0,
+    dateLabel: `${y}-${mm}-${d}`,
+    monthLabel: `${mm}${y}`,
+    _cachedAt: dbQuickSales != null ? Date.now() : (salesCached ? salesCached.updatedAt : null),
+  };
 
   return {
     serverTs: now,
@@ -2141,7 +2211,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
     availability: {
       sessionsKnown: !!(sessionsFresh || sessionsStale),
       usersKnown: !!usersCached,
-      salesKnown: !!(salesCached || dbQuickSales),
+      salesKnown: dbQuickSales != null || !!salesCached,
       infoKnown: !!(infoFresh || infoStale),
     },
   };
@@ -2245,6 +2315,7 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
 
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
@@ -2252,15 +2323,15 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
     // Always include the priority snapshot (it already uses stale-while-revalidate internally).
     const priority = await buildDashboardPrioritySnapshot(id);
 
-    const profilesFresh = getFreshProfileCache(id);
-    const profilesStale = profileListCache.get(id)?.profiles ?? null;
+    const profilesFresh = getFreshProfileCache(sc);
+    const profilesStale = profileListCache.get(sc)?.profiles ?? null;
     const profiles = profilesFresh ?? profilesStale ?? [];
     const profilesKnown = !!(profilesFresh || profilesStale);
     if (!profilesKnown) {
-      void fetchProfilesWithCache(id, conn).catch(() => undefined);
+      void fetchProfilesWithCache(r.ownerAdminId, id, conn).catch(() => undefined);
     }
 
-    const poolsKey = `pools:${id}`;
+    const poolsKey = `pools:${sc}`;
     const poolsFresh = mGet(poolsKey) as string[] | null;
     const poolsStale = mGetStale(poolsKey) as string[] | null;
     const pools = poolsFresh ?? poolsStale ?? [];
@@ -2274,20 +2345,20 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
       });
     }
 
-    const usersCount = _usersCountCache.get(id) ?? null;
+    const usersCount = _usersCountCache.get(sc) ?? null;
     if (!usersCount && !_usersRefreshing.has(id)) {
       _usersRefreshing.add(id);
       setImmediate(async () => {
         try {
-          const users = await getCachedUsers(id, conn);
+          const users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
           const payload = await computeUsersCount(id, conn, users);
-          _usersCountCache.set(id, payload);
+          _usersCountCache.set(sc, payload);
         } catch { /* keep empty snapshot */ }
         finally { _usersRefreshing.delete(id); }
       });
     }
 
-    const sessionsKey = `sessions:${id}`;
+    const sessionsKey = `sessions:${sc}`;
     const sessionsFresh = mGet(sessionsKey) as Awaited<ReturnType<typeof listSessions>> | null;
     const sessionsStale = mGetStale(sessionsKey) as Awaited<ReturnType<typeof listSessions>> | null;
     const sessions = sessionsFresh ?? sessionsStale ?? [];
@@ -2303,20 +2374,20 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
       });
     }
 
-    const ipBindingsFresh = getIpBindingsCached(id);
-    const ipBindingsStale = getIpBindingsStale(id);
+    const ipBindingsFresh = getIpBindingsCached(sc);
+    const ipBindingsStale = getIpBindingsStale(sc);
     const ipBindings = ipBindingsFresh ?? ipBindingsStale ?? [];
     const ipBindingsKnown = !!(ipBindingsFresh || ipBindingsStale);
     if (!ipBindingsKnown) {
       setImmediate(async () => {
         try {
           const list = await listIpBindings(conn);
-          setIpBindingsCache(id, list);
+          setIpBindingsCache(sc, list);
         } catch { /* keep empty snapshot */ }
       });
     }
 
-    const interfacesKey = `interfaces:${id}`;
+    const interfacesKey = `interfaces:${sc}`;
     const interfacesFresh = mGet(interfacesKey) as Awaited<ReturnType<typeof listInterfaces>> | null;
     const interfacesStale = mGetStale(interfacesKey) as Awaited<ReturnType<typeof listInterfaces>> | null;
     const interfaces = interfacesFresh ?? interfacesStale ?? [];
@@ -2330,7 +2401,7 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
       });
     }
 
-    const logsKey = `logs:${id}:hotspot-user:80`;
+    const logsKey = `logs:${sc}:hotspot-user:80`;
     const logsFresh = mGet(logsKey) as Awaited<ReturnType<typeof listLogs>> | null;
     const logsStale = mGetStale(logsKey) as Awaited<ReturnType<typeof listLogs>> | null;
     const logs = logsFresh ?? logsStale ?? [];
@@ -2662,12 +2733,12 @@ router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const ck = `interfaces:${id}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
-
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `interfaces:${sc}`;
+  const hit = mGet(ck);
+  if (hit) { res.json(hit); return; }
 
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
@@ -2685,14 +2756,16 @@ router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
 
   const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : "";
   const live = req.query.live === "1";
-  const ck = `traffic:${id}:${ifaceName}`;
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `traffic:${sc}:${ifaceName}`;
   if (!live) {
     const fresh = mGet(ck);
     if (fresh) { res.json(fresh); return; }
   }
 
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
@@ -2713,14 +2786,16 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
   const topics = (req.query.topics as string | undefined) ?? "";
   const live = req.query.live === "1";
   const hotspotUserEventsOnly = req.query.hotspotUsers === "1";
-  const ck = `logs:${id}:${topics}:${limit}:u${hotspotUserEventsOnly ? 1 : 0}`;
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const ck = `logs:${sc}:${topics}:${limit}:u${hotspotUserEventsOnly ? 1 : 0}`;
   if (!live) {
     const fresh = mGet(ck);
     if (fresh) { res.json(fresh); return; }
   }
 
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
@@ -2867,7 +2942,8 @@ setImmediate(async () => {
       activeRouters.map(async (r) => {
         const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
         // Warm the /info cache
-        const ck = `info:${r.id}`;
+        const warmSc = routerCacheScope(r.ownerAdminId, r.id);
+        const ck = `info:${warmSc}`;
         if (!mGet(ck)) {
           try {
             const info = await getRouterInfo(conn);
