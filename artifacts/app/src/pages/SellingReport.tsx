@@ -59,16 +59,10 @@ function saleEntryKey(e: Pick<SaleEntry, "date" | "time" | "username" | "label" 
   return [e.date, e.time, e.username, e.label, e.batch ?? "", e.price, e.ip, e.mac, e.validity, e.rawName ?? "", e.origin ?? ""].join("-|-");
 }
 
-function originLabel(e: SaleEntry): string {
-  if (e.origin === "voucher") return "Bon (hors cache script)";
-  if (e.origin === "script") return "Cache script";
-  return "";
-}
-
 function exportCSV(entries: SaleEntry[], filename: string) {
-  const header = ["#","Date","Heure","Utilisateur","Origine","Profil","Lot","Prix (FCFA)","IP","MAC","Validité"];
+  const header = ["#","Date","Heure","Utilisateur","Profil","Lot","Prix (FCFA)","IP","MAC","Validité"];
   const rows = entries.map((e, i) => [
-    i + 1, e.date, e.time, e.username, originLabel(e), e.label, e.batch ?? "", e.price, e.ip, e.mac, e.validity,
+    i + 1, e.date, e.time, e.username, e.label, e.batch ?? "", e.price, e.ip, e.mac, e.validity,
   ]);
   const csv = [header, ...rows].map((r) => r.join(",")).join("\n");
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -116,7 +110,7 @@ export default function SellingReport() {
     "selling-report", selectedRouterId, appliedDay, appliedMonth, appliedYear,
   ], [selectedRouterId, appliedDay, appliedMonth, appliedYear]);
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<SaleEntry[]>({
+  const { data, isLoading, isError, error } = useQuery<SaleEntry[]>({
     queryKey,
     queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
@@ -176,10 +170,9 @@ export default function SellingReport() {
       entriesWithPresence.map((e) => {
         const isoLike = `${e.date}T${e.time || "00:00:00"}`;
         const ts = Date.parse(isoLike);
-        const originSearch = e.origin === "voucher" ? "bon voucher" : e.origin === "script" ? "script cache mikrotik" : "";
         return {
           ...e,
-          _search: foldText(`${e.username} ${e.label} ${e.batch ?? ""} ${e.date} ${e.vendorName ?? ""} ${originSearch}`),
+          _search: foldText(`${e.username} ${e.label} ${e.batch ?? ""} ${e.date} ${e.vendorName ?? ""}`),
           _ts: Number.isFinite(ts) ? ts : 0,
         };
       }),
@@ -204,13 +197,13 @@ export default function SellingReport() {
 
   const totalAmount = useMemo(() => orderedFiltered.reduce((s, e) => s + e.price, 0), [orderedFiltered]);
   const sourceCounts = useMemo(() => {
-    let both = 0;
-    let local = 0;
+    let mikrotik = 0;
+    let localOnly = 0;
     for (const e of orderedFiltered) {
-      if (e.source === "mikrotik+local") both++;
-      else local++;
+      if (e.source === "mikrotik+local") mikrotik++;
+      else localOnly++;
     }
-    return { both, local };
+    return { mikrotik, localOnly };
   }, [orderedFiltered]);
   const tableRows = useMemo(
     () => orderedFiltered.map((e, i) => (
@@ -232,17 +225,6 @@ export default function SellingReport() {
           ) : (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-amber-700 border-amber-300 bg-amber-50">
               Script base seule
-            </Badge>
-          )}
-        </td>
-        <td className="px-3 py-2">
-          {e.origin === "voucher" ? (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-sky-800 border-sky-300 bg-sky-50">
-              Bon seul
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-gray-700 border-gray-200 bg-gray-50">
-              Cache script
             </Badge>
           )}
         </td>
@@ -374,25 +356,19 @@ export default function SellingReport() {
                   <span className="text-xs text-gray-500 tabular-nums">
                     {orderedFiltered.length} vente{orderedFiltered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
                   </span>
-                  <Badge variant="outline" className="text-[10px] font-normal text-gray-700 border-gray-200 bg-gray-50">
-                    {sourceCounts.scriptRows} cache script
-                  </Badge>
-                  <Badge variant="outline" className="text-[10px] font-normal text-sky-800 border-sky-300 bg-sky-50">
-                    {sourceCounts.voucherRows} bon seul
-                  </Badge>
                   <Badge variant="outline" className="text-[10px] font-normal text-emerald-700 border-emerald-300 bg-emerald-50">
-                    {sourceCounts.both} MikroTik + Local
+                    {sourceCounts.mikrotik} MikroTik + Local
                   </Badge>
                   <Badge variant="outline" className="text-[10px] font-normal text-amber-700 border-amber-300 bg-amber-50">
-                    {sourceCounts.local} script base seule
+                    {sourceCounts.localOnly} base locale
                   </Badge>
                 </>
               )}
             </div>
           </div>
           <CardDescription className="text-[11px] text-gray-600 leading-snug pt-1 max-w-3xl">
-            Données actualisées depuis la <strong className="font-medium text-gray-800">base locale</strong>
-            {" "}(cache des ventes scripts synchronisé + bons utilisés). Le tableau ne dépend pas d’un appel MikroTik pour se remplir ; la colonne « Sync routeur » indique seulement si une ligne script du cache est encore retrouvée sur le routeur (contrôle optionnel en arrière-plan).
+            Données synchronisées depuis MikroTik toutes les <strong className="font-medium text-gray-800">15 secondes</strong>
+            {" "}et conservées en base locale. La colonne « Sync routeur » indique si le script est encore présent sur MikroTik.
           </CardDescription>
         </CardHeader>
 
@@ -455,18 +431,6 @@ export default function SellingReport() {
             </Button>
             <Button
               size="sm" variant="outline"
-              className="h-8 gap-1.5 text-xs text-sky-700 hover:text-sky-800 hover:bg-sky-50 border-sky-200"
-              disabled={isFetching || !selectedRouterId}
-              onClick={() => refetch()}
-              title="Synchroniser le cache depuis MikroTik puis recharger"
-            >
-              {isFetching
-                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                : <RefreshCw className="h-3.5 w-3.5" />}
-              Actualiser
-            </Button>
-            <Button
-              size="sm" variant="outline"
               className="h-8 gap-1.5 text-xs ml-auto"
               onClick={() => exportCSV(orderedFiltered, csvFilename)}
               disabled={orderedFiltered.length === 0}
@@ -491,12 +455,6 @@ export default function SellingReport() {
           </div>
 
           {/* ── Search ─────────────────────────────────────────── */}
-          {isAll && (
-            <p className="text-[11px] text-gray-500">
-              Sans année, la base locale ne renvoie que le cache scripts. Pour afficher aussi les « bons seuls » (sans ligne script le même jour), choisissez une année puis filtrez.
-            </p>
-          )}
-
           <Input
             placeholder="Rechercher utilisateur, profil, bon, lot…"
             value={search}
@@ -533,14 +491,13 @@ export default function SellingReport() {
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Heure</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Utilisateur</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Sync routeur</th>
-                    <th className="px-3 py-2 text-left text-gray-500 font-medium">Origine</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Profil</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Lot</th>
                     <th className="px-3 py-2 text-right text-gray-500 font-medium">Prix (FCFA)</th>
                   </tr>
                   {/* Running total header */}
                   <tr className="bg-emerald-50 border-b border-emerald-100">
-                    <th colSpan={7} className="px-3 py-1.5 text-left text-emerald-700 font-medium text-xs">
+                    <th colSpan={6} className="px-3 py-1.5 text-left text-emerald-700 font-medium text-xs">
                       {orderedFiltered.length} ticket{orderedFiltered.length !== 1 ? "s" : ""}
                     </th>
                     <th className="px-3 py-1.5 text-right text-emerald-700 font-bold text-xs" colSpan={2}>
@@ -551,7 +508,7 @@ export default function SellingReport() {
                 <tbody>
                   {orderedFiltered.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-3 py-8 text-center text-gray-400">
+                      <td colSpan={8} className="px-3 py-8 text-center text-gray-400">
                         Aucune vente trouvée
                       </td>
                     </tr>
@@ -560,7 +517,7 @@ export default function SellingReport() {
                 {orderedFiltered.length > 0 && (
                   <tfoot>
                     <tr className="bg-gray-50 border-t border-gray-200">
-                      <td colSpan={7} className="px-3 py-2 text-xs text-gray-500 font-medium">
+                      <td colSpan={6} className="px-3 py-2 text-xs text-gray-500 font-medium">
                         Total — {orderedFiltered.length} ticket{orderedFiltered.length !== 1 ? "s" : ""}
                       </td>
                       <td colSpan={2} className="px-3 py-2 text-right text-sm font-bold text-emerald-700 tabular-nums">
