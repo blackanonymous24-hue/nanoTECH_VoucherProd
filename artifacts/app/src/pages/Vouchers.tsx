@@ -155,6 +155,7 @@ export default function Vouchers() {
   const [isPrinting, setIsPrinting] = useState(false);
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
+  const [printingLot, setPrintingLot] = useState<string | null>(null);
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
   const [isDeletingLot, setIsDeletingLot] = useState(false);
   const [deletingLotName, setDeletingLotName] = useState<string | null>(null);
@@ -631,6 +632,69 @@ export default function Vouchers() {
       setDeletingLotName(null);
       void refetchUsers();
       void refetchLots();
+    }
+  };
+
+  // ── Print lot — fetches all users for a lot and prints their tickets ─────────
+  const handlePrintLot = async (lot: LotSummary) => {
+    const php = getStoredPHP();
+    if (!php) {
+      toast({
+        title: "Aucun modèle de ticket configuré",
+        description: "Allez dans Modèle de ticket pour charger votre template PHP.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setPrintingLot(lot.name);
+    try {
+      const users = await fetchLotUsers(lot);
+      if (users.length === 0) {
+        toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
+        return;
+      }
+      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
+      const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
+      const vouchers = users.map((user, idx) => {
+        const profile = profilesList.find((p) => p.name === user.profile);
+        return {
+          hotspotname: hotspotName,
+          dnsname: (activeRouter as { contact?: string } | undefined)?.contact ?? "",
+          username: user.username,
+          password: user.password,
+          price: profile?.price ?? "",
+          currency: "FCFA",
+          validity: profile?.validity ?? "",
+          timelimit: user.limitUptime ?? "",
+          datalimit: user.limitBytesTotal ?? "",
+          num: idx + 1,
+        };
+      });
+      const resp = await fetch(`${BASE}/api/render-tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ php, vouchers }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({})) as { error?: string };
+        toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" });
+        return;
+      }
+      const data = await resp.json() as { html: string[] };
+      if (!data.html?.length) {
+        toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
+        return;
+      }
+      const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
+      try {
+        printTickets(data.html, printParts.join("-"));
+      } catch {
+        toast({ title: "Impression bloquée", description: "Autorisez les popups pour ce site puis réessayez.", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Erreur impression", description: String(err), variant: "destructive" });
+    } finally {
+      setPrintingLot(null);
     }
   };
 
@@ -1873,6 +1937,18 @@ export default function Vouchers() {
                         </div>
 
                         <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            onClick={() => handlePrintLot(lot)}
+                            disabled={printingLot === lot.name}
+                            title="Imprimer les tickets de ce lot"
+                          >
+                            {printingLot === lot.name
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Printer className="h-3.5 w-3.5" />}
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"
