@@ -4,6 +4,11 @@ const TOKEN_KEY = "vouchernet_admin_token";
 
 function rewriteApiUrl(url: string | undefined): string | undefined {
   if (!url) return url;
+  // The Orval-generated client emits paths without the /api prefix (e.g. /routers).
+  // Normalise to /api/… first so the BASE_URL rewrite below always works.
+  if (url.startsWith("/") && !url.startsWith("/api")) {
+    url = "/api" + url;
+  }
   if (url !== "/api" && !url.startsWith("/api/")) return url;
   const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
   const prefix = base ? `${base}/api` : "/api";
