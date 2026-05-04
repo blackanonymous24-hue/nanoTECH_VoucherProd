@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw, Infinity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 
@@ -140,10 +140,15 @@ export default function Forfaits() {
     }
   }, [localCacheKey, profiles]);
 
-  const displayedProfiles = useMemo(
-    () => (profiles.length > 0 ? profiles : localProfiles),
-    [profiles, localProfiles],
-  );
+  const displayedProfiles = useMemo(() => {
+    const base = profiles.length > 0 ? profiles : localProfiles;
+    return [...base].sort((a, b) => {
+      const aUnlim = !a.validity;
+      const bUnlim = !b.validity;
+      if (aUnlim === bUnlim) return 0;
+      return aUnlim ? -1 : 1;
+    });
+  }, [profiles, localProfiles]);
 
   useProfileAutoResync(selectedRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
 
@@ -208,8 +213,8 @@ export default function Forfaits() {
   async function handleSave() {
     setError(null);
     if (!selectedRouterId) { setError("Sélectionnez un routeur d'abord."); return; }
-    if (!form.name.trim() || !form.price.trim() || !form.validity.trim()) {
-      setError("Nom, prix et validité sont obligatoires."); return;
+    if (!form.name.trim() || !form.price.trim()) {
+      setError("Nom et prix sont obligatoires."); return;
     }
     setSaving(true);
     try {
@@ -398,6 +403,11 @@ export default function Forfaits() {
                     )}
 
                     <div className="flex flex-wrap gap-1.5 pt-1">
+                      {!p.validity && (
+                        <Badge variant="outline" className="text-xs text-violet-700 border-violet-200 bg-violet-50 gap-1 font-semibold">
+                          <Infinity className="h-3 w-3" /> Illimité
+                        </Badge>
+                      )}
                       {p.lockMac && (
                         <Badge variant="outline" className="text-xs text-amber-600 border-amber-200 gap-1">
                           <Lock className="h-2.5 w-2.5" /> MAC verrouillé
@@ -558,9 +568,9 @@ export default function Forfaits() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Validité <span className="text-red-500">*</span></Label>
+              <Label>Validité <span className="text-gray-400 text-xs font-normal ml-1">(vide = illimité)</span></Label>
               <Input
-                placeholder="ex: 3h, 1d, 7d"
+                placeholder="ex: 3h, 1d, 7d — laisser vide pour illimité"
                 value={form.validity}
                 onChange={(e) => setField("validity", e.target.value)}
               />

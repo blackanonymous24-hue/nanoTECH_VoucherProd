@@ -46,6 +46,7 @@ export default function Managers() {
   const qc = useQueryClient();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [createKey, setCreateKey] = useState(0);
   const [createError, setCreateError] = useState("");
   const [createRouterId, setCreateRouterId] = useState<number | null>(null);
   const [editManager, setEditManager] = useState<Manager | null>(null);
@@ -179,7 +180,7 @@ export default function Managers() {
             Comptes avec accès complet sauf création/suppression de ressources
           </p>
         </div>
-        <Button onClick={() => { setCreateError(""); setCreateRouterId(null); setCreateOpen(true); }} className="gap-2" title="Ajouter un gérant">
+        <Button onClick={() => { setCreateKey((k) => k + 1); setCreateError(""); setCreateRouterId(null); setCreateOpen(true); }} className="gap-2" title="Ajouter un gérant">
           <Plus className="h-4 w-4" />
           <span className="hidden sm:inline">Ajouter un gérant</span>
         </Button>
@@ -324,6 +325,7 @@ export default function Managers() {
           </div>
 
           <PersonForm
+            key={createKey}
             onSubmit={handleCreate}
             onCancel={() => { setCreateOpen(false); setCreateError(""); setCreateRouterId(null); }}
             loading={createMutation.isPending}
