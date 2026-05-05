@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileCode, RotateCcw, Save, Eye, Code2, Upload } from "lucide-react";
+import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const TEMPLATE_KEY = "voucher-ticket-template";
@@ -182,9 +182,14 @@ export function parsePHPTemplate(raw: string): string {
 // ─── Helpers PHP mode ──────────────────────────────────────────────────────────
 
 export const PHP_KEY = "voucher-ticket-php";
+export const CUSTOM_DEFAULT_KEY = "voucher-ticket-custom-default";
+
+export function getCustomDefault(): string | null {
+  try { return localStorage.getItem(CUSTOM_DEFAULT_KEY); } catch { return null; }
+}
 
 export function getStoredPHP(): string {
-  try { return localStorage.getItem(PHP_KEY) ?? DEFAULT_MIKHMON_PHP; } catch { return DEFAULT_MIKHMON_PHP; }
+  try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault() ?? DEFAULT_MIKHMON_PHP; } catch { return DEFAULT_MIKHMON_PHP; }
 }
 
 /**
@@ -381,12 +386,20 @@ export default function TicketTemplate() {
     }
   }, [phpCode, toast]);
 
-  // ── Réinitialiser
+  // ── Réinitialiser (vers le custom default s'il existe, sinon vers DEFAULT_MIKHMON_PHP)
   const handleReset = useCallback(() => {
-    setPhpCode(DEFAULT_MIKHMON_PHP);
-    try { localStorage.setItem(PHP_KEY, DEFAULT_MIKHMON_PHP); } catch { /* ignore */ }
-    toast({ title: "Modèle réinitialisé", description: "Le modèle par défaut a été restauré." });
+    const base = getCustomDefault() ?? DEFAULT_MIKHMON_PHP;
+    setPhpCode(base);
+    try { localStorage.setItem(PHP_KEY, base); } catch { /* ignore */ }
+    toast({ title: "Modèle réinitialisé", description: "Le modèle de base a été restauré." });
   }, [toast]);
+
+  // ── Définir comme modèle de base
+  const handleSetAsDefault = useCallback(() => {
+    if (!phpCode.trim()) return;
+    try { localStorage.setItem(CUSTOM_DEFAULT_KEY, phpCode); } catch { /* ignore */ }
+    toast({ title: "Modèle de base défini", description: "Ce template est maintenant le modèle de repli par défaut sur cet appareil." });
+  }, [phpCode, toast]);
 
   const handleUseDefaultMikhmon = useCallback(() => {
     setTab("code");
@@ -453,6 +466,10 @@ export default function TicketTemplate() {
               <span className="hidden sm:inline">Importer .php</span>
             </Button>
             <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
+            <Button variant="outline" size="sm" className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50" onClick={handleSetAsDefault} title="Définir comme modèle de base">
+              <BookMarked className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Définir par défaut</span>
+            </Button>
           </>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
