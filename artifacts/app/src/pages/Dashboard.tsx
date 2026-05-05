@@ -811,7 +811,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-3 [grid-auto-rows:4.75rem] sm:[grid-auto-rows:auto]">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? activeSessions : 0}
@@ -854,13 +854,10 @@ export default function Dashboard() {
           loading={!!selectedRouterId && !usersKnown}
           href="/vouchers"
         />
-      </div>
-
-      {/* Raccourcis actions — mobile / APK uniquement */}
-      <div className="grid grid-cols-2 gap-2 mb-3 sm:hidden">
-        <Link href="/vouchers" className="block">
+        {/* Raccourcis actions — mobile uniquement */}
+        <Link href="/vouchers" className="block lg:hidden">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-2.5 flex items-center gap-2 min-h-[3.75rem]">
+            <CardContent className="p-2.5 h-full flex items-center gap-2">
               <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
                 <PlusCircle className="h-5 w-5 text-emerald-600" />
               </div>
@@ -868,9 +865,9 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </Link>
-        <Link href="/generate" className="block">
+        <Link href="/generate" className="block lg:hidden">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-2.5 flex items-center gap-2 min-h-[3.75rem]">
+            <CardContent className="p-2.5 h-full flex items-center gap-2">
               <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
                 <Zap className="h-5 w-5 text-amber-500" />
               </div>
@@ -1105,7 +1102,7 @@ function StatCard({
 }) {
   const inner = (
     <Card className={`h-full ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <CardContent className="p-2.5 sm:pt-5 sm:px-6 min-h-[3.75rem] sm:min-h-0">
+      <CardContent className="p-2.5 sm:pt-5 sm:px-6">
         {/* Icône visible seulement sm+ */}
         <div className="hidden sm:flex items-start gap-3 mb-0">
           <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0 mt-0.5">{icon}</div>
