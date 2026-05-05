@@ -415,7 +415,7 @@ export default function Routers() {
                 key={r.id}
                 className={`${isSelected ? "ring-2 ring-blue-500" : ""}`}
               >
-                <CardContent className="py-2.5 px-3">
+                <CardContent className="py-3 px-3 sm:py-3 sm:px-4">
                   <div className="flex items-center justify-between gap-2">
                     <div
                       className="flex items-center gap-2.5 min-w-0 w-3/4 max-w-[75%] cursor-pointer"
