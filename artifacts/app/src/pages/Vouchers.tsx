@@ -2003,13 +2003,13 @@ export default function Vouchers() {
                             </p>
                             {/* Méta : count · profil · vendeur — une seule ligne sur mobile */}
                             <div className="flex flex-nowrap items-center gap-1 mt-0.5 overflow-hidden sm:flex-wrap sm:gap-2">
-                              <span className="text-xs font-semibold text-green-600 flex-shrink-0 whitespace-nowrap">
+                              <span className="text-xs font-semibold text-green-500 flex-shrink-0 whitespace-nowrap">
                                 {lot.count} ticket{lot.count !== 1 ? "s" : ""}
                               </span>
                               {lot.profile && (
                                 <>
                                   <span className="text-gray-300 flex-shrink-0">·</span>
-                                  <span className="text-xs text-gray-400 truncate">{lot.profile}</span>
+                                  <span className="text-xs font-medium text-amber-600 truncate">{lot.profile}</span>
                                 </>
                               )}
                               {canonicalVendorFromLot(lot.name) && (
