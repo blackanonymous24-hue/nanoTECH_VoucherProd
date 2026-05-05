@@ -155,7 +155,6 @@ export default function HotspotCookies() {
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Cookies Hotspot</h1>
-          <p className="text-sm text-gray-500">Sessions auto-login (mac-cookie/http-cookie) enregistrées sur le routeur.</p>
         </div>
         {selectedRouterId && (
           <div className="flex items-center gap-2">

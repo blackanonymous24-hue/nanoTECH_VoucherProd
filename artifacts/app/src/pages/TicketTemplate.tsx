@@ -494,9 +494,6 @@ export default function TicketTemplate() {
             <FileCode className="h-6 w-6 text-blue-500" />
             Modèle de ticket
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Mode Mikhmon v3: collez directement votre code PHP du template, sans conversion
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {hasSaved && !isManager && (

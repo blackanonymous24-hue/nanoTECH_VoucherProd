@@ -751,14 +751,6 @@ export default function IpBindings() {
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Bypass MAC</h1>
-          <p className="text-sm text-gray-500">
-            Contournement du portail captif (IP-binding MikroTik).{" "}
-            <span className="text-gray-600">
-              Optionnellement <strong className="font-medium text-gray-700">liez un utilisateur</strong> hotspot.{" "}
-              <strong className="font-medium text-gray-700">Sans utilisateur</strong>, indiquez une validité (nombre +{" "}
-              Heure, Jour, Mois ou Année) : à l&apos;échéance le bypass est désactivé automatiquement sur le routeur.
-            </span>
-          </p>
         </div>
         <div className="flex gap-2 flex-shrink-0">
           {selectedRouterId && (

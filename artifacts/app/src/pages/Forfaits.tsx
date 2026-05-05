@@ -299,7 +299,6 @@ export default function Forfaits() {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Forfaits</h1>
-          <p className="text-sm text-gray-500">Profils hotspot disponibles sur vos routeurs MikroTik</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button

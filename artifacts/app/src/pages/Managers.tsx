@@ -176,9 +176,6 @@ export default function Managers() {
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <UserCog className="h-6 w-6" /> Gérants de zone
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Comptes avec accès complet sauf création/suppression de ressources
-          </p>
         </div>
         <Button onClick={() => { setCreateKey((k) => k + 1); setCreateError(""); setCreateRouterId(null); setCreateOpen(true); }} className="gap-2" title="Ajouter un gérant">
           <Plus className="h-4 w-4" />

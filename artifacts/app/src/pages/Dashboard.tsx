@@ -795,14 +795,8 @@ export default function Dashboard() {
                 </span>
               )}
             </div>
-          ) : (
-            <p className="text-sm text-gray-500">Vue d&apos;ensemble de votre système</p>
-          )}
+          ) : null}
         </div>
-      )}
-
-      {!selectedRouterId && (
-        <p className="text-sm text-gray-500 mb-6">Vue d&apos;ensemble de votre système</p>
       )}
 
       {isError && (

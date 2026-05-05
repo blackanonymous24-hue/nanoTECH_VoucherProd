@@ -483,11 +483,6 @@ export default function Vendors() {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Vendeurs</h1>
-          <p className="text-sm text-gray-500">
-            {selectedRouterId
-              ? "Vendeurs du routeur sélectionné"
-              : "Sélectionnez un routeur pour gérer ses vendeurs"}
-          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button

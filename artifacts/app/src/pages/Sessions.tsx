@@ -157,7 +157,6 @@ export default function Sessions() {
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Clients actifs</h1>
-          <p className="text-sm text-gray-500">Utilisateurs connectés en temps réel sur votre hotspot</p>
         </div>
         {selectedRouterId && (
           <Button

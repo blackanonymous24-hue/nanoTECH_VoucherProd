@@ -225,9 +225,6 @@ export default function Collaborateurs() {
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Users className="h-6 w-6" /> Collaborateurs
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Accès admin complet sur les routeurs assignés uniquement
-          </p>
         </div>
         <Button onClick={() => { setCreateError(""); setCreateRouterIds([]); setCreateOpen(true); }} className="gap-2">
           <Plus className="h-4 w-4" />

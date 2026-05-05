@@ -116,7 +116,6 @@ export default function DhcpLeases() {
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">DHCP Leases</h1>
-          <p className="text-sm text-gray-500">Cache local des baux DHCP, utilisé pour accélérer la résolution IP des bypass MAC.</p>
         </div>
         {selectedRouterId && (
           <Button variant="outline" size="sm" onClick={() => void loadLeases({ background: true })} disabled={loading || refreshing}>

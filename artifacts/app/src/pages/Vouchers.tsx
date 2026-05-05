@@ -1250,11 +1250,6 @@ export default function Vouchers() {
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Vouchers</h1>
-          <p className="text-sm text-gray-500">
-            {activeRouter
-              ? `${totalUsers.toLocaleString("fr")} voucher(s) — ${activeRouter.name}`
-              : "Sélectionnez un routeur dans la barre latérale"}
-          </p>
         </div>
         {activeRouterId && (
           <div className="flex items-center gap-2">

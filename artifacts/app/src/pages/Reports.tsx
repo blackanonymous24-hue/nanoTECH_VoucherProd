@@ -140,7 +140,6 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         </Button>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold text-gray-900 truncate">{data.vendor.name}</h1>
-          <p className="text-sm text-gray-500">Rapport de vente détaillé</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => printReport(detailPrintTitle)} className="gap-2 flex-shrink-0">
           <Printer className="h-4 w-4" /> Imprimer
@@ -583,7 +582,6 @@ export default function Reports() {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Rapports de vente</h1>
-          <p className="text-sm text-gray-500">Suivi des vouchers par vendeur</p>
         </div>
         <SyncButton routerId={routerId} />
       </div>
