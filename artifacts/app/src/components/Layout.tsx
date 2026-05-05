@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
   UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie, ChevronDown,
+  Eye, EyeOff, ChevronsUpDown, Check, Save, Loader2, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -11,18 +12,19 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
-import { PasswordInput } from "@/components/ui/password-input";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { PasswordInput } from "@/components/ui/password-input";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -221,11 +223,16 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     staleTime: 60_000,
   });
 
+  const [addServerPopoverOpen, setAddServerPopoverOpen] = useState(false);
+  const [addProfilePopoverOpen, setAddProfilePopoverOpen] = useState(false);
+  const [addUnitPopoverOpen, setAddUnitPopoverOpen]     = useState(false);
+
   function openAddUserDialog() {
     setAddName(""); setAddPassword(""); setAddShowPassword(false); setAddServer("all"); setAddProfile("");
     setAddComment(""); setAddLimitUptime(""); setAddLimitBytes("");
     setAddLimitBytesUnit("MB"); setAddMac("");
     setAddError(""); setAddSuccess(false);
+    setAddServerPopoverOpen(false); setAddProfilePopoverOpen(false); setAddUnitPopoverOpen(false);
     setShowAddUser(true);
   }
 
@@ -681,186 +688,172 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         </DialogContent>
       </Dialog>
 
-      {/* ── Add hotspot user dialog (admin + manager) ── */}
-      <Dialog open={showAddUser} onOpenChange={(v) => { if (!v) setShowAddUser(false); }}>
-        <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden max-h-[92vh]">
-          <DialogHeader className="px-4 pt-3 pb-2 border-b border-gray-200 bg-white">
-            <DialogTitle className="text-base font-semibold flex items-center gap-2 text-gray-900">
-              <UserPlus className="h-4 w-4" />
-              Ajouter un client
+      {/* ── Add hotspot user dialog — style Mikhmon ── */}
+      <Dialog open={showAddUser} onOpenChange={(v) => { if (!v && !addLoading) setShowAddUser(false); }}>
+        <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[92vh]">
+          <DialogHeader className="px-4 pt-3 pb-2 border-b border-slate-600 bg-slate-700">
+            <DialogTitle className="text-base font-semibold flex items-center gap-2 text-slate-100">
+              <UserPlus className="h-4 w-4" /> Ajouter un client
             </DialogTitle>
           </DialogHeader>
 
-          {addSuccess ? (
-            <div className="flex flex-col items-center gap-3 py-6">
-              <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
-                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-              </div>
-              <p className="text-sm font-medium text-emerald-700">Utilisateur <strong>{addName}</strong> créé avec succès !</p>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => {
-                  setAddSuccess(false);
-                  setAddName(""); setAddPassword(""); setAddProfile("");
-                  setAddComment(""); setAddLimitUptime(""); setAddLimitBytes(""); setAddMac("");
-                }}>
-                  Ajouter un autre
-                </Button>
-                <Button onClick={() => setShowAddUser(false)}>Fermer</Button>
+          {/* Boutons Close / Save — style Mikhmon */}
+          <div className="flex items-center gap-2 px-4 pt-3 pb-3 bg-slate-700">
+            <Button type="button" size="sm" onClick={() => setShowAddUser(false)} disabled={addLoading}
+              className="bg-amber-500 hover:bg-amber-600 text-white gap-1.5">
+              <X className="h-3.5 w-3.5" /> Close
+            </Button>
+            <Button type="button" size="sm" onClick={() => void handleAddHotspotUser()} disabled={addLoading || !selectedRouterId}
+              className="bg-cyan-500 hover:bg-cyan-600 text-white gap-1.5">
+              {addLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Save
+            </Button>
+          </div>
+
+          <div className="px-4 pb-4 space-y-3 bg-slate-700 overflow-y-auto">
+            {/* Server */}
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Server</Label>
+              <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox"
+                    className="w-full justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white">
+                    <span className="truncate">{addServer || "all"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-48 overflow-y-auto" align="start">
+                  <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-sm rounded hover:bg-gray-100 text-left">
+                    <Check className={`h-3.5 w-3.5 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                    all
+                  </button>
+                  {(dialogServers ?? []).map((s) => (
+                    <button key={s.name} type="button" onClick={() => { setAddServer(s.name); setAddServerPopoverOpen(false); }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-sm rounded hover:bg-gray-100 text-left">
+                      <Check className={`h-3.5 w-3.5 ${addServer === s.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                      {s.name}
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Name */}
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Name</Label>
+              <Input value={addName} onChange={(e) => setAddName(e.target.value)} disabled={addLoading}
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+                autoComplete="off" />
+            </div>
+
+            {/* Password */}
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Password</Label>
+              <div className="relative">
+                <Input type={addShowPassword ? "text" : "password"} value={addPassword}
+                  onChange={(e) => setAddPassword(e.target.value)} disabled={addLoading}
+                  className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 pr-10"
+                  autoComplete="new-password" />
+                <button type="button" onClick={() => setAddShowPassword((v) => !v)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-8 flex items-center justify-center rounded bg-white text-slate-700 hover:bg-slate-100">
+                  {addShowPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
               </div>
             </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 px-4 pt-3 pb-3 bg-white">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => setShowAddUser(false)}
-                  disabled={addLoading}
-                  variant="outline"
-                  className="gap-1.5"
-                >
-                  <X className="h-3.5 w-3.5" /> Annuler
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => void handleAddHotspotUser()}
-                  disabled={addLoading || !selectedRouterId}
-                  className="gap-1.5"
-                >
-                  {addLoading ? "En cours..." : "Enregistrer"}
-                </Button>
-              </div>
 
-              <div className="px-4 pb-4 space-y-3 bg-white overflow-y-auto">
-                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
-                  <Label className="text-sm text-gray-700 font-normal">Serveur</Label>
-                  <Select value={addServer} onValueChange={setAddServer}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tous (all)</SelectItem>
-                      {(dialogServers ?? []).map((s) => (
-                        <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
-                  <Label className="text-sm text-gray-700 font-normal">Nom</Label>
-                  <Input
-                    value={addName}
-                    onChange={(e) => setAddName(e.target.value)}
-                    placeholder="client123"
-                    className="h-9"
-                    autoComplete="off"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
-                  <Label className="text-sm text-gray-700 font-normal">Mot de passe</Label>
-                  <div className="relative">
-                    <Input
-                      type={addShowPassword ? "text" : "password"}
-                      value={addPassword}
-                      onChange={(e) => setAddPassword(e.target.value)}
-                      placeholder="mot de passe"
-                      className="h-9 pr-10"
-                      autoComplete="new-password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setAddShowPassword((v) => !v)}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-8 flex items-center justify-center rounded bg-white text-slate-700 hover:bg-slate-100"
-                    >
-                      {addShowPassword ? "Masquer" : "Afficher"}
+            {/* Profile */}
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Profile</Label>
+              <Popover open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox"
+                    className="w-full justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white">
+                    <span className="truncate">{addProfile || "—"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-64 overflow-y-auto" align="start">
+                  {(dialogProfiles ?? []).length === 0 && (
+                    <p className="px-3 py-2 text-xs text-gray-400">Aucun profil disponible.</p>
+                  )}
+                  {(dialogProfiles ?? []).map((p) => (
+                    <button key={p.name} type="button" onClick={() => { setAddProfile(p.name); setAddProfilePopoverOpen(false); }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-sm rounded hover:bg-gray-100 text-left">
+                      <Check className={`h-3.5 w-3.5 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                      <span className="truncate">{p.name}</span>
                     </button>
-                  </div>
-                </div>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
-                  <Label className="text-sm text-gray-700 font-normal">Profil</Label>
-                  <Select value={addProfile} onValueChange={setAddProfile}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder={dialogProfiles ? "—" : "Chargement…"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-56 overflow-y-auto">
-                      {(dialogProfiles ?? []).map((p) => (
-                        <SelectItem key={p.name} value={p.name}>
-                          <span className="flex items-center gap-2">
-                            <span
-                              className={`h-2 w-2 rounded-full flex-shrink-0 ${
-                                p.schedulerMonitorActive ? "bg-emerald-500" : "bg-orange-400"
-                              }`}
-                              aria-hidden
-                            />
-                            {p.name}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            {/* Time Limit */}
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Time Limit</Label>
+              <Input value={addLimitUptime} onChange={(e) => setAddLimitUptime(e.target.value)} disabled={addLoading}
+                placeholder="ex: 30d, 12h, 4w3d"
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
+            </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
-                  <Label className="text-sm text-gray-700 font-normal">Limite de temps</Label>
-                  <Input
-                    value={addLimitUptime}
-                    onChange={(e) => setAddLimitUptime(e.target.value)}
-                    placeholder="ex: 30d, 12h"
-                    className="h-9"
-                    autoComplete="off"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
-                  <Label className="text-sm text-gray-700 font-normal">Limite de données</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      min={0}
-                      value={addLimitBytes}
-                      onChange={(e) => setAddLimitBytes(e.target.value)}
-                      placeholder="500"
-                      className="h-9 text-sm flex-1"
-                    />
-                    <Select value={addLimitBytesUnit} onValueChange={(v) => setAddLimitBytesUnit(v as "MB" | "GB")}>
-                      <SelectTrigger className="h-9 w-20 text-sm flex-shrink-0">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="MB">MB</SelectItem>
-                        <SelectItem value="GB">GB</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] items-start sm:items-center gap-2 sm:gap-3">
-                  <Label className="text-sm text-gray-700 font-normal">Commentaire</Label>
-                  <Input
-                    value={addComment}
-                    onChange={(e) => setAddComment(e.target.value)}
-                    placeholder="Commentaire..."
-                    className="h-9 text-sm"
-                    autoComplete="off"
-                  />
-                </div>
-
-                {addError && (
-                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{addError}</p>
-                )}
-
-                {!selectedRouterId && (
-                  <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    ⚠ Sélectionnez d'abord un routeur dans la barre latérale.
-                  </p>
-                )}
+            {/* Data Limit */}
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Data Limit</Label>
+              <div className="flex gap-2">
+                <Input type="number" min="0" value={addLimitBytes} onChange={(e) => setAddLimitBytes(e.target.value)}
+                  disabled={addLoading}
+                  className="flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
+                <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox"
+                      className="w-20 justify-between font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white">
+                      {addLimitBytesUnit}
+                      <ChevronsUpDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-20 p-1" align="end">
+                    {(["MB", "GB"] as const).map((u) => (
+                      <button key={u} type="button" onClick={() => { setAddLimitBytesUnit(u); setAddUnitPopoverOpen(false); }}
+                        className="flex w-full items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-gray-100 text-left">
+                        <Check className={`h-3.5 w-3.5 ${addLimitBytesUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                        {u}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
               </div>
-            </>
-          )}
+            </div>
+
+            {/* Comment */}
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] items-start sm:items-center gap-2 sm:gap-3">
+              <Label className="text-sm text-slate-200 font-normal">Comment</Label>
+              <Input value={addComment} onChange={(e) => setAddComment(e.target.value)} disabled={addLoading}
+                className="bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
+            </div>
+
+            {addError && (
+              <p className="text-xs text-red-400 bg-red-900/40 border border-red-700 rounded-lg px-3 py-2">{addError}</p>
+            )}
+            {!selectedRouterId && (
+              <p className="text-xs text-amber-300 bg-amber-900/30 border border-amber-700 rounded-lg px-3 py-2">
+                ⚠ Sélectionnez d'abord un routeur dans la barre latérale.
+              </p>
+            )}
+          </div>
+
+          {/* Read Me */}
+          <div className="border-t border-slate-600 bg-slate-700">
+            <div className="px-4 py-2 border-b border-slate-600">
+              <h4 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                <BookOpen className="h-4 w-4" /> Read Me
+              </h4>
+            </div>
+            <div className="px-4 py-3 text-xs text-slate-300 space-y-2 leading-relaxed">
+              <p><strong>Format Time Limit.</strong><br />
+                [wdhm] Example : 30d = 30days, 12h = 12hours, 4w3d = 31days.</p>
+              <p>Add User with Time Limit.<br />Should Time Limit &lt; Validity.</p>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
