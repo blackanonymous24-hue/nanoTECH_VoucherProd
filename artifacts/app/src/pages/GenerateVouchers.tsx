@@ -899,9 +899,7 @@ export default function GenerateVouchers() {
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
                     }`}
                   >
-                    <span className="font-semibold block">Mode Ticket</span>
-                    <span className="font-normal opacity-80 block">user = pass</span>
-                    <span className="font-normal opacity-50 font-mono text-[10px]">vc-xxx-dd.mm</span>
+                    <span className="whitespace-nowrap">Mode Ticket <span className="font-normal opacity-70">(user=pass)</span></span>
                   </button>
                   <button
                     type="button"
@@ -912,9 +910,7 @@ export default function GenerateVouchers() {
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
                     }`}
                   >
-                    <span className="font-semibold block">Mode Compte</span>
-                    <span className="font-normal opacity-80 block">identifiants séparés</span>
-                    <span className="font-normal opacity-50 font-mono text-[10px]">up-xxx-dd.mm</span>
+                    <span className="whitespace-nowrap">Mode Compte <span className="font-normal opacity-70">(user&amp;pass)</span></span>
                   </button>
                 </div>
               </div>
