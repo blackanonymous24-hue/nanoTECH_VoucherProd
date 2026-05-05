@@ -23,7 +23,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import {
-  Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, FileText, Table2, CheckCircle2, Check, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
+  Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchServerTemplate } from "@/pages/TicketTemplate";
@@ -294,6 +294,7 @@ export default function GenerateVouchers() {
   const [lastLot, setLastLot] = useState<LastLot | null>(null);
   const [loadingLastLot, setLoadingLastLot] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [copiedLot, setCopiedLot] = useState(false);
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [genPaused, setGenPaused] = useState(false);
@@ -745,11 +746,13 @@ export default function GenerateVouchers() {
     }
   };
 
-  const handleExportTxt = (lot: LastLot) => {
-    const lines = lot.vouchers.map((v, i) =>
-      `${i + 1}. ${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
+  const handleCopyVouchers = async (lot: LastLot) => {
+    const lines = lot.vouchers.map((v) =>
+      `${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
     );
-    downloadFile(`Lot: ${lot.comment}\n\n${lines.join("\n")}`, `${lot.comment}.txt`, "text/plain");
+    await navigator.clipboard.writeText(lines.join("\n"));
+    setCopiedLot(true);
+    setTimeout(() => setCopiedLot(false), 2000);
   };
 
   const handleExportCsv = (lot: LastLot) => {
@@ -1213,8 +1216,14 @@ export default function GenerateVouchers() {
                     : <Printer className="h-3.5 w-3.5" />}
                   {isPrinting ? "Impression…" : "Imprimer"}
                 </Button>
-                <Button size="sm" variant="outline" className="gap-1 h-8 px-2.5" onClick={() => handleExportTxt(lastLot)} title="Exporter .txt">
-                  <FileText className="h-3.5 w-3.5" />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={`gap-1 h-8 px-2.5 transition-colors ${copiedLot ? "border-green-400 text-green-600 bg-green-50" : ""}`}
+                  onClick={() => void handleCopyVouchers(lastLot)}
+                  title="Copier les vouchers"
+                >
+                  {copiedLot ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
                 <Button size="sm" variant="outline" className="gap-1 h-8 px-2.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
                   <Table2 className="h-3.5 w-3.5" />
