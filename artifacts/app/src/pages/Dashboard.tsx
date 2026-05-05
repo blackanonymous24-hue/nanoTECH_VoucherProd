@@ -1170,7 +1170,7 @@ function StatCard({
                 {amountValue !== undefined
                   ? amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })
                   : (label || "0")}
-                <span className="text-[9px] font-normal text-gray-400 ml-0.5">{currency || "FCFA"}</span>
+                <span className="text-[9px] font-bold text-gray-400 ml-0.5">{currency || "FCFA"}</span>
               </p>
               {sub && <p className="text-[9px] text-gray-400 leading-tight truncate">{sub}</p>}
             </>
