@@ -218,11 +218,32 @@ function printWithIframe(html: string, title: string): void {
 /**
  * Envoie le HTML au pont natif React Native WebView pour impression via
  * le dialogue Android/iOS natif (expo-print).
+ * Pour les gros payloads (> 500 KB), découpe en chunks pour contourner la
+ * limite de taille de postMessage sur Android WebView.
  */
 function printWithNativeBridge(html: string, title: string): void {
-  window.ReactNativeWebView!.postMessage(
-    JSON.stringify({ type: "print", html, title })
-  );
+  const MAX_CHUNK = 500_000; // 500 KB de HTML par message
+  if (html.length <= MAX_CHUNK) {
+    window.ReactNativeWebView!.postMessage(
+      JSON.stringify({ type: "print", html, title })
+    );
+    return;
+  }
+  // Payload trop grand : envoi découpé en chunks
+  const chunkId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const total = Math.ceil(html.length / MAX_CHUNK);
+  for (let i = 0; i < total; i++) {
+    window.ReactNativeWebView!.postMessage(
+      JSON.stringify({
+        type: "print_chunk",
+        chunkId,
+        index: i,
+        total,
+        title,
+        data: html.slice(i * MAX_CHUNK, (i + 1) * MAX_CHUNK),
+      })
+    );
+  }
 }
 
 /**

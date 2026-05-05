@@ -95,42 +95,63 @@ export default function AppScreen() {
     webViewRef.current?.injectJavaScript(`window.location.href = '${PROD_URL}';`);
   };
 
+  // Accumule les chunks pour les gros lots (> 500 KB par message)
+  const printChunksRef = useRef<Map<string, { parts: string[]; received: number; total: number; title: string }>>(new Map());
+
+  const doPrint = useCallback(async (html: string, title: string) => {
+    if (Platform.OS === "ios") {
+      await Print.printAsync({ html });
+    } else {
+      try {
+        await Print.printAsync({ html });
+      } catch {
+        const canShare = await Sharing.isAvailableAsync();
+        if (!canShare) {
+          Alert.alert(
+            "Impression",
+            "Aucun service d'impression disponible sur cet appareil. Installez un service d'impression Android ou activez-en un dans les paramètres.",
+          );
+          return;
+        }
+        const { uri } = await Print.printToFileAsync({ html });
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          dialogTitle: "Imprimer ou enregistrer",
+          UTI: "com.adobe.pdf",
+        });
+      }
+    }
+  }, []);
+
   const handleMessage = useCallback(async (event: WebViewMessageEvent) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type !== "print" || typeof data.html !== "string") return;
 
-      const html: string = data.html;
-
-      if (Platform.OS === "ios") {
-        // iOS : AirPrint natif — fonctionne toujours
-        await Print.printAsync({ html });
-      } else {
-        // Android : essaie d'abord le dialogue d'impression natif
-        try {
-          await Print.printAsync({ html });
-        } catch {
-          // Fallback : génère un PDF et propose le partage (téléchargement / impression via app PDF)
-          const canShare = await Sharing.isAvailableAsync();
-          if (!canShare) {
-            Alert.alert(
-              "Impression",
-              "Aucun service d'impression disponible sur cet appareil. Installez un service d'impression Android ou activez-en un dans les paramètres.",
-            );
-            return;
-          }
-          const { uri } = await Print.printToFileAsync({ html });
-          await Sharing.shareAsync(uri, {
-            mimeType: "application/pdf",
-            dialogTitle: "Imprimer ou enregistrer",
-            UTI: "com.adobe.pdf",
-          });
+      // ── Protocole chunked (gros lots) ──
+      if (data.type === "print_chunk") {
+        const { chunkId, index, total, title, data: chunk } = data as {
+          chunkId: string; index: number; total: number; title: string; data: string;
+        };
+        if (!printChunksRef.current.has(chunkId)) {
+          printChunksRef.current.set(chunkId, { parts: new Array(total).fill(""), received: 0, total, title });
         }
+        const entry = printChunksRef.current.get(chunkId)!;
+        entry.parts[index] = chunk;
+        entry.received += 1;
+        if (entry.received === entry.total) {
+          printChunksRef.current.delete(chunkId);
+          await doPrint(entry.parts.join(""), entry.title);
+        }
+        return;
       }
+
+      // ── Message direct (petits lots) ──
+      if (data.type !== "print" || typeof data.html !== "string") return;
+      await doPrint(data.html as string, data.title as string);
     } catch {
       Alert.alert("Impression", "Impossible de lancer l'impression.");
     }
-  }, []);
+  }, [doPrint]);
 
   const isVendorPortal = currentUrl.includes("/vendeur") || currentUrl.includes("/vendor-portal");
 
