@@ -327,7 +327,6 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
-                autoFocus
                 autoComplete="username"
               />
             </div>
@@ -1860,7 +1859,6 @@ function Dashboard({ token, vendor, onLogout }: {
                   value={pwdNew}
                   onChange={(e) => setPwdNew(e.target.value)}
                   autoComplete="new-password"
-                  autoFocus
                 />
               </div>
             </div>

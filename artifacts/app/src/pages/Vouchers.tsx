@@ -2142,7 +2142,6 @@ export default function Vouchers() {
                   onChange={(e) => setExtendAmount(e.target.value)}
                   disabled={isExtending}
                   className="flex-1 font-mono text-center text-base"
-                  autoFocus
                   onKeyDown={(e) => { if (e.key === "Enter") void handleExtend(); }}
                 />
                 <select
@@ -2315,7 +2314,6 @@ export default function Vouchers() {
                 onKeyDown={(e) => { if (e.key === "Enter") void handleRenameUser(); }}
                 placeholder="Code ou nom d'utilisateur"
                 className="font-mono"
-                autoFocus
                 disabled={isSavingRename || isTogglingEditUserDisabled}
               />
             </div>
