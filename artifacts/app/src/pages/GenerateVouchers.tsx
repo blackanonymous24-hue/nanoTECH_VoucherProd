@@ -30,7 +30,6 @@ import { fetchServerTemplate } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -87,6 +86,11 @@ function clearLastLot(routerId: number | null | undefined) {
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+/** Détecte si l'app tourne dans le WebView de l'APK Expo nanoTECH */
+const isNativeApp =
+  typeof navigator !== "undefined" &&
+  /nanoTECH-VouchersBills-Mobile/i.test(navigator.userAgent);
 
 /** "3h"→"3H", "1d"→"1J", "30m"→"30M", "1w"→"1S" */
 function validityCode(validity: string | null | undefined): string {
@@ -297,7 +301,6 @@ export default function GenerateVouchers() {
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
   const [justGenerated, setJustGenerated] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
-  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (selectedRouterId) {
@@ -610,8 +613,8 @@ export default function GenerateVouchers() {
       setProfile("");
       setJustGenerated(true);
 
-      // Auto-print sur mobile après génération réussie
-      if (isMobile) {
+      // Auto-print uniquement dans l'APK Expo (User-Agent nanoTECH-VouchersBills-Mobile)
+      if (isNativeApp) {
         void handlePrint(lot);
       }
     } finally {
