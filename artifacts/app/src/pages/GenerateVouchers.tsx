@@ -1243,8 +1243,8 @@ export default function GenerateVouchers() {
                 </Button>
               </div>
 
-              {/* ── Liste des codes ── */}
-              <div className="max-h-[420px] overflow-y-auto">
+              {/* ── Liste des codes — masquée sur mobile ── */}
+              <div className="hidden sm:block max-h-[420px] overflow-y-auto">
                 <div className="divide-y divide-gray-50">
                   {lastLot.vouchers.map((v, i) => (
                     <div key={v.id ?? i} className="flex items-center gap-3 px-4 py-1.5 hover:bg-gray-50 transition-colors">
