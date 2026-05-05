@@ -595,8 +595,14 @@ export default function Dashboard() {
   const sessionsFetching = !sseConnected && priorityQueryFetching;
   const usersFetching = !sseConnected && priorityQueryFetching;
   const salesFetching = !sseConnected && priorityQueryFetching;
-  const sessionsKnown = (livePriority?.availability?.sessionsKnown ?? false) || typeof livePriority?.sessionsCount === "number";
-  const usersKnown = (livePriority?.availability?.usersKnown ?? false) || !!livePriority?.users;
+  // Skeleton s'affiche quand la donnée n'est pas encore connue.
+  // On ne se fie PAS à "typeof sessionsCount === 'number'" (toujours vrai même sur 0 par défaut)
+  // ni à "!!users" (object toujours truthy). On accepte la valeur brute uniquement si elle est > 0,
+  // ce qui prouve que c'est un vrai résultat MikroTik et non un zéro par défaut.
+  const sessionsKnown = (livePriority?.availability?.sessionsKnown ?? false)
+    || ((livePriority?.sessionsCount ?? 0) > 0);
+  const usersKnown = (livePriority?.availability?.usersKnown ?? false)
+    || ((livePriority?.users?.total ?? 0) > 0);
   const infoKnown = (livePriority?.availability?.infoKnown ?? false) || !!livePriority?.info;
 
   // Mikhmon-style: fire every dashboard fetch in parallel immediately, no

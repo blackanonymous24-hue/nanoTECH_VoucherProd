@@ -2356,10 +2356,11 @@ async function buildDashboardPrioritySnapshot(id: number) {
     sales,
     info,
     availability: {
-      sessionsKnown: !!(sessionsFresh || sessionsStale),
+      // sessionsKnown : vrai si le cache plein OU le fast count (cold-start parallèle) ont des données
+      sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
       usersKnown: !!usersCached,
       salesKnown: dbQuickSales != null || !!salesCached,
-      infoKnown: !!(infoFresh || infoStale),
+      infoKnown: !!(infoFreshAfter || infoStaleAfter),
     },
   };
 }
