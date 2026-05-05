@@ -857,6 +857,7 @@ export default function Dashboard() {
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
           loading={!!selectedRouterId && !usersKnown}
           href="/vouchers"
+          className="order-4 lg:order-3"
         />
         <StatCard
           title="Vente mensuelle"
@@ -869,11 +870,12 @@ export default function Dashboard() {
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
           loading={!!selectedRouterId && !salesFresh}
           href="/sales/monthly"
+          className="order-3 lg:order-4"
         />
         {/* Raccourcis actions — mobile uniquement */}
         <button
           type="button"
-          className="block lg:hidden w-full h-full text-left"
+          className="block lg:hidden w-full h-full text-left order-5"
           onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
         >
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
@@ -885,7 +887,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </button>
-        <Link href="/generate" className="block lg:hidden">
+        <Link href="/generate" className="block lg:hidden order-6">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
             <CardContent className="p-2.5 h-full flex items-center gap-2">
               <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
@@ -1107,6 +1109,7 @@ function StatCard({
   live,
   fetching,
   href,
+  className,
 }: {
   title: string;
   value?: number;
@@ -1119,6 +1122,7 @@ function StatCard({
   live?: boolean;
   fetching?: boolean;
   href?: string;
+  className?: string;
 }) {
   const inner = (
     <Card className={`h-full ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
@@ -1200,6 +1204,6 @@ function StatCard({
       </CardContent>
     </Card>
   );
-  if (href) return <Link href={href} className="block">{inner}</Link>;
-  return inner;
+  if (href) return <Link href={href} className={`block${className ? ` ${className}` : ""}`}>{inner}</Link>;
+  return className ? <div className={className}>{inner}</div> : inner;
 }
