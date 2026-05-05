@@ -56,10 +56,19 @@ function carryOverWeekLabel(priorWeeksWithBalance: number): string {
   return priorWeeksWithBalance > 1 ? "Restes semaines antérieures" : "Reste semaine antérieure";
 }
 
+/** YYYY-MM-DD pour le jour civil local (évite le décalage UTC de `toISOString()`). */
+function formatLocalIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function yesterdayLocal(): string {
   const d = new Date();
+  d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+  return formatLocalIsoDate(d);
 }
 
 function fmtDateFr(iso: string): string {
@@ -67,13 +76,14 @@ function fmtDateFr(iso: string): string {
   return `${day} ${MONTH_NAMES_FR[parseInt(m, 10) - 1]} ${y}`;
 }
 
+/** Dernier dimanche (calendrier local), pour charger la semaine civile complète terminée juste avant la semaine en cours. */
 function prevWeekSundayLocal(): string {
   const d = new Date();
+  d.setHours(0, 0, 0, 0);
   const day = d.getDay();
   const daysToLastSunday = day === 0 ? 7 : day;
-  const lastSunday = new Date(d);
-  lastSunday.setDate(d.getDate() - daysToLastSunday);
-  return lastSunday.toISOString().slice(0, 10);
+  d.setDate(d.getDate() - daysToLastSunday);
+  return formatLocalIsoDate(d);
 }
 
 interface VoucherEntry {
@@ -919,7 +929,12 @@ export default function VendorTracking() {
                   type="date"
                   value={date}
                   max={yesterdayLocal()}
-                  onChange={(e) => setDate(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDate(v);
+                    setApplied(v);
+                    setSearch("");
+                  }}
                   className="h-8 pl-7 pr-2 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
