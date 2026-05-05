@@ -1993,27 +1993,30 @@ export default function Vouchers() {
                 <div className="space-y-3">
                   {filteredLots.map((lot) => (
                     <Card key={lot.name} className="overflow-hidden">
-                      <div className="flex items-center justify-between px-5 py-4">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Package className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                          <div className="min-w-0">
-                            <p className="font-mono font-semibold text-gray-900 text-sm break-all">
+                      <div className="flex items-center justify-between px-3 py-2 sm:px-5 sm:py-4 gap-2">
+                        {/* Info lot */}
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Package className="h-4 w-4 sm:h-5 sm:w-5 text-blue-400 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            {/* Nom sur une seule ligne, tronqué sur mobile */}
+                            <p className="font-mono font-semibold text-gray-900 text-sm truncate sm:break-all">
                               {lot.name}
                             </p>
-                            <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                              <span className="text-xs text-gray-400">
-                                {lot.count} voucher(s)
+                            {/* Méta : count · profil · vendeur — une seule ligne sur mobile */}
+                            <div className="flex flex-nowrap items-center gap-1 mt-0.5 overflow-hidden sm:flex-wrap sm:gap-2">
+                              <span className="text-xs text-gray-400 flex-shrink-0 whitespace-nowrap">
+                                {lot.count} ticket{lot.count !== 1 ? "s" : ""}
                               </span>
                               {lot.profile && (
                                 <>
-                                  <span className="text-gray-300">·</span>
-                                  <span className="text-xs text-gray-400">{lot.profile}</span>
+                                  <span className="text-gray-300 flex-shrink-0">·</span>
+                                  <span className="text-xs text-gray-400 truncate">{lot.profile}</span>
                                 </>
                               )}
                               {canonicalVendorFromLot(lot.name) && (
                                 <>
-                                  <span className="text-gray-300">·</span>
-                                  <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                                  <span className="text-gray-300 flex-shrink-0">·</span>
+                                  <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1 py-0.5 rounded flex-shrink-0 whitespace-nowrap">
                                     {canonicalVendorFromLot(lot.name)}
                                   </span>
                                 </>
@@ -2022,11 +2025,12 @@ export default function Vouchers() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                        {/* Boutons — icônes seules sur mobile, libellés sur sm+ */}
+                        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                           <Button
                             size="sm"
                             variant="outline"
-                            className="gap-1.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
                             onClick={() => handlePrintLot(lot)}
                             disabled={printingLot === lot.name}
                             title="Imprimer les tickets de ce lot"
@@ -2038,25 +2042,27 @@ export default function Vouchers() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="gap-1.5 text-xs"
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs"
                             onClick={() => handleExportTxt(lot)}
                             title="Exporter en .txt"
                           >
-                            <FileText className="h-3.5 w-3.5" /> .txt
+                            <FileText className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">.txt</span>
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
-                            className="gap-1.5 text-xs"
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs"
                             onClick={() => handleExportCsv(lot)}
                             title="Exporter en .csv"
                           >
-                            <Table2 className="h-3.5 w-3.5" /> .csv
+                            <Table2 className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">.csv</span>
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
                             onClick={() => setDeletingLot(lot.name)}
                             disabled={isDeletingLot}
                             title="Supprimer ce lot de MikroTik"
@@ -2069,16 +2075,14 @@ export default function Vouchers() {
                       </div>
 
                       {/* Preview: first 4 vouchers */}
-                      <div className="border-t border-gray-100 bg-gray-50 px-5 py-2 flex flex-wrap gap-3">
+                      <div className="border-t border-gray-100 bg-gray-50 px-3 py-1 sm:px-5 sm:py-2 flex flex-wrap gap-2 sm:gap-3">
                         {lot.preview.map((u) => (
                           <span key={u.username} className="font-mono text-xs text-gray-500">
                             {u.username}
                           </span>
                         ))}
                         {lot.count > 4 && (
-                          <span className="text-xs text-gray-400">
-                            +{lot.count - 4} autres
-                          </span>
+                          <span className="text-xs text-gray-400">+{lot.count - 4} autres</span>
                         )}
                       </div>
                     </Card>
