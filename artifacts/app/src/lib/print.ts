@@ -1,11 +1,14 @@
 const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  table.voucher { display:inline-block; border:2px solid black; margin:2px; }
+  table.voucher { display:inline-block; margin:0; }
   #num { float:right; display:inline-block; }
   .doc-header { display:none; }
-  @page { size:auto; margin:4mm; }
+  /* Grille 3 colonnes — chaque .ticket-page = 1 page imprimée (18 tickets max) */
+  table.ticket-page { border-collapse:collapse; margin-bottom:4px; }
+  table.ticket-page td { padding:2px; vertical-align:top; }
+  @page { size:A4 portrait; margin:4mm; }
   @media screen {
-    body { padding-bottom: 100px; }
+    body { padding-bottom:100px; }
   }
   @media print {
     body { padding-bottom:0 !important; padding-top:8mm !important; }
@@ -23,14 +26,9 @@ const PRINT_CSS = `
       z-index:9999;
       letter-spacing:0.03em;
     }
-    /* Un ticket par page en multi-impression (Safari iOS regroupait tout sur une page). */
-    body > table { display:table; page-break-inside:avoid; break-inside:avoid; max-width:100%; }
-    body > table + table { page-break-before:always; break-before:page; }
-    table { page-break-after:auto; }
-    tr { page-break-inside:avoid; page-break-after:auto; }
-    td { page-break-inside:avoid; page-break-after:auto; }
-    thead { display:table-header-group; }
-    tfoot { display:table-footer-group; }
+    table.ticket-page { page-break-after:always; break-after:page; margin:0; }
+    table.ticket-page:last-child { page-break-after:auto; break-after:auto; }
+    tr { page-break-inside:avoid; }
   }
 `;
 
@@ -138,6 +136,24 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string): string
 }
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean): string {
+  // Groupe les tickets en pages de 3 colonnes × 6 lignes = 18 par page
+  const COLS = 3;
+  const ROWS = 6;
+  const PER_PAGE = COLS * ROWS;
+
+  const pageBlocks: string[] = [];
+  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
+    const page = htmlItems.slice(p, p + PER_PAGE);
+    const rows: string[] = [];
+    for (let r = 0; r < page.length; r += COLS) {
+      const cells = page.slice(r, r + COLS)
+        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
+        .join("");
+      rows.push(`<tr>${cells}</tr>`);
+    }
+    pageBlocks.push(`<table class="ticket-page"><tbody>${rows.join("")}</tbody></table>`);
+  }
+
   return `<!doctype html>
 <html>
   <head>
@@ -147,7 +163,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean): stri
     <style>${PRINT_CSS}</style>
     ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
   </head>
-  <body><div class="doc-header">${title}</div>${htmlItems.join("")}</body>
+  <body><div class="doc-header">${title}</div>${pageBlocks.join("")}</body>
 </html>`;
 }
 
