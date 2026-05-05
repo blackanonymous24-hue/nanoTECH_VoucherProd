@@ -82,40 +82,13 @@ function buildVoucherPrintUrl(voucherId: string, sessionName: string): string | 
  * open /voucher/print.php?id=...&small=yes&session=...
  * Returns true when URL flow is used; false means fallback to HTML printing.
  */
-export async function tryOpenVoucherPrintPage(voucherId: string, hotspotOrSessionName: string): Promise<boolean> {
-  if (!voucherId || !hotspotOrSessionName) return false;
-  // Native WebView (APK) uses the postMessage bridge — never navigate to print.php.
-  // The SPA also responds 200 to any URL, which would fool the probe below.
-  if (isNativeWebView()) return false;
-  if (!isMobile()) return false;
-
-  const url = buildVoucherPrintUrl(voucherId, normalizeSessionName(hotspotOrSessionName));
-  if (!url) return false;
-
-  // Fallback auto: if print.php is unavailable on this host, caller will use HTML print flow.
-  // Also reject SPA responses (Content-Type: text/html without X-Mikhmon header).
-  try {
-    const probe = await fetch(url, { method: "HEAD", cache: "no-store" });
-    if (!probe.ok) return false;
-    // A real Mikhmon print.php returns text/html but NOT the SPA's default headers.
-    // Reject if the server identifies itself as the nanoTECH SPA.
-    const ct = probe.headers.get("content-type") ?? "";
-    if (!ct.includes("text/html")) return false;
-    // If served by Vite dev server, it adds X-Content-Type-Options only for assets.
-    // Real Mikhmon PHP servers do not send the Vite-specific header.
-    if (probe.headers.get("x-vite-dev-server") !== null) return false;
-  } catch {
-    return false;
-  }
-
-  const win = window.open(url, "_blank");
-  if (win) return true;
-  try {
-    window.location.assign(url);
-    return true;
-  } catch (_) {
-    return false;
-  }
+export async function tryOpenVoucherPrintPage(_voucherId: string, _hotspotOrSessionName: string): Promise<boolean> {
+  // This app does not host a Mikhmon print.php server.
+  // The SPA Vite fallback always returns HTTP 200 for any URL, which would fool a
+  // HEAD probe and trigger an unwanted navigation. All printing goes through the
+  // HTML bridge (postMessage on native WebView, window.open on mobile browsers,
+  // hidden iframe on desktop).
+  return false;
 }
 
 /**
