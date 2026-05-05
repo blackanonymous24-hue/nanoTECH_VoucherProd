@@ -860,7 +860,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-2 mb-3 sm:hidden">
         <Link href="/vouchers" className="block">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-2.5 flex items-center gap-2">
+            <CardContent className="p-2.5 flex items-center gap-2 min-h-[3.75rem]">
               <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
                 <PlusCircle className="h-5 w-5 text-emerald-600" />
               </div>
@@ -870,7 +870,7 @@ export default function Dashboard() {
         </Link>
         <Link href="/generate" className="block">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-2.5 flex items-center gap-2">
+            <CardContent className="p-2.5 flex items-center gap-2 min-h-[3.75rem]">
               <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
                 <Zap className="h-5 w-5 text-amber-500" />
               </div>
