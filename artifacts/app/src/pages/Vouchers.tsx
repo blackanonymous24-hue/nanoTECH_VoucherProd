@@ -54,6 +54,7 @@ import {
   CalendarPlus,
   FilePlus2,
   CheckCircle2,
+  Copy,
 } from "lucide-react";
 import {
   Dialog,
@@ -1809,6 +1810,7 @@ export default function Vouchers() {
                           onEdit={() => openEditUser(user)}
                           onReset={() => setConfirmResetUser(user)}
                           onExtend={() => openExtendUser(user)}
+                          onCopy={() => { void navigator.clipboard.writeText(user.username); }}
                         />
                       ))}
                     </div>
@@ -2833,6 +2835,7 @@ function UserRow({
   onEdit,
   onReset,
   onExtend,
+  onCopy,
 }: {
   user: HotspotUser;
   isExpired: boolean;
@@ -2841,6 +2844,7 @@ function UserRow({
   onEdit: () => void;
   onReset: () => void;
   onExtend: () => void;
+  onCopy: () => void;
 }) {
   return (
     <div
@@ -2922,6 +2926,13 @@ function UserRow({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[160px]">
+          <DropdownMenuItem
+            onClick={(e) => { e.stopPropagation(); onCopy(); }}
+            className="gap-2 cursor-pointer"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Copier le code
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={(e) => { e.stopPropagation(); onEdit(); }}
             className="gap-2 cursor-pointer"
