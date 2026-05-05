@@ -759,39 +759,45 @@ export default function Dashboard() {
           ) : routerInfo ? (
             <div className="grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
               {(routerInfo.boardName || routerInfo.model) && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-100 text-[10px] sm:text-xs font-medium text-blue-700 truncate">
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-100 text-[10px] sm:text-xs font-medium text-blue-700 overflow-hidden">
                   <Router className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  <span className="truncate">{routerInfo.boardName ?? routerInfo.model}</span>
+                  <span className="truncate min-w-0">{routerInfo.boardName ?? routerInfo.model}</span>
                 </span>
               )}
               {routerInfo.routerOsVersion && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-[10px] sm:text-xs font-medium text-violet-700 truncate">
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-[10px] sm:text-xs font-medium text-violet-700 overflow-hidden">
                   <Shield className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  <span className="truncate">ROS {routerInfo.routerOsVersion}</span>
+                  <span className="truncate min-w-0">ROS {routerInfo.routerOsVersion}</span>
                 </span>
               )}
               {routerInfo.cpu && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 border border-amber-100 text-[10px] sm:text-xs font-medium text-amber-700 truncate">
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 border border-amber-100 text-[10px] sm:text-xs font-medium text-amber-700 overflow-hidden">
                   <Cpu className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  <span className="truncate">{routerInfo.cpu}{routerInfo.cpuCount && routerInfo.cpuCount !== "1" ? ` ×${routerInfo.cpuCount}` : ""}</span>
+                  <span className="truncate min-w-0">{routerInfo.cpu}{routerInfo.cpuCount && routerInfo.cpuCount !== "1" ? ` ×${routerInfo.cpuCount}` : ""}</span>
                 </span>
               )}
               {(routerInfo.freeMemory || routerInfo.totalMemory) && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-100 text-[10px] sm:text-xs font-medium text-green-700 truncate">
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-100 text-[10px] sm:text-xs font-medium text-green-700 overflow-hidden">
                   <HardDrive className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  <span className="truncate">{formatMemory(routerInfo.freeMemory)}/{formatMemory(routerInfo.totalMemory)}</span>
+                  <span className="truncate min-w-0">{formatMemory(routerInfo.freeMemory)}/{formatMemory(routerInfo.totalMemory)}</span>
                 </span>
               )}
               {routerInfo.uptime && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200 text-[10px] sm:text-xs font-medium text-gray-600 truncate">
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200 text-[10px] sm:text-xs font-medium text-gray-600 overflow-hidden">
                   <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  <span className="truncate">{formatUptime(routerInfo.uptime)}</span>
+                  {/* Mobile : afficher seulement jours+heures pour laisser la place à la date */}
+                  <span className="truncate min-w-0 sm:hidden">
+                    {formatUptime(routerInfo.uptime)?.replace(/\s*\d+min.*$/, "") ?? ""}
+                  </span>
+                  <span className="truncate min-w-0 hidden sm:inline">{formatUptime(routerInfo.uptime)}</span>
                 </span>
               )}
               {(routerInfo.clockDate || routerInfo.clockTime) && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-[10px] sm:text-xs text-gray-500 font-mono truncate">
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-[10px] sm:text-xs text-gray-500 font-mono overflow-hidden">
                   <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  <span className="truncate">{[routerInfo.clockDate, routerInfo.clockTime].filter(Boolean).join(" ")}</span>
+                  {/* Mobile : heure seule (hh:mm:ss) — économise la largeur du badge date */}
+                  <span className="truncate min-w-0 sm:hidden">{routerInfo.clockTime ?? ""}</span>
+                  <span className="truncate min-w-0 hidden sm:inline">{[routerInfo.clockDate, routerInfo.clockTime].filter(Boolean).join(" ")}</span>
                 </span>
               )}
             </div>
