@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
+import { paidShownVersusWeekContext } from "@/lib/vendorWeekPaymentDisplay";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -173,20 +173,6 @@ function VendorRow({
   const { toast } = useToast();
 
   const isFullyPaid = vendor.remaining === 0 && vendor.totalPaid > 0;
-  const { daily: dailyShown, weekly: weeklyShown } = splitDailyWeeklyPaidShown(
-    vendor.dailyPaid,
-    vendor.weeklyPaid,
-    vendor.amount,
-    vendor.commission,
-    vendor.carryOverFromPriorWeeks,
-  );
-  const totalPaidShown = paidShownVersusWeekContext(
-    vendor.totalPaid,
-    vendor.amount,
-    vendor.commission,
-    vendor.carryOverFromPriorWeeks,
-  );
-
   const addPayment = async () => {
     const amt = parseInt(amount.replace(/\s/g, ""), 10);
     if (!amt || amt <= 0) { toast({ title: "Montant invalide", variant: "destructive" }); return; }
@@ -298,15 +284,15 @@ function VendorRow({
             {vendor.commission > 0 && (
               <span className="whitespace-nowrap">Commission : <span className="font-medium text-violet-600">−{fmtAmount(vendor.commission)} FCFA ({vendor.commissionRate}%)</span></span>
             )}
-            {(vendor.dailyPaid ?? 0) > 0 && (
-              <span className="whitespace-nowrap">Versé jour : <span className="font-medium text-sky-700">{fmtAmount(dailyShown)} FCFA</span></span>
-            )}
-            {(vendor.weeklyPaid ?? 0) > 0 && (
-              <span className="whitespace-nowrap">Versé sem. : <span className="font-medium text-emerald-700">{fmtAmount(weeklyShown)} FCFA</span></span>
-            )}
-            {vendor.dailyPaid === undefined && vendor.totalPaid > 0 && (
-              <span className="whitespace-nowrap">Versé : <span className="font-medium text-emerald-700">{fmtAmount(totalPaidShown)} FCFA</span></span>
-            )}
+            {vendor.totalPaid > 0 && (() => {
+              const co = Math.max(0, vendor.carryOverFromPriorWeeks ?? 0);
+              const net = Math.max(0, vendor.amount - vendor.commission);
+              const verseAmt = net + co;
+              const label = co > 0 ? "Total versé" : "Versé";
+              return (
+                <span className="whitespace-nowrap">{label} : <span className="font-medium text-emerald-700">{fmtAmount(verseAmt)} FCFA</span></span>
+              );
+            })()}
             {(vendor.dailyPaid ?? 0) > 0 && (vendor.weeklyExpected ?? 0) > 0 && (
               <span className="whitespace-nowrap">Hebdo. à régler : <span className="font-semibold text-blue-700">{fmtAmount(vendor.weeklyExpected!)} FCFA</span></span>
             )}
