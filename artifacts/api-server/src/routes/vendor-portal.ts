@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { eq, desc, ne, count, sql, and, gte, lt, isNotNull, gt } from "drizzle-orm";
+import { eq, desc, ne, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
+import { carryOverByVendorBeforeWeek } from "../lib/vendor-carryover.js";
 import { type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
@@ -405,72 +406,6 @@ router.put("/vendor-portal/me/password", async (req, res): Promise<void> => {
   res.json({ success: true });
 });
 
-/** Somme des reliquats nets (ventes − commission − versé) pour les semaines strictement avant `beforeWeekMonday`. */
-async function carryOverNetBeforeWeekForVendor(
-  routerId: number,
-  vendorId: number,
-  beforeWeekMonday: string,
-  commissionRatePct: number,
-): Promise<number> {
-  const [historicalSalesRaw, historicalWeeklyPaidRaw, historicalDailyPaidRaw] = await Promise.all([
-    db.select({
-      weekStart: sql<string>`date_trunc('week', ${vouchersTable.usedAt})::date::text`,
-      amount: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
-    })
-      .from(vouchersTable)
-      .where(and(
-        eq(vouchersTable.routerId, routerId),
-        eq(vouchersTable.vendorId, vendorId),
-        isNotNull(vouchersTable.usedAt),
-        sql`date_trunc('week', ${vouchersTable.usedAt})::date::text < ${beforeWeekMonday}`,
-      ))
-      .groupBy(sql`date_trunc('week', ${vouchersTable.usedAt})::date::text`),
-    db.select({
-      weekStart: vendorPaymentsTable.weekStart,
-      amount: sql<number>`sum(${vendorPaymentsTable.amount})::int`,
-    })
-      .from(vendorPaymentsTable)
-      .where(and(
-        eq(vendorPaymentsTable.routerId, routerId),
-        eq(vendorPaymentsTable.vendorId, vendorId),
-        sql`${vendorPaymentsTable.weekStart} < ${beforeWeekMonday}`,
-        gt(vendorPaymentsTable.amount, 0),
-      ))
-      .groupBy(vendorPaymentsTable.weekStart),
-    db.select({
-      weekStart: sql<string>`date_trunc('week', ${vendorDailyPaymentsTable.date}::date)::date::text`,
-      amount: sql<number>`sum(${vendorDailyPaymentsTable.amount})::int`,
-    })
-      .from(vendorDailyPaymentsTable)
-      .where(and(
-        eq(vendorDailyPaymentsTable.routerId, routerId),
-        eq(vendorDailyPaymentsTable.vendorId, vendorId),
-        sql`${vendorDailyPaymentsTable.date} < ${beforeWeekMonday}`,
-      ))
-      .groupBy(sql`date_trunc('week', ${vendorDailyPaymentsTable.date}::date)::date::text`),
-  ]);
-
-  const historicalPaidByWeek = new Map<string, number>();
-  for (const p of historicalWeeklyPaidRaw) {
-    const k = typeof p.weekStart === "string" ? p.weekStart : (p.weekStart as Date).toISOString().slice(0, 10);
-    historicalPaidByWeek.set(k, (historicalPaidByWeek.get(k) ?? 0) + Number(p.amount || 0));
-  }
-  for (const p of historicalDailyPaidRaw) {
-    const k = typeof p.weekStart === "string" ? p.weekStart : (p.weekStart as Date).toISOString().slice(0, 10);
-    historicalPaidByWeek.set(k, (historicalPaidByWeek.get(k) ?? 0) + Number(p.amount || 0));
-  }
-
-  const rate = Math.max(0, commissionRatePct);
-  let carry = 0;
-  for (const s of historicalSalesRaw) {
-    const gross = Number(s.amount || 0);
-    const expected = Math.max(0, gross - Math.round(gross * rate) / 100);
-    const paid = historicalPaidByWeek.get(s.weekStart) ?? 0;
-    carry += Math.max(0, Math.round(expected - paid));
-  }
-  return carry;
-}
-
 /* ── GET /vendor-portal/me/payments ─────────────────────────────────── */
 router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -558,6 +493,9 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     const dailyPaid  = dailyPayments.reduce((s, p) => s + p.amount, 0);
     const totalPaid  = weeklyPaid + dailyPaid;
 
+    const carryMap = await carryOverByVendorBeforeWeek(routerId, weekStart, [vendor]);
+    const carryOverFromPriorWeeks = carryMap.get(vendor.id) ?? 0;
+
     // Week label: "dd Mmm – dd Mmm yyyy"
     const MONTHS_FR = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
     const sun = new Date(wStart.getTime() + 6 * 24 * 60 * 60 * 1000);
@@ -569,17 +507,6 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     const commission = (weekEnded && vendor.commissionRate > 0) ? Math.round(amount * vendor.commissionRate) / 100 : 0;
     const effectiveCommissionRate = weekEnded ? vendor.commissionRate : 0;
 
-    const carryOverAmount = await carryOverNetBeforeWeekForVendor(
-      routerId,
-      vendor.id,
-      weekStart,
-      Number(vendor.commissionRate ?? 0),
-    );
-
-    const expectedNet = Math.max(0, amount - commission);
-    /** Reste global à reverser (net semaine + reliquats semaines antérieures − tout versement), aligné suivi admin. */
-    const remaining = Math.max(0, expectedNet + carryOverAmount - totalPaid);
-
     return {
       weekStart,
       label,
@@ -590,10 +517,10 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       weeklyPaid,
       dailyPaid,
       totalPaid,
-      carryOverAmount,
+      carryOverFromPriorWeeks,
       // Weekly amount still expected after deducting daily payments already recorded
       weeklyExpected: Math.max(0, amount - commission - dailyPaid),
-      remaining,
+      remaining: Math.max(0, amount - commission - totalPaid),
       payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
     };
   }));
@@ -761,11 +688,6 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     settledWeekMap.set(monday, paidWeek >= Math.max(0, expectedWeek - 1));
   }
 
-  let latestSettledMonday: string | null = null;
-  for (const [m, ok] of settledWeekMap) {
-    if (ok && (!latestSettledMonday || m > latestSettledMonday)) latestSettledMonday = m;
-  }
-
   const days = salesRows
     .map((d) => {
       const monday = getMondayOf(d.date);
@@ -778,13 +700,7 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
       const expectedAmount = expectedByDay.get(d.date) ?? d.amount;
       return { date: d.date, count: d.count, amount: expectedAmount, paid, remaining: Math.max(0, expectedAmount - paid) };
     })
-    .filter((d) => d.remaining > 0)
-    .filter((d) => {
-      const m = getMondayOf(d.date);
-      if (settledWeekMap.get(m)) return false;
-      if (latestSettledMonday && m <= latestSettledMonday) return false;
-      return true;
-    });
+    .filter((d) => d.remaining > 0);
 
   const arrearsPayload = { days };
   cSet(arrearsKey, ARREARS_TTL, arrearsPayload);

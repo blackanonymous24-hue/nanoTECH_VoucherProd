@@ -1,28 +1,14 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
-import { CalendarDays, Loader2, CreditCard, CheckCircle2, ChevronDown, Users, AlertTriangle, X } from "lucide-react";
+import { CalendarDays, Loader2, CreditCard, CheckCircle2, ChevronDown, ChevronUp, Users, AlertTriangle, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { paidShownVersusWeekContext } from "@/lib/vendorWeekPaymentDisplay";
-import {
-  filterDailyArrearsForMaskedWeeks,
-  groupArrearsByCalendarWeek,
-  mondayOfDateUtc,
-  splitArrearsMergedAndRecentTail,
-  weekArrearLabelWithFmt,
-} from "@/lib/arrearsWeekGrouping";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -58,7 +44,6 @@ interface DailyArrearEntry {
 interface DailyArrearsResponse {
   arrears: Record<string, DailyArrearEntry[]>;
   vendorInfo?: Record<string, { name: string }>;
-  settledWeeks?: Record<string, string[]>;
 }
 
 interface VendorRow {
@@ -229,148 +214,52 @@ function VendorCard({
   onRefresh: () => void;
   onOptimisticDeletePayment: (vendorId: number, date: string, paymentId: number) => void;
 }) {
-  const arrearsByWeek = useMemo(
-    () => groupArrearsByCalendarWeek([...row.arrears].sort((a, b) => a.date.localeCompare(b.date))),
-    [row.arrears],
-  );
-
-  const todayWeekMonday = useMemo(
-    () => mondayOfDateUtc(new Date().toISOString().slice(0, 10)),
-    [],
-  );
-  const weekAccordionDefaults = useMemo(
-    () => arrearsByWeek.filter((w) => w.__weekMonday === todayWeekMonday).map((w) => w.__weekMonday),
-    [arrearsByWeek, todayWeekMonday],
-  );
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <Card className={`overflow-hidden border ${row.totalRemaining > 0 ? "border-orange-200" : "border-gray-100"}`}>
-      <Collapsible defaultOpen className="group">
-        {/* Radix Collapsible (shadcn) = panneau repliable avec animation */}
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors ${
-              row.totalRemaining > 0 ? "bg-orange-50 hover:bg-orange-100" : "bg-gray-50 hover:bg-gray-100"
-            }`}
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${row.totalRemaining > 0 ? "text-orange-500" : "text-gray-300"}`} />
-              <span className="font-semibold text-gray-800 truncate">{row.vendorName}</span>
-              <span className="text-xs text-gray-400 flex-shrink-0">
-                {arrearsByWeek.length > 1
-                  ? `${arrearsByWeek.length} sem. · ${row.arrears.length} jour${row.arrears.length > 1 ? "s" : ""}`
-                  : `(${row.arrears.length} jour${row.arrears.length > 1 ? "s" : ""})`}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-              <span className={`text-sm font-bold tabular-nums ${row.totalRemaining > 0 ? "text-orange-700" : "text-gray-400"}`}>
-                {fmtAmount(row.totalRemaining)} FCFA
-              </span>
-              <ChevronDown className="h-4 w-4 text-gray-400 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-            </div>
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-          {row.arrears.length > 0 ? (
-            <CardContent className="p-2 space-y-2 bg-slate-50/60 border-t border-orange-100/60">
-              <Accordion type="multiple" defaultValue={weekAccordionDefaults} className="space-y-2">
-                {arrearsByWeek.map((week) => {
-                  const days = week.__underlying ?? [week];
-                  return (
-                    <AccordionItem
-                      key={week.__weekMonday}
-                      value={week.__weekMonday}
-                      className="border-b-0 rounded-lg border border-orange-100 bg-white overflow-hidden shadow-sm"
-                    >
-                      <AccordionTrigger className="px-3 py-2 text-left hover:no-underline [&>svg]:text-orange-600">
-                        <span className="text-[10px] font-semibold text-orange-900 leading-snug break-words text-left pr-2">
-                          {weekArrearLabelWithFmt(week.__weekMonday, fmtDateFr)}
-                          <span className="font-normal text-orange-700/90 ml-1">
-                            ({days.length} jour{days.length > 1 ? "s" : ""})
-                          </span>
-                        </span>
-                      </AccordionTrigger>
-                      <AccordionContent className="border-t border-orange-50/80 pb-0 pt-0">
-                        {week.__weekMonday === todayWeekMonday ? (() => {
-                          const { merged: mHead, recent: rTail } = splitArrearsMergedAndRecentTail(days, 4);
-                          const cumulRem = mHead?.reduce((s, a) => s + a.remaining, 0) ?? 0;
-                          return (
-                            <>
-                              {mHead && mHead.length > 0 && (
-                                <Collapsible defaultOpen={false} className="group border-b border-orange-50/80">
-                                  <CollapsibleTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[10px] font-semibold text-orange-900 hover:bg-orange-50/50"
-                                    >
-                                      <span className="min-w-0 break-words pr-2">
-                                        Arriérés cumulés ({mHead.length} jour{mHead.length > 1 ? "s" : ""}, du {fmtDateFr(mHead[0]!.date)} au{" "}
-                                        {fmtDateFr(mHead[mHead.length - 1]!.date)})
-                                      </span>
-                                      <span className="flex flex-shrink-0 items-center gap-1 tabular-nums">
-                                        {fmtAmount(cumulRem)} FCFA
-                                        <ChevronDown className="h-3.5 w-3.5 text-orange-700/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                                      </span>
-                                    </button>
-                                  </CollapsibleTrigger>
-                                  <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                                    <div className="divide-y divide-orange-50/80">
-                                      {mHead.map((a) => (
-                                        <ArrearRow
-                                          key={a.date}
-                                          vendorId={row.vendorId}
-                                          entry={a}
-                                          routerId={routerId}
-                                          onDone={onRefresh}
-                                          onOptimisticDeletePayment={onOptimisticDeletePayment}
-                                        />
-                                      ))}
-                                    </div>
-                                  </CollapsibleContent>
-                                </Collapsible>
-                              )}
-                              <div className="divide-y divide-orange-50/80">
-                                {rTail.map((a) => (
-                                  <ArrearRow
-                                    key={a.date}
-                                    vendorId={row.vendorId}
-                                    entry={a}
-                                    routerId={routerId}
-                                    onDone={onRefresh}
-                                    onOptimisticDeletePayment={onOptimisticDeletePayment}
-                                  />
-                                ))}
-                              </div>
-                            </>
-                          );
-                        })() : (
-                          <div className="divide-y divide-orange-50/80">
-                            {days.map((a) => (
-                              <ArrearRow
-                                key={a.date}
-                                vendorId={row.vendorId}
-                                entry={a}
-                                routerId={routerId}
-                                onDone={onRefresh}
-                                onOptimisticDeletePayment={onOptimisticDeletePayment}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </AccordionContent>
-                    </AccordionItem>
-                  );
-                })}
-              </Accordion>
-            </CardContent>
-          ) : (
-            <CardContent className="py-4 text-center text-xs text-gray-400 border-t border-orange-100/60">
-              Aucun arriéré
-            </CardContent>
-          )}
-        </CollapsibleContent>
-      </Collapsible>
+      {/* Card header */}
+      <button
+        className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors ${
+          row.totalRemaining > 0 ? "bg-orange-50 hover:bg-orange-100" : "bg-gray-50 hover:bg-gray-100"
+        }`}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${row.totalRemaining > 0 ? "text-orange-500" : "text-gray-300"}`} />
+          <span className="font-semibold text-gray-800 truncate">{row.vendorName}</span>
+          <span className="text-xs text-gray-400 flex-shrink-0">
+            ({row.arrears.length} jour{row.arrears.length > 1 ? "s" : ""})
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          <span className={`text-sm font-bold tabular-nums ${row.totalRemaining > 0 ? "text-orange-700" : "text-gray-400"}`}>
+            {fmtAmount(row.totalRemaining)} FCFA
+          </span>
+          {expanded
+            ? <ChevronUp className="h-4 w-4 text-gray-400" />
+            : <ChevronDown className="h-4 w-4 text-gray-400" />}
+        </div>
+      </button>
+
+      {/* Arrear rows */}
+      {expanded && row.arrears.length > 0 && (
+        <CardContent className="p-0">
+          {row.arrears.map((a) => (
+            <ArrearRow
+              key={a.date}
+              vendorId={row.vendorId}
+              entry={a}
+              routerId={routerId}
+              onDone={onRefresh}
+              onOptimisticDeletePayment={onOptimisticDeletePayment}
+            />
+          ))}
+        </CardContent>
+      )}
+      {expanded && row.arrears.length === 0 && (
+        <CardContent className="py-4 text-center text-xs text-gray-400">Aucun arriéré</CardContent>
+      )}
     </Card>
   );
 }
@@ -434,9 +323,8 @@ export default function DailyPayments() {
     for (const [vIdStr, arrears] of Object.entries(data.arrears)) {
       const vId   = Number(vIdStr);
       const name  = data.vendorInfo?.[vIdStr]?.name ?? `Vendeur ${vId}`;
-      const filtered = filterDailyArrearsForMaskedWeeks(arrears, data.settledWeeks?.[vIdStr]);
-      const total = filtered.reduce((s, a) => s + a.remaining, 0);
-      rows.push({ vendorId: vId, vendorName: name, arrears: filtered, totalRemaining: total });
+      const total = arrears.reduce((s, a) => s + a.remaining, 0);
+      rows.push({ vendorId: vId, vendorName: name, arrears, totalRemaining: total });
     }
     rows.sort((a, b) => a.vendorName.localeCompare(b.vendorName, "fr", { sensitivity: "base" }));
   }

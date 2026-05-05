@@ -3,13 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,13 +12,6 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
-import {
-  applyMaskedWeeksToDailyArrearsResponse,
-  groupArrearsByCalendarWeek,
-  mondayOfDateUtc,
-  splitArrearsMergedAndRecentTail,
-  weekArrearLabelWithFmt,
-} from "@/lib/arrearsWeekGrouping";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -123,9 +109,9 @@ interface VendorWeekEntry {
   weeklyPaid?: number;       // lump-sum weekly payments only
   dailyPaid?: number;        // daily payments only
   weeklyExpected?: number;   // amount - commission - dailyPaid (what still must be paid weekly)
+  /** Reliquat net des semaines antérieures (serveur) — pour plafond d’affichage du Versé */
+  carryOverFromPriorWeeks?: number;
   totalPaid: number;
-  /** Reliquats nets des semaines antérieures (GET /vendors/weekly-summary). */
-  carryOverAmount?: number;
   remaining: number;
   payments: PaymentEntry[];
 }
@@ -146,20 +132,25 @@ interface DailyArrearEntry {
 interface DailyArrearsResponse {
   arrears: Record<string, DailyArrearEntry[]>;
   vendorInfo?: Record<string, { name: string }>;
-  settledWeeks?: Record<string, string[]>;
 }
 
-function mergeDailyArrearEntriesForPayments(days: DailyArrearEntry[]): DailyArrearEntry & { __underlying: DailyArrearEntry[] } {
-  const u = [...days].sort((a, b) => a.date.localeCompare(b.date));
-  const last = u[u.length - 1]!;
-  return {
-    date: last.date,
-    salesAmount: u.reduce((s, e) => s + e.salesAmount, 0),
-    paidAmount: u.reduce((s, e) => s + e.paidAmount, 0),
-    remaining: u.reduce((s, e) => s + e.remaining, 0),
-    payments: u.flatMap((e) => e.payments),
-    __underlying: u,
+/** Consolidated arrears entry: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
+type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrearEntry[] };
+function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
+  // Always return ascending (oldest first, most recent last)
+  const asc = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  if (asc.length <= 3) return asc;
+  const older = asc.slice(0, asc.length - 2); // all but the 2 most recent
+  const recent = asc.slice(asc.length - 2);   // 2 most recent, ascending
+  const merged: ConsolidatableArrearEntry = {
+    date: older[older.length - 1].date, // most recent of the merged (older) days
+    salesAmount: older.reduce((s, e) => s + e.salesAmount, 0),
+    paidAmount:  older.reduce((s, e) => s + e.paidAmount,  0),
+    remaining:   older.reduce((s, e) => s + e.remaining,   0),
+    payments:    older.flatMap((e) => e.payments),
+    __underlying: older,
   };
+  return [merged, ...recent];
 }
 
 /* ── Single vendor row with payment form ─────────────────────────────── */
@@ -187,13 +178,13 @@ function VendorRow({
     vendor.weeklyPaid,
     vendor.amount,
     vendor.commission,
-    vendor.carryOverAmount,
+    vendor.carryOverFromPriorWeeks,
   );
   const totalPaidShown = paidShownVersusWeekContext(
     vendor.totalPaid,
     vendor.amount,
     vendor.commission,
-    vendor.carryOverAmount,
+    vendor.carryOverFromPriorWeeks,
   );
 
   const addPayment = async () => {
@@ -484,7 +475,7 @@ function WeekCard({
   const grandCommission = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.commission, 0), [data]);
   const grandPaid       = useMemo(
     () => (data?.vendors ?? []).reduce(
-      (s, v) => s + paidShownVersusWeekContext(v.totalPaid, v.amount, v.commission, v.carryOverAmount),
+      (s, v) => s + paidShownVersusWeekContext(v.totalPaid, v.amount, v.commission, v.carryOverFromPriorWeeks),
       0,
     ),
     [data],
@@ -745,7 +736,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
   });
 
   const vendorInfo = data?.vendorInfo ?? {};
-  const arrears = useMemo(() => applyMaskedWeeksToDailyArrearsResponse(data)?.arrears ?? {}, [data]);
+  const arrears = data?.arrears ?? {};
 
   const vendorIds = Object.keys(arrears).sort((a, b) => {
     const nameA = vendorInfo[a]?.name ?? a;
@@ -753,9 +744,9 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
     return nameA.localeCompare(nameB);
   });
 
-  const totalRemaining = useMemo(
-    () => Object.values(arrears).flat().reduce((s, e) => s + e.remaining, 0),
-    [arrears],
+  const totalRemaining = useMemo(() =>
+    Object.values(arrears).flat().reduce((s, e) => s + e.remaining, 0),
+    [arrears]
   );
 
   const submitPayment = useCallback(async (vendorId: string, date: string, amount: number, underlying?: DailyArrearEntry[]) => {
@@ -838,6 +829,15 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
     }
   }, [routerId, queryClient, toast, vendorInfo]);
 
+  const toggleExpand = (vid: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(vid)) next.delete(vid);
+      else next.add(vid);
+      return next;
+    });
+  };
+
   if (isLoading) return (
     <div className="py-4 space-y-2">
       <Skeleton className="h-5 w-36 mx-auto" />
@@ -863,404 +863,127 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
 
       {vendorIds.map((vid) => {
         const entries = arrears[vid] ?? [];
-        const displayEntries = groupArrearsByCalendarWeek(entries);
-        const isWeekGrouped = displayEntries.length < entries.length;
+        const displayEntries = consolidateArrears(entries);
+        const isConsolidated = entries.length >= 3;
         const vendorName = vendorInfo[vid]?.name ?? `Vendeur ${vid}`;
         const vendorTotal = entries.reduce((s, e) => s + e.remaining, 0);
         const isOpen = expanded.has(vid);
         const c = vendorColor(vid);
-        const todayWeekMonday = mondayOfDateUtc(new Date().toISOString().slice(0, 10));
-        const accordionDefaultOpen = displayEntries
-          .filter((e) => e.__weekMonday === todayWeekMonday)
-          .map((e) => e.__weekMonday);
 
         return (
-          <Collapsible
-            key={vid}
-            open={isOpen}
-            onOpenChange={(next) => {
-              setExpanded((prev) => {
-                const n = new Set(prev);
-                if (next) n.add(vid);
-                else n.delete(vid);
-                return n;
-              });
-            }}
-            className="group"
-          >
-            <div className={`border ${c.border} rounded-lg overflow-hidden`}>
-              <div className={`flex w-full items-stretch ${c.header}`}>
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex flex-1 min-w-0 items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors hover:brightness-[0.98]"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <AlertTriangle className={`h-3.5 w-3.5 ${c.icon} flex-shrink-0`} />
-                      <span className="font-semibold text-sm text-gray-800 truncate">{vendorName}</span>
-                      <span className={`text-[10px] ${c.sub} whitespace-nowrap`}>
-                        {entries.length} jour{entries.length > 1 ? "s" : ""}{isWeekGrouped ? " (par semaine)" : ""}
-                      </span>
-                    </div>
-                  </button>
-                </CollapsibleTrigger>
-                <div className="flex items-center gap-2 flex-shrink-0 border-l border-black/5 px-2 py-2.5">
-                  <span className={`font-bold ${c.amount} text-sm tabular-nums`}>{fmtAmount(vendorTotal)} FCFA</span>
-                  <button
-                    type="button"
-                    className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                    disabled={payLoading}
-                    onClick={() => void solderVendorAll(vid, entries)}
-                  >
-                    Solder tout
-                  </button>
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="rounded-md p-1 text-gray-500 hover:bg-black/5"
-                      aria-label={isOpen ? "Replier le détail" : "Déplier le détail"}
-                    >
-                      <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
-                    </button>
-                  </CollapsibleTrigger>
-                </div>
+          <div key={vid} className={`border ${c.border} rounded-lg overflow-hidden`}>
+            {/* Vendor header */}
+            <div
+              className={`flex items-center justify-between px-3 py-2.5 ${c.header} cursor-pointer transition-colors`}
+              onClick={() => toggleExpand(vid)}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertTriangle className={`h-3.5 w-3.5 ${c.icon} flex-shrink-0`} />
+                <span className="font-semibold text-sm text-gray-800 truncate">{vendorName}</span>
+                <span className={`text-[10px] ${c.sub} whitespace-nowrap`}>
+                  {entries.length} jour{entries.length > 1 ? "s" : ""}{isConsolidated ? " (regroupés)" : ""}
+                </span>
               </div>
-
-              <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                <div className="border-t border-black/5 bg-slate-50/80 p-2">
-                  <Accordion type="multiple" defaultValue={accordionDefaultOpen} className="space-y-2">
-                    {displayEntries.map((entry) => {
-                      const pKey = `${vid}|w:${entry.__weekMonday}`;
-                      const isPaying = payingKey === pKey;
-                      const underlying = entry.__underlying && entry.__underlying.length > 1 ? entry.__underlying : undefined;
-                      const dayCount = entry.__underlying?.length ?? 1;
-                      const flatDays: DailyArrearEntry[] =
-                        entry.__underlying?.length && entry.__underlying.length > 0
-                          ? entry.__underlying
-                          : [
-                              {
-                                date: entry.date,
-                                salesAmount: entry.salesAmount,
-                                paidAmount: entry.paidAmount,
-                                remaining: entry.remaining,
-                                payments: entry.payments,
-                              },
-                            ];
-                      const { merged: mHead, recent: rTail } = splitArrearsMergedAndRecentTail(flatDays, 4);
-                      const useSplitLayout = entry.__weekMonday === todayWeekMonday && mHead && mHead.length > 0;
-                      const mergedEntry = useSplitLayout ? mergeDailyArrearEntriesForPayments(mHead) : null;
-                      const cumulKey = `${vid}|cumul-${entry.__weekMonday}`;
-                      const isPayingCumul = payingKey === cumulKey;
-
-                      return (
-                        <AccordionItem
-                          key={entry.__weekMonday}
-                          value={entry.__weekMonday}
-                          className={`border-b-0 rounded-lg border bg-white shadow-sm ${c.border}`}
-                        >
-                          <AccordionTrigger className="px-3 py-2 hover:no-underline [&>svg]:shrink-0">
-                            <span className="min-w-0 flex-1 text-left">
-                              <span className="text-xs font-medium text-gray-800 break-words">
-                                {weekArrearLabelWithFmt(entry.__weekMonday, fmtDateFr)}
-                              </span>
-                              <span className={`text-[10px] font-normal ${c.sub} ml-1`}>
-                                ({dayCount} jour{dayCount > 1 ? "s" : ""}) · {fmtAmount(entry.remaining)} FCFA
-                              </span>
-                            </span>
-                          </AccordionTrigger>
-                          <AccordionContent className="border-t border-black/5 px-3 pb-3 pt-0">
-                            {useSplitLayout && mergedEntry ? (
-                              <div className="space-y-3 pt-2">
-                                <Collapsible defaultOpen={false} className="group rounded-md border border-orange-100 bg-orange-50/40">
-                                  <CollapsibleTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-[10px] font-semibold text-orange-900"
-                                    >
-                                      <span className="min-w-0 break-words pr-2">
-                                        Arriérés cumulés ({mHead!.length} jour{mHead!.length > 1 ? "s" : ""}, du {fmtDateFr(mHead![0]!.date)} au{" "}
-                                        {fmtDateFr(mHead![mHead!.length - 1]!.date)})
-                                      </span>
-                                      <span className="flex flex-shrink-0 items-center gap-1 tabular-nums">
-                                        {fmtAmount(mergedEntry.remaining)} FCFA
-                                        <ChevronDown className="h-3.5 w-3.5 text-orange-700/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                                      </span>
-                                    </button>
-                                  </CollapsibleTrigger>
-                                  <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                                    <div className="space-y-2 border-t border-orange-100/80 px-2 py-2">
-                                      <ul className="space-y-1.5">
-                                        {[...mHead!]
-                                          .sort((a, b) => a.date.localeCompare(b.date))
-                                          .map((day) => (
-                                            <li
-                                              key={day.date}
-                                              className="flex items-start justify-between gap-2 rounded-md border border-orange-200/90 bg-white/95 px-2.5 py-1.5 text-[10px]"
-                                            >
-                                              <div className="min-w-0 flex-1">
-                                                <span className="font-medium text-orange-900">Arriéré du {fmtDateFr(day.date)}</span>
-                                                {day.paidAmount > 0 ? (
-                                                  <span className="mt-0.5 block text-[9px] text-gray-600">
-                                                    Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
-                                                    {fmtAmount(
-                                                      paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
-                                                    )}{" "}
-                                                    FCFA
-                                                  </span>
-                                                ) : (
-                                                  <span className="mt-0.5 block text-[9px] text-gray-600">
-                                                    Ventes: {fmtAmount(day.salesAmount)} FCFA
-                                                  </span>
-                                                )}
-                                              </div>
-                                              <span className="flex-shrink-0 font-bold tabular-nums text-orange-900">
-                                                {fmtAmount(day.remaining)} FCFA
-                                              </span>
-                                            </li>
-                                          ))}
-                                      </ul>
-                                      {!isPayingCumul && (
-                                        <div className="flex flex-wrap gap-1.5">
-                                          <button
-                                            type="button"
-                                            className="text-[10px] rounded bg-orange-600 px-2 py-0.5 text-white hover:bg-orange-700"
-                                            onClick={() => {
-                                              setPayingKey(cumulKey);
-                                              setPayAmount(String(mergedEntry.remaining));
-                                            }}
-                                          >
-                                            Verser
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="text-[10px] rounded bg-emerald-600 px-2 py-0.5 text-white hover:bg-emerald-700 disabled:opacity-50"
-                                            disabled={payLoading}
-                                            onClick={() => void submitPayment(vid, mergedEntry.date, mergedEntry.remaining, mergedEntry.__underlying)}
-                                          >
-                                            Solder
-                                          </button>
-                                        </div>
-                                      )}
-                                      {isPayingCumul && (
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                          <Input
-                                            type="number"
-                                            min={1}
-                                            max={mergedEntry.remaining}
-                                            className="h-7 w-28 text-xs"
-                                            value={payAmount}
-                                            onChange={(e) => setPayAmount(e.target.value)}
-                                            placeholder="Montant"
-                                          />
-                                          <span className="text-[10px] text-gray-500">FCFA</span>
-                                          <button
-                                            type="button"
-                                            className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50"
-                                            disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                            onClick={() =>
-                                              void submitPayment(vid, mergedEntry.date, Number(payAmount), mergedEntry.__underlying)
-                                            }
-                                          >
-                                            {payLoading ? "…" : "Confirmer"}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="text-[10px] rounded bg-gray-200 px-2 py-0.5 text-gray-700 hover:bg-gray-300"
-                                            onClick={() => {
-                                              setPayingKey(null);
-                                              setPayAmount("");
-                                            }}
-                                          >
-                                            Annuler
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </CollapsibleContent>
-                                </Collapsible>
-                                {rTail.map((day) => {
-                                  const dayKey = `${vid}|${day.date}`;
-                                  const isPayingDay = payingKey === dayKey;
-                                  return (
-                                    <div key={day.date} className="rounded-md border border-gray-100 bg-white px-2 py-2">
-                                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                        <div className="min-w-0 flex-1">
-                                          <p className="text-xs font-medium text-gray-800">Arriéré du {fmtDateFr(day.date)}</p>
-                                          {day.paidAmount > 0 ? (
-                                            <p className="text-[10px] text-gray-400">
-                                              Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
-                                              {fmtAmount(paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0))} FCFA
-                                            </p>
-                                          ) : (
-                                            <p className="text-[10px] text-gray-400">Ventes: {fmtAmount(day.salesAmount)} FCFA</p>
-                                          )}
-                                        </div>
-                                        <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
-                                          <span className={`text-xs font-bold ${c.amount} tabular-nums`}>{fmtAmount(day.remaining)} FCFA</span>
-                                          {!isPayingDay && (
-                                            <>
-                                              <button
-                                                type="button"
-                                                className="text-[10px] rounded bg-orange-600 px-2 py-0.5 text-white hover:bg-orange-700"
-                                                onClick={() => {
-                                                  setPayingKey(dayKey);
-                                                  setPayAmount(String(day.remaining));
-                                                }}
-                                              >
-                                                Verser
-                                              </button>
-                                              <button
-                                                type="button"
-                                                className="text-[10px] rounded bg-emerald-600 px-2 py-0.5 text-white hover:bg-emerald-700 disabled:opacity-50"
-                                                disabled={payLoading}
-                                                onClick={() => void submitPayment(vid, day.date, day.remaining, undefined)}
-                                              >
-                                                Solder
-                                              </button>
-                                            </>
-                                          )}
-                                        </div>
-                                      </div>
-                                      {isPayingDay && (
-                                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                          <Input
-                                            type="number"
-                                            min={1}
-                                            max={day.remaining}
-                                            className="h-7 w-28 text-xs"
-                                            value={payAmount}
-                                            onChange={(e) => setPayAmount(e.target.value)}
-                                            placeholder="Montant"
-                                          />
-                                          <span className="text-[10px] text-gray-500">FCFA</span>
-                                          <button
-                                            type="button"
-                                            className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50"
-                                            disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                            onClick={() => void submitPayment(vid, day.date, Number(payAmount), undefined)}
-                                          >
-                                            {payLoading ? "…" : "Confirmer"}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="text-[10px] rounded bg-gray-200 px-2 py-0.5 text-gray-700 hover:bg-gray-300"
-                                            onClick={() => {
-                                              setPayingKey(null);
-                                              setPayAmount("");
-                                            }}
-                                          >
-                                            Annuler
-                                          </button>
-                                        </div>
-                                      )}
-                                      {day.payments.length > 0 && (
-                                        <div className="mt-1 space-y-1">
-                                          {day.payments.map((p) => (
-                                            <div key={p.id} className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                                              <CheckCircle2 className="h-3 w-3 flex-shrink-0 text-emerald-400" />
-                                              <span>{fmtAmount(p.amount)} FCFA versé</span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <>
-                                <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-start sm:justify-between">
-                                  <div className="min-w-0 flex-1">
-                                    {entry.paidAmount > 0 ? (
-                                      <p className="text-[10px] text-gray-400">
-                                        Ventes: {fmtAmount(entry.salesAmount)} · Versé:{" "}
-                                        {fmtAmount(paidShownVersusWeekContext(entry.paidAmount, entry.salesAmount, 0, 0))} FCFA
-                                      </p>
-                                    ) : (
-                                      <p className="text-[10px] text-gray-400">Ventes: {fmtAmount(entry.salesAmount)} FCFA</p>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-1.5 sm:flex-shrink-0 sm:justify-end">
-                                    <span className={`text-xs font-bold ${c.amount} tabular-nums`}>{fmtAmount(entry.remaining)} FCFA</span>
-                                    {!isPaying && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          className="text-[10px] rounded bg-orange-600 px-2 py-0.5 text-white hover:bg-orange-700 transition-colors"
-                                          onClick={() => {
-                                            setPayingKey(pKey);
-                                            setPayAmount(String(entry.remaining));
-                                          }}
-                                        >
-                                          Verser
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="text-[10px] rounded bg-emerald-600 px-2 py-0.5 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                                          disabled={payLoading}
-                                          onClick={() => void submitPayment(vid, entry.date, entry.remaining, underlying)}
-                                        >
-                                          Solder
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {isPaying && (
-                                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                    <Input
-                                      type="number"
-                                      min={1}
-                                      max={entry.remaining}
-                                      className="h-7 w-28 text-xs"
-                                      value={payAmount}
-                                      onChange={(e) => setPayAmount(e.target.value)}
-                                      placeholder="Montant"
-                                    />
-                                    <span className="text-[10px] text-gray-500">FCFA</span>
-                                    <button
-                                      type="button"
-                                      className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
-                                      disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                      onClick={() => void submitPayment(vid, entry.date, Number(payAmount), underlying)}
-                                    >
-                                      {payLoading ? "…" : "Confirmer"}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="text-[10px] rounded bg-gray-200 px-2 py-0.5 text-gray-700 hover:bg-gray-300 transition-colors"
-                                      onClick={() => {
-                                        setPayingKey(null);
-                                        setPayAmount("");
-                                      }}
-                                    >
-                                      Annuler
-                                    </button>
-                                  </div>
-                                )}
-
-                                {entry.payments.length > 0 && (
-                                  <div className="mt-2 space-y-1">
-                                    {entry.payments.map((p) => (
-                                      <div key={p.id} className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                                        <CheckCircle2 className="h-3 w-3 flex-shrink-0 text-emerald-400" />
-                                        <span>{fmtAmount(p.amount)} FCFA versé</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </AccordionContent>
-                        </AccordionItem>
-                      );
-                    })}
-                  </Accordion>
-                </div>
-              </CollapsibleContent>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`font-bold ${c.amount} text-sm tabular-nums`}>{fmtAmount(vendorTotal)} FCFA</span>
+                <button
+                  className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                  disabled={payLoading}
+                  onClick={(e) => { e.stopPropagation(); solderVendorAll(vid, entries); }}
+                >
+                  Solder tout
+                </button>
+                {isOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+              </div>
             </div>
-          </Collapsible>
+
+            {/* Day entries */}
+            {isOpen && (
+              <div className={`divide-y ${c.divide}`}>
+                {displayEntries.map((entry) => {
+                  const pKey = `${vid}|${entry.date}`;
+                  const isPaying = payingKey === pKey;
+                  const underlying = entry.__underlying;
+                  return (
+                    <div key={entry.date} className="px-3 py-2 bg-white">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-gray-700">
+                            {underlying ? `Arriérés cumulés (${underlying.length} jours, du ${fmtDateFr(underlying[0].date)} au ${fmtDateFr(entry.date)})` : fmtDateFr(entry.date)}
+                          </p>
+                          {entry.paidAmount > 0 ? (
+                            <p className="text-[10px] text-gray-400">
+                              Ventes: {fmtAmount(entry.salesAmount)} · Versé: {fmtAmount(paidShownVersusWeekContext(entry.paidAmount, entry.salesAmount, 0, 0))} FCFA
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-gray-400">Ventes: {fmtAmount(entry.salesAmount)} FCFA</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className={`text-xs font-bold ${c.amount} tabular-nums`}>{fmtAmount(entry.remaining)} FCFA</span>
+                          {!isPaying && (
+                            <>
+                              <button
+                                className="text-[10px] px-2 py-0.5 rounded bg-orange-600 text-white hover:bg-orange-700 transition-colors"
+                                onClick={() => { setPayingKey(pKey); setPayAmount(String(entry.remaining)); }}
+                              >
+                                Verser
+                              </button>
+                              <button
+                                className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                                disabled={payLoading}
+                                onClick={() => submitPayment(vid, entry.date, entry.remaining, underlying)}
+                              >
+                                Solder
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {isPaying && (
+                        <div className="mt-2 flex items-center gap-1.5 pl-2">
+                          <Input
+                            type="number" min={1} max={entry.remaining}
+                            className="h-7 w-28 text-xs"
+                            value={payAmount}
+                            onChange={(e) => setPayAmount(e.target.value)}
+                            placeholder="Montant"
+                          />
+                          <span className="text-[10px] text-gray-500">FCFA</span>
+                          <button
+                            className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                            disabled={payLoading || !payAmount || Number(payAmount) <= 0}
+                            onClick={() => submitPayment(vid, entry.date, Number(payAmount), underlying)}
+                          >
+                            {payLoading ? "…" : "Confirmer"}
+                          </button>
+                          <button
+                            className="text-[10px] px-2 py-0.5 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                            onClick={() => { setPayingKey(null); setPayAmount(""); }}
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Existing day payments */}
+                      {entry.payments.length > 0 && (
+                        <div className="mt-1.5 space-y-1 pl-2">
+                          {entry.payments.map((p) => (
+                            <div key={p.id} className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-400 flex-shrink-0" />
+                              <span>{fmtAmount(p.amount)} FCFA versé</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         );
       })}
     </div>
