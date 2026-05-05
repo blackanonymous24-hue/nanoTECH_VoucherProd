@@ -123,7 +123,8 @@ export default function SellingReport() {
       return res.json();
     },
     enabled: !!selectedRouterId,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchInterval: 30_000,
   });
 
   const entries = data ?? [];
