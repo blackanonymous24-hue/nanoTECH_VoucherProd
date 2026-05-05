@@ -2262,18 +2262,17 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const COUNT_FRESH_MS = 20_000;
   if (!_usersRefreshing.has(id)) {
     if (!usersCached) {
-      // Cold start : fetch minimal pour afficher "Tickets disponibles" rapidement
+      // Cold start : await inline pour que la première réponse contienne déjà le vrai comptage
+      // (setImmediate différait le fetch → le client voyait available=0 jusqu'au prochain poll)
       _usersRefreshing.add(id);
-      setImmediate(async () => {
-        try {
-          const list = await listHotspotUsersFast(conn);
-          const payload = await computeUsersCount(id, conn, list);
-          _usersCountCache.set(sc, payload);
-        } catch { /* keep stale */ }
-        finally { _usersRefreshing.delete(id); }
-      });
+      try {
+        const list = await listHotspotUsersFast(conn);
+        const payload = await computeUsersCount(id, conn, list);
+        _usersCountCache.set(sc, payload);
+      } catch { /* keep zeros — connexion routeur impossible */ }
+      finally { _usersRefreshing.delete(id); }
     } else if ((now - usersCached.cachedAt) > COUNT_FRESH_MS) {
-      // Stale : fetch complet (réutilise userCache si dispo) pour données précises
+      // Stale : refresh en arrière-plan (non-bloquant, on sert le cache stale)
       _usersRefreshing.add(id);
       setImmediate(async () => {
         try {

@@ -167,6 +167,7 @@ export default function Routers() {
   const deleteMutation = useDeleteRouter();
   const updateMutation = useUpdateRouter();
   const testMutation = useTestRouterConnection();
+  const [pingingIds, setPingingIds] = useState<Set<number>>(new Set());
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { setSelectedRouterId, selectedRouterId } = useRouterContext();
@@ -270,6 +271,7 @@ export default function Routers() {
   };
 
   const handleTest = async (id: number) => {
+    setPingingIds((prev) => new Set(prev).add(id));
     try {
       const result = await testMutation.mutateAsync({ id });
       setTestResults((prev) => ({ ...prev, [id]: result }));
@@ -282,6 +284,8 @@ export default function Routers() {
       const message = err instanceof Error ? err.message : "Erreur de connexion";
       setTestResults((prev) => ({ ...prev, [id]: { success: false, message } }));
       toast({ title: "Connexion échouée", description: message, variant: "destructive" });
+    } finally {
+      setPingingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
     }
   };
 
@@ -449,7 +453,7 @@ export default function Routers() {
                         variant="ghost"
                         className="h-7 w-7 rounded-full text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-100"
                         onClick={(e) => { e.stopPropagation(); void handleTest(r.id); }}
-                        disabled={testMutation.isPending}
+                        disabled={pingingIds.has(r.id)}
                         title="Ping"
                       >
                         <Activity className="h-3.5 w-3.5" />
