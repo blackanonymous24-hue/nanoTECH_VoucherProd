@@ -365,7 +365,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   table.sum-print td.num { text-align: right; white-space: nowrap; width: 28%; }
   table.sum-print tr.sum-print-vendor td { font-weight: bold; font-size: 11px; border-bottom: 1px solid #ccc; }
   table.sum-print tr.sum-print-arrear td { font-size: 9px; }
-  table.sum-print tr.sum-line td { font-weight: bold; border-top: 2px solid #111; border-bottom: none; padding-top: 8px; padding-bottom: 8px; background: #f7f7f7; }
+  table.sum-print tr.sum-line td { font-weight: bold; border-top: 2px solid #111; border-bottom: none; padding-top: 4px; padding-bottom: 4px; background: #f7f7f7; }
   table.sum-print tr.sum-line td.lbl { vertical-align: middle; }
   table.sum-print tr.sum-line td.num { vertical-align: middle; }
   table.sum-print .sum-line-amt { font-size: 11px; font-weight: bold; }
@@ -528,7 +528,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     const HEAD_BLOCK_H = 72;
     const VENDOR_DAY_H = 22;
     const ARR_ROW_H = 17;
-    const GRAND_ROW_H = 26;
+    const GRAND_ROW_H = 22;
     const FOOTER_H = 32;
     const BOX_R = 4;
 
