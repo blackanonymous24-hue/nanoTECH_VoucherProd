@@ -445,7 +445,7 @@ export default function Routers() {
                           )}
                         </div>
                         <p className="text-[11px] text-gray-500 leading-tight truncate">
-                          {r.host}:{r.port}
+                          {r.host}:{r.port} · {r.username}
                         </p>
                       </div>
                     </div>
