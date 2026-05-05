@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verif
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken, verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyPassword as verifyCollabPassword, createToken as createCollabToken, verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
+import { DEFAULT_TICKET_TEMPLATE } from "../lib/default-template.js";
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
 import { purgeOldMikhmonScripts } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
@@ -37,7 +38,7 @@ async function getOrInitSuperAdmin(): Promise<typeof adminSettingsTable.$inferSe
   const passwordHash = await hashPassword("root");
   const [created] = await db
     .insert(adminSettingsTable)
-    .values({ login: "admin", passwordHash, isSuperAdmin: true, isActive: true })
+    .values({ login: "admin", passwordHash, isSuperAdmin: true, isActive: true, ticketTemplate: DEFAULT_TICKET_TEMPLATE })
     .returning();
   return created;
 }
@@ -361,7 +362,7 @@ router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, tenantAdminId));
 
-  res.json({ template: row?.ticketTemplate ?? null });
+  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE });
 });
 
 /**
@@ -379,7 +380,7 @@ router.get("/admin/ticket-template", async (req, res): Promise<void> => {
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, claims.adminId));
 
-  res.json({ template: row?.ticketTemplate ?? null });
+  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE });
 });
 
 /**

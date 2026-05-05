@@ -2,6 +2,7 @@ import { Router } from "express";
 import { eq, sql, and, ne } from "drizzle-orm";
 import { db, adminSettingsTable, routersTable } from "@workspace/db";
 import { hashPassword } from "../lib/admin-auth.js";
+import { DEFAULT_TICKET_TEMPLATE } from "../lib/default-template.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
 import { getAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 
@@ -150,6 +151,7 @@ router.post("/super/admins", async (req, res): Promise<void> => {
       forfaitEndsAt,
       credits: initialCredits,
       extraRouterSlots: 0,
+      ticketTemplate: DEFAULT_TICKET_TEMPLATE,
     })
     .returning();
 
