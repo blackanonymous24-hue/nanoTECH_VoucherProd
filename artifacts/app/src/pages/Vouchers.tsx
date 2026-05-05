@@ -1345,177 +1345,191 @@ export default function Vouchers() {
               ) : (
               <><Card className="mb-4">
                 <CardContent className="py-3">
-                  <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-1 md:overflow-hidden">
-                    <div className="relative w-full md:w-[21%] min-w-0">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-                      <Input
-                        className="pl-8 h-9 md:h-8 text-sm md:text-xs"
-                        placeholder="Rechercher par code, nom, commentaire..."
-                        value={search}
-                        onChange={(e) => handleSearchChange(e.target.value)}
-                      />
+                  <div className="space-y-1.5 md:space-y-0 md:flex md:flex-nowrap md:items-center md:gap-1 md:overflow-hidden">
+
+                    {/* Ligne 1 mobile : recherche + ↻ */}
+                    <div className="flex items-center gap-2 md:contents">
+                      <div className="relative flex-1 min-w-0 md:flex-none md:w-[21%]">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                        <Input
+                          className="pl-8 h-8 text-xs"
+                          placeholder="Rechercher par code, nom, commentaire..."
+                          value={search}
+                          onChange={(e) => handleSearchChange(e.target.value)}
+                        />
+                      </div>
+                      <span className="flex-shrink-0 text-[11px] text-gray-400 md:w-[7%] md:text-right">↻ 30s</span>
                     </div>
-                    {/* Combobox — Forfait */}
-                    <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={profilePopoverOpen}
-                          className="w-full md:w-[14%] min-w-0 justify-between font-normal text-sm md:text-[11px] h-9 md:h-8 px-1.5"
-                        >
-                          <span className="truncate whitespace-nowrap">
-                            {filterProfile === "all" ? "Tous les forfaits" : filterProfile}
-                          </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto min-w-[10rem] max-w-xs p-0" align="start">
-                        <div className="overflow-y-auto max-h-60 py-1">
-                          {sortedProfiles.length === 0 && (
-                            <p className="px-3 py-2 text-xs text-gray-400">Aucun forfait.</p>
-                          )}
-                          {[{ name: "all" as const }, ...sortedProfiles].map((p) => (
-                            <button
-                              key={p.name}
-                              onClick={() => { handleProfileChange(p.name); setProfilePopoverOpen(false); }}
-                              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
-                            >
-                              <Check className={`h-3.5 w-3.5 flex-shrink-0 ${(p.name === "all" ? filterProfile === "all" : filterProfile === p.name) ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                              {p.name === "all" ? "Tous les forfaits" : p.name}
-                            </button>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
 
-                    {/* Combobox — Lot */}
-                    <Popover open={commentPopoverOpen} onOpenChange={setCommentPopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={commentPopoverOpen}
-                          className="w-full md:w-[17%] min-w-0 justify-between font-normal text-sm md:text-[11px] h-9 md:h-8 px-1.5"
-                        >
-                          <span className="font-mono text-xs truncate">
-                            {filterComment === "all" ? "Tous les lots" : filterComment}
-                          </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto min-w-52 max-w-sm p-0" align="start">
-                        <div className="overflow-y-auto max-h-72 py-1">
-                          {uniqueComments.length === 0 && (
-                            <p className="px-3 py-2 text-sm text-gray-400">Aucun lot.</p>
-                          )}
-                          <button
-                            onClick={() => { handleCommentChange("all"); setCommentPopoverOpen(false); }}
-                            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 transition-colors"
+                    {/* Ligne 2 mobile : 4 filtres sur la même ligne */}
+                    <div className="flex gap-1 md:contents">
+                      {/* Combobox — Forfait */}
+                      <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={profilePopoverOpen}
+                            className="flex-1 min-w-0 md:flex-none md:w-[14%] justify-between font-normal text-[11px] h-8 px-1.5"
                           >
-                            <Check className={`h-4 w-4 flex-shrink-0 ${filterComment === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                            Tous
-                          </button>
-                          {uniqueComments.map(({ name, count }) => (
-                            <button
-                              key={name}
-                              onClick={() => { handleCommentChange(name); setCommentPopoverOpen(false); }}
-                              className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 transition-colors"
-                            >
-                              <Check className={`h-4 w-4 flex-shrink-0 ${filterComment === name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                              <span className="font-mono text-xs whitespace-nowrap flex-1">{name}</span>
-                              <span className="text-xs text-green-600 ml-2 flex-shrink-0">({count})</span>
-                            </button>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-
-                    {/* Combobox — Vendeur */}
-                    <Popover open={vendorPopoverOpen} onOpenChange={setVendorPopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={vendorPopoverOpen}
-                          className={`w-full md:w-[15%] min-w-0 justify-between font-normal text-sm md:text-[11px] h-9 md:h-8 px-1.5 ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
-                        >
-                          <span className="truncate whitespace-nowrap">
-                            {filterVendor === "all" ? "Tous les vendeurs" : filterVendor}
-                          </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto min-w-[11rem] max-w-xs p-0" align="start">
-                        <div className="overflow-y-auto max-h-60 py-1">
-                          <button
-                            onClick={() => { handleVendorChange("all"); setVendorPopoverOpen(false); }}
-                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
-                          >
-                            <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterVendor === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                            Tous les vendeurs
-                          </button>
-                          {uniqueVendors.length === 0 ? (
-                            <p className="px-3 py-2 text-xs text-gray-400 italic">Aucun vendeur identifié.</p>
-                          ) : (
-                            uniqueVendors.map((v) => (
+                            <span className="truncate">
+                              {filterProfile === "all"
+                                ? <><span className="md:hidden">Forfaits</span><span className="hidden md:inline">Tous les forfaits</span></>
+                                : filterProfile}
+                            </span>
+                            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto min-w-[10rem] max-w-xs p-0" align="start">
+                          <div className="overflow-y-auto max-h-60 py-1">
+                            {sortedProfiles.length === 0 && (
+                              <p className="px-3 py-2 text-xs text-gray-400">Aucun forfait.</p>
+                            )}
+                            {[{ name: "all" as const }, ...sortedProfiles].map((p) => (
                               <button
-                                key={v}
-                                onClick={() => { handleVendorChange(v); setVendorPopoverOpen(false); }}
+                                key={p.name}
+                                onClick={() => { handleProfileChange(p.name); setProfilePopoverOpen(false); }}
                                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
                               >
-                                <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterVendor === v ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                                {v}
+                                <Check className={`h-3.5 w-3.5 flex-shrink-0 ${(p.name === "all" ? filterProfile === "all" : filterProfile === p.name) ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                                {p.name === "all" ? "Tous les forfaits" : p.name}
                               </button>
-                            ))
-                          )}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
 
-                    {/* Combobox — Statut */}
-                    <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={statusPopoverOpen}
-                          className={`w-full md:w-[13%] min-w-0 justify-between font-normal text-sm md:text-[11px] h-9 md:h-8 px-1.5 ${filterStatus !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
-                        >
-                          <span className="truncate whitespace-nowrap">
-                            {filterStatus === "all"
-                              ? "Tous statuts"
-                              : filterStatus === "expired"
-                                ? "Expirés"
-                                : filterStatus === "disabled"
-                                  ? "Désactivés"
-                                  : "Activés"}
-                          </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto min-w-[10rem] max-w-xs p-0" align="start">
-                        <div className="overflow-y-auto max-h-56 py-1">
-                          {[
-                            { id: "all", label: "Tous statuts" },
-                            { id: "active", label: "Activés" },
-                            { id: "disabled", label: "Désactivés" },
-                            { id: "expired", label: "Expirés" },
-                          ].map((s) => (
+                      {/* Combobox — Lot */}
+                      <Popover open={commentPopoverOpen} onOpenChange={setCommentPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={commentPopoverOpen}
+                            className="flex-1 min-w-0 md:flex-none md:w-[17%] justify-between font-normal text-[11px] h-8 px-1.5"
+                          >
+                            <span className="font-mono text-[11px] truncate">
+                              {filterComment === "all"
+                                ? <><span className="md:hidden">Lots</span><span className="hidden md:inline">Tous les lots</span></>
+                                : filterComment}
+                            </span>
+                            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto min-w-52 max-w-sm p-0" align="start">
+                          <div className="overflow-y-auto max-h-72 py-1">
+                            {uniqueComments.length === 0 && (
+                              <p className="px-3 py-2 text-sm text-gray-400">Aucun lot.</p>
+                            )}
                             <button
-                              key={s.id}
-                              onClick={() => { setFilterStatus(s.id as typeof filterStatus); setStatusPopoverOpen(false); setPage(0); }}
+                              onClick={() => { handleCommentChange("all"); setCommentPopoverOpen(false); }}
+                              className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 transition-colors"
+                            >
+                              <Check className={`h-4 w-4 flex-shrink-0 ${filterComment === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                              Tous
+                            </button>
+                            {uniqueComments.map(({ name, count }) => (
+                              <button
+                                key={name}
+                                onClick={() => { handleCommentChange(name); setCommentPopoverOpen(false); }}
+                                className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-gray-100 transition-colors"
+                              >
+                                <Check className={`h-4 w-4 flex-shrink-0 ${filterComment === name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                                <span className="font-mono text-xs whitespace-nowrap flex-1">{name}</span>
+                                <span className="text-xs text-green-600 ml-2 flex-shrink-0">({count})</span>
+                              </button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      {/* Combobox — Vendeur */}
+                      <Popover open={vendorPopoverOpen} onOpenChange={setVendorPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={vendorPopoverOpen}
+                            className={`flex-1 min-w-0 md:flex-none md:w-[15%] justify-between font-normal text-[11px] h-8 px-1.5 ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                          >
+                            <span className="truncate">
+                              {filterVendor === "all"
+                                ? <><span className="md:hidden">Vendeurs</span><span className="hidden md:inline">Tous les vendeurs</span></>
+                                : filterVendor}
+                            </span>
+                            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto min-w-[11rem] max-w-xs p-0" align="start">
+                          <div className="overflow-y-auto max-h-60 py-1">
+                            <button
+                              onClick={() => { handleVendorChange("all"); setVendorPopoverOpen(false); }}
                               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
                             >
-                              <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterStatus === s.id ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                              {s.label}
+                              <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterVendor === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                              Tous les vendeurs
                             </button>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                            {uniqueVendors.length === 0 ? (
+                              <p className="px-3 py-2 text-xs text-gray-400 italic">Aucun vendeur identifié.</p>
+                            ) : (
+                              uniqueVendors.map((v) => (
+                                <button
+                                  key={v}
+                                  onClick={() => { handleVendorChange(v); setVendorPopoverOpen(false); }}
+                                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
+                                >
+                                  <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterVendor === v ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                                  {v}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
 
-                    <span className="w-full md:w-[7%] text-right text-[11px] text-gray-400">↻ 30s</span>
+                      {/* Combobox — Statut */}
+                      <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={statusPopoverOpen}
+                            className={`flex-1 min-w-0 md:flex-none md:w-[13%] justify-between font-normal text-[11px] h-8 px-1.5 ${filterStatus !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                          >
+                            <span className="truncate">
+                              {filterStatus === "all"
+                                ? <><span className="md:hidden">Statut</span><span className="hidden md:inline">Tous statuts</span></>
+                                : filterStatus === "expired"
+                                  ? "Expirés"
+                                  : filterStatus === "disabled"
+                                    ? "Désactivés"
+                                    : "Activés"}
+                            </span>
+                            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto min-w-[10rem] max-w-xs p-0" align="start">
+                          <div className="overflow-y-auto max-h-56 py-1">
+                            {[
+                              { id: "all", label: "Tous statuts" },
+                              { id: "active", label: "Activés" },
+                              { id: "disabled", label: "Désactivés" },
+                              { id: "expired", label: "Expirés" },
+                            ].map((s) => (
+                              <button
+                                key={s.id}
+                                onClick={() => { setFilterStatus(s.id as typeof filterStatus); setStatusPopoverOpen(false); setPage(0); }}
+                                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
+                              >
+                                <Check className={`h-3.5 w-3.5 flex-shrink-0 ${filterStatus === s.id ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
                   </div>
                 </CardContent>
               </Card>

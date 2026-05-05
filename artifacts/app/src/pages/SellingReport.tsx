@@ -374,84 +374,90 @@ export default function SellingReport() {
 
         <CardContent className="pt-4 space-y-3">
           {/* ── Filter bar ─────────────────────────────────────── */}
-          <div className="form-shell flex flex-wrap items-end gap-2">
-            {/* Day */}
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Jour</span>
-              <Select value={filterDay} onValueChange={setFilterDay}>
-                <SelectTrigger className="h-8 w-[70px] text-xs">
-                  <SelectValue placeholder="Tous" />
-                </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
-                  <SelectItem value={ALL}>Tous</SelectItem>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                    <SelectItem key={d} value={String(d)}>{String(d).padStart(2, "0")}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="form-shell space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:items-end sm:gap-2">
+            {/* Sélecteurs : ligne 1 sur mobile, inline sur sm+ */}
+            <div className="flex items-end gap-1.5 sm:contents">
+              {/* Day */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Jour</span>
+                <Select value={filterDay} onValueChange={setFilterDay}>
+                  <SelectTrigger className="h-8 w-[60px] text-xs">
+                    <SelectValue placeholder="Tous" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
+                    <SelectItem value={ALL}>Tous</SelectItem>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                      <SelectItem key={d} value={String(d)}>{String(d).padStart(2, "0")}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Month */}
+              <div className="flex flex-col gap-1 flex-1 sm:flex-none">
+                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Mois</span>
+                <Select value={filterMonth} onValueChange={setFilterMonth}>
+                  <SelectTrigger className="h-8 w-full sm:w-[130px] text-xs">
+                    <SelectValue placeholder="Tous" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
+                    <SelectItem value={ALL}>Tous</SelectItem>
+                    {MONTH_NAMES_FR.map((name, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Year */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Année</span>
+                <Select value={filterYear} onValueChange={setFilterYear}>
+                  <SelectTrigger className="h-8 w-[80px] text-xs">
+                    <SelectValue placeholder="Toutes" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
+                    <SelectItem value={ALL}>Toutes</SelectItem>
+                    {yearOptions.map((y) => (
+                      <SelectItem key={y} value={y}>{y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* Month */}
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Mois</span>
-              <Select value={filterMonth} onValueChange={setFilterMonth}>
-                <SelectTrigger className="h-8 w-[130px] text-xs">
-                  <SelectValue placeholder="Tous" />
-                </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
-                  <SelectItem value={ALL}>Tous</SelectItem>
-                  {MONTH_NAMES_FR.map((name, i) => (
-                    <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* Boutons : ligne 2 sur mobile (même ligne, scroll si besoin), inline sur sm+ */}
+            <div className="flex gap-1.5 overflow-x-auto sm:contents">
+              <Button size="sm" className="h-8 gap-1.5 text-xs flex-shrink-0" onClick={applyFilter}>
+                <Search className="h-3.5 w-3.5" /> Filtrer
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs flex-shrink-0" onClick={showAll}>
+                <RotateCcw className="h-3.5 w-3.5" /> Tout
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                className="h-8 gap-1.5 text-xs flex-shrink-0 sm:ml-auto"
+                onClick={() => exportCSV(orderedFiltered, csvFilename)}
+                disabled={orderedFiltered.length === 0}
+              >
+                <FileDown className="h-3.5 w-3.5" /> CSV
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs flex-shrink-0 whitespace-nowrap text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                onClick={() => setConfirmDeleteMonth(true)}
+                disabled={!canDeleteMonthScripts || deletingMonthScripts}
+                title={
+                  canDeleteMonthScripts
+                    ? "Supprimer les scripts du mois sélectionné sur MikroTik"
+                    : "Sélectionnez un mois + une année puis cliquez sur Filtrer"
+                }
+              >
+                {deletingMonthScripts ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Supprimer de Mikrotik
+              </Button>
             </div>
-
-            {/* Year */}
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Année</span>
-              <Select value={filterYear} onValueChange={setFilterYear}>
-                <SelectTrigger className="h-8 w-[90px] text-xs">
-                  <SelectValue placeholder="Toutes" />
-                </SelectTrigger>
-                <SelectContent className="max-h-60 overflow-y-auto data-[state=open]:animate-none data-[state=closed]:animate-none">
-                  <SelectItem value={ALL}>Toutes</SelectItem>
-                  {yearOptions.map((y) => (
-                    <SelectItem key={y} value={y}>{y}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={applyFilter}>
-              <Search className="h-3.5 w-3.5" /> Filtrer
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={showAll}>
-              <RotateCcw className="h-3.5 w-3.5" /> Tout
-            </Button>
-            <Button
-              size="sm" variant="outline"
-              className="h-8 gap-1.5 text-xs ml-auto"
-              onClick={() => exportCSV(orderedFiltered, csvFilename)}
-              disabled={orderedFiltered.length === 0}
-            >
-              <FileDown className="h-3.5 w-3.5" /> CSV
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-              onClick={() => setConfirmDeleteMonth(true)}
-              disabled={!canDeleteMonthScripts || deletingMonthScripts}
-              title={
-                canDeleteMonthScripts
-                  ? "Supprimer les scripts du mois sélectionné sur MikroTik"
-                  : "Sélectionnez un mois + une année puis cliquez sur Filtrer"
-              }
-            >
-              {deletingMonthScripts ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              Supprimer de Mikrotik
-            </Button>
           </div>
 
           {/* ── Search ─────────────────────────────────────────── */}
