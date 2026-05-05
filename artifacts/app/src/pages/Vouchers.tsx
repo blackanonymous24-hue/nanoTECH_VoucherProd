@@ -188,7 +188,6 @@ export default function Vouchers() {
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editProfile, setEditProfile] = useState("");
-  const [editComment, setEditComment] = useState("");
   const [editBypassMac, setEditBypassMac] = useState("");
   const [editBypassComment, setEditBypassComment] = useState("");
   const [linkBypass, setLinkBypass] = useState(false);
@@ -900,7 +899,6 @@ export default function Vouchers() {
     setEditUsername(user.username);
     setEditPassword(user.password);
     setEditProfile(user.profile);
-    setEditComment(user.comment ?? "");
     setEditBypassMac(user.macAddress ?? "");
     setEditBypassComment("");
     setLinkBypass(!!user.macAddress);
@@ -930,13 +928,10 @@ export default function Vouchers() {
       return;
     }
 
-    const nextComment = editComment.trim();
-
     const nothingChanged =
       nextUsername === editingUser.username &&
       nextPassword === editingUser.password &&
       nextProfile === editingUser.profile &&
-      nextComment === (editingUser.comment ?? "") &&
       (!linkBypass || nextBypassMac === (editingUser.macAddress ?? ""));
     if (nothingChanged) { setEditingUser(null); return; }
 
@@ -945,7 +940,6 @@ export default function Vouchers() {
       newUsername: nextUsername,
       password: nextPassword,
       profile: nextProfile,
-      comment: nextComment,
       linkBypass,
       bypassMacAddress: linkBypass ? nextBypassMac : undefined,
       bypassComment: linkBypass ? editBypassComment.trim() : undefined,
@@ -976,7 +970,7 @@ export default function Vouchers() {
     })();
   };
 
-  const handleResetUser = async (user: HotspotUser, fromDialog = false) => {
+  const handleResetUser = async (user: HotspotUser) => {
     if (!activeRouterId || isResetting) return;
     setIsResetting(true);
     const resetToast = toast({
@@ -985,6 +979,7 @@ export default function Vouchers() {
     });
 
     try {
+      // 2. Reset on MikroTik
       const res = await fetch(
         `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}/reset`,
         { method: "POST", headers: { "Content-Type": "application/json" } },
@@ -999,17 +994,10 @@ export default function Vouchers() {
         schedulerRemoved?: number;
       };
 
+      // 3. Rechargement immédiat — le serveur a déjà patché son cache
+      //    in-memory (commentaire vidé, limites/quotas remis à zéro), donc
+      //    le refetch revient instantanément sans round-trip MikroTik.
       await Promise.all([refetchUsers(), refetchLots()]);
-
-      if (fromDialog) {
-        setEditComment("");
-        setEditingUser((prev) =>
-          prev && prev.username === user.username
-            ? { ...prev, comment: "", limitUptime: undefined, limitBytesTotal: undefined }
-            : prev,
-        );
-      }
-
       resetToast.update({
         id: resetToast.id,
         title: "Réinitialisation réussie",
@@ -2149,6 +2137,7 @@ export default function Vouchers() {
                   onChange={(e) => setExtendAmount(e.target.value)}
                   disabled={isExtending}
                   className="flex-1 font-mono text-center text-base"
+                  autoFocus
                   onKeyDown={(e) => { if (e.key === "Enter") void handleExtend(); }}
                 />
                 <select
@@ -2189,7 +2178,7 @@ export default function Vouchers() {
       </Dialog>
 
       {/* Edit user dialog — thème app + actions icônes (ordre : Fermer / Enregistrer / Activer·Désactiver / Supprimer / Réinitialiser) */}
-      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename && !isTogglingEditUserDisabled && !isResetting) setEditingUser(null); }}>
+      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename && !isTogglingEditUserDisabled) setEditingUser(null); }}>
         <DialogContent className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:hidden">
           <div className="space-y-1.5 border-b bg-muted/30 px-6 py-4">
             <DialogHeader className="space-y-1.5 text-left">
@@ -2289,14 +2278,16 @@ export default function Vouchers() {
                     size="icon"
                     variant="outline"
                     className="shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-700 dark:hover:bg-orange-950/40"
-                    disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser || !activeRouterId}
+                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
                     onClick={() => {
                       if (!editingUser) return;
-                      void handleResetUser(editingUser, true);
+                      const u = editingUser;
+                      setEditingUser(null);
+                      void handleResetUser(u);
                     }}
                     aria-label="Réinitialiser"
                   >
-                    {isResetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    <RotateCcw className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Réinitialiser</TooltipContent>
@@ -2304,17 +2295,6 @@ export default function Vouchers() {
             </div>
           </div>
           <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto px-6 py-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-comment" className="text-xs text-muted-foreground">Lot / Commentaire</Label>
-              <Input
-                id="edit-comment"
-                value={editComment}
-                onChange={(e) => setEditComment(e.target.value)}
-                placeholder="ex: LOT-2024-01"
-                className="font-mono"
-                disabled={isSavingRename || isTogglingEditUserDisabled || isResetting}
-              />
-            </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-username" className="text-xs text-muted-foreground">Identifiant</Label>
               <Input
@@ -2324,6 +2304,7 @@ export default function Vouchers() {
                 onKeyDown={(e) => { if (e.key === "Enter") void handleRenameUser(); }}
                 placeholder="Code ou nom d'utilisateur"
                 className="font-mono"
+                autoFocus
                 disabled={isSavingRename || isTogglingEditUserDisabled}
               />
             </div>

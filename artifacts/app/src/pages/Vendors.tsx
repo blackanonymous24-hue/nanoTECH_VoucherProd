@@ -126,6 +126,7 @@ export function PersonForm({
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
             required
+            autoFocus
           />
         </div>
 

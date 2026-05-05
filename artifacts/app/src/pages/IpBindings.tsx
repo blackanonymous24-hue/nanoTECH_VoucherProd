@@ -937,6 +937,7 @@ export default function IpBindings() {
                 onChange={(e) => setForm((f) => ({ ...f, macAddress: e.target.value }))}
                 placeholder="AA:BB:CC:DD:EE:FF"
                 className="font-mono"
+                autoFocus={!editing}
               />
               <p className="text-xs text-gray-400 mt-1">
                 Format hexadécimal séparé par <code>:</code> ou <code>-</code>.

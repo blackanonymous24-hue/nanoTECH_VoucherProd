@@ -164,6 +164,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
                 placeholder={isAdmin ? "admin, gérant ou collaborateur" : "nom du vendeur"}
                 value={form.login}
                 onChange={(e) => setForm({ ...form, login: e.target.value })}
+                autoFocus
                 autoComplete="username"
                 required
               />

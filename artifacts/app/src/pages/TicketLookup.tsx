@@ -99,6 +99,7 @@ export default function TicketLookup() {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Rechercher par utilisateur, MAC, IP ou commentaire…"
               className="pl-9 pr-9 h-10 text-sm"
+              autoFocus
             />
           </div>
           {search.trim().length > 0 && search.trim().length < 2 && (
