@@ -102,8 +102,8 @@ router.post("/super/admins", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Login et mot de passe requis" });
     return;
   }
-  if (loginTrimmed.length < 3) {
-    res.status(400).json({ error: "Login trop court (min 3 caractères)" });
+  if (loginTrimmed.length < 2) {
+    res.status(400).json({ error: "Login trop court (min 2 caractères)" });
     return;
   }
   if (password.length < 4) {
@@ -188,8 +188,8 @@ router.patch("/super/admins/:id", async (req, res): Promise<void> => {
   if (typeof isActive === "boolean") patch.isActive = isActive;
   if (login !== undefined) {
     const loginTrimmed = login.trim();
-    if (loginTrimmed.length < 3) {
-      res.status(400).json({ error: "Login trop court (min 3 caractères)" });
+    if (loginTrimmed.length < 2) {
+      res.status(400).json({ error: "Login trop court (min 2 caractères)" });
       return;
     }
     // Collision check (excluding self).

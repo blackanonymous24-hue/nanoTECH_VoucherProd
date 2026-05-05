@@ -1076,7 +1076,7 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
 
   const reset = () => { setLogin(""); setPassword(""); };
 
-  const loginInvalid = login.length > 0 && login.trim().length < 3;
+  const loginInvalid = login.length > 0 && login.trim().length < 2;
   const passwordInvalid = password.length > 0 && password.length < 4;
   const nothingToChange = login.trim().length === 0 && password.length === 0;
 
@@ -1109,7 +1109,7 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
               onChange={(e) => setLogin(e.target.value)}
             />
             {loginInvalid && (
-              <p className="mt-1 text-xs text-red-600">Min. 3 caractères</p>
+              <p className="mt-1 text-xs text-red-600">Min. 2 caractères</p>
             )}
           </div>
           <div>
