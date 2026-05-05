@@ -1126,10 +1126,10 @@ function StatCard({
 }) {
   const inner = (
     <Card className={`h-full ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <CardContent className="p-2.5 sm:pt-5 sm:px-6">
+      <CardContent className="p-2.5 sm:pt-5 sm:px-6 h-full flex flex-col justify-center">
         {/* Icône visible seulement sm+ */}
-        <div className="hidden sm:flex items-start gap-3 mb-0">
-          <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0 mt-0.5">{icon}</div>
+        <div className="hidden sm:flex items-center gap-3">
+          <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0">{icon}</div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
@@ -1172,7 +1172,7 @@ function StatCard({
         </div>
 
         {/* Version mobile ultra-compacte (< sm) */}
-        <div className="flex sm:hidden flex-col gap-0.5">
+        <div className="flex sm:hidden flex-col gap-0.5 justify-center">
           <div className="flex items-center gap-1">
             <span className="text-[10px] text-gray-500 font-medium leading-tight truncate">{title}</span>
             {live && (

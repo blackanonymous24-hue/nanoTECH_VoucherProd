@@ -253,7 +253,7 @@ function StatCard({
 }) {
   const formatted = fcfa ? fmtFcfa(value) : String(value);
   const inner = (
-    <CardContent className="p-3 flex items-center gap-2.5">
+    <CardContent className="p-3 flex items-center gap-2.5 h-full">
       <div className={`h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
         <Icon className="h-4 w-4 text-white" />
       </div>
@@ -270,12 +270,12 @@ function StatCard({
   );
   if (onClick) {
     return (
-      <Card className="cursor-pointer hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.98]" onClick={onClick}>
+      <Card className="h-full cursor-pointer hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.98]" onClick={onClick}>
         {inner}
       </Card>
     );
   }
-  return <Card>{inner}</Card>;
+  return <Card className="h-full">{inner}</Card>;
 }
 
 function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) => void }) {
