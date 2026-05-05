@@ -3,12 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Printer, Search, RotateCcw, Users, Loader2, AlertCircle,
-  CalendarDays, ImageDown, AlertTriangle, CalendarRange,
+  CalendarDays, ImageDown, AlertTriangle, CalendarRange, ChevronDown,
 } from "lucide-react";
 import { foldText } from "@/lib/text";
 import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
@@ -16,6 +17,8 @@ import {
   applyMaskedWeeksToDailyArrearsResponse,
   groupArrearsByCalendarWeek,
   mondayOfDateUtc,
+  splitArrearsMergedAndRecentTail,
+  sundayFromMondayUtc,
   weekArrearLabelWithFmt,
 } from "@/lib/arrearsWeekGrouping";
 
@@ -132,6 +135,46 @@ function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
   return `${fmtDateFr(weekStart)} – ${fmtDateFr(weekEnd)}`;
 }
 
+function isoAddDaysUtc(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Net semaine courante après commission (aligné sur le résumé hebdo API). */
+function weekExpectedNetFromSummary(s: VendorSummaryEntry): number {
+  return Math.max(0, (s.amount ?? 0) - (s.commission ?? 0));
+}
+
+/**
+ * Imputation des versements : d'abord sur l'arriéré des semaines antérieures, puis sur la semaine affichée.
+ * Sert à afficher Montant à verser (semaine) et Total à verser à ce jour (= reliquat arriéré + montant semaine).
+ */
+function weekPaymentBreakdown(s: VendorSummaryEntry) {
+  const co0 = Math.max(0, s.carryOverAmount ?? 0);
+  const paid = Math.max(0, s.paidAmount ?? 0);
+  const expectedNet = weekExpectedNetFromSummary(s);
+  const paidTowardCarry = Math.min(paid, co0);
+  const remainingCarry = Math.max(0, co0 - paidTowardCarry);
+  const montantAVerser = Math.max(0, expectedNet - Math.max(0, paid - co0));
+  const totalVerseCeJour = remainingCarry + montantAVerser;
+  const totalToPay = s.totalToPay ?? s.remainingAmount ?? 0;
+  return { co0, paid, expectedNet, remainingCarry, montantAVerser, totalVerseCeJour, totalToPay };
+}
+
+function mergeDailyArrearEntries(days: DailyArrearEntry[]): DailyArrearEntry & { __underlying: DailyArrearEntry[] } {
+  const u = [...days].sort((a, b) => a.date.localeCompare(b.date));
+  const last = u[u.length - 1]!;
+  return {
+    date: last.date,
+    salesAmount: u.reduce((s, e) => s + e.salesAmount, 0),
+    paidAmount: u.reduce((s, e) => s + e.paidAmount, 0),
+    remaining: u.reduce((s, e) => s + e.remaining, 0),
+    payments: u.flatMap((e) => e.payments),
+    __underlying: u,
+  };
+}
+
 function statusBadge(status?: "none" | "partial" | "full"): {
   text: string; cls: string; icon?: boolean;
 } {
@@ -143,6 +186,94 @@ function statusBadge(status?: "none" | "partial" | "full"): {
 function pct(paid: number, expected: number): string {
   if (expected <= 0) return "—";
   return Math.round((paid / expected) * 100) + "%";
+}
+
+/** Carte vendeur pour impression / inclusion dans le rapport journalier (même logique que l’écran). */
+function weekVendorCardHtml(s: VendorSummaryEntry, data: DailyTrackingResponse): string {
+  const badge = statusBadge(s.paymentStatus);
+  const sColor = s.paymentStatus === "full" ? "#065f46" : s.paymentStatus === "partial" ? "#92400e" : "#991b1b";
+  const sBg = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
+  const sBorder = s.paymentStatus === "full" ? "#6ee7b7" : s.paymentStatus === "partial" ? "#fcd34d" : "#fca5a5";
+  const commRate = s.commissionRate ?? 0;
+  const toPay = s.totalToPay ?? s.remainingAmount ?? 0;
+  const resteColor = toPay > 0 ? "#991b1b" : "inherit";
+  const bd = weekPaymentBreakdown(s);
+  const prevMon = data.weekStart ? isoAddDaysUtc(data.weekStart, -7) : "";
+  const arrearLabel =
+    bd.co0 > 0 && prevMon
+      ? `${weekArrearLabelWithFmt(prevMon, fmtDateFr)}${(s.carryOverWeekCount ?? 1) > 1 ? ` (${s.carryOverWeekCount} semaines)` : ""}`
+      : bd.co0 > 0
+        ? carryOverWeekLabel(s.carryOverWeekCount ?? 1)
+        : "";
+  const coRow =
+    bd.co0 > 0
+      ? `<tr><td>${arrearLabel}</td><td class="val" style="color:#991b1b;font-weight:700">${fmtAmount(bd.remainingCarry)} FCFA</td></tr>`
+      : "";
+  const midLabel = bd.co0 > 0 ? "Montant à verser" : "Total à verser";
+  const midVal = bd.co0 > 0 ? bd.montantAVerser : toPay;
+  const midColor = midVal > 0 ? "#991b1b" : "inherit";
+  const formulaSub =
+    prevMon && bd.co0 > 0
+      ? `Arriéré (${fmtDateFr(prevMon)} – ${fmtDateFr(sundayFromMondayUtc(prevMon))}) + Montant à verser`
+      : "Arriéré semaine antérieure + Montant à verser";
+  const totalCeJourRow =
+    bd.co0 > 0
+      ? `<tr><td>Total à verser à ce jour<br/><span style="font-size:8px;font-weight:400;color:#6b7280">= ${formulaSub}</span></td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(bd.totalVerseCeJour)} FCFA</td></tr>`
+      : "";
+  const statusIcon =
+    s.paymentStatus === "none"
+      ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="0.5" fill="${sColor}"/></svg>`
+      : s.paymentStatus === "full"
+        ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
+        : "";
+  return `<div class="vcard week-vcard">
+  <div class="vcard-header week-vcard-h">
+    <span class="vname">${s.vendorName}</span>
+    <span class="vstatus" style="background:${sBg};color:${sColor};border:1px solid ${sBorder}">${statusIcon}${badge.text}</span>
+  </div>
+<table>
+    <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
+    ${coRow}
+    <tr><td>Versé</td><td class="val">${fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount))} FCFA</td></tr>
+    <tr><td>${midLabel}</td><td class="val" style="color:${midColor};font-weight:bold">${fmtAmount(midVal)} FCFA</td></tr>
+    <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
+    <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"}</td></tr>
+    ${totalCeJourRow}
+</table>
+</div>`;
+}
+
+function weekTotalsPrintHtml(totalAmount: number, totalPaid: number, totalReste: number): string {
+  return `<div class="totals week-totals">
+  <div class="totals-header">Totaux de la semaine</div>
+<table>
+    <tr><td>Montant total vendu</td><td class="tval">${fmtAmount(totalAmount)} FCFA</td></tr>
+    <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} FCFA</td></tr>
+    <tr><td>Total à verser</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
+</table>
+</div>`;
+}
+
+/** Bloc HTML résumé hebdo (cartes + totaux) pour le rapport journalier ou la page hebdo seule. */
+function weekSummaryPrintBlockHtml(
+  data: DailyTrackingResponse,
+  opts?: { omitSectionHeading?: boolean },
+): string {
+  const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
+  if (ws.length === 0) return "";
+  const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
+  const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
+  const totalPaid = ws.reduce((s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount), 0);
+  const totalReste = ws.reduce((s, r) => s + (r.totalToPay ?? r.remainingAmount ?? 0), 0);
+  const vendorCards = ws.map((s) => weekVendorCardHtml(s, data)).join("");
+  const gridAndTotals = `
+<div class="grid">${vendorCards}</div>
+${weekTotalsPrintHtml(totalAmount, totalPaid, totalReste)}`;
+  if (opts?.omitSectionHeading) return gridAndTotals;
+  return `
+<h3 class="week-block-h3">Semaine — ${weekLabel}</h3>
+<p class="week-block-sub">${fmtAmount(totalAmount)} FCFA total · ${fmtAmount(totalPaid)} versé</p>
+${gridAndTotals}`;
 }
 
 /* ── Print helper: daily ─────────────────────────────────────── */
@@ -190,13 +321,17 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
         <td style="text-align:right">${fmtAmount(v.amount)}</td>
   </tr>`).join("");
 
+  const weekBlock = weekSummaryPrintBlockHtml(data);
+
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Suivi vendeurs — ${dateFr}</title>
+<title>Suivi des ventes par vendeur — ${dateFr}</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 8mm; }
   h2 { margin: 0 0 2px; font-size: 14px; }
   h3 { margin: 10px 0 4px; font-size: 12px; border-bottom: 1px solid #ccc; padding-bottom: 2px; color: #1e40af; }
+  h3.week-block-h3 { margin: 14px 0 4px; font-size: 12px; border-bottom: 1px solid #c7d2fe; padding-bottom: 2px; color: #3730a3; }
   p  { margin: 0 0 8px; font-size: 10px; color: #555; }
+  p.week-block-sub { margin: 0 0 8px; font-size: 9px; color: #6b7280; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
   .vcard { border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
   .vcard-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
@@ -213,6 +348,18 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .arr-table td { padding: 2px 6px; font-size: 8px; color: #ef4444; border-bottom: 1px solid #fee2e2; }
   .arr-table tr:last-child td { border-bottom: none; }
   .total-du { display: flex; justify-content: space-between; padding: 4px 6px; background: #1e3a8a; color: #ffffff; font-size: 9px; font-weight: bold; border-top: 2px solid #1e3a8a; }
+  .week-vcard .vcard-header.week-vcard-h { background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+  .week-vcard .vname { color: #111; }
+  .week-vcard .vstatus { font-size: 8px; font-weight: bold; padding: 2px 6px; border-radius: 10px; }
+  .week-vcard table { width: 100%; border-collapse: collapse; }
+  .week-vcard td { padding: 3px 8px; border-bottom: 1px solid #f3f4f6; font-size: 9px; }
+  .week-vcard .val { text-align: right; font-weight: 600; color: #1f2937; }
+  .week-totals { margin-top: 10px; border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
+  .week-totals .totals-header { padding: 4px 8px; background: #e0e7ff; font-weight: bold; font-size: 10px; color: #3730a3; border-bottom: 1px solid #c7d2fe; }
+  .week-totals table { width: 100%; border-collapse: collapse; }
+  .week-totals td { padding: 3px 8px; font-size: 9px; border-bottom: 1px solid #f3f4f6; }
+  .week-totals tr:last-child td { border-bottom: none; }
+  .week-totals .tval { text-align: right; font-weight: bold; color: #3730a3; }
   .detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
   .detail-table th, .detail-table td { border: 1px solid #d1d5db; padding: 3px 5px; font-size: 9px; }
   .detail-table th { background: #f0f0f0; font-weight: bold; text-align: left; }
@@ -224,6 +371,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
 <p>Date : ${dateFr} &nbsp;|&nbsp; ${grandCount} ticket${grandCount !== 1 ? "s" : ""} &nbsp;|&nbsp; ${fmtAmount(grandTotal)} FCFA &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
 <h3>Résumé de la vente du ${dateFr}</h3>
 <div class="grid">${vendorCards}</div>
+${weekBlock}
 <h3>Détail (${vouchers.length} ticket${vouchers.length !== 1 ? "s" : ""})</h3>
 <table class="detail-table">
   <thead><tr><th>#</th><th>Heure</th><th>Utilisateur</th><th>Profil</th><th>Vendeur</th><th class="right">Prix (FCFA)</th></tr></thead>
@@ -243,50 +391,18 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
   const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
   const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
-  const totalPaid   = ws.reduce((s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount), 0);
-  const totalReste  = ws.reduce((s, r) => s + (r.totalToPay ?? r.remainingAmount ?? 0), 0);
-
-  const vendorCards = ws.map((s) => {
-    const badge = statusBadge(s.paymentStatus);
-    const sColor = s.paymentStatus === "full" ? "#065f46" : s.paymentStatus === "partial" ? "#92400e" : "#991b1b";
-    const sBg    = s.paymentStatus === "full" ? "#d1fae5" : s.paymentStatus === "partial" ? "#fef3c7" : "#fee2e2";
-    const sBorder= s.paymentStatus === "full" ? "#6ee7b7" : s.paymentStatus === "partial" ? "#fcd34d" : "#fca5a5";
-    const commRate = (s.commissionRate ?? 0);
-    const toPay = s.totalToPay ?? s.remainingAmount ?? 0;
-    const resteColor = toPay > 0 ? "#991b1b" : "inherit";
-    const coAmt = s.carryOverAmount ?? 0;
-    const coWeeks = s.carryOverWeekCount ?? (coAmt > 0 ? 1 : 0);
-    const coRow = coAmt > 0
-      ? `<tr><td>${carryOverWeekLabel(coWeeks)}</td><td class="val" style="color:#991b1b;font-weight:700">${fmtAmount(coAmt)} FCFA</td></tr>`
-      : "";
-    const statusIcon = s.paymentStatus === "none"
-      ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="0.5" fill="${sColor}"/></svg>`
-      : s.paymentStatus === "full"
-      ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
-      : "";
-    return `<div class="vcard">
-  <div class="vcard-header">
-    <span class="vname">${s.vendorName}</span>
-    <span class="vstatus" style="background:${sBg};color:${sColor};border:1px solid ${sBorder}">${statusIcon}${badge.text}</span>
-  </div>
-<table>
-    <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
-    <tr><td>Versé</td><td class="val">${fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount))} FCFA</td></tr>
-    ${coRow}
-    <tr><td>Total à verser</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(toPay)} FCFA</td></tr>
-    <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
-    <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"}</td></tr>
-</table>
-</div>`;
-  }).join("");
+  const totalPaid = ws.reduce((s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount), 0);
+  const block = weekSummaryPrintBlockHtml(data, { omitSectionHeading: true });
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Rapport hebdomadaire vendeurs</title>
+<title>Rapport hebdomadaire — Suivi des ventes par vendeur</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 10px; margin: 0; padding: 6mm; }
   h2 { margin: 0 0 3px; font-size: 13px; }
+  h3.week-block-h3 { margin: 0 0 4px; font-size: 12px; border-bottom: 1px solid #c7d2fe; padding-bottom: 2px; color: #3730a3; }
+  p.week-block-sub { margin: 0 0 8px; font-size: 9px; color: #6b7280; }
   .subtitle { margin: 0 0 10px; font-size: 9px; color: #555; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
   .vcard { border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
   .vcard-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
   .vname { font-weight: bold; font-size: 10px; color: #111; }
@@ -295,26 +411,18 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   .vcard td { padding: 3px 8px; border-bottom: 1px solid #f3f4f6; font-size: 9px; }
   .vcard tr:last-child td { border-bottom: none; }
   .val { text-align: right; font-weight: 600; color: #1f2937; }
-  .totals { margin-top: 10px; border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
-  .totals-header { padding: 4px 8px; background: #e0e7ff; font-weight: bold; font-size: 10px; color: #3730a3; border-bottom: 1px solid #c7d2fe; }
-  .totals table { width: 100%; border-collapse: collapse; }
-  .totals td { padding: 3px 8px; font-size: 9px; border-bottom: 1px solid #f3f4f6; }
-  .totals tr:last-child td { border-bottom: none; }
-  .tval { text-align: right; font-weight: bold; color: #3730a3; }
+  .week-totals { margin-top: 10px; border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
+  .week-totals .totals-header { padding: 4px 8px; background: #e0e7ff; font-weight: bold; font-size: 10px; color: #3730a3; border-bottom: 1px solid #c7d2fe; }
+  .week-totals table { width: 100%; border-collapse: collapse; }
+  .week-totals td { padding: 3px 8px; font-size: 9px; border-bottom: 1px solid #f3f4f6; }
+  .week-totals tr:last-child td { border-bottom: none; }
+  .week-totals .tval { text-align: right; font-weight: bold; color: #3730a3; }
   @page { size: A4; margin: 0; }
-  @media print { .vcard, .totals { break-inside: avoid; } }
+  @media print { .vcard, .week-totals { break-inside: avoid; } }
 </style></head><body>
-<h2>Rapport hebdomadaire — Suivi des vendeurs</h2>
-<p class="subtitle">Semaine : ${weekLabel} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
-<div class="grid">${vendorCards}</div>
-<div class="totals">
-  <div class="totals-header">Totaux de la semaine</div>
-<table>
-    <tr><td>Montant total vendu</td><td class="tval">${fmtAmount(totalAmount)} FCFA</td></tr>
-    <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} FCFA</td></tr>
-    <tr><td>Total à verser</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
-</table>
-</div>
+<h2>Rapport hebdomadaire — Suivi des ventes par vendeur</h2>
+<p class="subtitle">Semaine : ${weekLabel} &nbsp;|&nbsp; ${fmtAmount(totalAmount)} FCFA total · ${fmtAmount(totalPaid)} versé &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
+${block || `<p class="subtitle">Aucun résumé hebdomadaire pour cette période.</p>`}
 <script>window.onload = function() { window.print(); };</script>
 </body></html>`;
 
@@ -327,7 +435,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
   setSaving(true);
   try {
     const DPR = 2; const W = 430; const PAD = 16;
-    const TITLE_H = 52; const CARD_GAP = 8;
+    const TITLE_H = 60; const CARD_GAP = 8;
     const CARD_HDR_H = 28;
     const ARR_HDR_H = 20; const ARR_ROW_H = 18; const GRAND_ROW_H = 26; const FOOTER_H = 32;
 
@@ -367,8 +475,9 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     };
 
     rf(0, 0, W, totalH, "#f8fafc");
-    t("Résumé de la vente du " + dateFr, PAD, 18, { size: 12, bold: true, color: "#111827" });
-    t("Généré le " + new Date().toLocaleString("fr-FR"), W - PAD, 32, { size: 8, color: "#9ca3af", align: "right" });
+    t("Suivi des ventes par vendeur", PAD, 14, { size: 11, bold: true, color: "#111827" });
+    t("Résumé du " + dateFr, PAD, 30, { size: 10, bold: true, color: "#1e40af" });
+    t("Généré le " + new Date().toLocaleString("fr-FR"), W - PAD, 30, { size: 8, color: "#9ca3af", align: "right" });
 
     const CW = W - PAD * 2;
     const C_PROF = PAD + 10;
@@ -421,7 +530,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     t(fmtAmount(grandAmount) + " FCFA", C_AMT, y + FOOTER_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
 
     const link = document.createElement("a");
-    link.download = `suivi-vendeurs-${appliedDate}.jpeg`;
+    link.download = `suivi-ventes-${appliedDate}.jpeg`;
     link.href = canvas.toDataURL("image/jpeg", 0.93);
     link.click();
   } finally { setSaving(false); }
@@ -477,7 +586,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
     r(0, 0, W, totalH, "#ffffff");
 
     // Title
-    t("Rapport hebdomadaire — Vendeurs", PAD, 18, { size: 13, bold: true, color: "#111827" });
+    t("Rapport hebdomadaire — Suivi des ventes", PAD, 18, { size: 12, bold: true, color: "#111827" });
     t("Semaine : " + weekLabel, PAD, 36, { size: 9, color: "#6b7280" });
     t("Généré le " + new Date().toLocaleString("fr-FR"), W - PAD, 36, { size: 9, color: "#9ca3af", align: "right" });
 
@@ -514,17 +623,27 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
       t(sTxt, cx + cw - badgeW / 2 - 6, cy + 14, { size: 8, bold: true, color: sColor, align: "center" });
 
       // Rows
-      const coAmt = s.carryOverAmount ?? 0;
-      const coWeeks = s.carryOverWeekCount ?? (coAmt > 0 ? 1 : 0);
+      const bd = weekPaymentBreakdown(s);
+      const prevMon = data.weekStart ? isoAddDaysUtc(data.weekStart, -7) : "";
+      const arrearLabel =
+        bd.co0 > 0 && prevMon
+          ? `${weekArrearLabelWithFmt(prevMon, fmtDateFr)}${(s.carryOverWeekCount ?? 1) > 1 ? ` (${s.carryOverWeekCount}s.)` : ""}`
+          : bd.co0 > 0
+            ? carryOverWeekLabel(s.carryOverWeekCount ?? 1)
+            : "";
+      const midPay = bd.co0 > 0 ? bd.montantAVerser : (s.totalToPay ?? s.remainingAmount ?? 0);
       const rows: [string, string, string?][] = [
         ["Montant vendu", fmtAmount(s.amount) + " FCFA"],
-        ["Versé",         fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount)) + " FCFA"],
-        ...(coAmt > 0
-          ? [[carryOverWeekLabel(coWeeks), fmtAmount(coAmt) + " FCFA", "#991b1b"]] as [string, string, string?][]
+        ...(bd.co0 > 0
+          ? [[arrearLabel, fmtAmount(bd.remainingCarry) + " FCFA", "#991b1b"]] as [string, string, string?][]
           : []),
-        ["Total à verser", fmtAmount(s.totalToPay ?? s.remainingAmount ?? 0) + " FCFA", (s.totalToPay ?? s.remainingAmount ?? 0) > 0 ? "#b91c1c" : "#6b7280"],
-        ["Commission",    commRate > 0 ? commRate + "%" : "—"],
-        ["Rémunération",  (s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"],
+        ["Versé", fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount)) + " FCFA"],
+        [bd.co0 > 0 ? "Montant à verser" : "Total à verser", fmtAmount(midPay) + " FCFA", midPay > 0 ? "#b91c1c" : "#6b7280"],
+        ["Commission", commRate > 0 ? commRate + "%" : "—"],
+        ["Rémunération", (s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"],
+        ...(bd.co0 > 0
+          ? ([["Total à verser à ce jour", fmtAmount(bd.totalVerseCeJour) + " FCFA", bd.totalVerseCeJour > 0 ? "#b91c1c" : "#6b7280"]] as [string, string, string?][])
+          : []),
       ];
       const rowH = (CARD_H - 28) / rows.length;
       rows.forEach(([label, val, valColor], ri) => {
@@ -775,7 +894,7 @@ export default function VendorTracking() {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Users className="h-5 w-5 text-blue-500" />
-              Suivi des vouchers par vendeur
+              Suivi des ventes par vendeur
             </CardTitle>
             <div className="flex items-center gap-2">
               {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
@@ -914,113 +1033,215 @@ export default function VendorTracking() {
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
-                        {/* Arriérés : un bloc distinct par semaine (pas une seule bande continue) */}
+                        {/* Arriérés : semaines passées repliées ; semaine du jour consulté : cumul en Collapse si ≥4 jours + 2 derniers visibles */}
                         <div className="space-y-2 p-2 bg-white/60">
                             {prevTotal > 0 &&
                               groupArrearsByCalendarWeek(prevArrears).map((grp) => {
                                 const weekRows = grp.__underlying ?? [grp];
                                 const weekRem = grp.remaining;
                                 return (
-                                  <div
-                                    key={grp.__weekMonday}
-                                    className="rounded-lg border-2 border-red-300 bg-red-50/95 px-3 py-2.5 shadow-sm"
-                                  >
-                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                      <div className="flex gap-1.5 min-w-0 flex-1">
-                                        <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-red-500 mt-0.5" />
-                                        <div className="min-w-0">
-                                          <span className="text-xs font-semibold text-red-800 break-words">
-                                            {weekArrearLabelWithFmt(grp.__weekMonday, fmtDateFr)}
-                                          </span>
-                                          <span className="text-[10px] text-red-600 block sm:inline sm:ml-1">
-                                            ({weekRows.length} jour{weekRows.length > 1 ? "s" : ""})
-                                          </span>
+                                  <Collapsible key={grp.__weekMonday} defaultOpen={false} className="group">
+                                    <CollapsibleTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="flex w-full items-center justify-between gap-2 rounded-lg border-2 border-red-300 bg-red-50/95 px-3 py-2.5 text-left shadow-sm hover:bg-red-100/80"
+                                      >
+                                        <div className="flex min-w-0 flex-1 items-start gap-1.5">
+                                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-500" />
+                                          <div className="min-w-0">
+                                            <span className="text-xs font-semibold text-red-800 break-words">
+                                              {weekArrearLabelWithFmt(grp.__weekMonday, fmtDateFr)}
+                                            </span>
+                                            <span className="text-[10px] text-red-600">
+                                              {" "}
+                                              ({weekRows.length} jour{weekRows.length > 1 ? "s" : ""})
+                                            </span>
+                                          </div>
                                         </div>
-                                      </div>
-                                      <div className="flex flex-wrap items-center gap-1.5 sm:justify-end sm:flex-shrink-0">
-                                        <span className="text-xs font-bold text-red-800 tabular-nums">{fmtAmount(weekRem)} FCFA</span>
+                                        <div className="flex flex-shrink-0 items-center gap-2">
+                                          <span className="text-xs font-bold tabular-nums text-red-800">{fmtAmount(weekRem)} FCFA</span>
+                                          <ChevronDown className="h-4 w-4 flex-shrink-0 text-red-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                        </div>
+                                      </button>
+                                    </CollapsibleTrigger>
+                                    <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                                      <div className="border-t border-red-200/80 bg-red-50/80 px-3 py-2">
                                         <button
-                                          className="text-[10px] px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                                          type="button"
+                                          className="text-[10px] rounded bg-red-600 px-2 py-0.5 text-white transition-colors hover:bg-red-700 disabled:opacity-50"
                                           disabled={payLoading}
-                                          onClick={() => solderPrevArrears(s.vendorId, weekRows)}
+                                          onClick={() => void solderPrevArrears(s.vendorId, weekRows)}
                                         >
                                           {payLoading ? "…" : "Solder tout"}
                                         </button>
                                       </div>
-                                    </div>
-                                  </div>
+                                    </CollapsibleContent>
+                                  </Collapsible>
                                 );
                               })}
-                            {groupArrearsByCalendarWeek(currentArrears).map((arr) => {
-                              const pKey = `${s.vendorId}|w:${arr.__weekMonday}`;
-                              const isPaying = payingKey === pKey;
-                              const underlying = arr.__underlying;
-                              const payUnderlying = underlying && underlying.length > 1 ? underlying : undefined;
-                              const dayCount = underlying?.length ?? 1;
+                            {(() => {
+                              const ascCur = [...currentArrears].sort((a, b) => a.date.localeCompare(b.date));
+                              const { merged: mergedHead, recent: recentTail } = splitArrearsMergedAndRecentTail(ascCur, 4);
+                              const mergedEntry = mergedHead && mergedHead.length > 0 ? mergeDailyArrearEntries(mergedHead) : null;
+                              const cumulPKey = `${s.vendorId}|cumul-${currentWeekStart}`;
+                              const isPayingCumul = payingKey === cumulPKey;
                               return (
-                                <div
-                                  key={arr.__weekMonday}
-                                  className="rounded-lg border border-orange-300 bg-orange-50/95 px-3 py-2.5 shadow-sm"
-                                >
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                                      <div className="flex gap-1 text-orange-800 items-start">
-                                        <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500 mt-0.5" />
-                                        <span className="text-xs font-medium break-words">
-                                          {weekArrearLabelWithFmt(arr.__weekMonday, fmtDateFr)}
-                                          <span className="text-[10px] text-orange-700/90 font-normal block sm:inline sm:ml-1">
-                                            ({dayCount} jour{dayCount > 1 ? "s" : ""})
-                                          </span>
-                                        </span>
-                                      </div>
-                                      {arr.paidAmount > 0 && (
-                                        <span className="text-[10px] text-gray-600 pl-4 sm:pl-7">
-                                          Ventes: {fmtAmount(arr.salesAmount)} · Versé: {fmtAmount(paidShownVersusWeekContext(arr.paidAmount, arr.salesAmount, 0, 0))}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex flex-col items-stretch sm:items-end gap-1 sm:flex-shrink-0">
-                                      <span className="text-xs font-bold text-orange-800 tabular-nums sm:text-right">{fmtAmount(arr.remaining)} FCFA</span>
-                                      {!isPaying && (
+                                <>
+                                  {mergedEntry && (
+                                    <Collapsible defaultOpen={false} className="group">
+                                      <CollapsibleTrigger asChild>
                                         <button
-                                          className="text-[10px] px-2 py-0.5 rounded bg-orange-600 text-white hover:bg-orange-700 transition-colors self-start sm:self-end"
-                                          onClick={() => { setPayingKey(pKey); setPayAmount(String(arr.remaining)); }}
+                                          type="button"
+                                          className="flex w-full items-center justify-between gap-2 rounded-lg border border-orange-400 bg-orange-50/95 px-3 py-2.5 text-left shadow-sm hover:bg-orange-100/80"
                                         >
-                                          Verser
+                                          <div className="flex min-w-0 flex-1 items-start gap-1 text-orange-900">
+                                            <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0 text-orange-500" />
+                                            <span className="text-xs font-medium break-words">
+                                              Arriérés cumulés ({mergedHead!.length} jour{mergedHead!.length > 1 ? "s" : ""}, du{" "}
+                                              {fmtDateFr(mergedHead![0]!.date)} au {fmtDateFr(mergedHead![mergedHead!.length - 1]!.date)})
+                                            </span>
+                                          </div>
+                                          <div className="flex flex-shrink-0 items-center gap-2">
+                                            <span className="text-xs font-bold tabular-nums text-orange-900">{fmtAmount(mergedEntry.remaining)} FCFA</span>
+                                            <ChevronDown className="h-4 w-4 flex-shrink-0 text-orange-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                          </div>
                                         </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                  {isPaying && (
-                                    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-orange-200/80 pt-2 pl-1 sm:pl-4">
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        max={arr.remaining}
-                                        className="h-7 w-28 text-xs"
-                                        value={payAmount}
-                                        onChange={(e) => setPayAmount(e.target.value)}
-                                        placeholder="Montant"
-                                      />
-                                      <span className="text-[10px] text-gray-500">FCFA</span>
-                                      <button
-                                        className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
-                                        disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                        onClick={() => submitDailyPayment(s.vendorId, arr.date, Number(payAmount), payUnderlying)}
-                                      >
-                                        {payLoading ? "…" : "Confirmer"}
-                                      </button>
-                                      <button
-                                        className="text-[10px] px-2 py-0.5 rounded bg-gray-300 text-gray-700 hover:bg-gray-400 transition-colors"
-                                        onClick={() => { setPayingKey(null); setPayAmount(""); }}
-                                      >
-                                        Annuler
-                                      </button>
-                                    </div>
+                                      </CollapsibleTrigger>
+                                      <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                                        <div className="space-y-2 border-t border-orange-200/80 bg-orange-50/90 px-3 py-2">
+                                          {mergedEntry.paidAmount > 0 && (
+                                            <span className="text-[10px] text-gray-600">
+                                              Ventes: {fmtAmount(mergedEntry.salesAmount)} · Versé:{" "}
+                                              {fmtAmount(paidShownVersusWeekContext(mergedEntry.paidAmount, mergedEntry.salesAmount, 0, 0))}
+                                            </span>
+                                          )}
+                                          {!isPayingCumul && (
+                                            <button
+                                              type="button"
+                                              className="text-[10px] rounded bg-orange-600 px-2 py-0.5 text-white hover:bg-orange-700"
+                                              onClick={() => {
+                                                setPayingKey(cumulPKey);
+                                                setPayAmount(String(mergedEntry.remaining));
+                                              }}
+                                            >
+                                              Verser
+                                            </button>
+                                          )}
+                                          {isPayingCumul && (
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                              <Input
+                                                type="number"
+                                                min={1}
+                                                max={mergedEntry.remaining}
+                                                className="h-7 w-28 text-xs"
+                                                value={payAmount}
+                                                onChange={(e) => setPayAmount(e.target.value)}
+                                                placeholder="Montant"
+                                              />
+                                              <span className="text-[10px] text-gray-500">FCFA</span>
+                                              <button
+                                                type="button"
+                                                className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50"
+                                                disabled={payLoading || !payAmount || Number(payAmount) <= 0}
+                                                onClick={() =>
+                                                  void submitDailyPayment(
+                                                    s.vendorId,
+                                                    mergedEntry.date,
+                                                    Number(payAmount),
+                                                    mergedEntry.__underlying,
+                                                  )
+                                                }
+                                              >
+                                                {payLoading ? "…" : "Confirmer"}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="text-[10px] rounded bg-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-400"
+                                                onClick={() => {
+                                                  setPayingKey(null);
+                                                  setPayAmount("");
+                                                }}
+                                              >
+                                                Annuler
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </CollapsibleContent>
+                                    </Collapsible>
                                   )}
-                                </div>
+                                  {recentTail.map((day) => {
+                                    const pKey = `${s.vendorId}|${day.date}`;
+                                    const isPaying = payingKey === pKey;
+                                    return (
+                                      <div key={day.date} className="rounded-lg border border-orange-300 bg-orange-50/95 px-3 py-2.5 shadow-sm">
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                            <div className="flex items-start gap-1 text-orange-800">
+                                              <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0 text-orange-500" />
+                                              <span className="text-xs font-medium break-words">Arriéré du {fmtDateFr(day.date)}</span>
+                                            </div>
+                                            {day.paidAmount > 0 && (
+                                              <span className="pl-4 text-[10px] text-gray-600 sm:pl-7">
+                                                Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
+                                                {fmtAmount(paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0))}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex flex-col items-stretch gap-1 sm:items-end sm:flex-shrink-0">
+                                            <span className="text-xs font-bold tabular-nums text-orange-800 sm:text-right">{fmtAmount(day.remaining)} FCFA</span>
+                                            {!isPaying && (
+                                              <button
+                                                type="button"
+                                                className="self-start rounded bg-orange-600 px-2 py-0.5 text-[10px] text-white hover:bg-orange-700 sm:self-end"
+                                                onClick={() => {
+                                                  setPayingKey(pKey);
+                                                  setPayAmount(String(day.remaining));
+                                                }}
+                                              >
+                                                Verser
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                        {isPaying && (
+                                          <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-orange-200/80 pt-2 pl-1 sm:pl-4">
+                                            <Input
+                                              type="number"
+                                              min={1}
+                                              max={day.remaining}
+                                              className="h-7 w-28 text-xs"
+                                              value={payAmount}
+                                              onChange={(e) => setPayAmount(e.target.value)}
+                                              placeholder="Montant"
+                                            />
+                                            <span className="text-[10px] text-gray-500">FCFA</span>
+                                            <button
+                                              type="button"
+                                              className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50"
+                                              disabled={payLoading || !payAmount || Number(payAmount) <= 0}
+                                              onClick={() => void submitDailyPayment(s.vendorId, day.date, Number(payAmount), undefined)}
+                                            >
+                                              {payLoading ? "…" : "Confirmer"}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="text-[10px] rounded bg-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-400"
+                                              onClick={() => {
+                                                setPayingKey(null);
+                                                setPayAmount("");
+                                              }}
+                                            >
+                                              Annuler
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </>
                               );
-                            })}
+                            })()}
                             {hasArrears && (() => {
                               const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
                               const totalDu = s.amount + allArrearsTotal;
@@ -1055,6 +1276,18 @@ export default function VendorTracking() {
                 {/* Grille de cartes 2 colonnes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[...weekSummary].sort((a, b) => b.amount - a.amount).map((s) => {
+                    const bd = weekPaymentBreakdown(s);
+                    const prevWeekMonday = data?.weekStart ? isoAddDaysUtc(data.weekStart, -7) : "";
+                    const arrearSemaineLabel =
+                      bd.co0 > 0 && prevWeekMonday
+                        ? `${weekArrearLabelWithFmt(prevWeekMonday, fmtDateFr)}${(s.carryOverWeekCount ?? 1) > 1 ? ` (${s.carryOverWeekCount} semaines)` : ""}`
+                        : bd.co0 > 0
+                          ? carryOverWeekLabel(s.carryOverWeekCount ?? 1)
+                          : "";
+                    const arrearFormulaHint =
+                      prevWeekMonday && bd.co0 > 0
+                        ? `Arriéré (${fmtDateFr(prevWeekMonday)} – ${fmtDateFr(sundayFromMondayUtc(prevWeekMonday))}) + Montant à verser`
+                        : "Arriéré semaine antérieure + Montant à verser";
                     const { daily: dailyShown, weekly: weeklyShown } = splitDailyWeeklyPaidShown(
                       s.dailyPaid,
                       s.weeklyPaid,
@@ -1087,7 +1320,15 @@ export default function VendorTracking() {
                             <tr className="border-b border-gray-50">
                               <td className="px-3 py-1.5 text-gray-500">Montant vendu</td>
                               <td className="px-3 py-1.5 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
-                  </tr>
+                            </tr>
+                            {bd.co0 > 0 && (
+                              <tr className="border-b border-gray-50 bg-amber-50/30">
+                                <td className="px-3 py-1.5 text-gray-600 leading-snug">{arrearSemaineLabel}</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-red-600 tabular-nums">
+                                  {fmtAmount(bd.remainingCarry)} FCFA
+                                </td>
+                              </tr>
+                            )}
                             {(s.dailyPaid ?? 0) > 0 && (
                               <tr className="border-b border-gray-50 bg-sky-50/40">
                                 <td className="px-3 py-1.5 text-sky-700">Versé en journalier</td>
@@ -1112,34 +1353,47 @@ export default function VendorTracking() {
                                 <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.weeklyExpected!)} FCFA</td>
                               </tr>
                             )}
-                            {(s.carryOverAmount ?? 0) > 0 && (
-                              <tr className="border-b border-gray-50">
-                                <td className="px-3 py-1.5 text-gray-500">
-                                  {carryOverWeekLabel(s.carryOverWeekCount ?? 1)}
-                                </td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-red-600 tabular-nums">
-                                  {fmtAmount(s.carryOverAmount!)} FCFA
-                      </td>
-                    </tr>
-                            )}
                             <tr className="border-b border-gray-50">
-                              <td className="px-3 py-1.5 text-gray-500">Total à verser</td>
-                              <td className={`px-3 py-1.5 text-right font-bold tabular-nums ${(s.totalToPay ?? s.remainingAmount ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
-                                {fmtAmount(s.totalToPay ?? s.remainingAmount ?? 0)} FCFA
-                    </td>
+                              <td className="px-3 py-1.5 text-gray-500">
+                                {bd.co0 > 0 ? "Montant à verser" : "Total à verser"}
+                              </td>
+                              <td
+                                className={`px-3 py-1.5 text-right font-bold tabular-nums ${
+                                  (bd.co0 > 0 ? bd.montantAVerser : bd.totalToPay) > 0 ? "text-red-600" : "text-gray-400"
+                                }`}
+                              >
+                                {fmtAmount(bd.co0 > 0 ? bd.montantAVerser : bd.totalToPay)} FCFA
+                              </td>
                             </tr>
                             <tr className="border-b border-gray-50 bg-gray-50/50">
                               <td className="px-3 py-1.5 text-gray-500">Commission</td>
                               <td className="px-3 py-1.5 text-right font-medium text-gray-600 tabular-nums">
                                 {commRate > 0 ? `${commRate}%` : <span className="text-gray-300">—</span>}
-                    </td>
+                              </td>
                             </tr>
-                            <tr>
+                            <tr className="border-b border-gray-50">
                               <td className="px-3 py-1.5 text-gray-500">Rémunération</td>
                               <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">
                                 {(s.commission ?? 0) > 0 ? `${fmtAmount(s.commission!)} FCFA` : <span className="text-gray-300">—</span>}
-                    </td>
-                  </tr>
+                              </td>
+                            </tr>
+                            {bd.co0 > 0 && (
+                              <tr className="bg-indigo-50/40">
+                                <td className="px-3 py-1.5 align-top">
+                                  <div className="font-bold text-gray-800">Total à verser à ce jour</div>
+                                  <div className="text-[9px] text-gray-500 font-normal leading-snug mt-0.5">
+                                    = {arrearFormulaHint}
+                                  </div>
+                                </td>
+                                <td
+                                  className={`px-3 py-1.5 text-right font-bold tabular-nums align-top ${
+                                    bd.totalVerseCeJour > 0 ? "text-red-600" : "text-gray-400"
+                                  }`}
+                                >
+                                  {fmtAmount(bd.totalVerseCeJour)} FCFA
+                                </td>
+                              </tr>
+                            )}
                           </tbody>
               </table>
                       </div>

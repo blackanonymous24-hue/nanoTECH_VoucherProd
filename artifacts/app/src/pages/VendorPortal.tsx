@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -26,12 +27,18 @@ import {
 } from "@/components/ui/select";
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
-  User, RefreshCw, Clock, ChevronLeft, ChevronRight, Search, Banknote, Printer, LogIn,
+  User, RefreshCw, Clock, ChevronLeft, ChevronRight, ChevronDown, Search, Banknote, Printer, LogIn,
   PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
 import { foldText } from "@/lib/text";
-import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
-import { groupPortalArrearsByCalendarWeek, weekArrearLabelWithFmt } from "@/lib/arrearsWeekGrouping";
+import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown, weekVersPaymentDisplayCap } from "@/lib/vendorWeekPaymentDisplay";
+import {
+  groupPortalArrearsByCalendarWeek,
+  mondayOfDateUtc,
+  splitArrearsMergedAndRecentTail,
+  sundayFromMondayUtc,
+  weekArrearLabelWithFmt,
+} from "@/lib/arrearsWeekGrouping";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
 
@@ -102,6 +109,19 @@ type VersementData = { weeks: VersementWeek[] };
 type DailyArrearsDay = { date: string; count: number; amount: number; paid: number; remaining: number };
 type DailyArrearsData = { days: DailyArrearsDay[] };
 
+function mergePortalArrearDays(days: DailyArrearsDay[]): DailyArrearsDay & { __underlying: DailyArrearsDay[] } {
+  const u = [...days].sort((a, b) => a.date.localeCompare(b.date));
+  const last = u[u.length - 1]!;
+  return {
+    date: last.date,
+    count: u.reduce((s, d) => s + d.count, 0),
+    amount: u.reduce((s, d) => s + d.amount, 0),
+    paid: u.reduce((s, d) => s + d.paid, 0),
+    remaining: u.reduce((s, d) => s + d.remaining, 0),
+    __underlying: u,
+  };
+}
+
 type PeriodSalesData = {
   period: string;
   label: string;
@@ -140,6 +160,30 @@ function fmtDayMonthYearUtc(iso: string): string {
 function fmtFcfa(n: number): string {
   if (n === 0) return "0";
   return n.toLocaleString("fr-FR");
+}
+
+function isoAddDaysUtc(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Libellé date type « 03 Mai 2026 » pour une chaîne YYYY-MM-DD (UTC). */
+function fmtDateFrIso(iso: string): string {
+  const [y, m, day] = iso.split("-");
+  return `${day} ${MONTHS[parseInt(m, 10) - 1]} ${y}`;
+}
+
+/** Répartition versements : d’abord arriéré semaines passées, puis net semaine (même logique que suivi admin). */
+function portalWeekPaymentBreakdown(w: VersementWeek) {
+  const co0 = Math.max(0, w.carryOverAmount ?? 0);
+  const paid = Math.max(0, w.totalPaid ?? 0);
+  const expectedNet = Math.max(0, w.amount - w.commission);
+  const paidTowardCarry = Math.min(paid, co0);
+  const remainingCarry = Math.max(0, co0 - paidTowardCarry);
+  const montantAVerser = Math.max(0, expectedNet - Math.max(0, paid - co0));
+  const totalVerseCeJour = remainingCarry + montantAVerser;
+  return { co0, remainingCarry, montantAVerser, totalVerseCeJour };
 }
 
 function amountFontClass(formatted: string): string {
@@ -1188,57 +1232,136 @@ function Dashboard({ token, vendor, onLogout }: {
               </Card>
             </div>
 
-            {/* ── Arriérés journaliers ──────────────────────────────── */}
-            {arrearsData && arrearsData.days.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-orange-500" />
-                  <h3 className="text-sm font-semibold text-gray-700">Mes versements non effectués</h3>
-                </div>
-                <div className="space-y-2">
-                  {groupPortalArrearsByCalendarWeek(arrearsData.days.slice().sort((a, b) => a.date.localeCompare(b.date))).map((d) => {
-                    const dateObj = new Date(d.date + "T00:00:00Z");
-                    const dayNum   = String(dateObj.getUTCDate());
-                    const monthNum = String(dateObj.getUTCMonth() + 1);
-                    const yearNum  = String(dateObj.getUTCFullYear());
-                    const dayCount = d.__underlying?.length ?? 1;
-                    const label = weekArrearLabelWithFmt(d.__weekMonday, fmtDayMonthYearUtc);
-                    return (
-                      <Card key={d.__weekMonday} className="border border-orange-200 bg-orange-50/30 shadow-sm overflow-hidden">
-                        <CardContent className="p-0">
-                          <button
-                            type="button"
-                            onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
-                            className="w-full text-left flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between px-4 py-3 hover:bg-orange-50/80 active:bg-orange-100/80 transition-colors cursor-pointer"
-                          >
-                            <span className="text-[11px] font-semibold text-orange-700 break-words flex-1 min-w-0 flex items-start gap-1.5">
-                              <span className="min-w-0">
-                                {label}
-                                <span className="text-[10px] font-normal text-orange-600/90 block sm:inline sm:ml-1">
+            {/* ── Arriérés journaliers (semaines passées repliées ; semaine en cours : cumul en Collapse si ≥4 j. + 2 derniers jours visibles) ── */}
+            {arrearsData && arrearsData.days.length > 0 && (() => {
+              const todayIso = new Date().toISOString().slice(0, 10);
+              const curMon = mondayOfDateUtc(todayIso);
+              const asc = [...arrearsData.days].sort((a, b) => a.date.localeCompare(b.date));
+              const prevDays = asc.filter((d) => mondayOfDateUtc(d.date) < curMon);
+              const currentDays = asc.filter((d) => mondayOfDateUtc(d.date) === curMon);
+              const { merged: mergedHead, recent: recentTail } = splitArrearsMergedAndRecentTail(currentDays, 4);
+              const mergedPortal = mergedHead && mergedHead.length > 0 ? mergePortalArrearDays(mergedHead) : null;
+
+              const reportNav = (iso: string) => {
+                const dateObj = new Date(iso + "T00:00:00Z");
+                setReportView({
+                  day: String(dateObj.getUTCDate()),
+                  month: String(dateObj.getUTCMonth() + 1),
+                  year: String(dateObj.getUTCFullYear()),
+                });
+              };
+
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-orange-500" />
+                    <h3 className="text-sm font-semibold text-gray-700">Mes versements non effectués</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {groupPortalArrearsByCalendarWeek(prevDays).map((w) => {
+                      const dayCount = w.__underlying?.length ?? 1;
+                      return (
+                        <Collapsible key={w.__weekMonday} defaultOpen={false} className="group">
+                          <CollapsibleTrigger asChild>
+                            <button
+                              type="button"
+                              className="flex w-full items-center justify-between gap-2 rounded-lg border border-orange-200 bg-orange-50/40 px-4 py-2.5 text-left shadow-sm hover:bg-orange-50/80"
+                            >
+                              <span className="min-w-0 flex-1 text-[11px] font-semibold text-orange-800 break-words">
+                                {weekArrearLabelWithFmt(w.__weekMonday, fmtDayMonthYearUtc)}
+                                <span className="font-normal text-orange-700/90">
+                                  {" "}
                                   ({dayCount} jour{dayCount > 1 ? "s" : ""})
                                 </span>
                               </span>
-                              <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5 sm:hidden" />
+                              <div className="flex flex-shrink-0 items-center gap-2">
+                                <span className="text-[11px] font-bold tabular-nums text-orange-800">{fmtFcfa(w.remaining)} FCFA</span>
+                                <ChevronDown className="h-4 w-4 text-orange-700/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                              </div>
+                            </button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                            <Card className="mt-1 border border-orange-200 bg-orange-50/30 shadow-sm overflow-hidden">
+                              <CardContent className="p-0">
+                                <button
+                                  type="button"
+                                  onClick={() => reportNav(w.date)}
+                                  className="flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors hover:bg-orange-50/80 sm:flex-row sm:items-start sm:justify-between"
+                                >
+                                  <span className="text-[10px] text-gray-500 tabular-nums">{w.count} ticket{w.count !== 1 ? "s" : ""}</span>
+                                  <span className="text-[11px] font-bold text-orange-700 tabular-nums">{fmtFcfa(w.remaining)} FCFA</span>
+                                  <ChevronRight className="h-3 w-3 self-end text-orange-400 opacity-60 sm:hidden" />
+                                </button>
+                              </CardContent>
+                            </Card>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      );
+                    })}
+                    {mergedPortal && mergedHead && (
+                      <Collapsible defaultOpen={false} className="group">
+                        <CollapsibleTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex w-full items-center justify-between gap-2 rounded-lg border border-orange-300 bg-orange-50/90 px-4 py-2.5 text-left shadow-sm hover:bg-orange-50"
+                          >
+                            <span className="min-w-0 flex-1 text-[11px] font-semibold text-orange-900 break-words">
+                              Arriérés cumulés ({mergedHead.length} jour{mergedHead.length > 1 ? "s" : ""}, du{" "}
+                              {fmtDayMonthYearUtc(mergedHead[0]!.date)} au {fmtDayMonthYearUtc(mergedHead[mergedHead.length - 1]!.date)})
                             </span>
-                            <div className="flex items-center gap-2 flex-shrink-0 sm:pl-2 self-end sm:self-start">
-                              <span className="text-[10px] text-gray-500 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
-                              <span className="text-[11px] font-bold text-orange-700 tabular-nums whitespace-nowrap">{fmtFcfa(d.remaining)} FCFA</span>
-                              <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 hidden sm:block" />
+                            <div className="flex flex-shrink-0 items-center gap-2">
+                              <span className="text-[11px] font-bold tabular-nums text-orange-900">{fmtFcfa(mergedPortal.remaining)} FCFA</span>
+                              <ChevronDown className="h-4 w-4 text-orange-800/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                             </div>
                           </button>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                          <Card className="mt-1 border border-orange-200 bg-white shadow-sm overflow-hidden">
+                            <CardContent className="p-3">
+                              <p className="text-[10px] text-gray-600">
+                                {mergedPortal.count} ticket{mergedPortal.count !== 1 ? "s" : ""} · Montant attendu {fmtFcfa(mergedPortal.amount)} FCFA
+                              </p>
+                            </CardContent>
+                          </Card>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
+                    {recentTail.map((d) => {
+                      const dateObj = new Date(d.date + "T00:00:00Z");
+                      const dayNum = String(dateObj.getUTCDate());
+                      const monthNum = String(dateObj.getUTCMonth() + 1);
+                      const yearNum = String(dateObj.getUTCFullYear());
+                      return (
+                        <Card key={d.date} className="border border-orange-200 bg-orange-50/30 shadow-sm overflow-hidden">
+                          <CardContent className="p-0">
+                            <button
+                              type="button"
+                              onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
+                              className="flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors hover:bg-orange-50/80 sm:flex-row sm:items-start sm:justify-between"
+                            >
+                              <span className="text-[11px] font-semibold text-orange-700 break-words">
+                                Arriéré du {fmtDayMonthYearUtc(d.date)}
+                              </span>
+                              <div className="flex items-center gap-2 self-end sm:self-start">
+                                <span className="text-[10px] text-gray-500 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
+                                <span className="text-[11px] font-bold text-orange-700 tabular-nums whitespace-nowrap">{fmtFcfa(d.remaining)} FCFA</span>
+                                <ChevronRight className="h-3 w-3 text-orange-400 opacity-60" />
+                              </div>
+                            </button>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-orange-200 bg-orange-50/80 px-4 py-2.5">
+                    <span className="text-xs font-semibold text-orange-800">Total arriérés</span>
+                    <span className="text-sm font-bold text-orange-800 tabular-nums">
+                      {fmtFcfa(arrearsData.days.reduce((s, d) => s + d.remaining, 0))} FCFA
+                    </span>
+                  </div>
                 </div>
-                <div className="rounded-lg border border-orange-200 bg-orange-50/80 flex items-center justify-between px-4 py-2.5">
-                  <span className="text-xs font-semibold text-orange-800">Total arriérés</span>
-                  <span className="text-sm font-bold text-orange-800 tabular-nums">
-                    {fmtFcfa(arrearsData.days.reduce((s, d) => s + d.remaining, 0))} FCFA
-                  </span>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ── Versements ───────────────────────────────────────── */}
             {versData && versData.weeks.some((w) => w.count > 0 || w.payments.length > 0) && (
@@ -1250,22 +1373,31 @@ function Dashboard({ token, vendor, onLogout }: {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {versData.weeks.map((w, i) => {
                     if (w.count === 0 && w.payments.length === 0) return null;
-                    const isSolde   = w.remaining === 0 && (w.totalPaid > 0 || w.commission >= w.amount);
-                    const dueAmount = Math.max(0, w.amount - w.commission); // what vendor must pay back
+                    const bd = portalWeekPaymentBreakdown(w);
+                    const isSolde =
+                      w.remaining === 0 && (w.totalPaid > 0 || w.commission >= w.amount || w.amount === 0);
                     const totalPaidShown = paidShownVersusWeekContext(
                       w.totalPaid,
                       w.amount,
                       w.commission,
                       w.carryOverAmount,
                     );
-                    const { weekly: weeklyPaidShown } = splitDailyWeeklyPaidShown(
+                    const { daily: dailyShown, weekly: weeklyPaidShown } = splitDailyWeeklyPaidShown(
                       w.dailyPaid,
                       w.weeklyPaid,
                       w.amount,
                       w.commission,
                       w.carryOverAmount,
                     );
-                    const paidPct   = dueAmount > 0 ? Math.min(100, Math.round((w.totalPaid / dueAmount) * 100)) : 100;
+                    const versCap = weekVersPaymentDisplayCap(w.amount, w.commission, w.carryOverAmount);
+                    const paidPct = versCap > 0 ? Math.min(100, Math.round((totalPaidShown / versCap) * 100)) : 100;
+                    const prevWeekMonday = isoAddDaysUtc(w.weekStart, -7);
+                    const arrearSemaineLabel =
+                      bd.co0 > 0 ? weekArrearLabelWithFmt(prevWeekMonday, fmtDateFrIso) : "";
+                    const arrearFormulaHint =
+                      bd.co0 > 0
+                        ? `Arriéré (${fmtDateFrIso(prevWeekMonday)} – ${fmtDateFrIso(sundayFromMondayUtc(prevWeekMonday))}) + Montant à verser`
+                        : "";
                     return (
                       <Card key={w.weekStart} className={`border ${isSolde ? "border-emerald-200 bg-emerald-50/30" : i === 0 ? "border-orange-200 bg-orange-50/20" : "border-gray-100"}`}>
                         <CardContent className="p-4 space-y-3">
@@ -1288,52 +1420,103 @@ function Dashboard({ token, vendor, onLogout }: {
                             ) : null}
                           </div>
 
-                          {/* Stats */}
-                          <div className="grid grid-cols-3 gap-1 text-center">
-                            <div className="min-w-0">
-                              <p className="text-xs font-bold text-gray-800 tabular-nums truncate">{fmtFcfa(w.amount)}</p>
-                              <p className="text-[9px] text-gray-400">Ventes</p>
-                              <p className="text-[9px] text-gray-400">{w.count} ticket{w.count !== 1 ? "s" : ""}</p>
-                            </div>
-                            <div className="min-w-0">
-                              <p className={`text-xs font-bold tabular-nums truncate ${w.totalPaid > 0 ? "text-emerald-600" : "text-gray-300"}`}>{fmtFcfa(totalPaidShown)}</p>
-                              <p className="text-[9px] text-gray-400">Versé</p>
-                            </div>
-                            <div className="min-w-0">
-                              <p className={`text-xs font-bold tabular-nums truncate ${w.remaining > 0 ? "text-orange-600" : "text-gray-300"}`}>{fmtFcfa(w.remaining)}</p>
-                              <p className="text-[9px] text-gray-400">Reste</p>
-                            </div>
+                          {/* Détail aligné sur le suivi admin : montant vendu, arriéré semaine, versements, montant à verser, rémunération, total à verser à ce jour */}
+                          <div className="rounded-lg border border-gray-100 overflow-hidden text-[11px]">
+                            <table className="w-full border-collapse">
+                              <tbody>
+                                <tr className="border-b border-gray-50">
+                                  <td className="px-2 py-1.5 text-gray-500">Montant vendu</td>
+                                  <td className="px-2 py-1.5 text-right font-semibold text-gray-800 tabular-nums">
+                                    {fmtFcfa(w.amount)} FCFA
+                                    <span className="block text-[9px] font-normal text-gray-400">{w.count} ticket{w.count !== 1 ? "s" : ""}</span>
+                                  </td>
+                                </tr>
+                                {bd.co0 > 0 && (
+                                  <tr className="border-b border-amber-50 bg-amber-50/40">
+                                    <td className="px-2 py-1.5 text-gray-700 leading-snug">{arrearSemaineLabel}</td>
+                                    <td className="px-2 py-1.5 text-right font-semibold text-red-600 tabular-nums">
+                                      {fmtFcfa(bd.remainingCarry)} FCFA
+                                    </td>
+                                  </tr>
+                                )}
+                                {(dailyShown ?? 0) > 0 && (
+                                  <tr className="border-b border-gray-50 bg-sky-50/40">
+                                    <td className="px-2 py-1.5 text-sky-700">Versé en journalier</td>
+                                    <td className="px-2 py-1.5 text-right font-semibold text-sky-700 tabular-nums">
+                                      {fmtFcfa(dailyShown)} FCFA
+                                    </td>
+                                  </tr>
+                                )}
+                                {(weeklyPaidShown ?? 0) > 0 && (
+                                  <tr className="border-b border-gray-50 bg-emerald-50/40">
+                                    <td className="px-2 py-1.5 text-emerald-700">Versé en hebdomadaire</td>
+                                    <td className="px-2 py-1.5 text-right font-semibold text-emerald-700 tabular-nums">
+                                      {fmtFcfa(weeklyPaidShown)} FCFA
+                                    </td>
+                                  </tr>
+                                )}
+                                {(dailyShown ?? 0) === 0 &&
+                                  (weeklyPaidShown ?? 0) === 0 &&
+                                  totalPaidShown > 0 && (
+                                    <tr className="border-b border-gray-50">
+                                      <td className="px-2 py-1.5 text-gray-500">Versé</td>
+                                      <td className="px-2 py-1.5 text-right font-semibold text-emerald-700 tabular-nums">
+                                        {fmtFcfa(totalPaidShown)} FCFA
+                                      </td>
+                                    </tr>
+                                  )}
+                                {!isSolde && (w.dailyPaid ?? 0) > 0 && (w.weeklyExpected ?? 0) > 0 && (
+                                  <tr className="border-b border-gray-50 bg-blue-50/50">
+                                    <td className="px-2 py-1.5 text-blue-700 font-semibold">Hebdo. à régler</td>
+                                    <td className="px-2 py-1.5 text-right font-bold text-blue-700 tabular-nums">
+                                      {fmtFcfa(w.weeklyExpected!)} FCFA
+                                    </td>
+                                  </tr>
+                                )}
+                                <tr className="border-b border-gray-50">
+                                  <td className="px-2 py-1.5 text-gray-600">
+                                    {bd.co0 > 0 ? "Montant à verser" : "Reste à payer"}
+                                  </td>
+                                  <td
+                                    className={`px-2 py-1.5 text-right font-bold tabular-nums ${
+                                      (bd.co0 > 0 ? bd.montantAVerser : w.remaining) > 0 ? "text-orange-600" : "text-gray-400"
+                                    }`}
+                                  >
+                                    {fmtFcfa(bd.co0 > 0 ? bd.montantAVerser : w.remaining)} FCFA
+                                  </td>
+                                </tr>
+                                {w.commissionRate > 0 && (
+                                  <tr className="border-b border-gray-50 bg-gray-50/50">
+                                    <td className="px-2 py-1.5 text-gray-500">Commission</td>
+                                    <td className="px-2 py-1.5 text-right font-medium text-gray-600 tabular-nums">{w.commissionRate}%</td>
+                                  </tr>
+                                )}
+                                {(w.commission ?? 0) > 0 && (
+                                  <tr className="border-b border-gray-50 bg-violet-50/30">
+                                    <td className="px-2 py-1.5 text-violet-800">Rémunération (votre part)</td>
+                                    <td className="px-2 py-1.5 text-right font-bold text-violet-800 tabular-nums">
+                                      {fmtFcfa(w.commission)} FCFA
+                                    </td>
+                                  </tr>
+                                )}
+                                {bd.co0 > 0 && (
+                                  <tr className="bg-indigo-50/50">
+                                    <td className="px-2 py-1.5 align-top">
+                                      <div className="font-bold text-gray-800">Total à verser à ce jour</div>
+                                      <div className="text-[9px] text-gray-500 font-normal leading-snug mt-0.5">= {arrearFormulaHint}</div>
+                                    </td>
+                                    <td
+                                      className={`px-2 py-1.5 text-right font-bold tabular-nums align-top ${
+                                        w.remaining > 0 ? "text-orange-600" : "text-gray-400"
+                                      }`}
+                                    >
+                                      {fmtFcfa(w.remaining)} FCFA
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
                           </div>
-
-                          {/* Versements détaillés — uniquement la part hebdomadaire.
-                              Le détail "Journalier" n'est jamais affiché. */}
-                          {!isSolde && (w.weeklyPaid ?? 0) > 0 && (
-                            <div className="grid grid-cols-1 gap-1.5 text-[10px]">
-                              <div className="rounded bg-emerald-50 border border-emerald-100 px-2 py-1 flex items-center justify-between">
-                                <span className="text-emerald-600">Hebdo.</span>
-                                <span className="font-bold text-emerald-700 tabular-nums">{fmtFcfa(weeklyPaidShown)}</span>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Hebdomadaire à régler après déduction des journaliers */}
-                          {!isSolde && (w.dailyPaid ?? 0) > 0 && (w.weeklyExpected ?? 0) > 0 && (
-                            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 flex items-center justify-between">
-                              <span className="text-[11px] font-semibold text-blue-700">Hebdo. à régler</span>
-                              <span className="text-sm font-bold text-blue-700 tabular-nums">{fmtFcfa(w.weeklyExpected!)} FCFA</span>
-                            </div>
-                          )}
-
-                          {/* Commission row — only if rate is configured */}
-                          {w.commissionRate > 0 && (
-                            <div className="flex items-center justify-between gap-2 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
-                              <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-violet-700 min-w-0">
-                                <span className="font-semibold whitespace-nowrap">Votre rémunération</span>
-                                <span className="text-violet-400 whitespace-nowrap">({w.commissionRate}%)</span>
-                              </div>
-                              <p className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap flex-shrink-0">{fmtFcfa(w.commission)} FCFA</p>
-                            </div>
-                          )}
 
                           {/* Progress bar */}
                           {w.amount > 0 && (

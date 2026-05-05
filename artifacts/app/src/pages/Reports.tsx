@@ -470,7 +470,7 @@ export default function Reports() {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Rapports de vente</h1>
-          <p className="text-sm text-gray-500">Suivi des vouchers par vendeur</p>
+          <p className="text-sm text-gray-500">Suivi des ventes par vendeur</p>
         </div>
         <SyncButton routerId={routerId} />
       </div>

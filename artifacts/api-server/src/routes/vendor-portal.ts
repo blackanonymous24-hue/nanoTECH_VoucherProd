@@ -576,6 +576,10 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       Number(vendor.commissionRate ?? 0),
     );
 
+    const expectedNet = Math.max(0, amount - commission);
+    /** Reste global à reverser (net semaine + reliquats semaines antérieures − tout versement), aligné suivi admin. */
+    const remaining = Math.max(0, expectedNet + carryOverAmount - totalPaid);
+
     return {
       weekStart,
       label,
@@ -589,7 +593,7 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       carryOverAmount,
       // Weekly amount still expected after deducting daily payments already recorded
       weeklyExpected: Math.max(0, amount - commission - dailyPaid),
-      remaining: Math.max(0, amount - commission - totalPaid),
+      remaining,
       payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
     };
   }));

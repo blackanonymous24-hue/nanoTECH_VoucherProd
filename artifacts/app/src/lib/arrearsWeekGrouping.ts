@@ -1,3 +1,16 @@
+/**
+ * À partir de `minForMerge` jours (défaut 4) : regroupe les N−2 plus anciens dans `merged`,
+ * les 2 plus récents restent dans `recent`. Sinon tout est dans `recent` et `merged` est null.
+ */
+export function splitArrearsMergedAndRecentTail<T extends { date: string }>(
+  entries: T[],
+  minForMerge = 4,
+): { merged: T[] | null; recent: T[] } {
+  const asc = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  if (asc.length < minForMerge) return { merged: null, recent: asc };
+  return { merged: asc.slice(0, -2), recent: asc.slice(-2) };
+}
+
 /** Monday 00:00 UTC of the ISO calendar week containing `iso` (YYYY-MM-DD). */
 export function mondayOfDateUtc(iso: string): string {
   const d = new Date(iso + "T00:00:00Z");
