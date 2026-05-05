@@ -2,8 +2,8 @@ const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; margin:0; }
   #num { float:right; display:inline-block; }
-  .doc-header { display:none; }
-  /* Grille 3 colonnes — chaque .ticket-page = 1 page imprimée (18 tickets max) */
+  .doc-header { display:none !important; }
+  /* Grille 4 colonnes — chaque .ticket-page = 1 page imprimée (32 tickets max) */
   table.ticket-page { border-collapse:collapse; margin-bottom:4px; }
   table.ticket-page td { padding:2px; vertical-align:top; }
   @page { size:A4 portrait; margin:4mm; }
@@ -11,21 +11,7 @@ const PRINT_CSS = `
     body { padding-bottom:100px; }
   }
   @media print {
-    body { padding-bottom:0 !important; padding-top:8mm !important; }
-    .doc-header {
-      display:block;
-      position:fixed;
-      top:0; left:0; right:0;
-      font-size:8px;
-      font-weight:bold;
-      font-family:Arial, Helvetica, sans-serif;
-      text-align:center;
-      padding:1mm 4mm 1.5mm;
-      border-bottom:1px solid #555;
-      background:#fff;
-      z-index:9999;
-      letter-spacing:0.03em;
-    }
+    body { padding-bottom:0 !important; padding-top:0 !important; }
     table.ticket-page { page-break-after:always; break-after:page; margin:0; }
     table.ticket-page:last-child { page-break-after:auto; break-after:auto; }
     tr { page-break-inside:avoid; }
@@ -136,9 +122,9 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string): string
 }
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean): string {
-  // Groupe les tickets en pages de 3 colonnes × 6 lignes = 18 par page
-  const COLS = 3;
-  const ROWS = 6;
+  // Groupe les tickets en pages de 4 colonnes × 8 lignes = 32 par page
+  const COLS = 4;
+  const ROWS = 8;
   const PER_PAGE = COLS * ROWS;
 
   const pageBlocks: string[] = [];
@@ -163,7 +149,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean): stri
     <style>${PRINT_CSS}</style>
     ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
   </head>
-  <body><div class="doc-header">${title}</div>${pageBlocks.join("")}</body>
+  <body>${pageBlocks.join("")}</body>
 </html>`;
 }
 
