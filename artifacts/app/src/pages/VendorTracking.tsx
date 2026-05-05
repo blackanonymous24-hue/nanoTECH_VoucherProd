@@ -190,6 +190,15 @@ function arrearGroupCoversFullWeek(g: ConsolidatableArrearEntry, weekMon: string
   return sorted[0]!.date === weekMon && sorted[sorted.length - 1]!.date === sun;
 }
 
+/** Libellé « Arriéré de la semaine » sur l’intervalle réel des jours concernés (versements non faits / partiels). */
+function arrearWeekLabelFromGroup(g: ConsolidatableArrearEntry): string {
+  const raw = g.__underlying ?? [g];
+  const sorted = [...raw].sort((a, b) => a.date.localeCompare(b.date));
+  const first = sorted[0]!.date;
+  const last = sorted[sorted.length - 1]!.date;
+  return `Arriéré de la semaine du ${fmtDateFr(first)} au ${fmtDateFr(last)}`;
+}
+
 function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
   if (!weekStart || !weekEnd) return "Semaine";
   return `${fmtDateFr(weekStart)} – ${fmtDateFr(weekEnd)}`;
@@ -1012,12 +1021,16 @@ export default function VendorTracking() {
                             {prevWeekMonSorted.map((weekMon) => {
                               const entries = prevByWeek.get(weekMon) ?? [];
                               const groupedPrev = groupConsecutiveArrears(entries);
-                              const singleFullWeek =
-                                groupedPrev.length === 1 &&
-                                arrearGroupCoversFullWeek(groupedPrev[0]!, weekMon);
+                              const singleGroup = groupedPrev.length === 1;
+                              const g0 = groupedPrev[0];
+                              const lineLabelOne =
+                                g0 &&
+                                (arrearGroupCoversFullWeek(g0, weekMon)
+                                  ? arrearWeekRangeLabel(weekMon)
+                                  : arrearWeekLabelFromGroup(g0));
                               return (
                                 <Fragment key={`${s.vendorId}-prev-${weekMon}`}>
-                                  {!singleFullWeek && (
+                                  {!singleGroup && (
                                     <tr className="border-t border-red-100 bg-red-50/50">
                                       <td colSpan={3} className="px-3 py-1">
                                         <span className="text-[10px] font-semibold text-red-900 leading-tight">
@@ -1029,14 +1042,14 @@ export default function VendorTracking() {
                                   {groupedPrev.map((arr) => {
                                     const underlying = arr.__underlying;
                                     const pKey = `${s.vendorId}|prev-${weekMon}|${underlying?.map((e) => e.date).join(",") ?? arr.date}`;
-                                    const lineLabel = singleFullWeek
-                                      ? arrearWeekRangeLabel(weekMon)
+                                    const lineLabel = singleGroup
+                                      ? lineLabelOne!
                                       : arrearDisplayLabel(arr);
                                     return (
                                       <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
                                         <td
                                           colSpan={3}
-                                          className={`px-3 py-1.5 ${singleFullWeek ? "pl-3" : "pl-5"}`}
+                                          className={`px-3 py-1.5 ${singleGroup ? "pl-3" : "pl-5"}`}
                                         >
                                           <div className="flex items-start justify-between gap-2">
                                             <div className="flex flex-col gap-0.5 min-w-0">

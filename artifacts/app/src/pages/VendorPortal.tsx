@@ -190,6 +190,15 @@ function portalArrearGroupCoversFullWeek(g: GroupedDailyArrearsDay, weekMon: str
   return sorted[0]!.date === weekMon && sorted[sorted.length - 1]!.date === sun;
 }
 
+/** Libellé « Arriéré de la semaine » sur l’intervalle réel des jours avec reliquat. */
+function portalArrearWeekLabelFromGroup(g: GroupedDailyArrearsDay): string {
+  const raw = g.__underlying ?? [g];
+  const sorted = [...raw].sort((a, b) => a.date.localeCompare(b.date));
+  const first = sorted[0]!.date;
+  const last = sorted[sorted.length - 1]!.date;
+  return `Arriéré de la semaine du ${fmtDayMonthYear(first)} au ${fmtDayMonthYear(last)}`;
+}
+
 type PeriodSalesData = {
   period: string;
   label: string;
@@ -1306,11 +1315,13 @@ function Dashboard({ token, vendor, onLogout }: {
                         prevWeekSorted.forEach((weekMon) => {
                           const entries = prevByWeek.get(weekMon) ?? [];
                           const grouped = groupConsecutiveDailyArrears(entries);
-                          const singleFullWeek =
-                            grouped.length === 1 && portalArrearGroupCoversFullWeek(grouped[0]!, weekMon);
+                          const singleGroup = grouped.length === 1;
 
-                          if (singleFullWeek) {
+                          if (singleGroup) {
                             const d = grouped[0]!;
+                            const lineLabel = portalArrearGroupCoversFullWeek(d, weekMon)
+                              ? portalArrearWeekRangeLabel(weekMon)
+                              : portalArrearWeekLabelFromGroup(d);
                             const navIso = d.__underlying?.length
                               ? d.__underlying[d.__underlying.length - 1]!.date
                               : d.date;
@@ -1326,7 +1337,7 @@ function Dashboard({ token, vendor, onLogout }: {
                                 className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer border-b border-orange-100 bg-orange-50/40"
                               >
                                 <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
-                                  <span className="break-words">{portalArrearWeekRangeLabel(weekMon)}</span>
+                                  <span className="break-words">{lineLabel}</span>
                                   <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
                                 </span>
                                 <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
