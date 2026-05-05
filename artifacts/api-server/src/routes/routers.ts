@@ -2230,60 +2230,85 @@ async function buildDashboardPrioritySnapshot(id: number) {
     });
   }
 
-  // Router info (stale-while-revalidate + inFlight guard to avoid duplicate calls)
+  // ── Info routeur + comptage tickets : cold-start parallèle ──────────────────
+  // Stratégie "instant-on" :
+  //   • Si les deux caches sont vides (cold server après restart/déploiement) :
+  //     on lance getRouterInfo() ET listHotspotUsersFast() EN PARALLÈLE (Promise.all),
+  //     puis on répond. Premier appel ≈ max(info_latency, users_latency) au lieu de leur somme.
+  //   • Si un seul cache est vide : on lance uniquement le fetch manquant en inline await.
+  //   • Si les deux caches sont présents mais stale : refresh non-bloquant (setImmediate),
+  //     on sert les données stale immédiatement.
+  // Le cache localStorage côté client (initialData) affiche les dernières valeurs connues
+  // dès le montage du composant, sans attendre la réponse réseau.
+
   const infoKey = `info:${sc}`;
   const infoFresh = mGet(infoKey);
   const infoStale = mGetStale(infoKey);
-  const info = (infoFresh ?? infoStale ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
-  if (!infoFresh && !_infoRefreshing.has(id)) {
-    _infoRefreshing.add(id);
-    setImmediate(async () => {
-      try {
-        const liveInfo = await getRouterInfo(conn);
-        mSet(infoKey, MIK_TTL.info, liveInfo);
-      } catch { /* keep stale */ }
-      finally { _infoRefreshing.delete(id); }
-    });
-  }
 
-  // Users count — style Mikhmon :
-  // • Cold start (aucun cache) : listHotspotUsersFast() ne transfère que
-  //   name/disabled/profile/mac-address, ce qui est suffisant pour computeUsersCount().
-  //   Bien plus rapide qu'un fetch complet sur les grands parcs (>5 000 vouchers).
-  // • Stale (cache présent mais > 20 s) : getCachedUsers() réutilise le cache
-  //   complet déjà en RAM ou fait un fetch complet pour rafraîchir les autres pages.
-  const usersCached = _usersCountCache.get(sc) ?? null;
-  const users = usersCached
-    ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
-    : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
-
-  const userHit = userCache.get(sc);
+  const usersCachedBefore = _usersCountCache.get(sc) ?? null;
+  const userHit   = userCache.get(sc);
   const userFresh = !!userHit && now < userHit.expiresAt;
   const COUNT_FRESH_MS = 20_000;
-  if (!_usersRefreshing.has(id)) {
-    if (!usersCached) {
-      // Cold start : await inline pour que la première réponse contienne déjà le vrai comptage
-      // (setImmediate différait le fetch → le client voyait available=0 jusqu'au prochain poll)
+
+  const needInfoCold  = !infoFresh && !infoStale && !_infoRefreshing.has(id);
+  const needUsersCold = !usersCachedBefore && !_usersRefreshing.has(id);
+
+  if (needInfoCold || needUsersCold) {
+    // Cold start : fetch inline (bloquant) en parallèle pour les deux données manquantes
+    const tasks: Promise<void>[] = [];
+
+    if (needInfoCold) {
+      _infoRefreshing.add(id);
+      tasks.push(
+        getRouterInfo(conn)
+          .then((liveInfo) => { mSet(infoKey, MIK_TTL.info, liveInfo); })
+          .catch(() => { /* keep null */ })
+          .finally(() => { _infoRefreshing.delete(id); }),
+      );
+    }
+    if (needUsersCold) {
       _usersRefreshing.add(id);
-      try {
-        const list = await listHotspotUsersFast(conn);
-        const payload = await computeUsersCount(id, conn, list);
-        _usersCountCache.set(sc, payload);
-      } catch { /* keep zeros — connexion routeur impossible */ }
-      finally { _usersRefreshing.delete(id); }
-    } else if ((now - usersCached.cachedAt) > COUNT_FRESH_MS) {
-      // Stale : refresh en arrière-plan (non-bloquant, on sert le cache stale)
+      tasks.push(
+        listHotspotUsersFast(conn)
+          .then((list) => computeUsersCount(id, conn, list))
+          .then((payload) => { _usersCountCache.set(sc, payload); })
+          .catch(() => { /* keep zeros */ })
+          .finally(() => { _usersRefreshing.delete(id); }),
+      );
+    }
+    await Promise.all(tasks);
+  } else {
+    // Refresh stale en arrière-plan (non-bloquant) — on sert le cache immédiatement
+    if (!infoFresh && !_infoRefreshing.has(id)) {
+      _infoRefreshing.add(id);
+      setImmediate(async () => {
+        try { mSet(infoKey, MIK_TTL.info, await getRouterInfo(conn)); }
+        catch { /* keep stale */ }
+        finally { _infoRefreshing.delete(id); }
+      });
+    }
+    const usersCachedNow = _usersCountCache.get(sc);
+    if (usersCachedNow && !_usersRefreshing.has(id) && (now - usersCachedNow.cachedAt) > COUNT_FRESH_MS) {
       _usersRefreshing.add(id);
       setImmediate(async () => {
         try {
           const list = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: !userFresh });
-          const payload = await computeUsersCount(id, conn, list);
-          _usersCountCache.set(sc, payload);
+          _usersCountCache.set(sc, await computeUsersCount(id, conn, list));
         } catch { /* keep stale */ }
         finally { _usersRefreshing.delete(id); }
       });
     }
   }
+
+  // Lire les caches après les fetches éventuels
+  const infoFreshAfter  = mGet(infoKey);
+  const infoStaleAfter  = mGetStale(infoKey);
+  const info = (infoFreshAfter ?? infoStaleAfter ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
+
+  const usersCached = _usersCountCache.get(sc) ?? null;
+  const users = usersCached
+    ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
+    : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
 
   // Jour / mois : agrégation DB (alignée rapport local). Autres périodes : cache RAM live si dispo.
   const salesCached = salesCache.get(sc);
