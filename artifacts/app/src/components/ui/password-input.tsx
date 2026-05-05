@@ -22,9 +22,10 @@ export function PasswordInput({ className, buttonClassName, disabled, ...props }
         type="button"
         tabIndex={-1}
         disabled={disabled}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => setShow((v) => !v)}
         className={cn(
-          "absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors disabled:pointer-events-none disabled:opacity-40",
+          "absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition-colors disabled:pointer-events-none disabled:opacity-40",
           buttonClassName,
         )}
         aria-label={show ? "Masquer le mot de passe" : "Afficher le mot de passe"}
