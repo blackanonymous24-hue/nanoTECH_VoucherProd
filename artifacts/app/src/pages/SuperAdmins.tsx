@@ -760,15 +760,15 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
         <div className="space-y-3">
           <div>
             <Label>Identifiant</Label>
-            <Input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="ex. partenaire1" />
+            <Input autoComplete="off" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="ex. partenaire1" />
           </div>
           <div>
             <Label>Nom affiché</Label>
-            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="optionnel" />
+            <Input autoComplete="off" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="optionnel" />
           </div>
           <div>
             <Label>Mot de passe</Label>
-            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min. 4 caractères" />
+            <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min. 4 caractères" />
           </div>
           <div>
             <Label>Forfait initial (mois)</Label>
