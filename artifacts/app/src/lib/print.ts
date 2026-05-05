@@ -129,6 +129,14 @@ export function openPrintHtmlWindow(html: string, title: string): void {
   }
 }
 
+/**
+ * Construit le HTML complet pour l'impression de tickets (avec autoprint).
+ * Exposé pour permettre la pré-ouverture de fenêtre avant tout `await`.
+ */
+export function buildTicketPrintHtml(htmlItems: string[], title: string): string {
+  return buildHtml(htmlItems, title, true);
+}
+
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean): string {
   return `<!doctype html>
 <html>

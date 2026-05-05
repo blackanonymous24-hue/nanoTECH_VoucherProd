@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchServerTemplate } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -633,8 +633,17 @@ export default function GenerateVouchers() {
   };
 
   const handlePrint = async (lot: LastLot) => {
+    // ── Pré-ouvrir la fenêtre ICI, AVANT tout await ──────────────────────────
+    // Sur navigateur mobile, window.open après un await est traité comme un
+    // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
+    // de clic, puis on y écrit le HTML une fois prêt.
+    const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
+    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
+
     const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
     if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) {
+      preWin?.close();
       toast({
         title: "Impression Mikhmon",
         description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
@@ -682,8 +691,21 @@ export default function GenerateVouchers() {
       const compactValidity = toFileValidity(rawValidity);
       const profileSlug = lot.profileName.trim().split(/\s+/)[0] ?? lot.profileName;
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
-      printTickets(data.html as string[], printParts.join("-"));
+      const title = printParts.join("-");
+
+      if (preWin) {
+        // Navigateur mobile : écriture dans la fenêtre pré-ouverte
+        const html = buildTicketPrintHtml(data.html as string[], title);
+        preWin.document.open();
+        preWin.document.write(html);
+        preWin.document.close();
+        try { preWin.document.title = title; } catch (_) { /* cross-origin guard */ }
+      } else {
+        // APK WebView natif ou desktop
+        printTickets(data.html as string[], title);
+      }
     } catch (err: unknown) {
+      preWin?.close();
       toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
     } finally {
       setIsPrinting(false);
