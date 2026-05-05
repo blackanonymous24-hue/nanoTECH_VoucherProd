@@ -1282,16 +1282,30 @@ function Dashboard({ token, vendor, onLogout }: {
                           </CollapsibleTrigger>
                           <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
                             <Card className="mt-1 border border-orange-200 bg-orange-50/30 shadow-sm overflow-hidden">
-                              <CardContent className="p-0">
-                                <button
-                                  type="button"
-                                  onClick={() => reportNav(w.date)}
-                                  className="flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors hover:bg-orange-50/80 sm:flex-row sm:items-start sm:justify-between"
-                                >
-                                  <span className="text-[10px] text-gray-500 tabular-nums">{w.count} ticket{w.count !== 1 ? "s" : ""}</span>
-                                  <span className="text-[11px] font-bold text-orange-700 tabular-nums">{fmtFcfa(w.remaining)} FCFA</span>
-                                  <ChevronRight className="h-3 w-3 self-end text-orange-400 opacity-60 sm:hidden" />
-                                </button>
+                              <CardContent className="p-0 divide-y divide-orange-100">
+                                {[...(w.__underlying ?? [w])]
+                                  .sort((a, b) => a.date.localeCompare(b.date))
+                                  .map((d) => (
+                                    <button
+                                      key={d.date}
+                                      type="button"
+                                      onClick={() => reportNav(d.date)}
+                                      className="flex w-full items-start justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:bg-orange-50/90 sm:items-center"
+                                    >
+                                      <span className="min-w-0 text-[11px] font-semibold text-orange-800 break-words">
+                                        Arriéré du {fmtDayMonthYearUtc(d.date)}
+                                      </span>
+                                      <div className="flex flex-shrink-0 items-center gap-2">
+                                        <span className="text-[10px] text-gray-500 tabular-nums">
+                                          {d.count} ticket{d.count !== 1 ? "s" : ""}
+                                        </span>
+                                        <span className="text-[11px] font-bold text-orange-800 tabular-nums whitespace-nowrap">
+                                          {fmtFcfa(d.remaining)} FCFA
+                                        </span>
+                                        <ChevronRight className="h-3 w-3 text-orange-400 opacity-60 hidden sm:block" />
+                                      </div>
+                                    </button>
+                                  ))}
                               </CardContent>
                             </Card>
                           </CollapsibleContent>
@@ -1317,10 +1331,31 @@ function Dashboard({ token, vendor, onLogout }: {
                         </CollapsibleTrigger>
                         <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
                           <Card className="mt-1 border border-orange-200 bg-white shadow-sm overflow-hidden">
-                            <CardContent className="p-3">
-                              <p className="text-[10px] text-gray-600">
-                                {mergedPortal.count} ticket{mergedPortal.count !== 1 ? "s" : ""} · Montant attendu {fmtFcfa(mergedPortal.amount)} FCFA
-                              </p>
+                            <CardContent className="p-0 divide-y divide-orange-100">
+                              {mergedHead
+                                .slice()
+                                .sort((a, b) => a.date.localeCompare(b.date))
+                                .map((d) => (
+                                  <button
+                                    key={d.date}
+                                    type="button"
+                                    onClick={() => reportNav(d.date)}
+                                    className="flex w-full items-start justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:bg-orange-50/90 sm:items-center"
+                                  >
+                                    <span className="min-w-0 text-[11px] font-semibold text-orange-900 break-words">
+                                      Arriéré du {fmtDayMonthYearUtc(d.date)}
+                                    </span>
+                                    <div className="flex flex-shrink-0 items-center gap-2">
+                                      <span className="text-[10px] text-gray-500 tabular-nums">
+                                        {d.count} ticket{d.count !== 1 ? "s" : ""}
+                                      </span>
+                                      <span className="text-[11px] font-bold text-orange-900 tabular-nums whitespace-nowrap">
+                                        {fmtFcfa(d.remaining)} FCFA
+                                      </span>
+                                      <ChevronRight className="h-3 w-3 text-orange-400 opacity-60 hidden sm:block" />
+                                    </div>
+                                  </button>
+                                ))}
                             </CardContent>
                           </Card>
                         </CollapsibleContent>

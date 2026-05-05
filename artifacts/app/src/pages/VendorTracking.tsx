@@ -1065,15 +1065,42 @@ export default function VendorTracking() {
                                       </button>
                                     </CollapsibleTrigger>
                                     <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                                      <div className="border-t border-red-200/80 bg-red-50/80 px-3 py-2">
-                                        <button
-                                          type="button"
-                                          className="text-[10px] rounded bg-red-600 px-2 py-0.5 text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-                                          disabled={payLoading}
-                                          onClick={() => void solderPrevArrears(s.vendorId, weekRows)}
-                                        >
-                                          {payLoading ? "…" : "Solder tout"}
-                                        </button>
+                                      <div className="space-y-2 border-t border-red-200/80 bg-red-50/80 px-3 py-2">
+                                        <ul className="space-y-1.5">
+                                          {[...weekRows]
+                                            .sort((a, b) => a.date.localeCompare(b.date))
+                                            .map((day) => (
+                                              <li
+                                                key={day.date}
+                                                className="flex items-start justify-between gap-2 rounded-md border border-red-100/90 bg-white/90 px-2.5 py-1.5 text-[11px]"
+                                              >
+                                                <div className="min-w-0 flex-1">
+                                                  <span className="font-medium text-red-900">Arriéré du {fmtDateFr(day.date)}</span>
+                                                  {day.paidAmount > 0 && (
+                                                    <span className="mt-0.5 block text-[10px] text-gray-600">
+                                                      Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
+                                                      {fmtAmount(
+                                                        paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
+                                                      )}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                <span className="flex-shrink-0 font-bold tabular-nums text-red-800">
+                                                  {fmtAmount(day.remaining)} FCFA
+                                                </span>
+                                              </li>
+                                            ))}
+                                        </ul>
+                                        <div className="border-t border-red-200/70 pt-2">
+                                          <button
+                                            type="button"
+                                            className="text-[10px] rounded bg-red-600 px-2 py-0.5 text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+                                            disabled={payLoading}
+                                            onClick={() => void solderPrevArrears(s.vendorId, weekRows)}
+                                          >
+                                            {payLoading ? "…" : "Solder tout"}
+                                          </button>
+                                        </div>
                                       </div>
                                     </CollapsibleContent>
                                   </Collapsible>
@@ -1109,12 +1136,31 @@ export default function VendorTracking() {
                                       </CollapsibleTrigger>
                                       <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
                                         <div className="space-y-2 border-t border-orange-200/80 bg-orange-50/90 px-3 py-2">
-                                          {mergedEntry.paidAmount > 0 && (
-                                            <span className="text-[10px] text-gray-600">
-                                              Ventes: {fmtAmount(mergedEntry.salesAmount)} · Versé:{" "}
-                                              {fmtAmount(paidShownVersusWeekContext(mergedEntry.paidAmount, mergedEntry.salesAmount, 0, 0))}
-                                            </span>
-                                          )}
+                                          <ul className="space-y-1.5">
+                                            {[...mergedHead!]
+                                              .sort((a, b) => a.date.localeCompare(b.date))
+                                              .map((day) => (
+                                                <li
+                                                  key={day.date}
+                                                  className="flex items-start justify-between gap-2 rounded-md border border-orange-200/90 bg-white/95 px-2.5 py-1.5 text-[11px]"
+                                                >
+                                                  <div className="min-w-0 flex-1">
+                                                    <span className="font-medium text-orange-900">Arriéré du {fmtDateFr(day.date)}</span>
+                                                    {day.paidAmount > 0 && (
+                                                      <span className="mt-0.5 block text-[10px] text-gray-600">
+                                                        Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
+                                                        {fmtAmount(
+                                                          paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
+                                                        )}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <span className="flex-shrink-0 font-bold tabular-nums text-orange-900">
+                                                    {fmtAmount(day.remaining)} FCFA
+                                                  </span>
+                                                </li>
+                                              ))}
+                                          </ul>
                                           {!isPayingCumul && (
                                             <button
                                               type="button"

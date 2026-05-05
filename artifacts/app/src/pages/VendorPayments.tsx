@@ -989,12 +989,36 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                                   </CollapsibleTrigger>
                                   <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
                                     <div className="space-y-2 border-t border-orange-100/80 px-2 py-2">
-                                      {mergedEntry.paidAmount > 0 && (
-                                        <p className="text-[10px] text-gray-500">
-                                          Ventes: {fmtAmount(mergedEntry.salesAmount)} · Versé:{" "}
-                                          {fmtAmount(paidShownVersusWeekContext(mergedEntry.paidAmount, mergedEntry.salesAmount, 0, 0))} FCFA
-                                        </p>
-                                      )}
+                                      <ul className="space-y-1.5">
+                                        {[...mHead!]
+                                          .sort((a, b) => a.date.localeCompare(b.date))
+                                          .map((day) => (
+                                            <li
+                                              key={day.date}
+                                              className="flex items-start justify-between gap-2 rounded-md border border-orange-200/90 bg-white/95 px-2.5 py-1.5 text-[10px]"
+                                            >
+                                              <div className="min-w-0 flex-1">
+                                                <span className="font-medium text-orange-900">Arriéré du {fmtDateFr(day.date)}</span>
+                                                {day.paidAmount > 0 ? (
+                                                  <span className="mt-0.5 block text-[9px] text-gray-600">
+                                                    Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
+                                                    {fmtAmount(
+                                                      paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
+                                                    )}{" "}
+                                                    FCFA
+                                                  </span>
+                                                ) : (
+                                                  <span className="mt-0.5 block text-[9px] text-gray-600">
+                                                    Ventes: {fmtAmount(day.salesAmount)} FCFA
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <span className="flex-shrink-0 font-bold tabular-nums text-orange-900">
+                                                {fmtAmount(day.remaining)} FCFA
+                                              </span>
+                                            </li>
+                                          ))}
+                                      </ul>
                                       {!isPayingCumul && (
                                         <div className="flex flex-wrap gap-1.5">
                                           <button
