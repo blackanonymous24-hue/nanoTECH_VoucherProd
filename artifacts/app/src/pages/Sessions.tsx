@@ -5,6 +5,7 @@ import {
   getListRouterSessionsQueryKey,
 } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +51,7 @@ function formatBytes(bytes: string | null | undefined): string {
 
 export default function Sessions() {
   const { selectedRouterId } = useRouterContext();
+  const isVisible = usePageVisibility();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const lastSyncedCountRef = useRef<number>(-1);
@@ -73,7 +75,7 @@ export default function Sessions() {
       query: {
         queryKey: getListRouterSessionsQueryKey(selectedRouterId ?? 0),
         enabled: !!selectedRouterId,
-        refetchInterval: 30_000,
+        refetchInterval: isVisible ? 30_000 : false,
         staleTime: 14_000,       // juste sous le TTL serveur (15s) → pas de double-fetch inutile
         gcTime: 30 * 60_000,     // garde les données 30 min en mémoire React Query
         initialData: cachedSnapshot?.sessions,

@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef, useCallback, ty
 import { useListRouters, getListRoutersQueryKey } from "@workspace/api-client-react";
 import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { queryClient } from "@/lib/queryClient";
 
 interface RouterContextValue {
   selectedRouterId: number | null;
@@ -130,6 +131,19 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       didInitialTrigger.current = true;
       setPingTrigger((n) => n + 1);
     }
+  }, [selectedRouterId]);
+
+  // Annuler toutes les requêtes en cours de l'ancien routeur quand on change.
+  // Évite que des réponses tardives d'un router A polluent l'affichage du router B.
+  const prevRouterIdRef = useRef<number | null>(selectedRouterId);
+  useEffect(() => {
+    const prevId = prevRouterIdRef.current;
+    prevRouterIdRef.current = selectedRouterId;
+    if (prevId === null || prevId === selectedRouterId) return;
+    // Annuler toutes les queries dont la clé contient l'ancien router ID
+    void queryClient.cancelQueries({
+      predicate: (query) => query.queryKey.includes(prevId),
+    });
   }, [selectedRouterId]);
 
   // Removed aggressive bootstrap prewarm to keep MikroTik traffic focused on

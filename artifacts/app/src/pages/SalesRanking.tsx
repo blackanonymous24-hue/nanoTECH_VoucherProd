@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Link } from "wouter";
 import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +67,7 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
   period: "today" | "month";
   onBack: () => void;
 }) {
+  const isVisible = usePageVisibility();
   const { data, isLoading, error } = useQuery<PeriodSalesData>({
     queryKey: ["vendor-period-sales", vendorId, period],
     queryFn: async ({ signal }) => {
@@ -74,7 +76,7 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
       return res.json();
     },
     staleTime: 8_000,
-    refetchInterval: LIVE_SALES_POLL_MS,
+    refetchInterval: isVisible ? LIVE_SALES_POLL_MS : false,
     refetchIntervalInBackground: false,
     placeholderData: (previousData) => previousData,
   });
@@ -316,6 +318,7 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
 /* ── Classement principal ────────────────────────────────────────── */
 export default function SalesRanking({ period }: { period: "daily" | "monthly" }) {
   const { selectedRouterId } = useRouterContext();
+  const isVisible = usePageVisibility();
   const [selectedVendor, setSelectedVendor] = useState<{ id: number; name: string } | null>(null);
   const queryClient = useQueryClient();
 
@@ -335,7 +338,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<VendorSummary[]>;
     },
-    refetchInterval: LIVE_SALES_POLL_MS,
+    refetchInterval: isVisible ? LIVE_SALES_POLL_MS : false,
     refetchIntervalInBackground: false,
     staleTime: 8_000,
   });

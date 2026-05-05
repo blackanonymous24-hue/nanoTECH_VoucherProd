@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
   useGetVendorReportsSummary,
   useGetVendorReport,
@@ -111,7 +112,8 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
-  const { data, isLoading } = useGetVendorReport(vendorId, { query: { queryKey: getGetVendorReportQueryKey(vendorId), refetchInterval: 5_000 } });
+  const isVisible = usePageVisibility();
+  const { data, isLoading } = useGetVendorReport(vendorId, { query: { queryKey: getGetVendorReportQueryKey(vendorId), refetchInterval: isVisible ? 60_000 : false } });
 
   if (isLoading || !data) {
     return (
@@ -545,7 +547,8 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 
 /* ─── main page ───────────────────────────────────────────────── */
 export default function Reports() {
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), refetchInterval: 5_000 } });
+  const isVisible = usePageVisibility();
+  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), refetchInterval: isVisible ? 60_000 : false } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
 

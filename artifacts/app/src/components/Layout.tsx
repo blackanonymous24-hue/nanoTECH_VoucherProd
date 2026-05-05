@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
+import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
 import { Button } from "@/components/ui/button";
@@ -170,6 +171,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     ? (vendorsList === undefined || vendorsList.length > 0)
     : false;
   const isVouchersPage = location.startsWith("/vouchers");
+  const isVisible = usePageVisibility();
 
   const isNavActive = (href: string) => {
     // Keep vendor-related pages independent in sidebar highlighting.
@@ -207,8 +209,10 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       return res.json() as Promise<{ count: number; alerts: { vendorId: number | null; vendorName: string; profileName: string; available: number }[] }>;
     },
     staleTime: 60_000,
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: true,
+    // Ne jamais polluer l'onglet en arrière-plan : on suspend le polling
+    // quand l'onglet est caché ou minimisé (Page Visibility API).
+    refetchInterval: isVisible ? 60_000 : false,
+    refetchIntervalInBackground: false,
     retry: 2,
   });
   const lowStockCount = stockAlerts?.count ?? 0;
@@ -439,8 +443,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       }
       return 0;
     },
-    enabled: !!selectedRouterId && isVouchersPage,
-    refetchInterval: 120_000,
+    enabled: isVisible && !!selectedRouterId && isVouchersPage,
+    refetchInterval: isVisible ? 120_000 : false,
     staleTime: 115_000,
     throwOnError: false,
   });

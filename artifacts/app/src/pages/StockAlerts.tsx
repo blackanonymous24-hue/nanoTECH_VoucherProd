@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell, PackageOpen, AlertTriangle, RefreshCw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ function urgencyColor(available: number) {
 export default function StockAlerts() {
   const { token } = useAuth();
   const { selectedRouterId } = useRouterContext();
+  const isVisible = usePageVisibility();
 
   const { data, isLoading, refetch, isFetching } = useQuery<{
     count: number;
@@ -52,9 +54,9 @@ export default function StockAlerts() {
       return res.json();
     },
     staleTime: 60_000,
-    enabled: !!token,
-    refetchInterval: 120_000,
-    refetchIntervalInBackground: true,
+    enabled: !!token && isVisible,
+    refetchInterval: isVisible ? 120_000 : false,
+    refetchIntervalInBackground: false,
   });
 
   const alerts = data?.alerts ?? [];
