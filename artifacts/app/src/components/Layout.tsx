@@ -788,27 +788,29 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent flex-shrink-0" />
 
       {/* ── Footer ── */}
-      <div className="px-3 py-3 flex-shrink-0 space-y-1.5">
-        {/* Role badge + password button row */}
+      <div className="px-3 py-3 flex-shrink-0">
+        {/* Badge rôle + actions sur une seule ligne */}
         <div className="flex items-center justify-between gap-2">
+          {/* Badge rôle */}
           {isManager ? (
-            <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-400/80 bg-amber-400/10 px-2 py-0.5 rounded-full ring-1 ring-amber-400/20">
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-400/80 bg-amber-400/10 px-2 py-0.5 rounded-full ring-1 ring-amber-400/20 flex-shrink-0">
               Gérant de zone
             </span>
           ) : isCollaborateur ? (
-            <span className="text-[9px] font-semibold uppercase tracking-wide text-purple-400/80 bg-purple-400/10 px-2 py-0.5 rounded-full ring-1 ring-purple-400/20">
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-purple-400/80 bg-purple-400/10 px-2 py-0.5 rounded-full ring-1 ring-purple-400/20 flex-shrink-0">
               Collaborateur
             </span>
           ) : isAdmin ? (
-            <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20">
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20 flex-shrink-0">
               Admin
             </span>
           ) : (
-            <span />
+            <span className="flex-shrink-0" />
           )}
 
+          {/* Actions à droite */}
           <div className="flex items-center gap-1">
-            {/* Modify password — managers and collaborateurs */}
+            {/* Modifier mot de passe — managers et collaborateurs */}
             {(isManager || isCollaborateur) && (
               <button
                 onClick={openPwdDialog}
@@ -819,17 +821,17 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 <span>Mot de passe</span>
               </button>
             )}
+            {/* Déconnexion — toujours en rouge, sur la même ligne que le badge */}
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1 text-[11px] font-medium text-red-400/80 hover:text-red-300 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
+              title="Se déconnecter"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span>Déconnexion</span>
+            </button>
           </div>
         </div>
-
-        {/* Logout */}
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          <span>Déconnexion</span>
-        </button>
       </div>
 
       {/* ── Password change dialog (manager only) ── */}
