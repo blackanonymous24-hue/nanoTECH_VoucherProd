@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, ne, count, sql, and, gte, lt, isNotNull } from "drizzle-orm";
+import { eq, desc, ne, count, sql, and, gte, lt, isNotNull, isNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
@@ -105,8 +105,11 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
       db.select().from(vouchersTable).where(and(
         eq(vouchersTable.vendorId, id),
         sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt}) is not null`,
-      )).orderBy(desc(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt})`)),
-      db.select().from(vouchersTable).where(eq(vouchersTable.vendorId, id)).orderBy(desc(vouchersTable.createdAt)),
+      )).orderBy(desc(sql`coalesce(${vouchersTable.usedAt}, ${vouchersTable.printedAt})`)).limit(300),
+      db.select().from(vouchersTable).where(and(
+        eq(vouchersTable.vendorId, id),
+        isNull(vouchersTable.usedAt),
+      )).orderBy(desc(vouchersTable.createdAt)).limit(600),
       vendor.routerId != null
         ? db.select({ profileName: profilesCacheTable.profileName }).from(profilesCacheTable).where(eq(profilesCacheTable.routerId, vendor.routerId))
         : Promise.resolve([] as { profileName: string }[]),
@@ -152,7 +155,7 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
       ...v,
       price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
     })),
-    availableVouchers: availableVouchers.filter((v) => v.usedAt === null),
+    availableVouchers,
   };
   cSet(dashKey, DASH_TTL, dashPayload);
   return dashPayload;
@@ -188,6 +191,12 @@ router.post("/vendor-portal/login", async (req, res): Promise<void> => {
   }
 
   const token = createToken(vendor.id);
+
+  // Préchauffer le cache dashboard en arrière-plan dès le login.
+  // Quand le client fera son premier GET /vendor-portal/me quelques ms plus
+  // tard, les données seront déjà prêtes — réponse instantanée.
+  setImmediate(() => { void computeAndCacheVendorDash(vendor); });
+
   res.json({
     token,
     vendor: {
