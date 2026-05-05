@@ -146,7 +146,7 @@ export default function SuperAdmins() {
   });
 
   const editM = useMutation({
-    mutationFn: async (v: { id: number; displayName?: string | null; password?: string; isActive?: boolean }) => {
+    mutationFn: async (v: { id: number; login?: string; displayName?: string | null; password?: string; isActive?: boolean }) => {
       const { id, ...body } = v;
       const r = await fetch(`${BASE}/api/super/admins/${id}`, { method: "PATCH", headers, body: JSON.stringify(body) });
       if (!r.ok) throw new Error((await r.json()).error ?? "Mise à jour impossible");
@@ -811,29 +811,39 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
 function EditDialog({ admin, onClose, onSubmit, pending }: {
   admin: AdminRow;
   onClose: () => void;
-  onSubmit: (v: { displayName?: string | null; password?: string; isActive?: boolean }) => void;
+  onSubmit: (v: { login?: string; displayName?: string | null; password?: string; isActive?: boolean }) => void;
   pending: boolean;
 }) {
+  const [login, setLogin] = useState(admin.login);
   const [displayName, setDisplayName] = useState(admin.displayName ?? "");
   const originalPassword = admin.credentialPreview?.password ?? "";
   const [password, setPassword] = useState(originalPassword);
   const [isActive, setIsActive] = useState(admin.isActive);
+  const [loginError, setLoginError] = useState("");
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Modifier {admin.displayName || admin.login}</DialogTitle>
-          <DialogDescription>L'identifiant ne peut pas être changé.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <div>
+            <Label>Identifiant</Label>
+            <Input
+              autoComplete="off"
+              value={login}
+              onChange={(e) => { setLogin(e.target.value); setLoginError(""); }}
+            />
+            {loginError && <p className="text-xs text-red-500 mt-1">{loginError}</p>}
+          </div>
           <div>
             <Label>Nom affiché</Label>
             <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </div>
           <div>
             <Label>Mot de passe</Label>
-            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+            <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
           </div>
           {!admin.isSuperAdmin && (
             <div className="flex items-center justify-between rounded-lg border p-3">
@@ -850,7 +860,10 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
           <Button
             disabled={pending}
             onClick={() => {
-              const payload: { displayName?: string | null; password?: string; isActive?: boolean } = {};
+              const loginTrimmed = login.trim();
+              if (loginTrimmed.length < 2) { setLoginError("Identifiant trop court (min 2 caractères)"); return; }
+              const payload: { login?: string; displayName?: string | null; password?: string; isActive?: boolean } = {};
+              if (loginTrimmed !== admin.login) payload.login = loginTrimmed;
               if (displayName !== (admin.displayName ?? "")) payload.displayName = displayName.trim() || null;
               if (password !== originalPassword && password.length >= 4) payload.password = password;
               if (!admin.isSuperAdmin && isActive !== admin.isActive) payload.isActive = isActive;
