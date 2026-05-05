@@ -188,6 +188,7 @@ export default function Vouchers() {
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editProfile, setEditProfile] = useState("");
+  const [editComment, setEditComment] = useState("");
   const [editBypassMac, setEditBypassMac] = useState("");
   const [editBypassComment, setEditBypassComment] = useState("");
   const [linkBypass, setLinkBypass] = useState(false);
@@ -899,6 +900,7 @@ export default function Vouchers() {
     setEditUsername(user.username);
     setEditPassword(user.password);
     setEditProfile(user.profile);
+    setEditComment(user.comment ?? "");
     setEditBypassMac(user.macAddress ?? "");
     setEditBypassComment("");
     setLinkBypass(!!user.macAddress);
@@ -928,10 +930,13 @@ export default function Vouchers() {
       return;
     }
 
+    const nextComment = editComment.trim();
+
     const nothingChanged =
       nextUsername === editingUser.username &&
       nextPassword === editingUser.password &&
       nextProfile === editingUser.profile &&
+      nextComment === (editingUser.comment ?? "") &&
       (!linkBypass || nextBypassMac === (editingUser.macAddress ?? ""));
     if (nothingChanged) { setEditingUser(null); return; }
 
@@ -940,6 +945,7 @@ export default function Vouchers() {
       newUsername: nextUsername,
       password: nextPassword,
       profile: nextProfile,
+      comment: nextComment,
       linkBypass,
       bypassMacAddress: linkBypass ? nextBypassMac : undefined,
       bypassComment: linkBypass ? editBypassComment.trim() : undefined,
@@ -996,6 +1002,7 @@ export default function Vouchers() {
       await Promise.all([refetchUsers(), refetchLots()]);
 
       if (fromDialog) {
+        setEditComment("");
         setEditingUser((prev) =>
           prev && prev.username === user.username
             ? { ...prev, comment: "", limitUptime: undefined, limitBytesTotal: undefined }
@@ -2297,14 +2304,17 @@ export default function Vouchers() {
             </div>
           </div>
           <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto px-6 py-4">
-            {editingUser?.comment && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Lot / Commentaire</Label>
-                <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm font-mono text-muted-foreground select-all">
-                  {editingUser.comment}
-                </div>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-comment" className="text-xs text-muted-foreground">Lot / Commentaire</Label>
+              <Input
+                id="edit-comment"
+                value={editComment}
+                onChange={(e) => setEditComment(e.target.value)}
+                placeholder="ex: LOT-2024-01"
+                className="font-mono"
+                disabled={isSavingRename || isTogglingEditUserDisabled || isResetting}
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-username" className="text-xs text-muted-foreground">Identifiant</Label>
               <Input
