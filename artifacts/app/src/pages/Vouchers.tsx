@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-client-react";
 import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
+import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -428,8 +429,10 @@ export default function Vouchers() {
     staleTime: 30_000,
   });
 
-  // Keep MikroTik insertion order (= creation order), same as Mikhmon
-  const sortedProfiles = profilesList;
+  const sortedProfiles = useMemo(
+    () => sortRouterProfilesByCreationOrder(profilesList),
+    [profilesList],
+  );
 
   // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
   const handleDisableLot = async (comment: string, enable: boolean) => {

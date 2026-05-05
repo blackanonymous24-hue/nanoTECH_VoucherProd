@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { PasswordInput } from "@/components/ui/password-input";
+import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -73,7 +74,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
   );
 }
 
-function NavContent({ onNavigate }: { onNavigate?: () => void }) {
+function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mobileDrawer?: boolean }) {
   const [location] = useLocation();
   const { routerIdentity, selectedRouterId } = useRouterContext();
   const { logout, role, token, isSuperAdmin } = useAuth();
@@ -191,11 +192,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       if (!res.ok) return [];
       const data = await res.json() as {
         name: string;
+        mikrotikId?: string;
         price?: string;
         validity?: string;
         schedulerMonitorActive?: boolean;
       }[];
-      return data.map((p) => ({
+      const sorted = sortRouterProfilesByCreationOrder(data);
+      return sorted.map((p) => ({
         name: p.name,
         price: p.price ?? null,
         validity: p.validity ?? null,
@@ -388,7 +391,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   ];
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-auto min-h-0 md:h-full">
 
       {/* ── Brand ── */}
       <div className="px-5 pt-5 pb-4 flex-shrink-0">
@@ -417,7 +420,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {/* ── Nav ── */}
-      <nav className="flex-1 overflow-y-auto sidebar-nav px-3 py-2 min-h-0">
+      <nav
+        className={cn(
+          "flex-none sidebar-nav px-3 py-2 min-h-0",
+          mobileDrawer
+            ? "overflow-x-hidden overflow-y-visible"
+            : "overflow-x-hidden overflow-y-auto md:flex-1",
+        )}
+      >
 
         {/* ── Notification stock faible — always visible ── */}
         {(() => {
@@ -916,15 +926,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {/* Sliding nav panel */}
             <div
               className={cn(
-                "absolute top-0 left-0 h-full w-64 bg-[#0d1117] text-white border-r border-white/[0.06] z-20 flex flex-col overflow-y-auto transition-transform duration-300 ease-in-out",
+                "absolute top-0 left-0 w-64 max-w-[min(18rem,85vw)] bg-[#0d1117] text-white border-r border-white/[0.06] z-20 flex flex-col overflow-y-auto overflow-x-hidden transition-transform duration-300 ease-in-out shadow-2xl",
+                "h-auto max-h-full min-h-0",
                 mobileOpen ? "translate-x-0" : "-translate-x-full"
               )}
             >
-              <NavContent onNavigate={() => setMobileOpen(false)} />
+              <NavContent mobileDrawer onNavigate={() => setMobileOpen(false)} />
             </div>
 
             {/* Main content — blocked from scrolling while menu is open */}
-            <main className={cn("flex-1", mobileOpen ? "overflow-hidden" : "overflow-y-auto")}>
+            <main className={cn("flex-1 min-h-0", mobileOpen ? "overflow-hidden" : "overflow-y-auto")}>
               <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
             </main>
           </div>

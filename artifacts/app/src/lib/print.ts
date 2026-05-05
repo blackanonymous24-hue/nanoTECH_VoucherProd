@@ -7,7 +7,6 @@ const PRINT_CSS = `
     body { padding-bottom: 100px; }
   }
   @media print {
-    #__nt_ios_print_bar { display:none !important; }
     body { padding-bottom:0 !important; }
     /* Un ticket par page en multi-impression (Safari iOS regroupait tout sur une page). */
     body > table { display:table; page-break-inside:avoid; break-inside:avoid; max-width:100%; }
@@ -61,33 +60,27 @@ function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
-/** Détection iOS / iPadOS (comportement impression navigateur différent d’Android). */
-function isIOS(): boolean {
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-  );
-}
-
-/** Barre tactile iOS : Safari bloque souvent print() sans geste utilisateur ; le bouton déclenche la feuille native. */
-function injectIosPrintBar(html: string): string {
-  const bar =
-    `<div id="__nt_ios_print_bar" style="position:fixed;bottom:0;left:0;right:0;z-index:2147483647;` +
-    `background:#0f172a;color:#f8fafc;padding:12px 14px calc(12px + env(safe-area-inset-bottom,0));` +
-    `font-family:system-ui,-apple-system,sans-serif;font-size:14px;box-shadow:0 -4px 24px rgba(0,0,0,.35);` +
-    `display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;text-align:center;">` +
-    `<span style="flex:1 1 220px;line-height:1.35">` +
-    `Impression : touchez <strong>Imprimer</strong> ci-dessous (iOS peut refuser l’ouverture automatique du dialogue).` +
-    `</span>` +
-    `<button type="button" onclick="window.print()" style="padding:11px 20px;border-radius:10px;border:none;font-weight:600;` +
-    `background:#2563eb;color:#fff;-webkit-tap-highlight-color:transparent;cursor:pointer">Imprimer</button>` +
-    `<button type="button" onclick="this.parentElement.style.display='none'" style="padding:9px 14px;border-radius:10px;` +
-    `border:1px solid #475569;background:transparent;color:#cbd5e1;font-size:13px;cursor:pointer">Masquer</button>` +
-    `</div>`;
-  if (/<body[^>]*>/i.test(html)) {
-    return html.replace(/<body([^>]*)>/i, `<body$1>${bar}`);
+/**
+ * Impression depuis une page HTML complète (comme « Imprimer Hebdo » : write + print).
+ * — APK (React Native WebView) : envoi au natif → expo-print (`Print.printAsync`) — `window.open` est souvent bloqué.
+ * — Navigateur mobile : nouvel onglet + document.write.
+ */
+export function openPrintHtmlWindow(html: string, title: string): void {
+  if (isNativeWebView()) {
+    printWithNativeBridge(html, title);
+    return;
   }
-  return html;
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  try {
+    win.document.title = title;
+  } catch (_) {
+    /* ignore */
+  }
 }
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean): string {
@@ -113,6 +106,25 @@ function buildReportHtml(bodyHtml: string, title: string, autoprint = true): str
     <title>${title}</title>
     <style>${REPORT_CSS}</style>
     ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
+  </head>
+  <body>${bodyHtml}</body>
+</html>`;
+}
+
+/**
+ * Document HTML autonome pour l’impression (suivi vendeurs, hebdo, etc.) :
+ * même en-tête viewport + onload que les rapports, pour Safari iOS / WebView.
+ */
+export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHtml: string): string {
+  const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>${safeTitle}</title>
+    <style>${styleCss}</style>
+    <script>window.onload=function(){window.focus();window.print();}<\/script>
   </head>
   <body>${bodyHtml}</body>
 </html>`;
@@ -158,45 +170,6 @@ function printWithIframe(html: string, title: string): void {
 }
 
 /**
- * Ouvre le HTML dans un nouvel onglet via une Blob URL.
- * Android : print() au chargement. iOS : tentative différée + barre « Imprimer »
- * (Safari exige souvent un tap explicite pour ouvrir la feuille d’impression).
- */
-function printForMobileWeb(html: string, title: string): void {
-  const ios = isIOS();
-  let doc = ios ? injectIosPrintBar(html) : html;
-  const printScript = ios
-    ? `<script>(function(){
-  function run(){try{window.focus();window.print();}catch(_){}}
-  if(document.readyState==="complete")setTimeout(run,450);
-  else window.addEventListener("load",function(){setTimeout(run,450);},{once:true});
-})();<\/script></head>`
-    : `<script>window.onload=function(){window.focus();window.print();}<\/script></head>`;
-  const fullHtml = doc.replace(/<\/head>/i, printScript);
-
-  try {
-    const blob = new Blob([fullHtml], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, "_blank");
-    if (win) {
-      setTimeout(() => URL.revokeObjectURL(url), 120_000);
-      return;
-    }
-    URL.revokeObjectURL(url);
-  } catch (_) { /* chute vers fallback */ }
-
-  // Fallback : écriture directe dans une nouvelle fenêtre
-  let win: Window | null = null;
-  try { win = window.open("", "_blank"); } catch (_) { win = null; }
-  if (win) {
-    win.document.open();
-    win.document.write(fullHtml);
-    win.document.close();
-    win.document.title = title;
-  }
-}
-
-/**
  * Envoie le HTML au pont natif React Native WebView pour impression via
  * le dialogue Android/iOS natif (expo-print).
  */
@@ -209,11 +182,11 @@ function printWithNativeBridge(html: string, title: string): void {
 /**
  * Imprime des tickets HTML.
  * — APK WebView : pont natif via postMessage → expo-print.
- * — Mobile web  : nouvel onglet Blob (iOS Partager→Imprimer / Android auto-print).
+ * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
  * — Desktop     : utilise un <iframe> invisible.
  */
 export function printTickets(htmlItems: string[], title: string): void {
-  const html = buildHtml(htmlItems, title, false);
+  let html = buildHtml(htmlItems, title, false);
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);
@@ -221,7 +194,10 @@ export function printTickets(htmlItems: string[], title: string): void {
   }
 
   if (isMobile()) {
-    printForMobileWeb(html, title);
+    if (!/<script[^>]*>[\s\S]*window\.print\s*\(/i.test(html)) {
+      html = html.replace(/<\/body>/i, `<script>window.onload=function(){window.print();}<\/script></body>`);
+    }
+    openPrintHtmlWindow(html, title);
   } else {
     printWithIframe(html, title);
   }
@@ -230,7 +206,7 @@ export function printTickets(htmlItems: string[], title: string): void {
 /**
  * Imprime un rapport de ventes depuis le portail vendeur.
  * — APK WebView : pont natif via postMessage → expo-print.
- * — Mobile web  : nouvel onglet Blob (iOS Partager→Imprimer / Android auto-print).
+ * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
  * — Desktop     : utilise un <iframe> invisible.
  */
 export function printReport(title: string): void {
@@ -238,7 +214,12 @@ export function printReport(title: string): void {
 
   if (!section) {
     if (isMobile() && !isNativeWebView()) {
-      printForMobileWeb(`<!doctype html><html><head><meta charset="utf-8"/><style>${REPORT_CSS}</style></head><body>${document.body.innerHTML}</body></html>`, title);
+      const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const html =
+        `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>` +
+        `<title>${safeTitle}</title><style>${REPORT_CSS}</style>` +
+        `<script>window.onload=function(){window.focus();window.print();}<\/script></head><body>${document.body.innerHTML}</body></html>`;
+      openPrintHtmlWindow(html, title);
     } else {
       window.print();
     }
@@ -251,7 +232,7 @@ export function printReport(title: string): void {
     el.style.display = "block";
   });
 
-  const html = buildReportHtml(clone.innerHTML, title, !isIOS());
+  const html = buildReportHtml(clone.innerHTML, title, true);
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);
@@ -259,7 +240,7 @@ export function printReport(title: string): void {
   }
 
   if (isMobile()) {
-    printForMobileWeb(html, title);
+    openPrintHtmlWindow(html, title);
   } else {
     printWithIframe(html, title);
   }

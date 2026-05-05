@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { printReport } from "@/lib/print";
 const LIVE_SALES_POLL_MS = 10_000;
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -99,7 +100,7 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
           <p className="text-xs text-gray-500 capitalize">{subtitle}</p>
         </div>
         {data && data.total > 0 && (
-          <Button size="sm" variant="outline" onClick={() => window.print()} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => printReport(printTitle)} className="gap-1.5">
             <Printer className="h-4 w-4" /> Imprimer
           </Button>
         )}
@@ -375,102 +376,156 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
 
   const total = sorted.reduce((sum, d) => sum + d.count, 0);
   const updatedTime = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("fr-FR") : null;
+  const rankingPrintTitle = "Rapport de ventes";
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <Link href="/" className="text-gray-400 hover:text-gray-600 transition-colors">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-          <p className="text-sm text-gray-500">{subtitle}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/sales/${otherPeriod}`}
-            className="text-sm text-blue-600 hover:underline font-medium"
-          >
-            {otherLabel}
+    <div className="max-w-2xl mx-auto px-6">
+      <header className="no-print pt-6 pb-0">
+        <div className="flex items-center gap-3 mb-6">
+          <Link href="/" className="text-gray-400 hover:text-gray-600 transition-colors">
+            <ArrowLeft className="h-5 w-5" />
           </Link>
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          </button>
-        </div>
-      </div>
-
-      <Card className="mb-4">
-        <CardContent className="pt-4 pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <Users className="h-4 w-4 text-gray-400" />
-              <span>{sorted.length} vendeur{sorted.length !== 1 ? "s" : ""}</span>
-            </div>
-            <div className="text-right">
-              <span className="text-xl font-bold text-gray-900">{total.toLocaleString()}</span>
-              <span className="text-sm text-gray-500 ml-1">tickets vendus</span>
-            </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
+            <p className="text-sm text-gray-500">{subtitle}</p>
           </div>
-        </CardContent>
-      </Card>
-
-      {isLoading ? (
-        <div className="space-y-2">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />
-          ))}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {sorted.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => printReport(rankingPrintTitle)} className="gap-1.5">
+                <Printer className="h-4 w-4" /> Imprimer
+              </Button>
+            )}
+            <Link
+              href={`/sales/${otherPeriod}`}
+              className="text-sm text-blue-600 hover:underline font-medium whitespace-nowrap"
+            >
+              {otherLabel}
+            </Link>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            </button>
+          </div>
         </div>
-      ) : sorted.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-gray-400">
-            Aucun vendeur enregistré
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {sorted.map((entry, idx) => {
-            const rank = idx + 1;
-            const { bg, badge, icon } = getRankStyle(rank);
-            const pct = total > 0 ? Math.round((entry.count / total) * 100) : 0;
+      </header>
 
-            return (
-              <div
-                key={entry.vendor.id}
-                onClick={() => setSelectedVendor({ id: entry.vendor.id, name: entry.vendor.name })}
-                className={`border rounded-xl px-4 py-3 flex items-center gap-4 transition-shadow ${bg} cursor-pointer hover:shadow-sm`}
-              >
-                <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold flex-shrink-0 ${badge}`}>
-                  {icon ?? rank}
+      <main id="report-print-section" className="pb-6">
+        <div className="no-print">
+          <Card className="mb-4">
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <Users className="h-4 w-4 text-gray-400" />
+                  <span>{sorted.length} vendeur{sorted.length !== 1 ? "s" : ""}</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="font-semibold text-gray-900 truncate">{entry.vendor.name}</p>
-                    <span className="text-lg font-bold text-gray-900 ml-2 flex-shrink-0">
-                      {entry.count.toLocaleString()}
-                      <span className="text-xs font-normal text-gray-400 ml-1">tickets vendus</span>
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${rank === 1 ? "bg-yellow-400" : rank === 2 ? "bg-gray-400" : rank === 3 ? "bg-orange-400" : "bg-blue-400"}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
+                <div className="text-right">
+                  <span className="text-xl font-bold text-gray-900">{total.toLocaleString()}</span>
+                  <span className="text-sm text-gray-500 ml-1">tickets vendus</span>
                 </div>
-                <span className="text-sm text-gray-400 flex-shrink-0 w-10 text-right">{pct}%</span>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </CardContent>
+          </Card>
 
-      {updatedTime && (
-        <p className="text-xs text-gray-400 text-center mt-4">Mis à jour à {updatedTime}</p>
-      )}
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : sorted.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-gray-400">
+                Aucun vendeur enregistré
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {sorted.map((entry, idx) => {
+                const rank = idx + 1;
+                const { bg, badge, icon } = getRankStyle(rank);
+                const pct = total > 0 ? Math.round((entry.count / total) * 100) : 0;
+
+                return (
+                  <div
+                    key={entry.vendor.id}
+                    onClick={() => setSelectedVendor({ id: entry.vendor.id, name: entry.vendor.name })}
+                    className={`border rounded-xl px-4 py-3 flex items-center gap-4 transition-shadow ${bg} cursor-pointer hover:shadow-sm`}
+                  >
+                    <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold flex-shrink-0 ${badge}`}>
+                      {icon ?? rank}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="font-semibold text-gray-900 truncate">{entry.vendor.name}</p>
+                        <span className="text-lg font-bold text-gray-900 ml-2 flex-shrink-0">
+                          {entry.count.toLocaleString()}
+                          <span className="text-xs font-normal text-gray-400 ml-1">tickets vendus</span>
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${rank === 1 ? "bg-yellow-400" : rank === 2 ? "bg-gray-400" : rank === 3 ? "bg-orange-400" : "bg-blue-400"}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-sm text-gray-400 flex-shrink-0 w-10 text-right">{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {updatedTime && (
+            <p className="text-xs text-gray-400 text-center mt-4">Mis à jour à {updatedTime}</p>
+          )}
+        </div>
+
+        {sorted.length > 0 && (
+          <div className="print-only">
+            <p className="report-print-title">{rankingPrintTitle}</p>
+            <p className="report-print-meta">
+              {title} — {subtitle}
+              {" "}
+              &nbsp;·&nbsp; {sorted.length} vendeur{sorted.length !== 1 ? "s" : ""}
+              {" "}
+              &nbsp;·&nbsp; {total.toLocaleString("fr-FR")} tickets
+              {" "}
+              &nbsp;·&nbsp; Imprimé le{" "}
+              {new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+            </p>
+            <p className="report-print-section-label">Classement</p>
+            <table className="report-print-table">
+              <thead>
+                <tr>
+                  <th>Rang</th>
+                  <th>Vendeur</th>
+                  <th>Tickets vendus</th>
+                  <th>Part</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((entry, idx) => {
+                  const rank = idx + 1;
+                  const pct = total > 0 ? Math.round((entry.count / total) * 100) : 0;
+                  return (
+                    <tr key={entry.vendor.id}>
+                      <td>{rank}</td>
+                      <td>{entry.vendor.name}</td>
+                      <td>{entry.count.toLocaleString("fr-FR")}</td>
+                      <td>{pct}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

@@ -1340,14 +1340,9 @@ function Dashboard({ token, vendor, onLogout }: {
                                   <span className="break-words">{lineLabel}</span>
                                   <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
                                 </span>
-                                <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
-                                  <span className="text-[10px] text-gray-400 tabular-nums">
-                                    {d.count} ticket{d.count !== 1 ? "s" : ""}
-                                  </span>
-                                  <span className="text-[11px] font-bold text-orange-700 tabular-nums">
-                                    {fmtFcfa(d.remaining)} FCFA
-                                  </span>
-                                </div>
+                                <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
+                                  {fmtFcfa(d.remaining)} FCFA
+                                </span>
                               </button>,
                             );
                             return;
@@ -1396,14 +1391,9 @@ function Dashboard({ token, vendor, onLogout }: {
                                         <span className="break-words">{portalArrearLabel(d)}</span>
                                         <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
                                       </span>
-                                      <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
-                                        <span className="text-[10px] text-gray-400 tabular-nums">
-                                          {d.count} ticket{d.count !== 1 ? "s" : ""}
-                                        </span>
-                                        <span className="text-[11px] font-bold text-orange-700 tabular-nums">
-                                          {fmtFcfa(d.remaining)} FCFA
-                                        </span>
-                                      </div>
+                                      <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
+                                        {fmtFcfa(d.remaining)} FCFA
+                                      </span>
                                     </button>
                                   );
                                 })}
@@ -1447,14 +1437,9 @@ function Dashboard({ token, vendor, onLogout }: {
                                 <span className="break-words">{portalArrearLabel(d)}</span>
                                 <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
                               </span>
-                              <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
-                                <span className="text-[10px] text-gray-400 tabular-nums">
-                                  {d.count} ticket{d.count !== 1 ? "s" : ""}
-                                </span>
-                                <span className="text-[11px] font-bold text-orange-700 tabular-nums">
-                                  {fmtFcfa(d.remaining)} FCFA
-                                </span>
-                              </div>
+                              <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
+                                {fmtFcfa(d.remaining)} FCFA
+                              </span>
                             </button>,
                           );
                         });

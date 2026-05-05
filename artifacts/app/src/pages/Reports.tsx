@@ -19,6 +19,7 @@ import {
   ArrowLeft, CalendarDays, CalendarClock, TrendingUp,
   RefreshCw, CheckCircle2, ArrowDownUp, XCircle, Printer,
 } from "lucide-react";
+import { printReport } from "@/lib/print";
 
 /* ─── 2-segment bar: vendu (green) | non vendu (gray) ─────────── */
 function SaleBar({ used, total }: { used: number; total: number }) {
@@ -129,9 +130,11 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
   const todaySold = ss.todaySold;
   const totalJour = nonSold + todaySold;
 
+  const detailPrintTitle = `${data.vendor.name} — Rapport de vente détaillé`;
+
   return (
     <div>
-      <div className="mb-6 flex items-center gap-3">
+      <header className="no-print mb-6 flex flex-wrap items-center gap-3">
         <Button variant="outline" size="sm" onClick={onBack} className="gap-2 flex-shrink-0">
           <ArrowLeft className="h-4 w-4" /> Retour
         </Button>
@@ -139,14 +142,16 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
           <h1 className="text-xl font-bold text-gray-900 truncate">{data.vendor.name}</h1>
           <p className="text-sm text-gray-500">Rapport de vente détaillé</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2 flex-shrink-0">
+        <Button variant="outline" size="sm" onClick={() => printReport(detailPrintTitle)} className="gap-2 flex-shrink-0">
           <Printer className="h-4 w-4" /> Imprimer
         </Button>
         <Badge variant={data.vendor.isActive ? "default" : "secondary"} className="flex-shrink-0">
           {data.vendor.isActive ? "Actif" : "Inactif"}
         </Badge>
-      </div>
+      </header>
 
+      <main id="report-print-section" className="block">
+        <div className="no-print">
       {/* Totaux — 3 cartes */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-5">
         <Card>
@@ -349,6 +354,114 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
           </CardContent>
         </Card>
       </div>
+        </div>
+
+        <div className="print-only">
+          <p className="report-print-title">{detailPrintTitle}</p>
+          <p className="report-print-meta">
+            Imprimé le {new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+          </p>
+          <p className="report-print-section-label">Synthèse jour</p>
+          <table className="report-print-table">
+            <tbody>
+              <tr>
+                <td>Total jour</td>
+                <td>{totalJour}</td>
+              </tr>
+              <tr>
+                <td>Vendus aujourd&apos;hui</td>
+                <td>{todaySold}</td>
+              </tr>
+              <tr>
+                <td>Non vendus</td>
+                <td>{nonSold}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="report-print-section-label">Performance</p>
+          <table className="report-print-table">
+            <thead>
+              <tr>
+                <th>Période</th>
+                <th>Montant FCFA</th>
+                <th>Tickets</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Aujourd&apos;hui</td><td>{fmtFcfa(ss.todayAmount)}</td><td>{ss.todaySold}</td></tr>
+              <tr><td>Hier</td><td>{fmtFcfa(ss.yesterdayAmount)}</td><td>{ss.yesterdaySold}</td></tr>
+              <tr><td>Cette semaine</td><td>{fmtFcfa(ss.weekAmount)}</td><td>{ss.weekSold}</td></tr>
+              <tr><td>Semaine dernière</td><td>{fmtFcfa(ss.lastWeekAmount)}</td><td>{ss.lastWeekSold}</td></tr>
+              <tr><td>Mois en cours</td><td>{fmtFcfa(ss.thisMonthAmount)}</td><td>{ss.thisMonthSold}</td></tr>
+              <tr><td>Mois dernier</td><td>{fmtFcfa(ss.lastMonthAmount)}</td><td>{ss.lastMonthSold}</td></tr>
+            </tbody>
+          </table>
+          {(() => {
+            const rows = [...data.byProfile].sort((a, b) => {
+              const wa = Number((a as { weekSold?: number }).weekSold ?? 0);
+              const wb = Number((b as { weekSold?: number }).weekSold ?? 0);
+              if (wb !== wa) return wb - wa;
+              const pa = parseFloat(String((a as { price?: string }).price ?? "0").replace(/\s/g, "")) || 0;
+              const pb = parseFloat(String((b as { price?: string }).price ?? "0").replace(/\s/g, "")) || 0;
+              return pa - pb;
+            });
+            if (rows.length === 0) return null;
+            return (
+              <>
+                <p className="report-print-section-label">Par forfait (semaine en cours)</p>
+                <table className="report-print-table">
+                  <thead>
+                    <tr>
+                      <th>Forfait</th>
+                      <th>Vendus (semaine)</th>
+                      <th>Non vendus</th>
+                      <th>Stock (total)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((stat) => {
+                      const weekSold = Number((stat as { weekSold?: number }).weekSold ?? 0);
+                      const totalUsed = Number((stat as { used?: number }).used ?? 0);
+                      const nonSold = stat.total - totalUsed;
+                      return (
+                        <tr key={stat.profileName}>
+                          <td>{stat.profileName}</td>
+                          <td>{weekSold}</td>
+                          <td>{nonSold}</td>
+                          <td>{stat.total}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </>
+            );
+          })()}
+          <p className="report-print-section-label">Dernières ventes ({data.recentVouchers.length})</p>
+          <table className="report-print-table">
+            <thead>
+              <tr>
+                <th>Utilisateur</th>
+                <th>Prix (FCFA)</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.recentVouchers.map((v) => {
+                const displayPrice = (v as { salePrice?: string | null; price?: string }).salePrice || (v as { price?: string }).price || "";
+                const soldAt = v.usedAt ? new Date(v.usedAt).toLocaleString("fr-FR") : "—";
+                return (
+                  <tr key={v.id}>
+                    <td style={{ fontFamily: "monospace", fontSize: "11px" }}>{v.username}</td>
+                    <td>{displayPrice ? Number(displayPrice).toLocaleString("fr-FR") : "—"}</td>
+                    <td>{soldAt}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </main>
     </div>
   );
 }

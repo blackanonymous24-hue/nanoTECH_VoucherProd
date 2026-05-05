@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { foldText } from "@/lib/text";
 import { paidShownVersusWeekContext } from "@/lib/vendorWeekPaymentDisplay";
+import { buildStandalonePrintHtml, openPrintHtmlWindow } from "@/lib/print";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -199,6 +200,62 @@ function arrearWeekLabelFromGroup(g: ConsolidatableArrearEntry): string {
   return `Arriéré de la semaine du ${fmtDateFr(first)} au ${fmtDateFr(last)}`;
 }
 
+/** Lignes arriérés (ordre affichage / impression), alignées sur le regroupement par semaine civile. */
+function vendorArrearSummaryLines(
+  dataDateIso: string,
+  weekStartMonday: string | undefined,
+  weekCarry: number,
+  allArrears: DailyArrearEntry[],
+): { label: string; amount: number; kind: "carry" | "arrear" }[] {
+  const out: { label: string; amount: number; kind: "carry" | "arrear" }[] = [];
+  const currentWeekStart = mondayOfDate(dataDateIso);
+  const prevArrears = allArrears.filter((a) => a.date < currentWeekStart);
+  const currentArrears = allArrears.filter((a) => a.date >= currentWeekStart);
+
+  const prevByWeek = new Map<string, DailyArrearEntry[]>();
+  for (const a of prevArrears) {
+    const m = mondayOfDate(a.date);
+    if (!prevByWeek.has(m)) prevByWeek.set(m, []);
+    prevByWeek.get(m)!.push(a);
+  }
+  const prevWeekMonSorted = [...prevByWeek.keys()].sort((a, b) => a.localeCompare(b));
+
+  for (const weekMon of prevWeekMonSorted) {
+    const entries = prevByWeek.get(weekMon) ?? [];
+    const groupedPrev = groupConsecutiveArrears(entries);
+    const singleGroup = groupedPrev.length === 1;
+    const g0 = groupedPrev[0];
+    const lineLabelOne =
+      g0 &&
+      (arrearGroupCoversFullWeek(g0, weekMon)
+        ? arrearWeekRangeLabel(weekMon)
+        : arrearWeekLabelFromGroup(g0));
+    for (const arr of groupedPrev) {
+      const lineLabel = singleGroup ? lineLabelOne! : arrearWeekLabelFromGroup(arr);
+      out.push({ label: lineLabel, amount: arr.remaining, kind: "arrear" });
+    }
+  }
+
+  if (weekCarry > 0) {
+    out.push({ label: arrearsWeekLabel(weekStartMonday), amount: weekCarry, kind: "carry" });
+  }
+
+  const groupedCurrent = groupConsecutiveArrears(currentArrears);
+  const singleCur = groupedCurrent.length === 1;
+  const gc0 = groupedCurrent[0];
+  const lineCurOne =
+    gc0 &&
+    (arrearGroupCoversFullWeek(gc0, currentWeekStart)
+      ? arrearWeekRangeLabel(currentWeekStart)
+      : arrearWeekLabelFromGroup(gc0));
+  for (const arr of groupedCurrent) {
+    const lineLabel = singleCur ? lineCurOne! : arrearWeekLabelFromGroup(arr);
+    out.push({ label: lineLabel, amount: arr.remaining, kind: "arrear" });
+  }
+
+  return out;
+}
+
 function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
   if (!weekStart || !weekEnd) return "Semaine";
   return `${fmtDateFr(weekStart)} – ${fmtDateFr(weekEnd)}`;
@@ -254,36 +311,32 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   const activeSummary = data.summary.filter((s) => s.count > 0);
 
   const summaryByVendor = activeSummary.map((s) => {
-    const arr = (arrears?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
-    const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
+    const allArrears = (arrears?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
+    const arrTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
     const weekCarry = data.weekSummary?.find((w) => w.vendorId === s.vendorId)?.carryOverAmount ?? 0;
     const totalDu = s.amount + weekCarry + arrTotal;
-    const grouped = groupConsecutiveArrears(arr);
-    const hasArr = weekCarry > 0 || arr.length > 0;
+    const hasArr = weekCarry > 0 || allArrears.length > 0;
     const vname = escapeHtmlPrint(s.vendorName);
 
     const bodyRows: string[] = [];
-    bodyRows.push(`<tr><td>Montant vendu</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`);
-    if (weekCarry > 0) {
+    bodyRows.push(
+      `<tr class="sum-print-vendor"><td class="lbl">${vname}</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
+    );
+
+    for (const row of vendorArrearSummaryLines(data.date, data.weekStart, weekCarry, allArrears)) {
       bodyRows.push(
-        `<tr><td>${escapeHtmlPrint(arrearsWeekLabel(data.weekStart))}</td><td class="num">${fmtAmount(weekCarry)} FCFA</td></tr>`,
+        `<tr><td class="lbl">${escapeHtmlPrint(row.label)}</td><td class="num">${fmtAmount(row.amount)} FCFA</td></tr>`,
       );
     }
-    for (const g of grouped) {
-      bodyRows.push(
-        `<tr><td>${escapeHtmlPrint(arrearDisplayLabel(g))}</td><td class="num">${fmtAmount(g.remaining)} FCFA</td></tr>`,
-      );
-    }
+
     if (hasArr) {
       bodyRows.push(
-        `<tr class="sum-line"><td>Total à verser</td><td class="num">${fmtAmount(totalDu)} FCFA</td></tr>`,
+        `<tr class="sum-line"><td class="lbl">Total à verser</td><td class="num">${fmtAmount(totalDu)} FCFA</td></tr>`,
       );
     }
 
     return `<div class="vendor-summary">
-  <h4>${vname}</h4>
   <table class="sum-print">
-  <thead><tr><th>Libellé</th><th class="num">Montant</th></tr></thead>
   <tbody>${bodyRows.join("")}</tbody>
   </table>
 </div>`;
@@ -297,21 +350,20 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
     <td class="num">${fmtAmount(v.amount)}</td>
   </tr>`).join("");
 
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Suivi vendeurs — ${dateFr}</title>
-<style>
+  const printTitle = `Suivi vendeurs — ${dateFr}`;
+  const styles = `
   body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; margin: 0; padding: 10mm; color: #000; }
   h2 { margin: 0 0 8px; font-size: 14px; font-weight: bold; }
   h3 { margin: 16px 0 8px; font-size: 12px; font-weight: bold; padding-bottom: 4px; border-bottom: 1px solid #000; }
   p.meta { margin: 0 0 12px; font-size: 10px; color: #222; }
   .summary-vendors { margin-bottom: 8px; }
-  .vendor-summary { margin: 0 0 14px; page-break-inside: avoid; break-inside: avoid; }
-  .vendor-summary h4 { margin: 0 0 6px; font-size: 11px; font-weight: bold; padding-bottom: 2px; border-bottom: 1px solid #000; }
-  table.sum-print { width: 100%; border-collapse: collapse; margin: 0; font-size: 10px; }
-  table.sum-print th, table.sum-print td { border: 1px solid #000; padding: 6px 8px; vertical-align: top; }
-  table.sum-print th { text-align: left; font-weight: bold; }
-  table.sum-print td.num, table.sum-print th.num { text-align: right; white-space: nowrap; }
-  table.sum-print tr.sum-line td { font-weight: bold; }
+  .vendor-summary { margin: 0 0 18px; page-break-inside: avoid; break-inside: avoid; }
+  table.sum-print { width: 100%; border-collapse: collapse; margin: 0; font-size: 10px; table-layout: fixed; }
+  table.sum-print td { border: none; padding: 4px 0; vertical-align: baseline; }
+  table.sum-print td.lbl { text-align: left; word-wrap: break-word; overflow-wrap: anywhere; padding-right: 16px; width: 72%; }
+  table.sum-print td.num { text-align: right; white-space: nowrap; width: 28%; }
+  table.sum-print tr.sum-print-vendor td { font-weight: bold; font-size: 11px; padding-bottom: 10px; }
+  table.sum-print tr.sum-line td { font-weight: bold; border-top: 1px solid #000; padding-top: 10px; margin-top: 4px; }
   table.detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; table-layout: fixed; }
   table.detail-table th, table.detail-table td { border: 1px solid #000; padding: 3px 5px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto; }
   table.detail-table th { font-weight: bold; text-align: left; background: #fff; }
@@ -335,8 +387,8 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
     table.sum-print tr { break-inside: avoid; page-break-inside: avoid; }
     table.detail-table thead { display: table-header-group; }
     table.detail-table tr.row-total { page-break-inside: avoid; break-inside: avoid; page-break-before: avoid; break-before: avoid; }
-  }
-</style></head><body>
+  }`;
+  const body = `
 <h2>Suivi des ventes par vendeur</h2>
 <p class="meta">Date : ${dateFr} &nbsp;|&nbsp; ${grandCount} ticket${grandCount !== 1 ? "s" : ""} &nbsp;|&nbsp; ${fmtAmount(grandTotal)} FCFA &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
 <h3>Résumé de la vente du ${dateFr}</h3>
@@ -370,12 +422,9 @@ ${summarySection}
     </tr>
   </tbody>
 </table>
-</div>
-<script>window.onload = function() { window.print(); };</script>
-</body></html>`;
+</div>`;
 
-  const win = window.open("", "_blank");
-  if (win) { win.document.write(html); win.document.close(); }
+  openPrintHtmlWindow(buildStandalonePrintHtml(printTitle, styles, body), printTitle);
 }
 
 /* ── Print helper: weekly report — un bloc par vendeur ──────── */
@@ -425,9 +474,8 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
 </div>`;
   }).join("");
 
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Rapport hebdomadaire vendeurs</title>
-<style>
+  const weekPrintTitle = "Rapport hebdomadaire vendeurs";
+  const styles = `
   body { font-family: Arial, sans-serif; font-size: 10px; margin: 0; padding: 6mm; }
   h2 { margin: 0 0 3px; font-size: 13px; }
   .subtitle { margin: 0 0 10px; font-size: 9px; color: #555; }
@@ -447,8 +495,8 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   .totals tr:last-child td { border-bottom: none; }
   .tval { text-align: right; font-weight: bold; color: #3730a3; }
   @page { size: A4; margin: 0; }
-  @media print { .vcard, .totals { break-inside: avoid; } }
-</style></head><body>
+  @media print { .vcard, .totals { break-inside: avoid; } }`;
+  const body = `
 <h2>Rapport hebdomadaire — Suivi des vendeurs</h2>
 <p class="subtitle">Semaine : ${weekLabel} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
 <div class="grid">${vendorCards}</div>
@@ -459,12 +507,9 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
     <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} FCFA</td></tr>
     <tr><td>Total à verser</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
 </table>
-</div>
-<script>window.onload = function() { window.print(); };</script>
-</body></html>`;
+</div>`;
 
-  const win = window.open("", "_blank");
-  if (win) { win.document.write(html); win.document.close(); }
+  openPrintHtmlWindow(buildStandalonePrintHtml(weekPrintTitle, styles, body), weekPrintTitle);
 }
 
 /* ── Canvas JPEG: daily ──────────────────────────────────────── */
@@ -487,10 +532,9 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 
     const arrearsRowCount = (vendorId: number | null) => {
       const arr = vendorArrears(vendorId);
-      const grouped = groupConsecutiveArrears(arr);
-      let n = grouped.length;
-      if (weekCarryFor(vendorId) > 0) n += 1;
-      return n;
+      const wc = weekCarryFor(vendorId);
+      if (wc <= 0 && arr.length === 0) return 0;
+      return vendorArrearSummaryLines(appliedDate, data.weekStart, wc, arr).length;
     };
 
     const cardH = (vendorId: number | null) => {
@@ -549,27 +593,20 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
       let ry = y + CARD_HDR_H;
 
       const wc = weekCarryFor(s.vendorId);
-      const grouped = groupConsecutiveArrears(arr);
+      const summaryLines = vendorArrearSummaryLines(appliedDate, data.weekStart, wc, arr);
 
-      if (wc > 0 || grouped.length > 0) {
+      if (summaryLines.length > 0) {
         const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
         const totalDu = s.amount + wc + arrTotal;
         ln(PAD, ry, PAD + CW, ry, "#fca5a5");
-        let ri = 0;
-        if (wc > 0) {
-          rf(PAD, ry, CW, ARR_ROW_H, "#fff1f2");
-          const wkLbl = arrearsWeekLabel(data.weekStart);
-          t(wkLbl.length > 42 ? wkLbl.slice(0, 40) + "…" : wkLbl, C_PROF, ry + ARR_ROW_H / 2, { size: wkLbl.length > 36 ? 6.5 : 8, color: "#9f1239" });
-          t(fmtAmount(wc) + " FCFA", C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: "#9f1239", align: "right" });
-          ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#fee2e2");
-          ry += ARR_ROW_H;
-          ri++;
-        }
-        grouped.forEach((g, ai) => {
-          rf(PAD, ry, CW, ARR_ROW_H, (ri + ai) % 2 === 0 ? "#fff7f7" : "#fef2f2");
-          const lbl = arrearDisplayLabel(g);
-          t(lbl.length > 48 ? lbl.slice(0, 46) + "…" : lbl, C_PROF, ry + ARR_ROW_H / 2, { size: lbl.length > 40 ? 6.5 : 8, color: "#ef4444" });
-          t(fmtAmount(g.remaining) + " FCFA", C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: "#b91c1c", align: "right" });
+        summaryLines.forEach((line, ai) => {
+          const isCarry = line.kind === "carry";
+          rf(PAD, ry, CW, ARR_ROW_H, isCarry ? "#fff1f2" : ai % 2 === 0 ? "#fff7f7" : "#fef2f2");
+          const lbl = line.label;
+          const lblColor = isCarry ? "#9f1239" : "#ef4444";
+          const amtColor = isCarry ? "#9f1239" : "#b91c1c";
+          t(lbl.length > 52 ? lbl.slice(0, 50) + "…" : lbl, C_PROF, ry + ARR_ROW_H / 2, { size: lbl.length > 44 ? 6.5 : 8, color: lblColor });
+          t(fmtAmount(line.amount) + " FCFA", C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: amtColor, align: "right" });
           ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#fee2e2");
           ry += ARR_ROW_H;
         });
@@ -1052,17 +1089,9 @@ export default function VendorTracking() {
                                           className={`px-3 py-1.5 ${singleGroup ? "pl-3" : "pl-5"}`}
                                         >
                                           <div className="flex items-start justify-between gap-2">
-                                            <div className="flex flex-col gap-0.5 min-w-0">
-                                              <div className="flex items-center gap-1 text-orange-700">
-                                                <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
-                                                <span className="text-xs font-medium leading-tight">{lineLabel}</span>
-                                              </div>
-                                              {arr.paidAmount > 0 && (
-                                                <span className="text-[10px] text-gray-500 pl-4">
-                                                  Ventes: {fmtAmount(arr.salesAmount)} · Versé:{" "}
-                                                  {fmtAmount(paidShownVersusWeekContext(arr.paidAmount, arr.salesAmount, 0, 0))}
-                                                </span>
-                                              )}
+                                            <div className="flex items-center gap-1 text-orange-700 min-w-0">
+                                              <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
+                                              <span className="text-xs font-medium leading-tight">{lineLabel}</span>
                                             </div>
                                             <span className="text-xs font-bold text-orange-700 tabular-nums flex-shrink-0">
                                               {fmtAmount(arr.remaining)} FCFA
@@ -1095,16 +1124,9 @@ export default function VendorTracking() {
                                 <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
                                   <td colSpan={3} className="px-3 py-1.5">
                                     <div className="flex items-start justify-between gap-2">
-                                      <div className="flex flex-col gap-0.5 min-w-0">
-                                        <div className="flex items-center gap-1 text-orange-700">
-                                          <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
-                                          <span className="text-xs font-medium leading-tight">{arrearDisplayLabel(arr)}</span>
-                                        </div>
-                                        {arr.paidAmount > 0 && (
-                                          <span className="text-[10px] text-gray-500 pl-4">
-                                            Ventes: {fmtAmount(arr.salesAmount)} · Versé: {fmtAmount(paidShownVersusWeekContext(arr.paidAmount, arr.salesAmount, 0, 0))}
-                                          </span>
-                                        )}
+                                      <div className="flex items-center gap-1 text-orange-700 min-w-0">
+                                        <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
+                                        <span className="text-xs font-medium leading-tight">{arrearDisplayLabel(arr)}</span>
                                       </div>
                                       <span className="text-xs font-bold text-orange-700 tabular-nums flex-shrink-0">
                                         {fmtAmount(arr.remaining)} FCFA

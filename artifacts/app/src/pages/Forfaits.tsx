@@ -36,6 +36,7 @@ import {
 import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw, Infinity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
+import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
 function formatValidity(v: string | null | undefined): string {
   if (!v) return "Illimité";
@@ -142,12 +143,7 @@ export default function Forfaits() {
 
   const displayedProfiles = useMemo(() => {
     const base = profiles.length > 0 ? profiles : localProfiles;
-    return [...base].sort((a, b) => {
-      const aUnlim = !a.validity;
-      const bUnlim = !b.validity;
-      if (aUnlim === bUnlim) return 0;
-      return aUnlim ? -1 : 1;
-    });
+    return sortRouterProfilesByCreationOrder(base);
   }, [profiles, localProfiles]);
 
   useProfileAutoResync(selectedRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });

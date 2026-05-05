@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   useGenerateVouchers,
   getListVouchersQueryKey,
@@ -29,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import { fetchServerTemplate } from "@/pages/TicketTemplate";
 import { printTickets } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
+import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -333,6 +334,10 @@ export default function GenerateVouchers() {
   const [profilesForRouterId, setProfilesForRouterId] = useState<number | null>(null);
   const localProfilesCacheKey = selectedRouterId ? `${PROFILES_CACHE_KEY}:${selectedRouterId}` : null;
   const displayedProfiles = profilesForRouterId === selectedRouterId ? localProfiles : [];
+  const displayedProfilesSorted = useMemo(
+    () => sortRouterProfilesByCreationOrder(displayedProfiles),
+    [displayedProfiles],
+  );
 
   const generateMutation = useGenerateVouchers();
 
@@ -424,7 +429,7 @@ export default function GenerateVouchers() {
         const lot = await loadMostRecentLotFromRouter(
           selectedRouterId,
           GEN_BASE,
-          displayedProfiles,
+          displayedProfilesSorted,
           selectedRouter?.name ?? "",
           controller.signal,
         );
@@ -440,18 +445,18 @@ export default function GenerateVouchers() {
     })();
 
     return () => controller.abort();
-  }, [selectedRouterId, lastLot, displayedProfiles, selectedRouter, autoLoadAttempted]);
+  }, [selectedRouterId, lastLot, displayedProfilesSorted, selectedRouter, autoLoadAttempted]);
 
-  const selectedProfile = displayedProfiles.find((p) => p.name === profile);
+  const selectedProfile = displayedProfilesSorted.find((p) => p.name === profile);
   const selectedProfileMonitorOk = selectedProfile?.schedulerMonitorActive === true;
 
   // If a profile was renamed in MikroTik, clear stale selected value.
   useEffect(() => {
     if (!profile) return;
-    if (!displayedProfiles.some((p) => p.name === profile)) {
+    if (!displayedProfilesSorted.some((p) => p.name === profile)) {
       setProfile("");
     }
-  }, [displayedProfiles, profile]);
+  }, [displayedProfilesSorted, profile]);
 
   const selectedVendor = vendors.find((v) => String(v.id) === vendorId);
   const vendorSuffix =
@@ -690,7 +695,7 @@ export default function GenerateVouchers() {
       const nextLot = await loadMostRecentLotFromRouter(
         lot.routerId,
         GEN_BASE,
-        displayedProfiles,
+        displayedProfilesSorted,
         selectedRouter?.name ?? lot.routerName ?? "",
       );
       if (nextLot) {
@@ -776,11 +781,11 @@ export default function GenerateVouchers() {
                       variant="outline"
                       role="combobox"
                       aria-expanded={profilePopoverOpen}
-                      disabled={!selectedRouterId || (profilesRefreshing && displayedProfiles.length === 0)}
+                      disabled={!selectedRouterId || (profilesRefreshing && displayedProfilesSorted.length === 0)}
                       className="w-full mt-1 justify-between font-normal"
                     >
                       <span className="truncate flex items-center gap-2">
-                        {(profilesRefreshing && displayedProfiles.length === 0) ? (
+                        {(profilesRefreshing && displayedProfilesSorted.length === 0) ? (
                           "Chargement…"
                         ) : profile ? (
                           <>
@@ -804,7 +809,7 @@ export default function GenerateVouchers() {
                       <CommandList className="max-h-52 overflow-y-auto">
                         <CommandEmpty>Aucun profil disponible.</CommandEmpty>
                         <CommandGroup>
-                          {displayedProfiles.map((p) => (
+                          {displayedProfilesSorted.map((p) => (
                             <CommandItem
                               key={p.name}
                               value={p.name}
