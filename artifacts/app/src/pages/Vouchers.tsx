@@ -2229,7 +2229,7 @@ export default function Vouchers() {
                     type="button"
                     size="icon"
                     variant="outline"
-                    className="shrink-0"
+                    className="shrink-0 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600 hover:border-red-300"
                     onClick={() => setEditingUser(null)}
                     disabled={isSavingRename || isTogglingEditUserDisabled}
                     aria-label="Fermer"
