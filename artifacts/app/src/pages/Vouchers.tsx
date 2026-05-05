@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   useListRouterUsers,
@@ -198,6 +198,19 @@ export default function Vouchers() {
 
   // ── Add User dialog (Mikhmon-style) ─────────────────────────────────────────
   const [addUserOpen, setAddUserOpen] = useState(false);
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") === "add-client") {
+      autoOpenedRef.current = true;
+      setAddUserOpen(true);
+      // Nettoyer le param de l'URL sans recharger la page
+      const url = new URL(window.location.href);
+      url.searchParams.delete("action");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
   const [addServer, setAddServer] = useState("all");
   const [addName, setAddName] = useState("");
   const [addPassword, setAddPassword] = useState("");

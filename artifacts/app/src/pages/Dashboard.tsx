@@ -10,7 +10,7 @@ import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity, WifiOff, PlusCircle, Zap } from "lucide-react";
+import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity, WifiOff, UserPlus, Zap } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -855,13 +855,13 @@ export default function Dashboard() {
           href="/vouchers"
         />
         {/* Raccourcis actions — mobile uniquement */}
-        <Link href="/vouchers" className="block lg:hidden">
+        <Link href="/vouchers?action=add-client" className="block lg:hidden">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
             <CardContent className="p-2.5 h-full flex items-center gap-2">
               <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
-                <PlusCircle className="h-5 w-5 text-emerald-600" />
+                <UserPlus className="h-5 w-5 text-emerald-600" />
               </div>
-              <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Ajouter un ticket</p>
+              <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
             </CardContent>
           </Card>
         </Link>
