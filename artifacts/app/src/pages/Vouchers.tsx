@@ -662,8 +662,8 @@ export default function Vouchers() {
       });
       return;
     }
-    const php = await fetchServerTemplate();
     setPrintingLot(lot.name);
+    const php = await fetchServerTemplate();
     try {
       const users = await fetchLotUsers(lot);
       if (users.length === 0) {
@@ -735,6 +735,7 @@ export default function Vouchers() {
         return;
       }
     }
+    setIsPrinting(true);
     const php = await fetchServerTemplate();
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
@@ -751,7 +752,6 @@ export default function Vouchers() {
         num: idx + 1,
       };
     });
-    setIsPrinting(true);
     try {
       let resp: Response;
       try {
