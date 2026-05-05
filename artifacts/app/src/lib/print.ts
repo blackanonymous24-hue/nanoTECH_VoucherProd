@@ -199,6 +199,11 @@ function printWithIframe(html: string, title: string): void {
   iframe.contentWindow?.addEventListener("afterprint", cleanup, { once: true });
   const safetyTimeout = window.setTimeout(cleanup, 60_000);
 
+  // Scale delay with document size: large HTML (many vouchers) needs more time
+  // to render before window.print() fires — otherwise the dialog opens blank.
+  const byteSize = html.length;
+  const printDelay = byteSize > 5_000_000 ? 4000 : byteSize > 1_000_000 ? 2000 : 800;
+
   setTimeout(() => {
     const prevTitle = document.title;
     document.title = title;
@@ -212,7 +217,7 @@ function printWithIframe(html: string, title: string): void {
       throw _;
     }
     document.title = prevTitle;
-  }, 600);
+  }, printDelay);
 }
 
 /**
