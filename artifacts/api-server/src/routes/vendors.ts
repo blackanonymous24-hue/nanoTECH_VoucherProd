@@ -708,113 +708,6 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
   res.json(result);
 });
 
-async function autoSettleHistoricalWeeks(
-  routerId: number,
-  cutoffWeekStart: string,
-  vendors: Array<{ id: number; commissionRate: number | null }>,
-) {
-  const vendorIds = vendors.map((v) => v.id);
-  if (vendorIds.length === 0) return;
-
-  const commissionByVendor = new Map(vendors.map((v) => [v.id, v.commissionRate ?? 0]));
-
-  const salesRaw = await db
-    .select({
-      vendorId: vouchersTable.vendorId,
-      weekStart: sql<string>`date_trunc('week', ${vouchersTable.usedAt})::date::text`,
-      amount: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
-    })
-    .from(vouchersTable)
-    .where(and(
-      eq(vouchersTable.routerId, routerId),
-      isNotNull(vouchersTable.usedAt),
-      inArray(vouchersTable.vendorId, vendorIds),
-      sql`date_trunc('week', ${vouchersTable.usedAt})::date::text < ${cutoffWeekStart}`,
-    ))
-    .groupBy(vouchersTable.vendorId, sql`date_trunc('week', ${vouchersTable.usedAt})::date::text`);
-
-  const weeklyPaidRaw = await db
-    .select({
-      vendorId: vendorPaymentsTable.vendorId,
-      weekStart: vendorPaymentsTable.weekStart,
-      amount: sql<number>`sum(${vendorPaymentsTable.amount})::int`,
-    })
-    .from(vendorPaymentsTable)
-    .where(and(
-      eq(vendorPaymentsTable.routerId, routerId),
-      inArray(vendorPaymentsTable.vendorId, vendorIds),
-      sql`${vendorPaymentsTable.weekStart} < ${cutoffWeekStart}`,
-    ))
-    .groupBy(vendorPaymentsTable.vendorId, vendorPaymentsTable.weekStart);
-
-  const dailyPaidRaw = await db
-    .select({
-      vendorId: vendorDailyPaymentsTable.vendorId,
-      weekStart: sql<string>`date_trunc('week', ${vendorDailyPaymentsTable.date}::date)::date::text`,
-      amount: sql<number>`sum(${vendorDailyPaymentsTable.amount})::int`,
-    })
-    .from(vendorDailyPaymentsTable)
-    .where(and(
-      eq(vendorDailyPaymentsTable.routerId, routerId),
-      inArray(vendorDailyPaymentsTable.vendorId, vendorIds),
-      sql`${vendorDailyPaymentsTable.date} < ${cutoffWeekStart}`,
-    ))
-    .groupBy(vendorDailyPaymentsTable.vendorId, sql`date_trunc('week', ${vendorDailyPaymentsTable.date}::date)::date::text`);
-
-  const paidByVendorWeek = new Map<string, number>();
-  for (const p of weeklyPaidRaw) {
-    const key = `${p.vendorId}|${p.weekStart}`;
-    paidByVendorWeek.set(key, (paidByVendorWeek.get(key) ?? 0) + p.amount);
-  }
-  for (const p of dailyPaidRaw) {
-    const key = `${p.vendorId}|${p.weekStart}`;
-    paidByVendorWeek.set(key, (paidByVendorWeek.get(key) ?? 0) + p.amount);
-  }
-
-  // If a regularization week was explicitly removed by user, never auto-recreate it.
-  const skipRows = await db
-    .select({
-      vendorId: vendorPaymentsTable.vendorId,
-      weekStart: vendorPaymentsTable.weekStart,
-    })
-    .from(vendorPaymentsTable)
-    .where(and(
-      eq(vendorPaymentsTable.routerId, routerId),
-      inArray(vendorPaymentsTable.vendorId, vendorIds),
-      sql`${vendorPaymentsTable.weekStart} < ${cutoffWeekStart}`,
-      ilike(vendorPaymentsTable.note, "Suppression manuelle régularisation auto%"),
-    ));
-  const skipAutoRegularization = new Set(skipRows.map((r) => `${r.vendorId}|${r.weekStart}`));
-
-  const toInsert: Array<{ vendorId: number; routerId: number; weekStart: string; amount: number; note: string }> = [];
-  for (const s of salesRaw) {
-    const vendorId = s.vendorId;
-    if (!vendorId) continue;
-    const weekStart = s.weekStart;
-    const weekEnd = new Date(new Date(weekStart + "T00:00:00Z").getTime() + 7 * 86400000);
-    const weekEnded = weekEnd.getTime() <= Date.now();
-    const commissionRate = weekEnded ? (commissionByVendor.get(vendorId) ?? 0) : 0;
-    const commission = commissionRate > 0 ? Math.round(Number(s.amount) * commissionRate) / 100 : 0;
-    const expected = Math.max(0, Number(s.amount) - commission);
-    const paid = paidByVendorWeek.get(`${vendorId}|${weekStart}`) ?? 0;
-    if (skipAutoRegularization.has(`${vendorId}|${weekStart}`)) continue;
-    const missing = Math.max(0, Math.round(expected - paid));
-    if (missing > 0) {
-      toInsert.push({
-        vendorId,
-        routerId,
-        weekStart,
-        amount: missing,
-        note: `Régularisation auto arriérés (< ${cutoffWeekStart})`,
-      });
-    }
-  }
-
-  if (toInsert.length > 0) {
-    await db.insert(vendorPaymentsTable).values(toInsert);
-  }
-}
-
 /* ─────────────────────────────────────────────────────────────────
  * GET /vendors/daily-tracking?date=YYYY-MM-DD&routerId=X
  * Returns per-vendor sold-voucher list + summary for a given day.
@@ -870,16 +763,6 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
   const demoVendorIds = new Set(allVendors.filter((v) => v.isDemo).map((v) => v.id));
   // Non-demo vendors only for summary reporting
   const vendors = allVendors.filter((v) => !v.isDemo);
-
-  // Lorsqu'on consulte une semaine donnée, solder automatiquement tous les
-  // arriérés antérieurs (jours/semaines/mois/années passés) selon la logique
-  // de commission, pour ne plus les laisser "non versés".
-  const selectedWeekStart = mondayOf(dateStr);
-  await autoSettleHistoricalWeeks(
-    routerId,
-    selectedWeekStart,
-    vendors.map((v) => ({ id: v.id, commissionRate: v.commissionRate ?? 0 })),
-  );
 
   // Fetch all sold vouchers for the day (across all vendors on this router)
   const sold = await db
@@ -1951,15 +1834,6 @@ router.delete("/vendors/payments/:id", async (req, res): Promise<void> => {
         ilike(vendorDailyPaymentsTable.note, `Soldé auto via validation semaine ${ws}%`),
       ));
 
-    if ((deleted.note ?? "").startsWith("Régularisation auto arriérés")) {
-      await db.insert(vendorPaymentsTable).values({
-        vendorId: deleted.vendorId,
-        routerId: deleted.routerId,
-        weekStart: deleted.weekStart,
-        amount: 0,
-        note: `Suppression manuelle régularisation auto (${new Date().toISOString()})`,
-      });
-    }
     invalidateVendorPortalCache(deleted.vendorId);
     res.json({ ok: true });
   } catch (err) {
