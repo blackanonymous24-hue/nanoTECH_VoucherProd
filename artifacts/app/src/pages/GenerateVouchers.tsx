@@ -30,6 +30,7 @@ import { fetchServerTemplate } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -294,7 +295,9 @@ export default function GenerateVouchers() {
   const [genPaused, setGenPaused] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
+  const [justGenerated, setJustGenerated] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (selectedRouterId) {
@@ -604,6 +607,13 @@ export default function GenerateVouchers() {
       setTimelimit("");
       setDatalimit("");
       setVendorId("");
+      setProfile("");
+      setJustGenerated(true);
+
+      // Auto-print sur mobile après génération réussie
+      if (isMobile) {
+        void handlePrint(lot);
+      }
     } finally {
       setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
@@ -823,6 +833,7 @@ export default function GenerateVouchers() {
                               onSelect={() => {
                                 setProfile(p.name);
                                 setProfilePopoverOpen(false);
+                                setJustGenerated(false);
                               }}
                             >
                               <Check className={`mr-2 h-4 w-4 shrink-0 ${profile === p.name ? "opacity-100" : "opacity-0"}`} />
@@ -1063,12 +1074,32 @@ export default function GenerateVouchers() {
 
               <div>
                 <Button
-                  type="submit"
+                  type={justGenerated && lastLot ? "button" : "submit"}
                   className="w-full gap-1.5 h-9 text-sm"
-                  disabled={!selectedRouterId || !profile || !!progress}
+                  disabled={
+                    justGenerated && lastLot
+                      ? isPrinting
+                      : !selectedRouterId || !profile || !!progress
+                  }
+                  onClick={
+                    justGenerated && lastLot
+                      ? () => void handlePrint(lastLot)
+                      : undefined
+                  }
                 >
-                  <Zap className="h-3.5 w-3.5" />
-                  {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
+                  {justGenerated && lastLot ? (
+                    <>
+                      {isPrinting
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Printer className="h-3.5 w-3.5" />}
+                      {isPrinting ? "Impression…" : "Imprimer"}
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="h-3.5 w-3.5" />
+                      {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
+                    </>
+                  )}
                 </Button>
                 {progress && (
                   <div className="mt-2 space-y-1.5">
