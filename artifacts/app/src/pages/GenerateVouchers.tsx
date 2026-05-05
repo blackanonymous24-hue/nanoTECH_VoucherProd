@@ -30,6 +30,7 @@ import { fetchServerTemplate } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -296,6 +297,7 @@ export default function GenerateVouchers() {
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
   const [justGenerated, setJustGenerated] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (selectedRouterId) {
@@ -607,6 +609,11 @@ export default function GenerateVouchers() {
       setVendorId("");
       setProfile("");
       setJustGenerated(true);
+
+      // Auto-print sur mobile après génération réussie
+      if (isMobile) {
+        void handlePrint(lot);
+      }
     } finally {
       setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
