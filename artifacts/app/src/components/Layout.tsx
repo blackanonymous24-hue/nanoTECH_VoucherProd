@@ -236,6 +236,13 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     setShowAddUser(true);
   }
 
+  useEffect(() => {
+    const handler = () => openAddUserDialog();
+    window.addEventListener("open-add-client-dialog", handler);
+    return () => window.removeEventListener("open-add-client-dialog", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleAddHotspotUser() {
     setAddError("");
     if (!addName.trim())    { setAddError("Le nom d'utilisateur est requis."); return; }

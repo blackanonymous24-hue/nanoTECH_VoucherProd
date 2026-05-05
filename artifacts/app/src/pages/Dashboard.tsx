@@ -855,7 +855,11 @@ export default function Dashboard() {
           href="/vouchers"
         />
         {/* Raccourcis actions — mobile uniquement */}
-        <Link href="/vouchers?action=add-client" className="block lg:hidden">
+        <button
+          type="button"
+          className="block lg:hidden w-full h-full text-left"
+          onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
+        >
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
             <CardContent className="p-2.5 h-full flex items-center gap-2">
               <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
@@ -864,7 +868,7 @@ export default function Dashboard() {
               <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
             </CardContent>
           </Card>
-        </Link>
+        </button>
         <Link href="/generate" className="block lg:hidden">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
             <CardContent className="p-2.5 h-full flex items-center gap-2">
