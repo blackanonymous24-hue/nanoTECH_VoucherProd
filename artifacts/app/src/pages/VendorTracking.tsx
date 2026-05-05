@@ -181,6 +181,15 @@ function arrearWeekRangeLabel(mondayIso: string): string {
   return `Arriéré de la semaine du ${fmtDateFr(mondayIso)} au ${fmtDateFr(sun)}`;
 }
 
+/** Regroupement consécutif couvrant exactement le lun–dim de `weekMon` (même semaine civile). */
+function arrearGroupCoversFullWeek(g: ConsolidatableArrearEntry, weekMon: string): boolean {
+  const sun = sundayOfWeekMonday(weekMon);
+  const raw = g.__underlying ?? [g];
+  const sorted = [...raw].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length === 0) return false;
+  return sorted[0]!.date === weekMon && sorted[sorted.length - 1]!.date === sun;
+}
+
 function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
   if (!weekStart || !weekEnd) return "Semaine";
   return `${fmtDateFr(weekStart)} – ${fmtDateFr(weekEnd)}`;
@@ -1003,26 +1012,37 @@ export default function VendorTracking() {
                             {prevWeekMonSorted.map((weekMon) => {
                               const entries = prevByWeek.get(weekMon) ?? [];
                               const groupedPrev = groupConsecutiveArrears(entries);
+                              const singleFullWeek =
+                                groupedPrev.length === 1 &&
+                                arrearGroupCoversFullWeek(groupedPrev[0]!, weekMon);
                               return (
                                 <Fragment key={`${s.vendorId}-prev-${weekMon}`}>
-                                  <tr className="border-t border-red-100 bg-red-50/50">
-                                    <td colSpan={3} className="px-3 py-1">
-                                      <span className="text-[10px] font-semibold text-red-900 leading-tight">
-                                        {arrearWeekRangeLabel(weekMon)}
-                                      </span>
-                                    </td>
-                                  </tr>
+                                  {!singleFullWeek && (
+                                    <tr className="border-t border-red-100 bg-red-50/50">
+                                      <td colSpan={3} className="px-3 py-1">
+                                        <span className="text-[10px] font-semibold text-red-900 leading-tight">
+                                          {arrearWeekRangeLabel(weekMon)}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  )}
                                   {groupedPrev.map((arr) => {
                                     const underlying = arr.__underlying;
                                     const pKey = `${s.vendorId}|prev-${weekMon}|${underlying?.map((e) => e.date).join(",") ?? arr.date}`;
+                                    const lineLabel = singleFullWeek
+                                      ? arrearWeekRangeLabel(weekMon)
+                                      : arrearDisplayLabel(arr);
                                     return (
                                       <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
-                                        <td colSpan={3} className="px-3 py-1.5 pl-5">
+                                        <td
+                                          colSpan={3}
+                                          className={`px-3 py-1.5 ${singleFullWeek ? "pl-3" : "pl-5"}`}
+                                        >
                                           <div className="flex items-start justify-between gap-2">
                                             <div className="flex flex-col gap-0.5 min-w-0">
                                               <div className="flex items-center gap-1 text-orange-700">
                                                 <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
-                                                <span className="text-xs font-medium leading-tight">{arrearDisplayLabel(arr)}</span>
+                                                <span className="text-xs font-medium leading-tight">{lineLabel}</span>
                                               </div>
                                               {arr.paidAmount > 0 && (
                                                 <span className="text-[10px] text-gray-500 pl-4">

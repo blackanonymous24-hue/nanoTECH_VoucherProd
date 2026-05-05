@@ -181,6 +181,15 @@ function portalArrearWeekRangeLabel(mondayIso: string): string {
   return `Arriéré de la semaine du ${fmtDayMonthYear(mondayIso)} au ${fmtDayMonthYear(sun)}`;
 }
 
+/** Regroupement consécutif couvrant exactement le lun–dim de `weekMon`. */
+function portalArrearGroupCoversFullWeek(g: GroupedDailyArrearsDay, weekMon: string): boolean {
+  const sun = addDaysIso(weekMon, 6);
+  const raw = g.__underlying ?? [g];
+  const sorted = [...raw].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length === 0) return false;
+  return sorted[0]!.date === weekMon && sorted[sorted.length - 1]!.date === sun;
+}
+
 type PeriodSalesData = {
   period: string;
   label: string;
@@ -1296,6 +1305,43 @@ function Dashboard({ token, vendor, onLogout }: {
 
                         prevWeekSorted.forEach((weekMon) => {
                           const entries = prevByWeek.get(weekMon) ?? [];
+                          const grouped = groupConsecutiveDailyArrears(entries);
+                          const singleFullWeek =
+                            grouped.length === 1 && portalArrearGroupCoversFullWeek(grouped[0]!, weekMon);
+
+                          if (singleFullWeek) {
+                            const d = grouped[0]!;
+                            const navIso = d.__underlying?.length
+                              ? d.__underlying[d.__underlying.length - 1]!.date
+                              : d.date;
+                            const dateObj = new Date(navIso + "T00:00:00Z");
+                            const dayNum = String(dateObj.getUTCDate());
+                            const monthNum = String(dateObj.getUTCMonth() + 1);
+                            const yearNum = String(dateObj.getUTCFullYear());
+                            rows.push(
+                              <button
+                                key={`prev-full-${weekMon}`}
+                                type="button"
+                                onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
+                                className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer border-b border-orange-100 bg-orange-50/40"
+                              >
+                                <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
+                                  <span className="break-words">{portalArrearWeekRangeLabel(weekMon)}</span>
+                                  <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
+                                </span>
+                                <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
+                                  <span className="text-[10px] text-gray-400 tabular-nums">
+                                    {d.count} ticket{d.count !== 1 ? "s" : ""}
+                                  </span>
+                                  <span className="text-[11px] font-bold text-orange-700 tabular-nums">
+                                    {fmtFcfa(d.remaining)} FCFA
+                                  </span>
+                                </div>
+                              </button>,
+                            );
+                            return;
+                          }
+
                           const isOpen = !!openPrevWeekDetail[weekMon];
                           rows.push(
                             <Fragment key={`prev-week-${weekMon}`}>
@@ -1319,7 +1365,7 @@ function Dashboard({ token, vendor, onLogout }: {
                                 />
                               </button>
                               {isOpen &&
-                                groupConsecutiveDailyArrears(entries).map((d) => {
+                                grouped.map((d) => {
                                   const navIso = d.__underlying?.length
                                     ? d.__underlying[d.__underlying.length - 1]!.date
                                     : d.date;
