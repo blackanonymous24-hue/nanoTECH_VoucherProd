@@ -70,9 +70,11 @@ router.post("/login", async (req, res): Promise<void> => {
         return;
       }
       if (!adminRow.isSuperAdmin) {
-        const now = Date.now();
-        const ends = adminRow.forfaitEndsAt ? adminRow.forfaitEndsAt.getTime() : 0;
-        if (!ends || ends < now) {
+        // forfaitEndsAt === null means unlimited — only block if a date is set and already passed,
+        // or if forfaitStartedAt is also null (forfait never assigned at all).
+        const hasNoForfait = adminRow.forfaitEndsAt === null && adminRow.forfaitStartedAt === null;
+        const isExpired = adminRow.forfaitEndsAt !== null && adminRow.forfaitEndsAt.getTime() < Date.now();
+        if (hasNoForfait || isExpired) {
           res.status(403).json({ error: "Forfait expiré ou non attribué — contactez le super administrateur." });
           return;
         }
