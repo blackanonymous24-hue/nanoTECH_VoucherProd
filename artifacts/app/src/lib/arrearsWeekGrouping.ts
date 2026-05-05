@@ -11,23 +11,6 @@ export function splitArrearsMergedAndRecentTail<T extends { date: string }>(
   return { merged: asc.slice(0, -2), recent: asc.slice(-2) };
 }
 
-/** Jours les plus récents affichés à part (semaine civile en cours) : suivi admin, portail, impression. */
-export const ARREAR_UI_RECENT_DAY_COUNT = 3;
-
-/**
- * Semaine civile en cours : garde les `recentCount` jours les plus récents séparés ;
- * les jours plus anciens de cette même semaine sont regroupés dans `merged` (ordre
- * chronologique, du plus ancien au plus récent dans chaque partie).
- */
-export function splitCurrentWeekArrearsForPrint<T extends { date: string }>(
-  entries: T[],
-  recentCount = ARREAR_UI_RECENT_DAY_COUNT,
-): { merged: T[] | null; recent: T[] } {
-  const asc = [...entries].sort((a, b) => a.date.localeCompare(b.date));
-  if (asc.length <= recentCount) return { merged: null, recent: asc };
-  return { merged: asc.slice(0, -recentCount), recent: asc.slice(-recentCount) };
-}
-
 /** Monday 00:00 UTC of the ISO calendar week containing `iso` (YYYY-MM-DD). */
 export function mondayOfDateUtc(iso: string): string {
   const d = new Date(iso + "T00:00:00Z");
@@ -169,5 +152,131 @@ export function groupPortalArrearsByCalendarWeek(days: PortalArrearDayCore[]): G
       });
     }
   }
+  return out;
+}
+
+/** À partir de ce nombre de jours d’arriéré dans la semaine affichée, les 2 plus anciens fusionnent sur une ligne. */
+export const ARREAR_MERGE_OLDEST_PAIR_THRESHOLD = 5;
+
+export type ArrearAdminDisplayLine =
+  | { kind: "week"; weekMonday: string; remaining: number; days: DailyArrearEntryCore[] }
+  | {
+      kind: "merged_pair";
+      from: string;
+      to: string;
+      remaining: number;
+      first: DailyArrearEntryCore;
+      second: DailyArrearEntryCore;
+    }
+  | { kind: "day"; entry: DailyArrearEntryCore };
+
+/**
+ * Lignes d’affichage (suivi, impression) : d’abord chaque semaine calendaire **antérieure**
+ * à la semaine de `selectedIso` sur une ligne ; puis la semaine en cours (si ≥5 jours,
+ * les 2 plus anciens en une ligne « Arriéré du X au Y »), puis les autres jours.
+ */
+export function buildAdminArrearDisplayLines(
+  selectedIso: string,
+  entries: DailyArrearEntryCore[],
+): ArrearAdminDisplayLine[] {
+  const curMon = mondayOfDateUtc(selectedIso);
+  const withRem = entries
+    .filter((e) => e.remaining > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const prev = withRem.filter((e) => mondayOfDateUtc(e.date) < curMon);
+  const cur = withRem.filter((e) => mondayOfDateUtc(e.date) === curMon);
+
+  const out: ArrearAdminDisplayLine[] = [];
+
+  for (const g of groupArrearsByCalendarWeek(prev)) {
+    const days = [...(g.__underlying ?? [g])].sort((a, b) => a.date.localeCompare(b.date));
+    out.push({
+      kind: "week",
+      weekMonday: g.__weekMonday,
+      remaining: g.remaining,
+      days,
+    });
+  }
+
+  const asc = [...cur].sort((a, b) => a.date.localeCompare(b.date));
+  if (asc.length >= ARREAR_MERGE_OLDEST_PAIR_THRESHOLD) {
+    const d0 = asc[0]!;
+    const d1 = asc[1]!;
+    out.push({
+      kind: "merged_pair",
+      from: d0.date,
+      to: d1.date,
+      remaining: d0.remaining + d1.remaining,
+      first: d0,
+      second: d1,
+    });
+    for (const d of asc.slice(2)) {
+      out.push({ kind: "day", entry: d });
+    }
+  } else {
+    for (const d of asc) {
+      out.push({ kind: "day", entry: d });
+    }
+  }
+
+  return out;
+}
+
+export type PortalArrearDisplayLine =
+  | { kind: "week"; weekMonday: string; remaining: number; days: PortalArrearDayCore[] }
+  | {
+      kind: "merged_pair";
+      from: string;
+      to: string;
+      remaining: number;
+      first: PortalArrearDayCore;
+      second: PortalArrearDayCore;
+    }
+  | { kind: "day"; entry: PortalArrearDayCore };
+
+export function buildPortalArrearDisplayLines(
+  selectedIso: string,
+  days: PortalArrearDayCore[],
+): PortalArrearDisplayLine[] {
+  const curMon = mondayOfDateUtc(selectedIso);
+  const withRem = days
+    .filter((d) => d.remaining > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const prev = withRem.filter((e) => mondayOfDateUtc(e.date) < curMon);
+  const cur = withRem.filter((e) => mondayOfDateUtc(e.date) === curMon);
+
+  const out: PortalArrearDisplayLine[] = [];
+
+  for (const g of groupPortalArrearsByCalendarWeek(prev)) {
+    const ds = [...(g.__underlying ?? [g])].sort((a, b) => a.date.localeCompare(b.date));
+    out.push({
+      kind: "week",
+      weekMonday: g.__weekMonday,
+      remaining: g.remaining,
+      days: ds,
+    });
+  }
+
+  const asc = [...cur].sort((a, b) => a.date.localeCompare(b.date));
+  if (asc.length >= ARREAR_MERGE_OLDEST_PAIR_THRESHOLD) {
+    const d0 = asc[0]!;
+    const d1 = asc[1]!;
+    out.push({
+      kind: "merged_pair",
+      from: d0.date,
+      to: d1.date,
+      remaining: d0.remaining + d1.remaining,
+      first: d0,
+      second: d1,
+    });
+    for (const d of asc.slice(2)) {
+      out.push({ kind: "day", entry: d });
+    }
+  } else {
+    for (const d of asc) {
+      out.push({ kind: "day", entry: d });
+    }
+  }
+
   return out;
 }

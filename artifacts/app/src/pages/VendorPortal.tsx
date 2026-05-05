@@ -33,10 +33,8 @@ import {
 import { foldText } from "@/lib/text";
 import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown, weekVersPaymentDisplayCap } from "@/lib/vendorWeekPaymentDisplay";
 import {
-  ARREAR_UI_RECENT_DAY_COUNT,
-  groupPortalArrearsByCalendarWeek,
+  buildPortalArrearDisplayLines,
   mondayOfDateUtc,
-  splitCurrentWeekArrearsForPrint,
   sundayFromMondayUtc,
   weekArrearLabelWithFmt,
 } from "@/lib/arrearsWeekGrouping";
@@ -109,19 +107,6 @@ type VersementWeek = {
 type VersementData = { weeks: VersementWeek[] };
 type DailyArrearsDay = { date: string; count: number; amount: number; paid: number; remaining: number };
 type DailyArrearsData = { days: DailyArrearsDay[] };
-
-function mergePortalArrearDays(days: DailyArrearsDay[]): DailyArrearsDay & { __underlying: DailyArrearsDay[] } {
-  const u = [...days].sort((a, b) => a.date.localeCompare(b.date));
-  const last = u[u.length - 1]!;
-  return {
-    date: last.date,
-    count: u.reduce((s, d) => s + d.count, 0),
-    amount: u.reduce((s, d) => s + d.amount, 0),
-    paid: u.reduce((s, d) => s + d.paid, 0),
-    remaining: u.reduce((s, d) => s + d.remaining, 0),
-    __underlying: u,
-  };
-}
 
 type PeriodSalesData = {
   period: string;
@@ -1233,18 +1218,10 @@ function Dashboard({ token, vendor, onLogout }: {
               </Card>
             </div>
 
-            {/* ── Arriérés journaliers (sem. passées ; sem. en cours : cumul + 3 derniers jours — même règle que suivi admin / impression) ── */}
+            {/* ── Arriérés journaliers (même règle que suivi : semaines sur une ligne ; si ≥5 j. dans la semaine en cours → fusion des 2 plus anciens) ── */}
             {arrearsData && arrearsData.days.length > 0 && (() => {
               const todayIso = new Date().toISOString().slice(0, 10);
-              const curMon = mondayOfDateUtc(todayIso);
-              const asc = [...arrearsData.days].sort((a, b) => a.date.localeCompare(b.date));
-              const prevDays = asc.filter((d) => mondayOfDateUtc(d.date) < curMon);
-              const currentDays = asc.filter((d) => mondayOfDateUtc(d.date) === curMon);
-              const { merged: mergedHead, recent: recentTail } = splitCurrentWeekArrearsForPrint(
-                currentDays,
-                ARREAR_UI_RECENT_DAY_COUNT,
-              );
-              const mergedPortal = mergedHead && mergedHead.length > 0 ? mergePortalArrearDays(mergedHead) : null;
+              const portalLines = buildPortalArrearDisplayLines(todayIso, arrearsData.days);
 
               const reportNav = (iso: string) => {
                 const dateObj = new Date(iso + "T00:00:00Z");
@@ -1273,118 +1250,110 @@ function Dashboard({ token, vendor, onLogout }: {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3 bg-slate-50/80 p-4 pt-4">
-                    {groupPortalArrearsByCalendarWeek(prevDays).map((w) => {
-                      const dayCount = w.__underlying?.length ?? 1;
-                      return (
-                        <div
-                          key={w.__weekMonday}
-                          className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/5"
-                        >
-                          <Collapsible defaultOpen={false} className="group">
-                          <CollapsibleTrigger asChild>
-                            <button
-                              type="button"
-                              className="flex w-full items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-white to-amber-50/40 px-4 py-3 text-left transition-colors hover:bg-amber-50/60"
-                            >
-                              <span className="min-w-0 flex-1 text-[11px] font-semibold text-slate-900 break-words">
-                                {weekArrearLabelWithFmt(w.__weekMonday, fmtDayMonthYearUtc)}
-                                <span className="font-normal text-slate-600">
-                                  {" "}
-                                  ({dayCount} jour{dayCount > 1 ? "s" : ""})
-                                </span>
-                              </span>
-                              <div className="flex flex-shrink-0 items-center gap-2">
-                                <span className="text-[11px] font-bold tabular-nums text-amber-900">{fmtFcfa(w.remaining)} FCFA</span>
-                                <ChevronDown className="h-4 w-4 text-amber-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                              </div>
-                            </button>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                            <Card className="rounded-none border-0 shadow-none">
-                              <CardContent className="divide-y divide-slate-100 p-0">
-                                {[...(w.__underlying ?? [w])]
-                                  .sort((a, b) => a.date.localeCompare(b.date))
-                                  .map((d) => (
-                                    <button
-                                      key={d.date}
-                                      type="button"
-                                      onClick={() => reportNav(d.date)}
-                                      className="flex w-full items-start justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-amber-50/80 sm:items-center"
-                                    >
-                                      <span className="min-w-0 text-[11px] font-semibold text-slate-900 break-words">
-                                        Arriéré du <span className="text-amber-900">{fmtDayMonthYearUtc(d.date)}</span>
-                                      </span>
-                                      <div className="flex flex-shrink-0 items-center gap-2">
-                                        <span className="text-[10px] text-slate-500 tabular-nums">
-                                          {d.count} ticket{d.count !== 1 ? "s" : ""}
-                                        </span>
-                                        <span className="text-[11px] font-bold text-amber-950 tabular-nums whitespace-nowrap">
-                                          {fmtFcfa(d.remaining)} FCFA
-                                        </span>
-                                        <ChevronRight className="h-3 w-3 text-amber-400 opacity-70 hidden sm:block" />
-                                      </div>
-                                    </button>
-                                  ))}
-                              </CardContent>
-                            </Card>
-                          </CollapsibleContent>
-                        </Collapsible>
-                        </div>
-                      );
-                    })}
-                    {mergedPortal && mergedHead && (
-                      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/5">
-                      <Collapsible defaultOpen={false} className="group">
-                        <CollapsibleTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex w-full items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-white to-amber-50/50 px-4 py-3 text-left transition-colors hover:bg-amber-50/70"
+                    {portalLines.map((line) => {
+                      if (line.kind === "week") {
+                        const w = line;
+                        return (
+                          <div
+                            key={w.weekMonday}
+                            className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/5"
                           >
-                            <span className="min-w-0 flex-1 text-[11px] font-semibold text-slate-900 break-words">
-                              Arriérés cumulés ({mergedHead.length} jour{mergedHead.length > 1 ? "s" : ""}, du{" "}
-                              <span className="text-amber-950">{fmtDayMonthYearUtc(mergedHead[0]!.date)}</span> au{" "}
-                              <span className="text-amber-950">{fmtDayMonthYearUtc(mergedHead[mergedHead.length - 1]!.date)}</span>)
-                            </span>
-                            <div className="flex flex-shrink-0 items-center gap-2">
-                              <span className="text-[11px] font-bold tabular-nums text-amber-950">{fmtFcfa(mergedPortal.remaining)} FCFA</span>
-                              <ChevronDown className="h-4 w-4 text-amber-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                            </div>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                          <Card className="rounded-none border-0 shadow-none">
-                            <CardContent className="divide-y divide-slate-100 p-0">
-                              {mergedHead
-                                .slice()
-                                .sort((a, b) => a.date.localeCompare(b.date))
-                                .map((d) => (
-                                  <button
-                                    key={d.date}
-                                    type="button"
-                                    onClick={() => reportNav(d.date)}
-                                    className="flex w-full items-start justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-amber-50/80 sm:items-center"
-                                  >
-                                    <span className="min-w-0 text-[11px] font-semibold text-slate-900 break-words">
-                                      Arriéré du <span className="text-amber-950">{fmtDayMonthYearUtc(d.date)}</span>
-                                    </span>
-                                    <div className="flex flex-shrink-0 items-center gap-2">
-                                      <span className="text-[10px] text-slate-500 tabular-nums">
-                                        {d.count} ticket{d.count !== 1 ? "s" : ""}
-                                      </span>
-                                      <span className="text-[11px] font-bold text-amber-950 tabular-nums whitespace-nowrap">
-                                        {fmtFcfa(d.remaining)} FCFA
-                                      </span>
-                                      <ChevronRight className="h-3 w-3 text-amber-400 opacity-70 hidden sm:block" />
-                                    </div>
-                                  </button>
-                                ))}
-                            </CardContent>
-                          </Card>
-                        </CollapsibleContent>
-                      </Collapsible>
-                      </div>
-                    )}
-                    {recentTail.map((d) => {
+                            <Collapsible defaultOpen={false} className="group">
+                              <CollapsibleTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-white to-amber-50/40 px-4 py-3 text-left transition-colors hover:bg-amber-50/60"
+                                >
+                                  <span className="min-w-0 flex-1 text-[11px] font-semibold text-slate-900 break-words">
+                                    {weekArrearLabelWithFmt(w.weekMonday, fmtDayMonthYearUtc)} :{" "}
+                                    <span className="tabular-nums">{fmtFcfa(w.remaining)} FCFA</span>
+                                  </span>
+                                  <ChevronDown className="h-4 w-4 flex-shrink-0 text-amber-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                </button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                                <Card className="rounded-none border-0 shadow-none">
+                                  <CardContent className="divide-y divide-slate-100 p-0">
+                                    {w.days.map((d) => (
+                                      <button
+                                        key={d.date}
+                                        type="button"
+                                        onClick={() => reportNav(d.date)}
+                                        className="flex w-full items-start justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-amber-50/80 sm:items-center"
+                                      >
+                                        <span className="min-w-0 text-[11px] font-semibold text-slate-900 break-words">
+                                          Arriéré du <span className="text-amber-900">{fmtDayMonthYearUtc(d.date)}</span> :
+                                        </span>
+                                        <div className="flex flex-shrink-0 items-center gap-2">
+                                          <span className="text-[10px] text-slate-500 tabular-nums">
+                                            {d.count} ticket{d.count !== 1 ? "s" : ""}
+                                          </span>
+                                          <span className="text-[11px] font-bold text-amber-950 tabular-nums whitespace-nowrap">
+                                            {fmtFcfa(d.remaining)} FCFA
+                                          </span>
+                                          <ChevronRight className="h-3 w-3 text-amber-400 opacity-70 hidden sm:block" />
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </CardContent>
+                                </Card>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          </div>
+                        );
+                      }
+                      if (line.kind === "merged_pair") {
+                        return (
+                          <div
+                            key={`${line.from}-${line.to}`}
+                            className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/5"
+                          >
+                            <Collapsible defaultOpen={false} className="group">
+                              <CollapsibleTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-white to-amber-50/50 px-4 py-3 text-left transition-colors hover:bg-amber-50/70"
+                                >
+                                  <span className="min-w-0 flex-1 text-[11px] font-semibold text-slate-900 break-words">
+                                    Arriéré du <span className="text-amber-950">{fmtDayMonthYearUtc(line.from)}</span> au{" "}
+                                    <span className="text-amber-950">{fmtDayMonthYearUtc(line.to)}</span> :{" "}
+                                    <span className="tabular-nums">{fmtFcfa(line.remaining)} FCFA</span>
+                                  </span>
+                                  <ChevronDown className="h-4 w-4 text-amber-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                </button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                                <Card className="rounded-none border-0 shadow-none">
+                                  <CardContent className="divide-y divide-slate-100 p-0">
+                                    {[line.first, line.second].map((d) => (
+                                      <button
+                                        key={d.date}
+                                        type="button"
+                                        onClick={() => reportNav(d.date)}
+                                        className="flex w-full items-start justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-amber-50/80 sm:items-center"
+                                      >
+                                        <span className="min-w-0 text-[11px] font-semibold text-slate-900 break-words">
+                                          Arriéré du <span className="text-amber-950">{fmtDayMonthYearUtc(d.date)}</span>
+                                        </span>
+                                        <div className="flex flex-shrink-0 items-center gap-2">
+                                          <span className="text-[10px] text-slate-500 tabular-nums">
+                                            {d.count} ticket{d.count !== 1 ? "s" : ""}
+                                          </span>
+                                          <span className="text-[11px] font-bold text-amber-950 tabular-nums whitespace-nowrap">
+                                            {fmtFcfa(d.remaining)} FCFA
+                                          </span>
+                                          <ChevronRight className="h-3 w-3 text-amber-400 opacity-70 hidden sm:block" />
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </CardContent>
+                                </Card>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          </div>
+                        );
+                      }
+                      const d = line.entry;
                       const dateObj = new Date(d.date + "T00:00:00Z");
                       const dayNum = String(dateObj.getUTCDate());
                       const monthNum = String(dateObj.getUTCMonth() + 1);
@@ -1401,7 +1370,7 @@ function Dashboard({ token, vendor, onLogout }: {
                               className="flex w-full flex-col gap-2 border-l-4 border-l-amber-500 px-4 py-3.5 text-left transition-colors hover:bg-amber-50/50 sm:flex-row sm:items-center sm:justify-between"
                             >
                               <span className="text-[11px] font-semibold text-slate-900 break-words">
-                                Arriéré du <span className="text-amber-950">{fmtDayMonthYearUtc(d.date)}</span>
+                                Arriéré du <span className="text-amber-950">{fmtDayMonthYearUtc(d.date)}</span> :
                               </span>
                               <div className="flex items-center gap-2 self-end sm:self-start">
                                 <span className="text-[10px] text-slate-500 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
@@ -1414,7 +1383,7 @@ function Dashboard({ token, vendor, onLogout }: {
                       );
                     })}
                   <div className="flex items-center justify-between rounded-xl border border-amber-200/90 bg-gradient-to-r from-amber-950 to-slate-900 px-4 py-3.5 text-white shadow-inner">
-                    <span className="text-xs font-semibold tracking-wide text-amber-50">Total arriérés</span>
+                    <span className="text-xs font-semibold tracking-wide text-amber-50">Total arriérés :</span>
                     <span className="text-base font-bold tabular-nums text-white">
                       {fmtFcfa(arrearsData.days.reduce((s, d) => s + d.remaining, 0))} FCFA
                     </span>

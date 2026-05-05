@@ -15,10 +15,8 @@ import { foldText } from "@/lib/text";
 import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
 import {
   applyMaskedWeeksToDailyArrearsResponse,
-  ARREAR_UI_RECENT_DAY_COUNT,
-  groupArrearsByCalendarWeek,
+  buildAdminArrearDisplayLines,
   mondayOfDateUtc,
-  splitCurrentWeekArrearsForPrint,
   sundayFromMondayUtc,
   weekArrearLabelWithFmt,
 } from "@/lib/arrearsWeekGrouping";
@@ -186,66 +184,6 @@ function mergeDailyArrearEntries(days: DailyArrearEntry[]): DailyArrearEntry & {
   };
 }
 
-function arrearDayBlockPrint(a: DailyArrearEntry): string {
-  return `<div class="arr-block">
-      <div class="arr-label">Arriéré du ${fmtDateFr(a.date)}</div>
-      <div class="arr-amount">${fmtAmount(a.remaining)} FCFA</div>
-    </div>`;
-}
-
-function dailyPrintArrearsSectionsHtml(selectedIso: string, raw: DailyArrearEntry[], totalDu: number): string {
-  const entries = [...raw].filter((e) => e.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
-  if (entries.length === 0) return "";
-
-  const currentWeekStart = mondayOfDateUtc(selectedIso);
-  const prev = entries.filter((e) => mondayOfDateUtc(e.date) < currentWeekStart);
-  const cur = entries.filter((e) => mondayOfDateUtc(e.date) === currentWeekStart);
-  const { merged, recent } = splitCurrentWeekArrearsForPrint(cur, ARREAR_UI_RECENT_DAY_COUNT);
-  const mergedEntry =
-    merged && merged.length > 0 ? mergeDailyArrearEntries(merged) : null;
-
-  const sections: string[] = [];
-
-  for (const g of groupArrearsByCalendarWeek(prev)) {
-    const days = [...(g.__underlying ?? [g])].sort((a, b) => a.date.localeCompare(b.date));
-    sections.push(`<div class="arr-section">
-        <div class="week-arrear-group-title">${weekArrearLabelWithFmt(g.__weekMonday, fmtDateFr)} <span class="week-arrear-meta">(${days.length} jour${days.length > 1 ? "s" : ""})</span></div>
-        ${days.map(arrearDayBlockPrint).join("")}
-      </div>`);
-  }
-
-  if (mergedEntry) {
-    const u = mergedEntry.__underlying;
-    const first = u[0]!;
-    const last = u[u.length - 1]!;
-    sections.push(`<div class="arr-section">
-        <div class="arr-section-title">Arriérés cumulés — semaine en cours</div>
-        <div class="arr-block arr-block--amber">
-          <div class="arr-label">Du ${fmtDateFr(first.date)} au ${fmtDateFr(last.date)} (${u.length} jour${u.length > 1 ? "s" : ""})</div>
-          <div class="arr-amount">${fmtAmount(mergedEntry.remaining)} FCFA</div>
-          <div class="arr-merged-detail">${u
-      .map(
-        (d) =>
-          `<div class="arr-mini"><span>${fmtDateFr(d.date)}</span><span>${fmtAmount(d.remaining)} FCFA</span></div>`,
-      )
-      .join("")}</div>
-        </div>
-      </div>`);
-  }
-
-  if (recent.length > 0) {
-    sections.push(`<div class="arr-section">
-        <div class="arr-section-title">Arriérés récents — semaine en cours <span class="week-arrear-meta">(${recent.length} jour${recent.length > 1 ? "s" : ""}, du plus ancien au plus récent)</span></div>
-        ${recent.map(arrearDayBlockPrint).join("")}
-      </div>`);
-  }
-
-  return `<div class="arr-list arr-list--structured">${sections.join("")}</div>
-  <div class="total-du">
-    <span>Total à verser</span><span>${fmtAmount(totalDu)} FCFA</span>
-  </div>`;
-}
-
 function statusBadge(status?: "none" | "partial" | "full"): {
   text: string; cls: string; icon?: boolean;
 } {
@@ -347,6 +285,37 @@ ${weekTotalsPrintHtml(totalAmount, totalPaid, totalReste)}`;
 ${gridAndTotals}`;
 }
 
+/** Impression / JPEG : mêmes lignes que les cartes (semaines, fusion si ≥5 j. dans la semaine affichée). */
+function arrearsDailyPrintBlocksHtml(selectedIso: string, entries: DailyArrearEntry[], totalDu: number): string {
+  const lines = buildAdminArrearDisplayLines(selectedIso, entries);
+  if (lines.length === 0) return "";
+  const blocks = lines
+    .map((line) => {
+      if (line.kind === "week") {
+        return `<div class="arr-block arr-block--week">
+      <div class="arr-label">${weekArrearLabelWithFmt(line.weekMonday, fmtDateFr)} :</div>
+      <div class="arr-amount">${fmtAmount(line.remaining)} FCFA</div>
+    </div>`;
+      }
+      if (line.kind === "merged_pair") {
+        return `<div class="arr-block arr-block--merge">
+      <div class="arr-label">Arriéré du ${fmtDateFr(line.from)} au ${fmtDateFr(line.to)} :</div>
+      <div class="arr-amount">${fmtAmount(line.remaining)} FCFA</div>
+    </div>`;
+      }
+      return `<div class="arr-block">
+      <div class="arr-label">Arriéré du ${fmtDateFr(line.entry.date)} :</div>
+      <div class="arr-amount">${fmtAmount(line.entry.remaining)} FCFA</div>
+    </div>`;
+    })
+    .join("");
+  return `
+  <div class="arr-list">${blocks}</div>
+  <div class="total-du">
+    <span>Total à verser :</span><span>${fmtAmount(totalDu)} FCFA</span>
+  </div>`;
+}
+
 /* ── Print helper: daily ─────────────────────────────────────── */
 function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: DailyArrearsResponse) {
   const dateFr = fmtDateFr(data.date);
@@ -366,22 +335,17 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
 
   const vendorCards = activeSummary.map((s) => {
     const pal = vpal(s.vendorId);
-    const arr = [...(arrears?.arrears[String(s.vendorId)] ?? [])]
-      .filter((a) => a.remaining > 0)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
+    const rawArr = arrears?.arrears[String(s.vendorId)] ?? [];
+    const arrTotal = rawArr.filter((a) => a.remaining > 0).reduce((sum, a) => sum + a.remaining, 0);
     const totalDu = s.amount + arrTotal;
-    const arrearsSection =
-      arr.length > 0 ? dailyPrintArrearsSectionsHtml(data.date, arr, totalDu) : "";
-    const hasArr = arr.length > 0;
+    const lines = buildAdminArrearDisplayLines(data.date, rawArr);
+    const arrearsSection = lines.length > 0 ? arrearsDailyPrintBlocksHtml(data.date, rawArr, totalDu) : "";
+    const hasArr = lines.length > 0;
     const borderColor = hasArr ? "#fdba74" : pal.border;
     return `<div class="vcard" style="border-color:${borderColor}">
-  <div class="vcard-header vcard-header--daily" style="background:${pal.light};border-color:${pal.border}">
-    <span class="vname" style="color:${pal.dark}">${s.vendorName}</span>
-    <div class="vhead-day-sale">
-      <span class="vday-label">Vente du ${dateFr}</span>
-      <span class="vamount" style="color:${pal.dark}">${fmtAmount(s.amount)} FCFA</span>
-    </div>
+  <div class="vcard-header" style="background:${pal.light};border-color:${pal.border}">
+    <span class="vname" style="color:${pal.dark}">${s.vendorName} :</span>
+    <span class="vamount" style="color:${pal.dark}">${fmtAmount(s.amount)} FCFA</span>
   </div>${arrearsSection}
 </div>`;
   }).join("");
@@ -406,9 +370,6 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
   .vcard { border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
   .vcard-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
-  .vcard-header--daily { gap: 8px; flex-wrap: wrap; align-items: flex-start; }
-  .vhead-day-sale { display: flex; flex-direction: column; align-items: flex-end; text-align: right; gap: 2px; min-width: 0; }
-  .vday-label { font-size: 7px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
   .vname { font-weight: bold; font-size: 10px; color: #1e40af; }
   .vamount { font-weight: bold; font-size: 10px; color: #1d4ed8; }
   .vcard table { width: 100%; border-collapse: collapse; }
@@ -418,17 +379,6 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .vcard tr:last-child td { border-bottom: none; }
   .vcard-arr { border-color: #fca5a5; }
   .arr-list { padding: 8px 8px 6px; background: #f8fafc; border-top: 1px solid #fecaca; }
-  .arr-list--structured { padding-top: 10px; }
-  .arr-section { margin-bottom: 10px; }
-  .arr-section:last-of-type { margin-bottom: 6px; }
-  .arr-section-title {
-    font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
-    color: #475569; margin: 0 0 6px; padding-bottom: 3px; border-bottom: 1px solid #e2e8f0;
-  }
-  .week-arrear-group-title {
-    font-size: 9px; font-weight: 700; color: #9a3412; margin: 0 0 6px; line-height: 1.3;
-  }
-  .week-arrear-meta { font-weight: 500; color: #78716c; font-size: 8px; }
   .arr-block {
     margin-bottom: 8px; padding: 8px 10px; background: #ffffff;
     border: 1px solid #fecaca; border-radius: 6px; border-left: 4px solid #dc2626;
@@ -438,11 +388,9 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .arr-block:last-child { margin-bottom: 6px; }
   .arr-label { font-size: 9px; font-weight: 700; color: #111827; line-height: 1.25; margin-bottom: 4px; }
   .arr-amount { font-size: 10px; font-weight: 700; color: #991b1b; text-align: right; letter-spacing: 0.02em; }
-  .arr-block--amber { border-left-color: #d97706; background: #fffbeb; }
-  .arr-merged-detail { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #fcd34d; }
-  .arr-mini { display: flex; justify-content: space-between; font-size: 8px; color: #57534e; padding: 2px 0; }
-  .arr-mini span:last-child { font-weight: 700; color: #92400e; }
-  .total-du { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: linear-gradient(90deg, #1e293b, #0f172a); color: #ffffff; font-size: 9px; font-weight: bold; border-top: 1px solid #334155; }
+  .arr-block--week { border-left-color: #ea580c; background: #fff7ed; }
+  .arr-block--merge { border-left-color: #d97706; background: #fffbeb; }
+  .total-du { display: flex; justify-content: space-between; padding: 4px 6px; background: #1e3a8a; color: #ffffff; font-size: 9px; font-weight: bold; border-top: 2px solid #1e3a8a; }
   .week-vcard .vcard-header.week-vcard-h { background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
   .week-vcard .vname { color: #111; }
   .week-vcard .vstatus { font-size: 8px; font-weight: bold; padding: 2px 6px; border-radius: 10px; }
@@ -538,14 +486,12 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
     const dateFr = fmtDateFr(appliedDate);
 
-    const vendorArrears = (vendorId: number | null) =>
-      [...(arrears?.arrears[String(vendorId)] ?? [])]
-        .filter((a) => a.remaining > 0)
-        .sort((a, b) => a.date.localeCompare(b.date));
+    const displayLinesForVendor = (vendorId: number | null) =>
+      buildAdminArrearDisplayLines(appliedDate, arrears?.arrears[String(vendorId)] ?? []);
 
     const cardH = (vendorId: number | null) => {
-      const arr = vendorArrears(vendorId);
-      const arrH = arr.length > 0 ? arr.length * ARR_BLOCK_H + GRAND_ROW_H : 0;
+      const lines = displayLinesForVendor(vendorId);
+      const arrH = lines.length > 0 ? lines.length * ARR_BLOCK_H + GRAND_ROW_H : 0;
       return CARD_HDR_H + arrH;
     };
     const grandCount  = dailySummary.reduce((s, r) => s + r.count, 0);
@@ -585,40 +531,50 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     let y = TITLE_H;
     dailySummary.forEach((s) => {
       const pal = vpal(s.vendorId);
-      const arr = vendorArrears(s.vendorId);
+      const lines = displayLinesForVendor(s.vendorId);
+      const rawArr = arrears?.arrears[String(s.vendorId)] ?? [];
+      const arrTotal = rawArr.filter((a) => a.remaining > 0).reduce((sum, a) => sum + a.remaining, 0);
       const ch = cardH(s.vendorId);
       rf(PAD, y, CW, ch, "#ffffff", 6);
-      ctx.strokeStyle = arr.length > 0 ? "#fdba74" : pal.border; ctx.lineWidth = 1;
+      ctx.strokeStyle = lines.length > 0 ? "#fdba74" : pal.border; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(PAD, y, CW, ch, 6); ctx.stroke();
 
-      // Header (vendor name + total amount only)
       rf(PAD, y, CW, CARD_HDR_H, pal.light, [6, 6, 0, 0]);
-      t(s.vendorName, PAD + 10, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark });
+      t(`${s.vendorName} :`, PAD + 10, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark });
       t(fmtAmount(s.amount) + " FCFA", C_AMT, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark, align: "right" });
       ln(PAD, y + CARD_HDR_H, PAD + CW, y + CARD_HDR_H, pal.border);
 
       let ry = y + CARD_HDR_H;
 
-      // Arriérés : même libellé que les cartes (« Arriéré du … » puis montant)
-      if (arr.length > 0) {
-        const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
+      if (lines.length > 0) {
         const totalDu = s.amount + arrTotal;
         ln(PAD, ry, PAD + CW, ry, "#fca5a5");
-        arr.forEach((a, ai) => {
+        lines.forEach((line, ai) => {
           rf(PAD, ry, CW, ARR_BLOCK_H, ai % 2 === 0 ? "#ffffff" : "#fefce8");
           ctx.strokeStyle = "#fecaca";
           ctx.lineWidth = 0.5;
           ctx.strokeRect(PAD + 0.5, ry + 0.5, CW - 1, ARR_BLOCK_H - 1);
-          ctx.fillStyle = "#dc2626";
+          ctx.fillStyle = line.kind === "week" ? "#ea580c" : line.kind === "merged_pair" ? "#d97706" : "#dc2626";
           ctx.fillRect(PAD, ry, 3, ARR_BLOCK_H);
-          t(`Arriéré du ${fmtDateFr(a.date)}`, PAD + 10, ry + 12, { size: 9, bold: true, color: "#111827" });
-          t(fmtAmount(a.remaining) + " FCFA", C_AMT, ry + 26, { size: 10, bold: true, color: "#991b1b", align: "right" });
+          let label = "";
+          if (line.kind === "week") label = `${weekArrearLabelWithFmt(line.weekMonday, fmtDateFr)} :`;
+          else if (line.kind === "merged_pair") {
+            label = `Arriéré du ${fmtDateFr(line.from)} au ${fmtDateFr(line.to)} :`;
+          } else label = `Arriéré du ${fmtDateFr(line.entry.date)} :`;
+          const foldLabel = label.length > 52 ? label.slice(0, 49) + "…" : label;
+          t(foldLabel, PAD + 10, ry + 12, { size: 8, bold: true, color: "#111827" });
+          const amt =
+            line.kind === "week"
+              ? line.remaining
+              : line.kind === "merged_pair"
+                ? line.remaining
+                : line.entry.remaining;
+          t(fmtAmount(amt) + " FCFA", C_AMT, ry + 26, { size: 10, bold: true, color: "#991b1b", align: "right" });
           ln(PAD, ry + ARR_BLOCK_H, PAD + CW, ry + ARR_BLOCK_H, "#fee2e2");
           ry += ARR_BLOCK_H;
         });
-        // Total à verser row
         rf(PAD, ry, CW, GRAND_ROW_H, "#1e3a8a", [0, 0, 6, 6]);
-        t("Total à verser", C_PROF, ry + GRAND_ROW_H / 2, { size: 8, bold: true, color: "#bfdbfe" });
+        t("Total à verser :", C_PROF, ry + GRAND_ROW_H / 2, { size: 8, bold: true, color: "#bfdbfe" });
         t(fmtAmount(totalDu) + " FCFA", C_AMT, ry + GRAND_ROW_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
         ry += GRAND_ROW_H;
       }
@@ -1119,12 +1075,9 @@ export default function VendorTracking() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {activeSummary.map((s) => {
                     const allArrears = arrearsDataEffective?.arrears[String(s.vendorId)] ?? [];
-                    const currentWeekStart = mondayOfDateUtc(applied);
-                    // Split arriérés: previous weeks vs current week
-                    const prevArrears = allArrears.filter((a) => a.date < currentWeekStart);
-                    const currentArrears = allArrears.filter((a) => a.date >= currentWeekStart);
-                    const prevTotal = prevArrears.reduce((sum, a) => sum + a.remaining, 0);
-                    const hasArrears = prevTotal > 0 || currentArrears.length > 0;
+                    const displayLines = buildAdminArrearDisplayLines(applied, allArrears);
+                    const hasArrears = displayLines.length > 0;
+                    const allArrearsTotal = allArrears.filter((a) => a.remaining > 0).reduce((sum, a) => sum + a.remaining, 0);
                     const pal = vpal(s.vendorId);
                     return (
                       <div
@@ -1135,291 +1088,263 @@ export default function VendorTracking() {
                           borderLeftColor: hasArrears ? "#f97316" : pal.border,
                         }}
                       >
-                        {/* Card header — lisible : fond neutre, montant en couleur vendeur */}
                         <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-slate-200 bg-gradient-to-r from-white to-slate-50">
-                          <span className="font-semibold truncate text-slate-900">{s.vendorName}</span>
+                          <span className="font-semibold truncate text-slate-900">{s.vendorName} :</span>
                           <span className="font-bold tabular-nums flex-shrink-0" style={{ color: pal.dark }}>
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
-                        {/* Arriérés : semaines passées repliées ; semaine du jour filtré : cumul + 3 derniers jours séparés (aligné impression / portail) */}
                         <div className="space-y-2.5 p-3 bg-slate-50/90">
-                            {prevTotal > 0 &&
-                              groupArrearsByCalendarWeek(prevArrears).map((grp) => {
-                                const weekRows = grp.__underlying ?? [grp];
-                                const weekRem = grp.remaining;
-                                return (
-                                  <Collapsible key={grp.__weekMonday} defaultOpen={false} className="group">
-                                    <CollapsibleTrigger asChild>
-                                      <button
-                                        type="button"
-                                        className="flex w-full items-center justify-between gap-2 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-left shadow-sm transition-colors hover:border-red-300 hover:bg-red-50/50"
-                                      >
-                                        <div className="flex min-w-0 flex-1 items-start gap-1.5">
-                                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-600" />
-                                          <div className="min-w-0">
-                                            <span className="text-xs font-semibold text-red-950 break-words">
-                                              {weekArrearLabelWithFmt(grp.__weekMonday, fmtDateFr)}
-                                            </span>
-                                            <span className="text-[10px] text-slate-600">
-                                              {" "}
-                                              ({weekRows.length} jour{weekRows.length > 1 ? "s" : ""})
-                                            </span>
-                                          </div>
-                                        </div>
-                                        <div className="flex flex-shrink-0 items-center gap-2">
-                                          <span className="text-xs font-bold tabular-nums text-red-900">{fmtAmount(weekRem)} FCFA</span>
-                                          <ChevronDown className="h-4 w-4 flex-shrink-0 text-red-600/80 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                                        </div>
-                                      </button>
-                                    </CollapsibleTrigger>
-                                    <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                                      <div className="space-y-2 border-t border-red-100 bg-white px-3 py-2.5">
-                                        <ul className="space-y-2">
-                                          {[...weekRows]
-                                            .sort((a, b) => a.date.localeCompare(b.date))
-                                            .map((day) => (
-                                              <li
-                                                key={day.date}
-                                                className="flex items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm"
-                                              >
-                                                <div className="min-w-0 flex-1">
-                                                  <span className="font-semibold text-slate-900">
-                                                    Arriéré du <span className="text-red-800">{fmtDateFr(day.date)}</span>
-                                                  </span>
-                                                  {day.paidAmount > 0 && (
-                                                    <span className="mt-1 block text-[10px] leading-snug text-slate-600">
-                                                      Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
-                                                      {fmtAmount(
-                                                        paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
-                                                      )}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                                <span className="flex-shrink-0 font-bold tabular-nums text-red-900">
-                                                  {fmtAmount(day.remaining)} FCFA
-                                                </span>
-                                              </li>
-                                            ))}
-                                        </ul>
-                                        <div className="border-t border-slate-200 pt-2">
-                                          <button
-                                            type="button"
-                                            className="text-[10px] rounded bg-red-600 px-2 py-0.5 text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-                                            disabled={payLoading}
-                                            onClick={() => void solderPrevArrears(s.vendorId, weekRows)}
-                                          >
-                                            {payLoading ? "…" : "Solder tout"}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </CollapsibleContent>
-                                  </Collapsible>
-                                );
-                              })}
-                            {(() => {
-                              const ascCur = [...currentArrears].sort((a, b) => a.date.localeCompare(b.date));
-                              const { merged: mergedHead, recent: recentTail } = splitCurrentWeekArrearsForPrint(
-                                ascCur,
-                                ARREAR_UI_RECENT_DAY_COUNT,
-                              );
-                              const mergedEntry = mergedHead && mergedHead.length > 0 ? mergeDailyArrearEntries(mergedHead) : null;
-                              const cumulPKey = `${s.vendorId}|cumul-${currentWeekStart}`;
-                              const isPayingCumul = payingKey === cumulPKey;
+                          {displayLines.map((line) => {
+                            if (line.kind === "week") {
+                              const weekRows = line.days;
+                              const weekRem = line.remaining;
                               return (
-                                <>
-                                  {mergedEntry && (
-                                    <Collapsible defaultOpen={false} className="group">
-                                      <CollapsibleTrigger asChild>
+                                <Collapsible key={`w-${line.weekMonday}-${s.vendorId}`} defaultOpen={false} className="group">
+                                  <CollapsibleTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-left shadow-sm transition-colors hover:border-red-300 hover:bg-red-50/50"
+                                    >
+                                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                        <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-red-600" />
+                                        <span className="text-xs font-semibold text-red-950 break-words">
+                                          {weekArrearLabelWithFmt(line.weekMonday, fmtDateFr)} :{" "}
+                                          <span className="tabular-nums">{fmtAmount(weekRem)} FCFA</span>
+                                        </span>
+                                      </div>
+                                      <ChevronDown className="h-4 w-4 flex-shrink-0 text-red-600/80 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                    </button>
+                                  </CollapsibleTrigger>
+                                  <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                                    <div className="space-y-2 border-t border-red-100 bg-white px-3 py-2.5">
+                                      <ul className="space-y-2">
+                                        {weekRows.map((day) => (
+                                          <li
+                                            key={day.date}
+                                            className="flex items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <span className="font-semibold text-slate-900">
+                                                Arriéré du <span className="text-red-800">{fmtDateFr(day.date)}</span> :
+                                              </span>
+                                              {day.paidAmount > 0 && (
+                                                <span className="mt-1 block text-[10px] leading-snug text-slate-600">
+                                                  Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
+                                                  {fmtAmount(
+                                                    paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
+                                                  )}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <span className="flex-shrink-0 font-bold tabular-nums text-red-900">
+                                              {fmtAmount(day.remaining)} FCFA
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                      <div className="border-t border-slate-200 pt-2">
                                         <button
                                           type="button"
-                                          className="flex w-full items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 text-left shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-50/40"
+                                          className="text-[10px] rounded bg-red-600 px-2 py-0.5 text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+                                          disabled={payLoading}
+                                          onClick={() => void solderPrevArrears(s.vendorId, weekRows)}
                                         >
-                                          <div className="flex min-w-0 flex-1 items-start gap-1.5 text-slate-900">
-                                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
-                                            <span className="text-xs font-semibold break-words">
-                                              Arriérés cumulés ({mergedHead!.length} jour{mergedHead!.length > 1 ? "s" : ""}, du{" "}
-                                              <span className="text-amber-900">{fmtDateFr(mergedHead![0]!.date)}</span> au{" "}
-                                              <span className="text-amber-900">{fmtDateFr(mergedHead![mergedHead!.length - 1]!.date)}</span>)
-                                            </span>
-                                          </div>
-                                          <div className="flex flex-shrink-0 items-center gap-2">
-                                            <span className="text-xs font-bold tabular-nums text-amber-950">{fmtAmount(mergedEntry.remaining)} FCFA</span>
-                                            <ChevronDown className="h-4 w-4 flex-shrink-0 text-amber-700/80 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                                          </div>
+                                          {payLoading ? "…" : "Solder tout"}
                                         </button>
-                                      </CollapsibleTrigger>
-                                      <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                                        <div className="space-y-2 border-t border-amber-100 bg-white px-3 py-2.5">
-                                          <ul className="space-y-2">
-                                            {[...mergedHead!]
-                                              .sort((a, b) => a.date.localeCompare(b.date))
-                                              .map((day) => (
-                                                <li
-                                                  key={day.date}
-                                                  className="flex items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm"
-                                                >
-                                                  <div className="min-w-0 flex-1">
-                                                    <span className="font-semibold text-slate-900">
-                                                      Arriéré du <span className="text-amber-900">{fmtDateFr(day.date)}</span>
-                                                    </span>
-                                                    {day.paidAmount > 0 && (
-                                                      <span className="mt-1 block text-[10px] leading-snug text-slate-600">
-                                                        Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
-                                                        {fmtAmount(
-                                                          paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
-                                                        )}
-                                                      </span>
-                                                    )}
-                                                  </div>
-                                                  <span className="flex-shrink-0 font-bold tabular-nums text-amber-950">
-                                                    {fmtAmount(day.remaining)} FCFA
-                                                  </span>
-                                                </li>
-                                              ))}
-                                          </ul>
-                                          {!isPayingCumul && (
-                                            <button
-                                              type="button"
-                                              className="text-[10px] rounded-md bg-amber-600 px-2.5 py-1 text-white shadow-sm hover:bg-amber-700"
-                                              onClick={() => {
-                                                setPayingKey(cumulPKey);
-                                                setPayAmount(String(mergedEntry.remaining));
-                                              }}
-                                            >
-                                              Verser
-                                            </button>
-                                          )}
-                                          {isPayingCumul && (
-                                            <div className="flex flex-wrap items-center gap-1.5">
-                                              <Input
-                                                type="number"
-                                                min={1}
-                                                max={mergedEntry.remaining}
-                                                className="h-7 w-28 text-xs"
-                                                value={payAmount}
-                                                onChange={(e) => setPayAmount(e.target.value)}
-                                                placeholder="Montant"
-                                              />
-                                              <span className="text-[10px] text-gray-500">FCFA</span>
-                                              <button
-                                                type="button"
-                                                className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50"
-                                                disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                                onClick={() =>
-                                                  void submitDailyPayment(
-                                                    s.vendorId,
-                                                    mergedEntry.date,
-                                                    Number(payAmount),
-                                                    mergedEntry.__underlying,
-                                                  )
-                                                }
-                                              >
-                                                {payLoading ? "…" : "Confirmer"}
-                                              </button>
-                                              <button
-                                                type="button"
-                                                className="text-[10px] rounded bg-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-400"
-                                                onClick={() => {
-                                                  setPayingKey(null);
-                                                  setPayAmount("");
-                                                }}
-                                              >
-                                                Annuler
-                                              </button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </CollapsibleContent>
-                                    </Collapsible>
-                                  )}
-                                  {recentTail.map((day) => {
-                                    const pKey = `${s.vendorId}|${day.date}`;
-                                    const isPaying = payingKey === pKey;
-                                    return (
-                                      <div
-                                        key={day.date}
-                                        className="rounded-lg border border-amber-200 bg-white px-3 py-2.5 shadow-sm ring-1 ring-slate-900/5"
-                                      >
-                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                            <div className="flex items-start gap-1.5 text-slate-900">
-                                              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
-                                              <span className="text-xs font-semibold break-words">
-                                                Arriéré du <span className="text-amber-950">{fmtDateFr(day.date)}</span>
-                                              </span>
-                                            </div>
-                                            {day.paidAmount > 0 && (
-                                              <span className="pl-5 text-[10px] leading-snug text-slate-600 sm:pl-8">
-                                                Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
-                                                {fmtAmount(paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0))}
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="flex flex-col items-stretch gap-1 sm:items-end sm:flex-shrink-0">
-                                            <span className="text-xs font-bold tabular-nums text-amber-950 sm:text-right">{fmtAmount(day.remaining)} FCFA</span>
-                                            {!isPaying && (
-                                              <button
-                                                type="button"
-                                                className="self-start rounded-md bg-amber-600 px-2.5 py-1 text-[10px] text-white shadow-sm hover:bg-amber-700 sm:self-end"
-                                                onClick={() => {
-                                                  setPayingKey(pKey);
-                                                  setPayAmount(String(day.remaining));
-                                                }}
-                                              >
-                                                Verser
-                                              </button>
-                                            )}
-                                          </div>
-                                        </div>
-                                        {isPaying && (
-                                          <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-200 pt-2 pl-1 sm:pl-4">
-                                            <Input
-                                              type="number"
-                                              min={1}
-                                              max={day.remaining}
-                                              className="h-7 w-28 text-xs"
-                                              value={payAmount}
-                                              onChange={(e) => setPayAmount(e.target.value)}
-                                              placeholder="Montant"
-                                            />
-                                            <span className="text-[10px] text-gray-500">FCFA</span>
-                                            <button
-                                              type="button"
-                                              className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50"
-                                              disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                              onClick={() => void submitDailyPayment(s.vendorId, day.date, Number(payAmount), undefined)}
-                                            >
-                                              {payLoading ? "…" : "Confirmer"}
-                                            </button>
-                                            <button
-                                              type="button"
-                                              className="text-[10px] rounded bg-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-400"
-                                              onClick={() => {
-                                                setPayingKey(null);
-                                                setPayAmount("");
-                                              }}
-                                            >
-                                              Annuler
-                                            </button>
-                                          </div>
-                                        )}
                                       </div>
-                                    );
-                                  })}
-                                </>
+                                    </div>
+                                  </CollapsibleContent>
+                                </Collapsible>
                               );
-                            })()}
-                            {hasArrears && (() => {
-                              const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
-                              const totalDu = s.amount + allArrearsTotal;
+                            }
+                            if (line.kind === "merged_pair") {
+                              const mergedEntry = mergeDailyArrearEntries([line.first, line.second]);
+                              const pairKey = `${s.vendorId}|pair-${line.from}-${line.to}`;
+                              const isPayingPair = payingKey === pairKey;
                               return (
-                                <div className="rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between gap-2 px-3 py-2.5 shadow-md ring-1 ring-slate-900/20">
-                                  <span className="font-bold text-xs tracking-wide">Total à verser</span>
-                                  <span className="font-bold text-sm tabular-nums text-white">{fmtAmount(totalDu)} FCFA</span>
-                                </div>
+                                <Collapsible key={pairKey} defaultOpen={false} className="group">
+                                  <CollapsibleTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 text-left shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-50/40"
+                                    >
+                                      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-slate-900">
+                                        <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                                        <span className="text-xs font-semibold break-words">
+                                          Arriéré du <span className="text-amber-900">{fmtDateFr(line.from)}</span> au{" "}
+                                          <span className="text-amber-900">{fmtDateFr(line.to)}</span> :{" "}
+                                          <span className="tabular-nums">{fmtAmount(line.remaining)} FCFA</span>
+                                        </span>
+                                      </div>
+                                      <ChevronDown className="h-4 w-4 flex-shrink-0 text-amber-700/80 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                    </button>
+                                  </CollapsibleTrigger>
+                                  <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                                    <div className="space-y-2 border-t border-amber-100 bg-white px-3 py-2.5">
+                                      <ul className="space-y-2">
+                                        {[line.first, line.second].map((day) => (
+                                          <li
+                                            key={day.date}
+                                            className="flex items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <span className="font-semibold text-slate-900">
+                                                Arriéré du <span className="text-amber-900">{fmtDateFr(day.date)}</span>
+                                              </span>
+                                              {day.paidAmount > 0 && (
+                                                <span className="mt-1 block text-[10px] leading-snug text-slate-600">
+                                                  Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
+                                                  {fmtAmount(
+                                                    paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
+                                                  )}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <span className="flex-shrink-0 font-bold tabular-nums text-amber-950">
+                                              {fmtAmount(day.remaining)} FCFA
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                      {!isPayingPair && (
+                                        <button
+                                          type="button"
+                                          className="text-[10px] rounded-md bg-amber-600 px-2.5 py-1 text-white shadow-sm hover:bg-amber-700"
+                                          onClick={() => {
+                                            setPayingKey(pairKey);
+                                            setPayAmount(String(mergedEntry.remaining));
+                                          }}
+                                        >
+                                          Verser
+                                        </button>
+                                      )}
+                                      {isPayingPair && (
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <Input
+                                            type="number"
+                                            min={1}
+                                            max={mergedEntry.remaining}
+                                            className="h-7 w-28 text-xs"
+                                            value={payAmount}
+                                            onChange={(e) => setPayAmount(e.target.value)}
+                                            placeholder="Montant"
+                                          />
+                                          <span className="text-[10px] text-gray-500">FCFA</span>
+                                          <button
+                                            type="button"
+                                            className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50"
+                                            disabled={payLoading || !payAmount || Number(payAmount) <= 0}
+                                            onClick={() =>
+                                              void submitDailyPayment(
+                                                s.vendorId,
+                                                mergedEntry.date,
+                                                Number(payAmount),
+                                                mergedEntry.__underlying,
+                                              )
+                                            }
+                                          >
+                                            {payLoading ? "…" : "Confirmer"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="text-[10px] rounded bg-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-400"
+                                            onClick={() => {
+                                              setPayingKey(null);
+                                              setPayAmount("");
+                                            }}
+                                          >
+                                            Annuler
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </CollapsibleContent>
+                                </Collapsible>
                               );
-                            })()}
+                            }
+                            const day = line.entry;
+                            const pKey = `${s.vendorId}|${day.date}`;
+                            const isPaying = payingKey === pKey;
+                            return (
+                              <div
+                                key={day.date}
+                                className="rounded-lg border border-amber-200 bg-white px-3 py-2.5 shadow-sm ring-1 ring-slate-900/5"
+                              >
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                    <div className="flex items-start gap-1.5 text-slate-900">
+                                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                                      <span className="text-xs font-semibold break-words">
+                                        Arriéré du <span className="text-amber-950">{fmtDateFr(day.date)}</span> :
+                                      </span>
+                                    </div>
+                                    {day.paidAmount > 0 && (
+                                      <span className="pl-5 text-[10px] leading-snug text-slate-600 sm:pl-8">
+                                        Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
+                                        {fmtAmount(paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0))}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-col items-stretch gap-1 sm:items-end sm:flex-shrink-0">
+                                    <span className="text-xs font-bold tabular-nums text-amber-950 sm:text-right">{fmtAmount(day.remaining)} FCFA</span>
+                                    {!isPaying && (
+                                      <button
+                                        type="button"
+                                        className="self-start rounded-md bg-amber-600 px-2.5 py-1 text-[10px] text-white shadow-sm hover:bg-amber-700 sm:self-end"
+                                        onClick={() => {
+                                          setPayingKey(pKey);
+                                          setPayAmount(String(day.remaining));
+                                        }}
+                                      >
+                                        Verser
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                {isPaying && (
+                                  <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-200 pt-2 pl-1 sm:pl-4">
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      max={day.remaining}
+                                      className="h-7 w-28 text-xs"
+                                      value={payAmount}
+                                      onChange={(e) => setPayAmount(e.target.value)}
+                                      placeholder="Montant"
+                                    />
+                                    <span className="text-[10px] text-gray-500">FCFA</span>
+                                    <button
+                                      type="button"
+                                      className="text-[10px] rounded bg-green-600 px-2 py-0.5 text-white hover:bg-green-700 disabled:opacity-50"
+                                      disabled={payLoading || !payAmount || Number(payAmount) <= 0}
+                                      onClick={() => void submitDailyPayment(s.vendorId, day.date, Number(payAmount), undefined)}
+                                    >
+                                      {payLoading ? "…" : "Confirmer"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="text-[10px] rounded bg-gray-300 px-2 py-0.5 text-gray-700 hover:bg-gray-400"
+                                      onClick={() => {
+                                        setPayingKey(null);
+                                        setPayAmount("");
+                                      }}
+                                    >
+                                      Annuler
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {hasArrears && (
+                            <div className="rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between gap-2 px-3 py-2.5 shadow-md ring-1 ring-slate-900/20">
+                              <span className="font-bold text-xs tracking-wide">Total à verser :</span>
+                              <span className="font-bold text-sm tabular-nums text-white">
+                                {fmtAmount(s.amount + allArrearsTotal)} FCFA
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
