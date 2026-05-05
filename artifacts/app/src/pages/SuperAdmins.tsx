@@ -608,7 +608,7 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
         <div className="space-y-3">
           <div>
             <Label>Identifiant</Label>
-            <Input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="ex. partenaire1" autoFocus />
+            <Input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="ex. partenaire1" />
           </div>
           <div>
             <Label>Nom affiché</Label>

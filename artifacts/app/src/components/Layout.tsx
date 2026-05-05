@@ -732,7 +732,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                     className="h-9 text-sm"
                     autoComplete="new-password"
                     onKeyDown={(e) => e.key === "Enter" && void handleChangePwd()}
-                    autoFocus
                   />
                 </div>
                 {pwdError && (
