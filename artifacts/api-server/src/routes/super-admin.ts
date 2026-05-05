@@ -412,6 +412,7 @@ router.get("/super/admins/:id/routers", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      password: routersTable.password,
       autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       ownerAdminId: routersTable.ownerAdminId,
@@ -422,6 +423,65 @@ router.get("/super/admins/:id/routers", async (req, res): Promise<void> => {
     .where(eq(routersTable.ownerAdminId, adminId))
     .orderBy(routersTable.name);
   res.json(rows);
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/super/admins/:id/routers/:routerId — modifie un routeur de l'admin cible.
+// ---------------------------------------------------------------------------
+router.put("/super/admins/:id/routers/:routerId", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+
+  const adminId = parseInt(req.params.id, 10);
+  const routerId = parseInt(req.params.routerId, 10);
+  if (!adminId || isNaN(adminId) || !routerId || isNaN(routerId)) {
+    res.status(400).json({ error: "ID invalide" }); return;
+  }
+
+  const [r] = await db.select().from(routersTable)
+    .where(and(eq(routersTable.id, routerId), eq(routersTable.ownerAdminId, adminId)));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const { name, hotspotName, contact, currency, host, port, username, password } = req.body as {
+    name?: string; hotspotName?: string; contact?: string; currency?: string;
+    host?: string; port?: number; username?: string; password?: string;
+  };
+
+  const updates: Partial<typeof routersTable.$inferInsert> = {};
+  if (name !== undefined) updates.name = name;
+  if (hotspotName !== undefined) updates.hotspotName = hotspotName || null;
+  if (contact !== undefined) updates.contact = contact || null;
+  if (currency !== undefined) updates.currency = currency.trim().slice(0, 24) || "FCFA";
+  if (host !== undefined) updates.host = host;
+  if (port !== undefined) updates.port = port;
+  if (username !== undefined) updates.username = username;
+  if (password !== undefined && password !== "") updates.password = password;
+
+  const [updated] = await db.update(routersTable)
+    .set(updates)
+    .where(and(eq(routersTable.id, routerId), eq(routersTable.ownerAdminId, adminId)))
+    .returning();
+
+  res.json(updated);
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/super/admins/:id/routers/:routerId — supprime un routeur de l'admin cible.
+// ---------------------------------------------------------------------------
+router.delete("/super/admins/:id/routers/:routerId", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+
+  const adminId = parseInt(req.params.id, 10);
+  const routerId = parseInt(req.params.routerId, 10);
+  if (!adminId || isNaN(adminId) || !routerId || isNaN(routerId)) {
+    res.status(400).json({ error: "ID invalide" }); return;
+  }
+
+  const [deleted] = await db.delete(routersTable)
+    .where(and(eq(routersTable.id, routerId), eq(routersTable.ownerAdminId, adminId)))
+    .returning();
+  if (!deleted) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  res.sendStatus(204);
 });
 
 // ---------------------------------------------------------------------------

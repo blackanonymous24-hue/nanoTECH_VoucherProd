@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save,
+  FileCode, Save, ServerCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,9 @@ import {
   DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -22,6 +25,20 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
+
+interface RouterRow {
+  id: number;
+  name: string;
+  hotspotName: string | null;
+  contact: string | null;
+  currency: string | null;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  isActive: boolean;
+  ownerAdminId: number;
+}
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const VALID_MONTHS = [1, 2, 3, 4, 5, 6, 12] as const;
@@ -47,14 +64,6 @@ interface AdminRow {
   createdAt: string;
 }
 
-type RouterCreatePayload = {
-  name: string;
-  hotspotName?: string;
-  contact?: string;
-  address: string;
-  username: string;
-  password: string;
-};
 
 function parseAddress(address: string): { host: string; port: number } {
   const colonIdx = address.lastIndexOf(":");
@@ -94,7 +103,7 @@ export default function SuperAdmins() {
   const [forfaitTarget, setForfaitTarget] = useState<{ admin: AdminRow; mode: "set" | "extend" } | null>(null);
   const [creditsTarget, setCreditsTarget] = useState<AdminRow | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [routerTarget, setRouterTarget] = useState<AdminRow | null>(null);
+  const [adminRouterPanel, setAdminRouterPanel] = useState<AdminRow | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "expired">("all");
   const [deletingAdminId, setDeletingAdminId] = useState<number | null>(null);
@@ -203,32 +212,6 @@ export default function SuperAdmins() {
     onError: handleErr,
   });
 
-  const createRouterM = useMutation({
-    mutationFn: async (v: { adminId: number; payload: RouterCreatePayload }) => {
-      const { host, port } = parseAddress(v.payload.address);
-      const r = await fetch(`${BASE}/api/super/admins/${v.adminId}/routers`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          name: v.payload.name,
-          hotspotName: v.payload.hotspotName || undefined,
-          contact: v.payload.contact || undefined,
-          host,
-          port,
-          username: v.payload.username,
-          password: v.payload.password,
-        }),
-      });
-      if (!r.ok) throw new Error((await r.json()).error ?? "Création routeur impossible");
-      return r.json();
-    },
-    onSuccess: () => {
-      setRouterTarget(null);
-      refresh();
-      toast({ title: "Routeur ajouté pour admin" });
-    },
-    onError: handleErr,
-  });
 
   // Self-service: super-admin (or any admin) updates their own login/password.
   const accountM = useMutation({
@@ -366,7 +349,18 @@ export default function SuperAdmins() {
                             <Users className="h-4 w-4 text-blue-600 flex-shrink-0" />
                           )}
                           <div>
-                            <p className="font-semibold text-gray-900">{a.displayName || a.login}</p>
+                            {a.isSuperAdmin ? (
+                              <p className="font-semibold text-gray-900">{a.displayName || a.login}</p>
+                            ) : (
+                              <button
+                                type="button"
+                                className="font-semibold text-blue-700 hover:text-blue-900 hover:underline text-left"
+                                onClick={() => setAdminRouterPanel(a)}
+                                title="Voir les routeurs de cet admin"
+                              >
+                                {a.displayName || a.login}
+                              </button>
+                            )}
                             <p className="text-xs text-gray-500">@{a.login}</p>
                             {a.credentialPreview && (
                               <p className="text-[11px] text-amber-700 mt-0.5">
@@ -422,8 +416,8 @@ export default function SuperAdmins() {
                               <Button
                                 size="icon"
                                 variant="ghost"
-                                title="Ajouter un routeur pour cet admin"
-                                onClick={() => setRouterTarget(a)}
+                                title="Gérer les routeurs de cet admin"
+                                onClick={() => setAdminRouterPanel(a)}
                               >
                                 <RouterIcon className="h-4 w-4 text-blue-600" />
                               </Button>
@@ -508,12 +502,10 @@ export default function SuperAdmins() {
         />
       )}
 
-      {routerTarget && (
-        <AddRouterForAdminDialog
-          admin={routerTarget}
-          onClose={() => setRouterTarget(null)}
-          onSubmit={(payload) => createRouterM.mutate({ adminId: routerTarget.id, payload })}
-          pending={createRouterM.isPending}
+      {adminRouterPanel && (
+        <AdminRoutersSheet
+          admin={adminRouterPanel}
+          onClose={() => { setAdminRouterPanel(null); refresh(); }}
         />
       )}
 
@@ -536,46 +528,211 @@ export default function SuperAdmins() {
   );
 }
 
-function AddRouterForAdminDialog({
-  admin, onClose, onSubmit, pending,
+/* ══════════════════════════════════════════════════════
+   AdminRoutersSheet — panneau latéral de gestion des routeurs d'un admin
+   ══════════════════════════════════════════════════════ */
+
+function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () => void }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+  const qk = ["super", "admin-routers", admin.id];
+
+  const [formTarget, setFormTarget] = useState<RouterRow | "create" | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const { data: routers = [], isLoading } = useQuery<RouterRow[]>({
+    queryKey: qk,
+    enabled: !!token,
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, { headers });
+      if (!r.ok) throw new Error("Chargement des routeurs impossible");
+      return r.json();
+    },
+  });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: qk });
+
+  const createM = useMutation({
+    mutationFn: async (p: { name: string; hotspotName?: string; contact?: string; address: string; username: string; password: string }) => {
+      const { host, port } = parseAddress(p.address);
+      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, {
+        method: "POST", headers,
+        body: JSON.stringify({ name: p.name, hotspotName: p.hotspotName || undefined, contact: p.contact || undefined, host, port, username: p.username, password: p.password }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Création impossible");
+      return r.json();
+    },
+    onSuccess: () => { setFormTarget(null); invalidate(); toast({ title: "Routeur ajouté" }); },
+    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
+
+  const editM = useMutation({
+    mutationFn: async (p: { id: number; name: string; hotspotName?: string; contact?: string; address: string; username: string; password: string }) => {
+      const { host, port } = parseAddress(p.address);
+      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers/${p.id}`, {
+        method: "PUT", headers,
+        body: JSON.stringify({ name: p.name, hotspotName: p.hotspotName || undefined, contact: p.contact || undefined, host, port, username: p.username, password: p.password }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Mise à jour impossible");
+      return r.json();
+    },
+    onSuccess: () => { setFormTarget(null); invalidate(); toast({ title: "Routeur mis à jour" }); },
+    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteRouter = async (r: RouterRow) => {
+    if (!confirm(`Supprimer le routeur « ${r.name} » et toutes ses données ?`)) return;
+    setDeletingId(r.id);
+    try {
+      const res = await fetch(`${BASE}/api/super/admins/${admin.id}/routers/${r.id}`, { method: "DELETE", headers });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Suppression impossible");
+      invalidate();
+      toast({ title: "Routeur supprimé" });
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof Error ? e.message : "Opération échouée", variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const pending = createM.isPending || editM.isPending;
+
+  return (
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-y-auto">
+        <SheetHeader className="px-5 py-4 border-b shrink-0">
+          <SheetTitle className="flex items-center gap-2 text-base">
+            <ServerCog className="h-4 w-4 text-blue-600" />
+            Routeurs — {admin.displayName || admin.login}
+          </SheetTitle>
+          <SheetDescription>
+            {routers.length} routeur{routers.length !== 1 ? "s" : ""} · Limite {5 + admin.extraRouterSlots}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <span className="text-sm text-gray-500">{isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}</span>
+          <Button size="sm" className="gap-1.5" onClick={() => setFormTarget("create")}>
+            <Plus className="h-3.5 w-3.5" /> Ajouter un routeur
+          </Button>
+        </div>
+
+        <div className="flex-1 px-5 py-3 space-y-2">
+          {isLoading && (
+            <div className="space-y-2 py-2">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          )}
+          {!isLoading && routers.length === 0 && (
+            <div className="py-10 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
+          )}
+          {routers.map((r) => (
+            <div key={r.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 hover:bg-gray-50 transition-colors">
+              <div className="p-2 rounded-lg bg-blue-50 shrink-0">
+                <RouterIcon className="h-4 w-4 text-blue-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-gray-900 truncate">{r.name}</p>
+                <p className="text-xs text-gray-500 font-mono truncate">{r.host}:{r.port} · {r.username}</p>
+                {r.hotspotName && <p className="text-xs text-gray-400 truncate">{r.hotspotName}</p>}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button size="icon" variant="ghost" title="Modifier" onClick={() => setFormTarget(r)}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon" variant="ghost"
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  title="Supprimer"
+                  disabled={deletingId !== null}
+                  onClick={() => void deleteRouter(r)}
+                >
+                  {deletingId === r.id
+                    ? <Loader2 className="h-4 w-4 animate-spin text-red-600" />
+                    : <Trash2 className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {formTarget !== null && (
+          <RouterFormDialog
+            router={formTarget === "create" ? null : formTarget}
+            onClose={() => setFormTarget(null)}
+            pending={pending}
+            onSubmit={(p) => {
+              if (formTarget === "create") createM.mutate(p);
+              else editM.mutate({ id: formTarget.id, ...p });
+            }}
+          />
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function RouterFormDialog({
+  router, onClose, onSubmit, pending,
 }: {
-  admin: AdminRow;
+  router: RouterRow | null;
   onClose: () => void;
-  onSubmit: (payload: RouterCreatePayload) => void;
+  onSubmit: (p: { name: string; hotspotName?: string; contact?: string; address: string; username: string; password: string }) => void;
   pending: boolean;
 }) {
-  const [name, setName] = useState("");
-  const [hotspotName, setHotspotName] = useState("");
-  const [contact, setContact] = useState("");
-  const [address, setAddress] = useState("");
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("");
+  const isEdit = router !== null;
+  const [name, setName] = useState(router?.name ?? "");
+  const [hotspotName, setHotspotName] = useState(router?.hotspotName ?? "");
+  const [contact, setContact] = useState(router?.contact ?? "");
+  const [address, setAddress] = useState(router ? `${router.host}:${router.port}` : "");
+  const [username, setUsername] = useState(router?.username ?? "admin");
+  const [password, setPassword] = useState(router?.password ?? "");
+
+  const canSubmit = !pending && name.trim() && address.trim() && username.trim() && (!isEdit || true) && (isEdit ? true : password.length >= 1);
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Ajouter un routeur — {admin.displayName || admin.login}</DialogTitle>
-          <DialogDescription>Ce routeur sera rattaché directement à cet administrateur.</DialogDescription>
+          <DialogTitle>{isEdit ? `Modifier — ${router!.name}` : "Ajouter un routeur"}</DialogTitle>
+          <DialogDescription>{isEdit ? "Modifiez les informations du routeur." : "Ce routeur sera rattaché directement à cet administrateur."}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <div><Label>Nom</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div><Label>Nom du hotspot</Label><Input value={hotspotName} onChange={(e) => setHotspotName(e.target.value)} /></div>
-          <div><Label>Contact</Label><Input value={contact} onChange={(e) => setContact(e.target.value)} /></div>
-          <div><Label>Adresse (hôte:port)</Label><Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.88.1:8728" /></div>
+          <div><Label>Nom <span className="text-red-500">*</span></Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mon routeur" /></div>
+          <div><Label>Nom du hotspot</Label><Input value={hotspotName} onChange={(e) => setHotspotName(e.target.value)} placeholder="optionnel" /></div>
+          <div><Label>Contact</Label><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="optionnel" /></div>
+          <div>
+            <Label>Adresse (hôte:port) <span className="text-red-500">*</span></Label>
+            <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.88.1:8728" className="font-mono" />
+          </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>Utilisateur</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} /></div>
-            <div><Label>Mot de passe</Label><PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+            <div><Label>Utilisateur <span className="text-red-500">*</span></Label><Input value={username} onChange={(e) => setUsername(e.target.value)} /></div>
+            <div>
+              <Label>
+                Mot de passe{" "}
+                {isEdit
+                  ? <span className="text-xs font-normal text-gray-400">(vide = inchangé)</span>
+                  : <span className="text-red-500">*</span>}
+              </Label>
+              <PasswordInput
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={isEdit ? "••••••••" : ""}
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annuler</Button>
           <Button
-            disabled={pending || !name.trim() || !address.trim() || !username.trim() || password.length < 1}
-            onClick={() => onSubmit({ name: name.trim(), hotspotName: hotspotName.trim(), contact: contact.trim(), address: address.trim(), username: username.trim(), password })}
+            disabled={!canSubmit}
+            onClick={() => onSubmit({ name: name.trim(), hotspotName: hotspotName.trim() || undefined, contact: contact.trim() || undefined, address: address.trim(), username: username.trim(), password })}
           >
             {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Ajouter
+            {isEdit ? "Enregistrer" : "Ajouter"}
           </Button>
         </DialogFooter>
       </DialogContent>
