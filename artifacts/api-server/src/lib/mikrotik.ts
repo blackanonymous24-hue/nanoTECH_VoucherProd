@@ -526,28 +526,40 @@ function looksLikeRouterOsRowId(id: string): boolean {
 
 export async function updateProfile(conn: RouterConnection, originalName: string, opts: CreateProfileOptions): Promise<void> {
   return withRouter(conn, async (api) => {
-    let id: string | undefined;
     const mid = opts.mikrotikId?.trim();
-    if (mid && looksLikeRouterOsRowId(mid)) {
-      const byId = await api.write("/ip/hotspot/user/profile/print", [`?.id=${mid}`]).catch(() => []);
-      if (byId.length) {
-        const rowName = decodeRouterText((byId[0]["name"] as string) ?? "");
-        if (rowName === originalName) id = mid;
-      }
+    const nameChanging = originalName !== opts.name;
+
+    // ── Étape 1 : tous les lookups en parallèle (style Mikhmon) ──────────────
+    // • Si mikrotikId est fourni (cas normal), on l'utilise sans roundtrip de vérification.
+    // • Les schedulers (nouveau nom + ancien si rename) sont cherchés simultanément.
+    const needProfileLookup = !mid || !looksLikeRouterOsRowId(mid);
+    const [profileArr, schedNew, schedOld] = await Promise.all([
+      needProfileLookup
+        ? api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]).catch(() => [] as Record<string, unknown>[])
+        : Promise.resolve([] as Record<string, unknown>[]),
+      api.write("/system/scheduler/print", [`?name=${opts.name}`]).catch(() => [] as Record<string, unknown>[]),
+      nameChanging
+        ? api.write("/system/scheduler/print", [`?name=${originalName}`]).catch(() => [] as Record<string, unknown>[])
+        : Promise.resolve([] as Record<string, unknown>[]),
+    ]);
+
+    // Résoudre l'ID du profil (avec fallback Win1252 si nom non trouvé)
+    let profileId: string;
+    if (!needProfileLookup) {
+      profileId = mid!;
+    } else if (profileArr.length > 0) {
+      profileId = profileArr[0][".id"] as string;
+    } else {
+      const byEnc = await api.write("/ip/hotspot/user/profile/print", [`?name=${toWin1252(originalName)}`]).catch(() => []);
+      if (!byEnc.length) throw new Error(`Profil "${originalName}" introuvable`);
+      profileId = byEnc[0][".id"] as string;
     }
-    if (!id) {
-      let found = await api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]);
-      if (!found.length) {
-        found = await api.write("/ip/hotspot/user/profile/print", [`?name=${toWin1252(originalName)}`]).catch(() => []);
-      }
-      if (!found.length) throw new Error(`Profil "${originalName}" introuvable`);
-      id = found[0][".id"] as string;
-    }
-    const version = await getCachedRouterOsVersion(api, conn);
+
+    const version = await getCachedRouterOsVersion(api, conn); // généralement instantané (cache)
     const expmode = toMikhmonExpmode(opts.expiredMode);
     const onLogin = generateMikHmonOnLogin(opts, version);
     const args = [
-      `=.id=${id}`,
+      `=.id=${profileId}`,
       `=name=${toWin1252(opts.name)}`,
       `=on-login=${toWin1252(onLogin)}`,
       `=shared-users=${opts.sharedUsers || "1"}`,
@@ -559,15 +571,19 @@ export async function updateProfile(conn: RouterConnection, originalName: string
     else                  args.push(`=address-pool=`);
     if (opts.parentQueue) args.push(`=parent-queue=${toWin1252(opts.parentQueue)}`);
     else                  args.push(`=parent-queue=`);
-    await api.write("/ip/hotspot/user/profile/set", args);
-    await upsertProfileScheduler(api, opts.name, expmode, version);
-    if (originalName !== opts.name) {
-      const oldSched = await api.write("/system/scheduler/print", [`?name=${originalName}`]).catch(() => []);
-      for (const s of oldSched) {
+
+    // ── Étape 2 : profile/set + suppression de l'ancien scheduler en parallèle ─
+    const step2: Promise<unknown>[] = [api.write("/ip/hotspot/user/profile/set", args)];
+    if (nameChanging) {
+      for (const s of schedOld) {
         const sid = s[".id"] as string | undefined;
-        if (sid) await api.write("/system/scheduler/remove", [`=.id=${sid}`]).catch(() => undefined);
+        if (sid) step2.push(api.write("/system/scheduler/remove", [`=.id=${sid}`]).catch(() => undefined));
       }
     }
+    await Promise.all(step2);
+
+    // ── Étape 3 : mettre à jour/créer le scheduler avec le nouveau nom ─────────
+    await applyProfileScheduler(api, opts.name, expmode, schedNew, version);
   });
 }
 
@@ -577,36 +593,38 @@ export async function deleteProfile(conn: RouterConnection, name: string): Promi
     if (!target) throw new Error("Nom de profil vide");
 
     const findByName = async (candidate: string) =>
-      api.write("/ip/hotspot/user/profile/print", [`?name=${candidate}`]).catch(() => []);
+      api.write("/ip/hotspot/user/profile/print", [`?name=${candidate}`]).catch(() => [] as Record<string, unknown>[]);
 
-    let found = await findByName(target);
-    if (!found.length) {
-      // Fallback for encoding mismatch (UTF-8/Win1252)
-      found = await findByName(toWin1252(target));
-    }
-    if (!found.length) {
-      // Last fallback: scan and match by normalized display name
+    // ── Étape 1 : trouver profil + scheduler en parallèle (style Mikhmon) ───
+    const [found, schedulers] = await Promise.all([
+      findByName(target),
+      api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => [] as Record<string, unknown>[]),
+    ]);
+
+    // Fallbacks encodage (séquentiels seulement si le 1er lookup échoue)
+    let profile = found;
+    if (!profile.length) profile = await findByName(toWin1252(target));
+    if (!profile.length) {
       const all = await api.write("/ip/hotspot/user/profile/print");
-      found = all.filter((p) => {
+      profile = all.filter((p) => {
         const raw = (p["name"] as string) ?? "";
         return raw === target || fixEncoding(raw) === target || fromWin1252(raw) === target;
       });
     }
-    if (!found.length) throw new Error(`Profil "${name}" introuvable sur MikroTik`);
+    if (!profile.length) throw new Error(`Profil "${name}" introuvable sur MikroTik`);
 
-    const id = found[0][".id"] as string;
-    await api.write("/ip/hotspot/user/profile/remove", [`=.id=${id}`]);
-    const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
-    for (const s of schedulers) {
-      const sid = s[".id"] as string | undefined;
-      if (sid) await api.write("/system/scheduler/remove", [`=.id=${sid}`]).catch(() => undefined);
-    }
+    const pid = profile[0][".id"] as string;
 
-    // Hard verification: ensure profile is really gone on MikroTik
-    const stillThere = await findByName(target);
-    if (stillThere.length > 0) {
-      throw new Error(`Suppression non confirmée sur MikroTik pour le profil "${name}"`);
-    }
+    // ── Étape 2 : supprimer profil + scheduler(s) en parallèle ─────────────
+    // Pas de vérification "hard" après suppression — comme Mikhmon, on fait
+    // confiance à l'API RouterOS : si /remove n'a pas levé d'erreur, c'est fait.
+    await Promise.all([
+      api.write("/ip/hotspot/user/profile/remove", [`=.id=${pid}`]),
+      ...schedulers.flatMap((s) => {
+        const sid = s[".id"] as string | undefined;
+        return sid ? [api.write("/system/scheduler/remove", [`=.id=${sid}`]).catch(() => undefined)] : [];
+      }),
+    ]);
   });
 }
 
@@ -1105,6 +1123,21 @@ async function upsertProfileScheduler(
   routerVersion?: string | null,
 ): Promise<void> {
   const existing = await api.write("/system/scheduler/print", [`?name=${profileName}`]).catch(() => []);
+  await applyProfileScheduler(api, profileName, expmode, existing, routerVersion);
+}
+
+/**
+ * Applique la gestion du scheduler d'un profil à partir d'une liste
+ * de schedulers pré-chargés (permet de paralléliser le find avec d'autres appels).
+ * Style Mikhmon : pas de re-fetch, on utilise le résultat déjà disponible.
+ */
+async function applyProfileScheduler(
+  api: RouterOSAPI,
+  profileName: string,
+  expmode: string,
+  existing: Record<string, unknown>[],
+  routerVersion?: string | null,
+): Promise<void> {
   if (expmode === "0") {
     for (const s of existing) {
       const id = s[".id"] as string | undefined;
@@ -1143,11 +1176,12 @@ export async function createProfile(conn: RouterConnection, opts: CreateProfileO
       `=shared-users=${opts.sharedUsers || "1"}`,
       `=status-autorefresh=${HOTSPOT_PROFILE_STATUS_AUTOREFRESH}`,
     ];
-    if (opts.rateLimit)    args.push(`=rate-limit=${opts.rateLimit}`);
-    if (opts.addrPool)     args.push(`=address-pool=${opts.addrPool}`);
-    if (opts.parentQueue)  args.push(`=parent-queue=${toWin1252(opts.parentQueue)}`);
+    if (opts.rateLimit)   args.push(`=rate-limit=${opts.rateLimit}`);
+    if (opts.addrPool)    args.push(`=address-pool=${opts.addrPool}`);
+    if (opts.parentQueue) args.push(`=parent-queue=${toWin1252(opts.parentQueue)}`);
     await api.write("/ip/hotspot/user/profile/add", args);
-    await upsertProfileScheduler(api, opts.name, expmode, version);
+    // Nouveau profil → aucun scheduler existant, on applique directement sans find préalable.
+    await applyProfileScheduler(api, opts.name, expmode, [], version);
   });
 }
 

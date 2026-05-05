@@ -732,6 +732,9 @@ router.post("/routers/:id/profiles", async (req, res): Promise<void> => {
       },
     );
     invalidateProfileListCache(r.ownerAdminId, id);
+    // Pré-chauffer le cache profil en background : quand le frontend refetch juste
+    // après, la liste est déjà prête en RAM — zéro roundtrip MikroTik supplémentaire.
+    void fetchProfilesWithCache(r.ownerAdminId, id, { host: r.host, port: r.port, username: r.username, password: r.password }).catch(() => undefined);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de créer le profil" });
@@ -776,6 +779,7 @@ router.put("/routers/:id/profiles/:profileName", async (req, res): Promise<void>
       },
     );
     invalidateProfileListCache(r.ownerAdminId, id);
+    void fetchProfilesWithCache(r.ownerAdminId, id, { host: r.host, port: r.port, username: r.username, password: r.password }).catch(() => undefined);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de modifier le profil" });
@@ -858,6 +862,7 @@ router.delete("/routers/:id/profiles/:profileName", async (req, res): Promise<vo
       profileName,
     );
     invalidateProfileListCache(r.ownerAdminId, id);
+    void fetchProfilesWithCache(r.ownerAdminId, id, { host: r.host, port: r.port, username: r.username, password: r.password }).catch(() => undefined);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de supprimer le profil" });
