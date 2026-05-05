@@ -1,3 +1,27 @@
+const REPRINT_BUTTON_HTML = `
+<div id="reprint-bar" style="
+  position:fixed;bottom:0;left:0;right:0;z-index:9999;
+  display:flex;justify-content:center;align-items:center;gap:10px;
+  padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));
+  background:rgba(255,255,255,0.97);border-top:1px solid #e5e7eb;
+  box-shadow:0 -2px 8px rgba(0,0,0,0.08);
+">
+  <button onclick="window.print()" style="
+    display:flex;align-items:center;gap:6px;
+    background:#2563eb;color:#fff;border:none;border-radius:8px;
+    padding:10px 20px;font-size:15px;font-family:Arial,sans-serif;
+    font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;
+  ">
+    <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 6 2 18 2 18 9'/><path d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/><rect x='6' y='14' width='12' height='8'/></svg>
+    Imprimer à nouveau
+  </button>
+  <button onclick="window.close()" style="
+    background:transparent;color:#6b7280;border:1px solid #d1d5db;border-radius:8px;
+    padding:10px 16px;font-size:14px;font-family:Arial,sans-serif;
+    cursor:pointer;-webkit-tap-highlight-color:transparent;
+  ">Fermer</button>
+</div>`;
+
 const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; border:2px solid black; margin:2px; }
@@ -8,6 +32,7 @@ const PRINT_CSS = `
   }
   @media print {
     body { padding-bottom:0 !important; }
+    #reprint-bar { display:none !important; }
     /* Un ticket par page en multi-impression (Safari iOS regroupait tout sur une page). */
     body > table { display:table; page-break-inside:avoid; break-inside:avoid; max-width:100%; }
     body > table + table { page-break-before:always; break-before:page; }
@@ -20,6 +45,9 @@ const PRINT_CSS = `
 `;
 
 const REPORT_CSS = `
+  #reprint-bar { display:none; }
+  @media print { #reprint-bar { display:none !important; } }
+  @media screen { #reprint-bar { display:flex !important; } }
   body {
     color:#111; background:#fff; font-size:12px;
     font-family:Arial, sans-serif; margin:0; padding:20px 28px;
@@ -124,7 +152,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean): stri
     <style>${PRINT_CSS}</style>
     ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
   </head>
-  <body>${htmlItems.join("")}</body>
+  <body>${htmlItems.join("")}${REPRINT_BUTTON_HTML}</body>
 </html>`;
 }
 
@@ -138,7 +166,7 @@ function buildReportHtml(bodyHtml: string, title: string, autoprint = true): str
     <style>${REPORT_CSS}</style>
     ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
   </head>
-  <body>${bodyHtml}</body>
+  <body>${bodyHtml}${REPRINT_BUTTON_HTML}</body>
 </html>`;
 }
 
@@ -154,10 +182,12 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${safeTitle}</title>
-    <style>${styleCss}</style>
+    <style>${styleCss}
+      @media print { #reprint-bar { display:none !important; } }
+    </style>
     <script>window.onload=function(){window.focus();window.print();}<\/script>
   </head>
-  <body>${bodyHtml}</body>
+  <body>${bodyHtml}${REPRINT_BUTTON_HTML}</body>
 </html>`;
 }
 
@@ -249,7 +279,7 @@ export function printReport(title: string): void {
       const html =
         `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>` +
         `<title>${safeTitle}</title><style>${REPORT_CSS}</style>` +
-        `<script>window.onload=function(){window.focus();window.print();}<\/script></head><body>${document.body.innerHTML}</body></html>`;
+        `<script>window.onload=function(){window.focus();window.print();}<\/script></head><body>${document.body.innerHTML}${REPRINT_BUTTON_HTML}</body></html>`;
       openPrintHtmlWindow(html, title);
     } else {
       window.print();
