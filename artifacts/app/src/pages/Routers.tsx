@@ -305,6 +305,7 @@ export default function Routers() {
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Routeurs MikroTik</h1>
+          <p className="text-sm text-gray-500">Sélectionnez un routeur pour commencer</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!isManager && (
@@ -445,7 +446,7 @@ export default function Routers() {
                           )}
                         </div>
                         <p className="text-[11px] text-gray-500 leading-tight truncate">
-                          {r.host}:{r.port} · {r.username}
+                          {r.host}:{r.port}
                         </p>
                       </div>
                     </div>
