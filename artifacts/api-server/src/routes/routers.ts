@@ -2227,38 +2227,35 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const needUsersCold    = !usersCachedBefore && !_usersRefreshing.has(id);
 
   if (needSessionsCold || needInfoCold || needUsersCold) {
-    // Fetch manquants en parallèle — bloquant pour que la première réponse soit complète
-    const tasks: Promise<void>[] = [];
-
+    // Cold start — lancer chaque fetch en arrière-plan (non-bloquant).
+    // La réponse est renvoyée immédiatement avec les valeurs vides/null ;
+    // le frontend affiche des skeletons puis se rafraîchit dès que les caches sont chauds.
     if (needSessionsCold) {
       _sessionsFastRefreshing.add(id);
-      tasks.push(
-        countSessionsFast(conn)
-          .then((count) => { _sessionsFastCount.set(sc, { count, cachedAt: Date.now() }); })
-          .catch(() => { /* keep 0 */ })
-          .finally(() => { _sessionsFastRefreshing.delete(id); }),
-      );
+      setImmediate(async () => {
+        try { _sessionsFastCount.set(sc, { count: await countSessionsFast(conn), cachedAt: Date.now() }); }
+        catch { /* keep 0 */ }
+        finally { _sessionsFastRefreshing.delete(id); }
+      });
     }
     if (needInfoCold) {
       _infoRefreshing.add(id);
-      tasks.push(
-        getRouterInfo(conn)
-          .then((liveInfo) => { mSet(infoKey, MIK_TTL.info, liveInfo); })
-          .catch(() => { /* keep null */ })
-          .finally(() => { _infoRefreshing.delete(id); }),
-      );
+      setImmediate(async () => {
+        try { mSet(infoKey, MIK_TTL.info, await getRouterInfo(conn)); }
+        catch { /* keep null */ }
+        finally { _infoRefreshing.delete(id); }
+      });
     }
     if (needUsersCold) {
       _usersRefreshing.add(id);
-      tasks.push(
-        listHotspotUsersFast(conn)
-          .then((list) => computeUsersCount(id, conn, list))
-          .then((payload) => { _usersCountCache.set(sc, payload); })
-          .catch(() => { /* keep zeros */ })
-          .finally(() => { _usersRefreshing.delete(id); }),
-      );
+      setImmediate(async () => {
+        try {
+          const list = await listHotspotUsersFast(conn);
+          _usersCountCache.set(sc, await computeUsersCount(id, conn, list));
+        } catch { /* keep zeros */ }
+        finally { _usersRefreshing.delete(id); }
+      });
     }
-    await Promise.all(tasks);
   } else {
     // Cache chaud — refresh stale en arrière-plan (non-bloquant)
     if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
