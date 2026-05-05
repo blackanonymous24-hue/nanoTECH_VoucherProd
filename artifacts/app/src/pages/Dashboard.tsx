@@ -779,7 +779,7 @@ export default function Dashboard() {
               <Skeleton className="h-6 w-32 rounded-full" />
             </div>
           ) : routerInfo ? (
-            <div className="grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+            <div className="grid grid-cols-3 gap-1 justify-items-start sm:flex sm:flex-wrap sm:items-center sm:gap-2">
               {(routerInfo.boardName || routerInfo.model) && (
                 <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-100 text-[10px] sm:text-xs font-medium text-blue-700 overflow-hidden">
                   <Router className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
@@ -811,7 +811,7 @@ export default function Dashboard() {
                 </span>
               )}
               {(routerInfo.clockDate || routerInfo.clockTime) && (
-                <span className="flex items-center gap-0.5 px-1.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-[9px] sm:text-xs text-gray-500 font-mono overflow-hidden">
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-[10px] sm:text-xs font-medium text-gray-600 overflow-hidden">
                   <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
                   <span className="truncate min-w-0">{formatClockDateTime(routerInfo.clockDate, routerInfo.clockTime)}</span>
                 </span>
