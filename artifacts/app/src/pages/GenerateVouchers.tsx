@@ -762,7 +762,7 @@ export default function GenerateVouchers() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleGenerate} className="form-shell space-y-4">
+            <form onSubmit={handleGenerate} className="form-shell space-y-2.5">
 
               {selectedRouter ? (
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-200 rounded-lg">
@@ -846,28 +846,28 @@ export default function GenerateVouchers() {
                   </PopoverContent>
                 </Popover>
                 {selectedProfile && (
-                  <div className="mt-2 p-2.5 bg-blue-50 rounded-lg text-xs text-blue-700 flex flex-wrap gap-2">
+                  <div className="mt-1 px-2 py-1 bg-blue-50 rounded text-xs text-blue-700 flex flex-wrap gap-x-3 gap-y-0.5">
                     {selectedProfile.validity && (
-                      <span>⏱ Durée: <strong>{selectedProfile.validity}</strong></span>
+                      <span>⏱ <strong>{selectedProfile.validity}</strong></span>
                     )}
                     {selectedProfile.price && (
-                      <span>💰 Prix: <strong>{selectedProfile.price}</strong></span>
+                      <span>💰 <strong>{selectedProfile.price}</strong></span>
                     )}
                     {selectedProfile.rateLimit && (
-                      <span>📶 Débit: <strong>{selectedProfile.rateLimit}</strong></span>
+                      <span>📶 <strong>{selectedProfile.rateLimit}</strong></span>
                     )}
                     {selectedProfile.lockMac && (
-                      <span>🔒 Verrouillage MAC</span>
+                      <span>🔒 MAC</span>
                     )}
                   </div>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label>Quantité</Label>
+                  <Label className="text-xs">Quantité</Label>
                   <Input
-                    className="mt-1"
+                    className="mt-0.5 h-8 text-xs"
                     type="number"
                     min={1}
                     max={5000}
@@ -877,9 +877,9 @@ export default function GenerateVouchers() {
                   />
                 </div>
                 <div>
-                  <Label>Préfixe <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+                  <Label className="text-xs">Préfixe <span className="text-gray-400">(opt.)</span></Label>
                   <Input
-                    className="mt-1"
+                    className="mt-0.5 h-8 text-xs"
                     placeholder="ex: vip-"
                     value={prefix}
                     onChange={(e) => setPrefix(e.target.value)}
@@ -888,43 +888,43 @@ export default function GenerateVouchers() {
               </div>
 
               <div>
-                <Label className="mb-2 block">Mode de connexion</Label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Label className="mb-1 block text-xs">Mode de connexion</Label>
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => { setPasswordMode("same"); setComment(makeBatchId("vc")); }}
-                    className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                    className={`py-1.5 px-2 rounded-lg border text-xs font-medium transition-colors text-left ${
                       passwordMode === "same"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
                     }`}
                   >
-                    <span className="font-semibold block mb-0.5">Mode Voucher</span>
-                    <span className="text-xs font-normal block">Code unique (user = pass)</span>
-                    <span className="text-xs font-normal opacity-60 font-mono">vc-xxx-dd.mm.yy</span>
+                    <span className="font-semibold block">Mode Ticket</span>
+                    <span className="font-normal opacity-80 block">user = pass</span>
+                    <span className="font-normal opacity-50 font-mono text-[10px]">vc-xxx-dd.mm</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => { setPasswordMode("random"); setComment(makeBatchId("up")); }}
-                    className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                    className={`py-1.5 px-2 rounded-lg border text-xs font-medium transition-colors text-left ${
                       passwordMode === "random"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
                     }`}
                   >
-                    <span className="font-semibold block mb-0.5">Mode Compte</span>
-                    <span className="text-xs font-normal block">Identifiants séparés</span>
-                    <span className="text-xs font-normal opacity-60 font-mono">up-xxx-dd.mm.yy</span>
+                    <span className="font-semibold block">Mode Compte</span>
+                    <span className="font-normal opacity-80 block">identifiants séparés</span>
+                    <span className="font-normal opacity-50 font-mono text-[10px]">up-xxx-dd.mm</span>
                   </button>
                 </div>
               </div>
 
               {/* ─ Format + Longueur ─ */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label>Format</Label>
+                  <Label className="text-xs">Format</Label>
                   <select
-                    className="mt-1 w-full h-9 border border-input bg-background rounded-md px-3 text-sm font-mono"
+                    className="mt-0.5 w-full h-8 border border-input bg-background rounded-md px-2 text-xs font-mono"
                     value={charType}
                     onChange={(e) => setCharType(e.target.value as CharType)}
                   >
@@ -941,42 +941,43 @@ export default function GenerateVouchers() {
                   </select>
                 </div>
                 <div>
-                  <Label>Longueur</Label>
+                  <Label className="text-xs">Longueur</Label>
                   <select
-                    className="mt-1 w-full h-9 border border-input bg-background rounded-md px-3 text-sm font-mono"
+                    className="mt-0.5 w-full h-8 border border-input bg-background rounded-md px-2 text-xs font-mono"
                     value={userLength}
                     onChange={(e) => setUserLength(e.target.value)}
                   >
                     {[3,4,5,6,7,8].map((n) => (
-                      <option key={n} value={String(n)}>{n} caractères</option>
+                      <option key={n} value={String(n)}>{n} car.</option>
                     ))}
                   </select>
                 </div>
               </div>
 
               {/* ─ Limites facultatives ─ */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label>Limite de temps <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+                  <Label className="text-xs">Tps <span className="text-gray-400">(opt.)</span></Label>
                   <Input
-                    className="mt-1 font-mono"
-                    placeholder="ex: 1h, 30m"
+                    className="mt-0.5 h-8 text-xs font-mono"
+                    placeholder="1h, 30m"
                     value={timelimit}
                     onChange={(e) => setTimelimit(e.target.value)}
                   />
                 </div>
                 <div>
-                  <Label>Limite de données <span className="text-gray-400 text-xs">(optionnel)</span></Label>
-                  <div className="flex gap-1 mt-1">
+                  <Label className="text-xs">Data <span className="text-gray-400">(opt.)</span></Label>
+                  <div className="flex gap-1 mt-0.5">
                     <Input
                       type="number"
                       min={0}
                       placeholder="0"
                       value={datalimit}
                       onChange={(e) => setDatalimit(e.target.value)}
+                      className="h-8 text-xs"
                     />
                     <select
-                      className="border border-input bg-background rounded-md px-2 text-sm"
+                      className="border border-input bg-background rounded-md px-1.5 text-xs h-8"
                       value={mbgb}
                       onChange={(e) => setMbgb(Number(e.target.value))}
                     >
@@ -988,8 +989,8 @@ export default function GenerateVouchers() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <Label>Identifiant de lot</Label>
+                <div className="flex items-center justify-between mb-0.5">
+                  <Label className="text-xs">Identifiant de lot</Label>
                   <button
                     type="button"
                     onClick={() => setComment(makeBatchId())}
@@ -1000,20 +1001,16 @@ export default function GenerateVouchers() {
                   </button>
                 </div>
                 <Input
+                  className="h-8 text-xs"
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="ex: LOT-20260101-0900"
                 />
                 {vendorSuffix && (
-                  <p className="text-xs mt-1 font-mono">
+                  <p className="text-xs mt-0.5 font-mono">
                     <span className="text-gray-400">ID final : </span>
                     <span className="text-gray-600">{comment}</span>
                     <span className="text-blue-600 font-semibold">{vendorSuffix}</span>
-                  </p>
-                )}
-                {!vendorSuffix && (
-                  <p className="text-xs text-gray-400 mt-1">
-                    Sert à regrouper ce lot pour l&apos;export ou la suppression groupée
                   </p>
                 )}
               </div>
@@ -1130,77 +1127,78 @@ export default function GenerateVouchers() {
           {lastLot ? (
             <Card className="overflow-hidden">
               {/* ── En-tête lot ── */}
-              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100 px-4 py-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100 px-3 py-2">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
                   <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Dernier lot généré</span>
                   <span className="ml-auto text-xs text-gray-400 flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {new Date(lastLot.generatedAt).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}
-                      </span>
+                  </span>
                 </div>
-                <p className="font-mono font-bold text-gray-900 text-sm break-all">{lastLot.comment}</p>
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 border-0">
-                    <Package className="h-3 w-3 mr-1" />{lastLot.vouchers.length} vouchers
+                <p className="font-mono font-bold text-gray-900 text-xs break-all">{lastLot.comment}</p>
+                <div className="flex flex-wrap items-center gap-1 mt-1">
+                  <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 bg-blue-100 text-blue-700 border-0">
+                    <Package className="h-2.5 w-2.5 mr-0.5" />{lastLot.vouchers.length}
                   </Badge>
                   {lastLot.profileName && (
-                    <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-700 border-0">
+                    <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 bg-purple-100 text-purple-700 border-0">
                       {lastLot.profileName}
                     </Badge>
                   )}
                   {lastLot.validity && (
-                    <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-700 border-0">
+                    <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 bg-orange-100 text-orange-700 border-0">
                       ⏱ {lastLot.validity}
                     </Badge>
                   )}
                   {lastLot.price && (
-                    <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-0">
+                    <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 bg-green-100 text-green-700 border-0">
                       {lastLot.price} FCFA
                     </Badge>
                   )}
                   {lastLot.vendorName && (
-                    <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600 border-0">
+                    <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 bg-gray-100 text-gray-600 border-0">
                       {lastLot.vendorName}
                     </Badge>
                   )}
                   {lastLot.routerName && (
-                    <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500 border-0">
-                      <RouterIcon className="h-3 w-3 mr-1" />{lastLot.routerName}
+                    <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 bg-gray-100 text-gray-500 border-0">
+                      <RouterIcon className="h-2.5 w-2.5 mr-0.5" />{lastLot.routerName}
                     </Badge>
-                      )}
-                    </div>
-                  </div>
+                  )}
+                </div>
+              </div>
 
               {/* Dernier lot — barre d’actions : ne pas rétablir l’ancien bouton « copier tout » ni retirer export / suppression ; garder ce jeu de boutons. */}
               {/* ── Bouton Imprimer proéminent ── */}
-              <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap gap-2">
+              <div className="px-3 py-2 border-b border-gray-100 flex flex-wrap gap-1.5">
                 <Button
-                  className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                  size="sm"
+                  className="flex-1 gap-1.5 h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white"
                   onClick={() => handlePrint(lastLot)}
                   disabled={isPrinting}
                 >
                   {isPrinting
-                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : <Printer className="h-4 w-4" />}
-                  {isPrinting ? "Impression en cours..." : "Imprimer les tickets"}
-                  </Button>
-                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportTxt(lastLot)} title="Exporter .txt">
-                  <FileText className="h-4 w-4" />
-                  </Button>
-                <Button size="default" variant="outline" className="gap-1.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
-                  <Table2 className="h-4 w-4" />
-                  </Button>
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Printer className="h-3.5 w-3.5" />}
+                  {isPrinting ? "Impression…" : "Imprimer"}
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1 h-8 px-2.5" onClick={() => handleExportTxt(lastLot)} title="Exporter .txt">
+                  <FileText className="h-3.5 w-3.5" />
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1 h-8 px-2.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
+                  <Table2 className="h-3.5 w-3.5" />
+                </Button>
                 <Button
-                  size="default"
+                  size="sm"
                   variant="outline"
-                  className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                  className="gap-1 h-8 px-2.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                   onClick={() => void handleDeleteLastLot(lastLot)}
                   title="Supprimer ce lot"
                   disabled={isDeletingLastLot}
                 >
-                  {isDeletingLastLot ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  </Button>
+                  {isDeletingLastLot ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </Button>
               </div>
 
               {/* ── Liste des codes ── */}
