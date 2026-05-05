@@ -66,11 +66,10 @@ router.post("/render-tickets", async (req, res) => {
   const driverFile   = join(tmpdir(), `vnet_drv_${id}.php`);
 
   try {
-    // 1. Build voucher data WITHOUT QR codes — use placeholder tokens instead.
-    //    This keeps the PHP driver file small (< 1 MB even for 5000 vouchers),
-    //    avoiding the 15 MB PHP string-literal that caused json_decode to stall.
-    const QR_PLACEHOLDER = (i: number) => `__NTECH_QR_${i}__`;
+    // 1. Generate all QR codes in parallel (Node.js, much faster than PHP)
+    const qrTags = await Promise.all(vouchers.map(buildQrTag));
 
+    // 2. Build the voucher data array as a PHP JSON literal embedded in driver
     const voucherData = vouchers.map((v, i) => {
       const username = String(v.username ?? "");
       const password = String(v.password ?? "");
@@ -89,14 +88,14 @@ router.post("/render-tickets", async (req, res) => {
         validity:    String(v.validity ?? ""),
         num:         Number(v.num ?? i + 1),
         color:       String((v as any).color ?? "#1433FD"),
-        qrcode:      QR_PLACEHOLDER(i),   // placeholder — real QR injected after PHP
+        qrcode:      qrTags[i],
       };
     });
 
-    // 2. Write the user's PHP template as-is to a temp file
+    // 3. Write the user's PHP template as-is to a temp file
     await writeFile(templateFile, php, "utf-8");
 
-    // 3. Build the driver script (now lightweight — no base64 blobs inside)
+    // 4. Build the driver script: sets PHP vars, includes template, repeats for each voucher
     const jsonData = JSON.stringify(voucherData).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
     const driver = `<?php
@@ -153,44 +152,24 @@ foreach ($__vouchers as $__v) {
 
     await writeFile(driverFile, driver, "utf-8");
 
-    // 4. Generate QR codes in batches of 50 to avoid memory spikes,
-    //    while PHP runs concurrently (started after writeFile resolves).
-    const QR_BATCH = 50;
-    const qrTagsPromise = (async () => {
-      const tags: string[] = [];
-      for (let i = 0; i < vouchers.length; i += QR_BATCH) {
-        const chunk = vouchers.slice(i, i + QR_BATCH);
-        const batch = await Promise.all(chunk.map(buildQrTag));
-        tags.push(...batch);
-      }
-      return tags;
-    })();
+    // 5. Run a single PHP process for all vouchers
+    const output = await new Promise<string>((resolve, reject) => {
+      execFile("php", [driverFile], { timeout: 120_000, maxBuffer: 256 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout);
+      });
+    });
 
-    // 5. Run PHP process and await QR generation in parallel
-    const [output, qrTags] = await Promise.all([
-      new Promise<string>((resolve, reject) => {
-        execFile("php", [driverFile], { timeout: 120_000, maxBuffer: 256 * 1024 * 1024 }, (err, stdout, stderr) => {
-          if (err) reject(new Error(stderr || err.message));
-          else resolve(stdout);
-        });
-      }),
-      qrTagsPromise,
-    ]);
-
-    // 6. Split output by separator, extract mks markers, then inject QR codes
+    // 6. Split output by separator, then extract mks markers if present
     const chunks = output.split(TICKET_SEP).filter((c) => c.trim() !== "");
 
-    const htmlArray = chunks.map((chunk, i) => {
+    const htmlArray = chunks.map((chunk) => {
       const si = chunk.indexOf("<!--mks-mulai-->");
       const ei = chunk.indexOf("<!--mks-akhir-->");
-      let html = (si !== -1 && ei !== -1)
-        ? chunk.slice(si, ei + "<!--mks-akhir-->".length)
-        : chunk.trim();
-      // Inject the real QR tag in place of the placeholder
-      if (qrTags[i]) {
-        html = html.replace(QR_PLACEHOLDER(i), qrTags[i]);
+      if (si !== -1 && ei !== -1) {
+        return chunk.slice(si, ei + "<!--mks-akhir-->".length);
       }
-      return html;
+      return chunk.trim();
     });
 
     res.json({ html: htmlArray });

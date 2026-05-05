@@ -633,17 +633,6 @@ export default function GenerateVouchers() {
   };
 
   const handlePrint = async (lot: LastLot) => {
-    const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const isWebView = !!(window as any).ReactNativeWebView;
-    if (isMobileDevice && !isWebView && lot.vouchers.length > 300) {
-      const ok = window.confirm(
-        `Ce lot contient ${lot.vouchers.length} tickets.\n\n` +
-        `L'impression de grands lots peut être lente ou échouer sur mobile.\n` +
-        `Recommandé : imprimer depuis un ordinateur.\n\n` +
-        `Continuer quand même ?`
-      );
-      if (!ok) return;
-    }
     const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
     if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) {
       toast({
@@ -672,19 +661,11 @@ export default function GenerateVouchers() {
     }));
     setIsPrinting(true);
     try {
-      const ctrl = new AbortController();
-      const abortTimer = setTimeout(() => ctrl.abort(), 120_000);
-      let resp: Response;
-      try {
-        resp = await fetch(`${BASE}/api/render-tickets`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ php, vouchers }),
-          signal: ctrl.signal,
-        });
-      } finally {
-        clearTimeout(abortTimer);
-      }
+      const resp = await fetch(`${BASE}/api/render-tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ php, vouchers }),
+      });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");

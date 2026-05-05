@@ -107,11 +107,9 @@ export async function tryOpenVoucherPrintPage(_voucherId: string, _hotspotOrSess
 }
 
 /**
- * Impression depuis une page HTML complète.
- * — APK (React Native WebView) : envoi au natif → expo-print.
- * — Navigateur mobile/desktop : Blob URL → window.open (évite document.write
- *   qui bloque le thread UI sur les gros documents, et contourne le blocage
- *   popup lié aux appels async).
+ * Impression depuis une page HTML complète (comme « Imprimer Hebdo » : write + print).
+ * — APK (React Native WebView) : envoi au natif → expo-print (`Print.printAsync`) — `window.open` est souvent bloqué.
+ * — Navigateur mobile : nouvel onglet + document.write.
  */
 export function openPrintHtmlWindow(html: string, title: string): void {
   if (isNativeWebView()) {
@@ -119,21 +117,15 @@ export function openPrintHtmlWindow(html: string, title: string): void {
     return;
   }
 
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  // Revoke after 5 min — enough time for the print dialog to load
-  setTimeout(() => URL.revokeObjectURL(url), 300_000);
-
-  const win = window.open(url, "_blank");
-  if (!win) {
-    // Popup blocked: create a temporary <a> and click it
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  try {
+    win.document.title = title;
+  } catch (_) {
+    /* ignore */
   }
 }
 
@@ -207,11 +199,6 @@ function printWithIframe(html: string, title: string): void {
   iframe.contentWindow?.addEventListener("afterprint", cleanup, { once: true });
   const safetyTimeout = window.setTimeout(cleanup, 60_000);
 
-  // Scale delay with document size: large HTML (many vouchers) needs more time
-  // to render before window.print() fires — otherwise the dialog opens blank.
-  const byteSize = html.length;
-  const printDelay = byteSize > 5_000_000 ? 4000 : byteSize > 1_000_000 ? 2000 : 800;
-
   setTimeout(() => {
     const prevTitle = document.title;
     document.title = title;
@@ -225,7 +212,7 @@ function printWithIframe(html: string, title: string): void {
       throw _;
     }
     document.title = prevTitle;
-  }, printDelay);
+  }, 600);
 }
 
 /**
