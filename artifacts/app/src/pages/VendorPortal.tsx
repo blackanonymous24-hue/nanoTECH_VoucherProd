@@ -470,29 +470,25 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
               {/* ── Écran ── */}
               <div className="no-print space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <Card>
-                    <CardContent className="p-4 flex items-center justify-center">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-                          <ShoppingCart className="h-5 w-5 text-white" />
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold text-gray-900">{data.total}</p>
-                          <p className="text-xs text-gray-500">Vendus ce jour</p>
-                        </div>
+                  <Card className="h-full">
+                    <CardContent className="p-4 h-full flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
+                        <ShoppingCart className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">{data.total}</p>
+                        <p className="text-xs text-gray-500">Vendus ce jour</p>
                       </div>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="p-4 flex items-center justify-center">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
-                          <Banknote className="h-5 w-5 text-white" />
-                        </div>
-                        <div>
-                          <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
-                          <p className="text-xs text-gray-500">FCFA estimé</p>
-                        </div>
+                  <Card className="h-full">
+                    <CardContent className="p-4 h-full flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
+                        <Banknote className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
+                        <p className="text-xs text-gray-500">FCFA estimé</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -743,29 +739,25 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
             {/* ── Écran ── */}
             <div className="no-print space-y-4">
               <div className="grid grid-cols-2 gap-3">
-                <Card>
-                  <CardContent className="p-4 flex items-center justify-center">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-                        <ShoppingCart className="h-5 w-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-gray-900">{data.total}</p>
-                        <p className="text-xs text-gray-500">Tickets vendus</p>
-                      </div>
+                <Card className="h-full">
+                  <CardContent className="p-4 h-full flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
+                      <ShoppingCart className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900">{data.total}</p>
+                      <p className="text-xs text-gray-500">Tickets vendus</p>
                     </div>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardContent className="p-4 flex items-center justify-center">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
-                        <Banknote className="h-5 w-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
-                        <p className="text-xs text-gray-500">FCFA estimé</p>
-                      </div>
+                <Card className="h-full">
+                  <CardContent className="p-4 h-full flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
+                      <Banknote className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
+                      <p className="text-xs text-gray-500">FCFA estimé</p>
                     </div>
                   </CardContent>
                 </Card>
