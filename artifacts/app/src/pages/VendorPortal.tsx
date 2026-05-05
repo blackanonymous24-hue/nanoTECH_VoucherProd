@@ -470,8 +470,8 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
               {/* ── Écran ── */}
               <div className="no-print space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <Card className="h-full">
-                    <CardContent className="p-4 h-full flex items-center gap-3">
+                  <Card className="min-h-[80px] flex flex-col">
+                    <div className="flex-1 flex items-center gap-3 px-4 py-3">
                       <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
                         <ShoppingCart className="h-5 w-5 text-white" />
                       </div>
@@ -479,10 +479,10 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                         <p className="text-2xl font-bold text-gray-900">{data.total}</p>
                         <p className="text-xs text-gray-500">Vendus ce jour</p>
                       </div>
-                    </CardContent>
+                    </div>
                   </Card>
-                  <Card className="h-full">
-                    <CardContent className="p-4 h-full flex items-center gap-3">
+                  <Card className="min-h-[80px] flex flex-col">
+                    <div className="flex-1 flex items-center gap-3 px-4 py-3">
                       <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
                         <Banknote className="h-5 w-5 text-white" />
                       </div>
@@ -490,7 +490,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
                         <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
                         <p className="text-xs text-gray-500">FCFA estimé</p>
                       </div>
-                    </CardContent>
+                    </div>
                   </Card>
                 </div>
                 <Card>
@@ -739,8 +739,8 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
             {/* ── Écran ── */}
             <div className="no-print space-y-4">
               <div className="grid grid-cols-2 gap-3">
-                <Card className="h-full">
-                  <CardContent className="p-4 h-full flex items-center gap-3">
+                <Card className="min-h-[80px] flex flex-col">
+                  <div className="flex-1 flex items-center gap-3 px-4 py-3">
                     <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
                       <ShoppingCart className="h-5 w-5 text-white" />
                     </div>
@@ -748,10 +748,10 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                       <p className="text-2xl font-bold text-gray-900">{data.total}</p>
                       <p className="text-xs text-gray-500">Tickets vendus</p>
                     </div>
-                  </CardContent>
+                  </div>
                 </Card>
-                <Card className="h-full">
-                  <CardContent className="p-4 h-full flex items-center gap-3">
+                <Card className="min-h-[80px] flex flex-col">
+                  <div className="flex-1 flex items-center gap-3 px-4 py-3">
                     <div className="h-10 w-10 rounded-lg bg-green-500 flex items-center justify-center flex-shrink-0">
                       <Banknote className="h-5 w-5 text-white" />
                     </div>
@@ -759,7 +759,7 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
                       <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
                       <p className="text-xs text-gray-500">FCFA estimé</p>
                     </div>
-                  </CardContent>
+                  </div>
                 </Card>
               </div>
               <Card>

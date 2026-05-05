@@ -156,8 +156,8 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         <div className="no-print">
       {/* Totaux — 3 cartes */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-5">
-        <Card className="h-full">
-          <CardContent className="p-4 sm:p-6 h-full flex items-center gap-3">
+        <Card className="min-h-[80px] flex flex-col">
+          <div className="flex-1 flex items-center gap-3 px-5 py-4">
             <div className="h-9 w-9 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
               <Ticket className="h-4 w-4 text-blue-600" />
             </div>
@@ -165,10 +165,10 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
               <p className="text-xs text-gray-500">Total jour</p>
               <p className="text-xl font-bold text-gray-900">{totalJour}</p>
             </div>
-          </CardContent>
+          </div>
         </Card>
-        <Card className="h-full">
-          <CardContent className="p-4 sm:p-6 h-full flex items-center gap-3">
+        <Card className="min-h-[80px] flex flex-col">
+          <div className="flex-1 flex items-center gap-3 px-5 py-4">
             <div className="h-9 w-9 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
               <CheckCircle2 className="h-4 w-4 text-red-600" />
             </div>
@@ -176,10 +176,10 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
               <p className="text-xs text-gray-500">Vendus auj.</p>
               <p className="text-xl font-bold text-red-600">{todaySold}</p>
             </div>
-          </CardContent>
+          </div>
         </Card>
-        <Card className="h-full">
-          <CardContent className="p-4 sm:p-6 h-full flex items-center gap-3">
+        <Card className="min-h-[80px] flex flex-col">
+          <div className="flex-1 flex items-center gap-3 px-5 py-4">
             <div className="h-9 w-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
               <XCircle className="h-4 w-4 text-green-600" />
             </div>
@@ -187,7 +187,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
               <p className="text-xs text-gray-500">Non vendus</p>
               <p className="text-xl font-bold text-green-600">{nonSold}</p>
             </div>
-          </CardContent>
+          </div>
         </Card>
       </div>
 
@@ -588,8 +588,8 @@ export default function Reports() {
 
       {totalJour > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-          <Card className="h-full">
-            <CardContent className="pt-5 h-full flex items-center gap-3">
+          <Card className="min-h-[80px] flex flex-col">
+            <div className="flex-1 flex items-center gap-3 px-5 py-4">
               <div className="h-9 w-9 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
                 <Ticket className="h-4 w-4 text-blue-600" />
               </div>
@@ -597,10 +597,10 @@ export default function Reports() {
                 <p className="text-xs text-gray-500">Total jour</p>
                 <p className="text-xl font-bold">{totalJour}</p>
               </div>
-            </CardContent>
+            </div>
           </Card>
-          <Card className="h-full">
-            <CardContent className="pt-5 h-full flex items-center gap-3">
+          <Card className="min-h-[80px] flex flex-col">
+            <div className="flex-1 flex items-center gap-3 px-5 py-4">
               <div className="h-9 w-9 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
                 <CheckCircle2 className="h-4 w-4 text-red-600" />
               </div>
@@ -608,10 +608,10 @@ export default function Reports() {
                 <p className="text-xs text-gray-500">Vendus auj.</p>
                 <p className="text-xl font-bold text-red-600">{totalTodaySold}</p>
               </div>
-            </CardContent>
+            </div>
           </Card>
-          <Card className="h-full">
-            <CardContent className="pt-5 h-full flex items-center gap-3">
+          <Card className="min-h-[80px] flex flex-col">
+            <div className="flex-1 flex items-center gap-3 px-5 py-4">
               <div className="h-9 w-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
                 <XCircle className="h-4 w-4 text-green-600" />
               </div>
@@ -619,7 +619,7 @@ export default function Reports() {
                 <p className="text-xs text-gray-500">Non vendus</p>
                 <p className="text-xl font-bold text-green-600">{totalNonSold}</p>
               </div>
-            </CardContent>
+            </div>
           </Card>
         </div>
       )}
