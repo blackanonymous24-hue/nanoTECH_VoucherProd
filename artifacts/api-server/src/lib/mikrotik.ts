@@ -2172,27 +2172,93 @@ export async function resetHotspotUser(
     await api.write("/ip/hotspot/user/set", [`=.id=${id}`, "=limit-uptime=0", "=comment="]);
     await api.write("/ip/hotspot/user/reset-counters", [`=.id=${id}`]);
 
-    // 3) Remove scheduler entries bound to this username.
+    // 3) Mikhmon-like cleanup around the reset: scheduler + active sessions + cookies.
+    // Keep a fast targeted pass first, then robust fallback for mixed encodings.
     let schedulerRemoved = 0;
-    const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
-    for (const sch of schedulers) {
-      const sid = sch[".id"] as string | undefined;
-      if (!sid) continue;
-      try {
-        await api.write("/system/scheduler/remove", [`=.id=${sid}`]);
-        schedulerRemoved++;
-      } catch {
-        // non-fatal
+    let sessionKicked = 0;
+    let cookiesRemoved = 0;
+
+    const targetLower = name.trim().toLowerCase();
+
+    const removeSchedulersTask = (async () => {
+      const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
+      for (const sch of schedulers) {
+        const sid = sch[".id"] as string | undefined;
+        if (!sid) continue;
+        try {
+          await api.write("/system/scheduler/remove", [`=.id=${sid}`]);
+          schedulerRemoved++;
+        } catch {
+          // non-fatal
+        }
       }
-    }
+    })();
+
+    const removeSessionsTask = (async () => {
+      const byId = new Map<string, Record<string, unknown>>();
+      const targeted = await api.write("/ip/hotspot/active/print", [`?user=${toWin1252(name)}`]).catch(() => []);
+      for (const s of targeted) {
+        const sid = String(s[".id"] ?? "");
+        if (sid) byId.set(sid, s as Record<string, unknown>);
+      }
+      if (byId.size === 0) {
+        const all = await api.write("/ip/hotspot/active/print").catch(() => []);
+        for (const s of all) {
+          const raw = String(s["user"] ?? "").trim();
+          const dec = decodeRouterText(raw).trim();
+          if (raw.toLowerCase() === targetLower || dec.toLowerCase() === targetLower) {
+            const sid = String(s[".id"] ?? "");
+            if (sid) byId.set(sid, s as Record<string, unknown>);
+          }
+        }
+      }
+      for (const sid of byId.keys()) {
+        try {
+          await api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]);
+          sessionKicked++;
+        } catch {
+          // non-fatal
+        }
+      }
+    })();
+
+    const removeCookiesTask = (async () => {
+      const byId = new Map<string, Record<string, unknown>>();
+      const targeted = await api.write("/ip/hotspot/cookie/print", [`?user=${toWin1252(name)}`]).catch(() => []);
+      for (const c of targeted) {
+        const cid = String(c[".id"] ?? "");
+        if (cid) byId.set(cid, c as Record<string, unknown>);
+      }
+      if (byId.size === 0) {
+        const all = await api.write("/ip/hotspot/cookie/print").catch(() => []);
+        for (const c of all) {
+          const raw = String(c["user"] ?? "").trim();
+          const dec = decodeRouterText(raw).trim();
+          if (raw.toLowerCase() === targetLower || dec.toLowerCase() === targetLower) {
+            const cid = String(c[".id"] ?? "");
+            if (cid) byId.set(cid, c as Record<string, unknown>);
+          }
+        }
+      }
+      for (const cid of byId.keys()) {
+        try {
+          await api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]);
+          cookiesRemoved++;
+        } catch {
+          // non-fatal
+        }
+      }
+    })();
+
+    await Promise.all([removeSchedulersTask, removeSessionsTask, removeCookiesTask]);
 
     return {
       found: true,
-      sessionKicked: 0,
+      sessionKicked,
       salesScriptsRemoved: 0,
       salesScriptsFailed: 0,
       schedulerRemoved,
-      cookiesRemoved: 0,
+      cookiesRemoved,
       comment: null,
     };
   }, 12_000, "high");

@@ -641,7 +641,7 @@ export default function Vouchers() {
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
     const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
-    if (tryOpenVoucherPrintPage(lot.name, hotspotName)) {
+    if (await tryOpenVoucherPrintPage(lot.name, hotspotName)) {
       toast({
         title: "Impression Mikhmon",
         description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
@@ -713,7 +713,7 @@ export default function Vouchers() {
     const uniqueLots = new Set(usersForPrint.map((u) => (u.comment ?? "").trim()).filter(Boolean));
     if (uniqueLots.size === 1) {
       const [lotId] = [...uniqueLots];
-      if (lotId && tryOpenVoucherPrintPage(lotId, hotspotName)) {
+      if (lotId && await tryOpenVoucherPrintPage(lotId, hotspotName)) {
         toast({
           title: "Impression Mikhmon",
           description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
@@ -979,7 +979,11 @@ export default function Vouchers() {
         const err = await res.json() as { error?: string };
         throw new Error(err.error ?? `HTTP ${res.status}`);
       }
-      await res.json();
+      const resetResult = (await res.json()) as {
+        sessionKicked?: number;
+        cookiesRemoved?: number;
+        schedulerRemoved?: number;
+      };
 
       // 3. Rechargement immédiat — le serveur a déjà patché son cache
       //    in-memory (commentaire vidé, limites/quotas remis à zéro), donc
@@ -988,7 +992,7 @@ export default function Vouchers() {
       resetToast.update({
         id: resetToast.id,
         title: "Réinitialisation réussie",
-        description: `${user.username} a été réinitialisé.`,
+        description: `${user.username} réinitialisé — sessions coupées: ${resetResult.sessionKicked ?? 0}, cookies supprimés: ${resetResult.cookiesRemoved ?? 0}, scheduler supprimé: ${resetResult.schedulerRemoved ?? 0}.`,
       });
 
     } catch (err) {

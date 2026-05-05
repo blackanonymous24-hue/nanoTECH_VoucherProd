@@ -617,7 +617,7 @@ export default function GenerateVouchers() {
 
   const handlePrint = async (lot: LastLot) => {
     const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
-    if (lot.comment && tryOpenVoucherPrintPage(lot.comment, hotspotName)) {
+    if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) {
       toast({
         title: "Impression Mikhmon",
         description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",

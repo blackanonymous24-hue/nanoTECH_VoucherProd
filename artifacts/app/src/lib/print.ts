@@ -82,12 +82,20 @@ function buildVoucherPrintUrl(voucherId: string, sessionName: string): string | 
  * open /voucher/print.php?id=...&small=yes&session=...
  * Returns true when URL flow is used; false means fallback to HTML printing.
  */
-export function tryOpenVoucherPrintPage(voucherId: string, hotspotOrSessionName: string): boolean {
+export async function tryOpenVoucherPrintPage(voucherId: string, hotspotOrSessionName: string): Promise<boolean> {
   if (!voucherId || !hotspotOrSessionName) return false;
   if (!isMobile() && !isNativeWebView()) return false;
 
   const url = buildVoucherPrintUrl(voucherId, normalizeSessionName(hotspotOrSessionName));
   if (!url) return false;
+
+  // Fallback auto: if print.php is unavailable on this host, caller will use HTML print flow.
+  try {
+    const probe = await fetch(url, { method: "HEAD", cache: "no-store" });
+    if (!probe.ok) return false;
+  } catch {
+    return false;
+  }
 
   if (isNativeWebView()) {
     try {

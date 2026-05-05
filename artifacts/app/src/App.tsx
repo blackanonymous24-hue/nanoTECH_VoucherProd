@@ -36,7 +36,6 @@ const StockAlerts = lazy(() => import("@/pages/StockAlerts"));
 const Maintenance = lazy(() => import("@/pages/Maintenance"));
 const TicketLookup = lazy(() => import("@/pages/TicketLookup"));
 const SuperAdmins = lazy(() => import("@/pages/SuperAdmins"));
-const VoucherPrint = lazy(() => import("@/pages/VoucherPrint"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageSkeleton() {
@@ -147,16 +146,6 @@ function AppRoutes() {
       <PageErrorBoundary key={location}>
         <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
           <VendorPortal />
-        </Suspense>
-      </PageErrorBoundary>
-    );
-  }
-
-  if (location.startsWith("/voucher/print.php")) {
-    return (
-      <PageErrorBoundary key={location}>
-        <Suspense fallback={<div className="p-4 text-sm text-gray-600">Chargement impression…</div>}>
-          <VoucherPrint />
         </Suspense>
       </PageErrorBoundary>
     );
