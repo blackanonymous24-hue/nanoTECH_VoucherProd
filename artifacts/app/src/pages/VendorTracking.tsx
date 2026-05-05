@@ -320,7 +320,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
 
     const bodyRows: string[] = [];
     bodyRows.push(
-      `<tr><td class="lbl">Ventes du jour</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
+      `<tr class="sum-print-vendor"><td class="lbl">${vname}</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
     );
 
     for (const row of vendorArrearSummaryLines(data.date, data.weekStart, weekCarry, allArrears)) {
@@ -337,9 +337,6 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
 
     return `<div class="vendor-summary">
   <table class="sum-print">
-  <thead>
-    <tr><th colspan="2" class="sum-print-vendor-head">${vname} — Résumé de vente</th></tr>
-  </thead>
   <tbody>${bodyRows.join("")}</tbody>
   </table>
 </div>`;
@@ -362,14 +359,11 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .summary-vendors { margin-bottom: 12px; display: flex; flex-direction: column; gap: 12px; }
   .vendor-summary { margin: 0; page-break-inside: avoid; break-inside: avoid; }
   table.sum-print { width: 100%; border-collapse: collapse; margin: 0; font-size: 10px; table-layout: fixed; border: 1px solid #111; }
-  table.sum-print thead th.sum-print-vendor-head {
-    text-align: left; font-size: 11px; font-weight: bold; padding: 6px 8px;
-    background: #ececec; border-bottom: 1px solid #111; vertical-align: middle;
-  }
-  table.sum-print td { border-bottom: 1px solid #ddd; padding: 5px 8px; vertical-align: top; }
+  table.sum-print td { border-bottom: 1px solid #ddd; padding: 5px 8px; vertical-align: middle; }
   table.sum-print tbody tr:last-child td { border-bottom: none; }
   table.sum-print td.lbl { text-align: left; word-wrap: break-word; overflow-wrap: anywhere; width: 72%; }
   table.sum-print td.num { text-align: right; white-space: nowrap; width: 28%; }
+  table.sum-print tr.sum-print-vendor td { font-weight: bold; font-size: 11px; border-bottom: 1px solid #ccc; }
   table.sum-print tr.sum-print-arrear td { font-size: 9px; }
   table.sum-print tr.sum-line td { font-weight: bold; border-top: 2px solid #111; border-bottom: none; padding-top: 8px; padding-bottom: 8px; background: #f7f7f7; }
   table.sum-print tr.sum-line td.lbl { vertical-align: middle; }
@@ -532,8 +526,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     const PAD = 16;
     const CARD_GAP = 10;
     const HEAD_BLOCK_H = 72;
-    const VENDOR_CAPTION_H = 24;
-    const DAY_ROW_H = 20;
+    const VENDOR_DAY_H = 22;
     const ARR_ROW_H = 17;
     const GRAND_ROW_H = 26;
     const FOOTER_H = 32;
@@ -560,7 +553,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
       const wc = weekCarryFor(vendorId);
       const hasArr = wc > 0 || arr.length > 0;
       const n = arrearsLineCount(vendorId);
-      return VENDOR_CAPTION_H + DAY_ROW_H + n * ARR_ROW_H + (hasArr ? GRAND_ROW_H : 0);
+      return VENDOR_DAY_H + n * ARR_ROW_H + (hasArr ? GRAND_ROW_H : 0);
     };
 
     const grandCount = dailySummary.reduce((s, r) => s + r.count, 0);
@@ -636,15 +629,10 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
       rf(PAD, y, CW, ch, "#ffffff", BOX_R);
 
       let ry = y;
-      rf(PAD, ry, CW, VENDOR_CAPTION_H, "#ececec", [BOX_R, BOX_R, 0, 0]);
-      t(`${s.vendorName} — Résumé de vente`, C_LBL, ry + VENDOR_CAPTION_H / 2, { size: 10, bold: true, color: "#111827" });
-      ln(PAD, ry + VENDOR_CAPTION_H, PAD + CW, ry + VENDOR_CAPTION_H, "#111", 1);
-      ry += VENDOR_CAPTION_H;
-
-      t("Ventes du jour", C_LBL, ry + DAY_ROW_H / 2, { size: 9, color: "#374151" });
-      t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + DAY_ROW_H / 2, { size: 9, bold: true, color: "#111827", align: "right" });
-      ln(PAD, ry + DAY_ROW_H, PAD + CW, ry + DAY_ROW_H, "#ddd");
-      ry += DAY_ROW_H;
+      t(s.vendorName, C_LBL, ry + VENDOR_DAY_H / 2, { size: 11, bold: true, color: "#111827" });
+      t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + VENDOR_DAY_H / 2, { size: 11, bold: true, color: "#111827", align: "right" });
+      ln(PAD, ry + VENDOR_DAY_H, PAD + CW, ry + VENDOR_DAY_H, "#ccc");
+      ry += VENDOR_DAY_H;
 
       summaryLines.forEach((line, ai) => {
         const isCarry = line.kind === "carry";
