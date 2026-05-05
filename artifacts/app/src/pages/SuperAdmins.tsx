@@ -755,16 +755,15 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Nouvel administrateur</DialogTitle>
-          <DialogDescription>Créez un compte administrateur isolé avec son propre forfait.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label>Identifiant</Label>
-            <Input autoComplete="off" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="ex. partenaire1" />
+            <Label>Nom</Label>
+            <Input autoComplete="off" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="optionnel" />
           </div>
           <div>
-            <Label>Nom affiché</Label>
-            <Input autoComplete="off" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="optionnel" />
+            <Label>Identifiant</Label>
+            <Input autoComplete="off" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="ex. partenaire1" />
           </div>
           <div>
             <Label>Mot de passe</Label>
