@@ -190,9 +190,10 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const [addMac, setAddMac]                     = useState("");
   const [addError, setAddError]                 = useState("");
   const [addLoading, setAddLoading]             = useState(false);
-  const [addDialogMode, setAddDialogMode]       = useState<"create" | "edit">("create");
+  const [addDialogMode, setAddDialogMode]       = useState<"create" | "edit" | "recap">("create");
   const [addEditOriginalName, setAddEditOriginalName] = useState("");
   const [addEditLoading, setAddEditLoading]     = useState(false);
+  const [addRecapUser, setAddRecapUser]         = useState<{ name: string; password: string; profile: string; server: string; limitUptime: string; limitBytes: string; comment: string } | null>(null);
 
   /* Profile list for the selected router (fetched when dialog opens) */
   const { data: dialogProfiles } = useQuery<
@@ -243,7 +244,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     setAddComment(""); setAddLimitUptime(""); setAddLimitBytes("");
     setAddLimitBytesUnit("MB"); setAddMac("");
     setAddError("");
-    setAddDialogMode("create"); setAddEditOriginalName(""); setAddEditLoading(false);
+    setAddDialogMode("create"); setAddEditOriginalName(""); setAddEditLoading(false); setAddRecapUser(null);
     setAddServerPopoverOpen(false); setAddProfilePopoverOpen(false); setAddUnitPopoverOpen(false);
     setShowAddUser(true);
   }
@@ -287,8 +288,18 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         const data = await res.json() as { error?: string };
         setAddError(data.error ?? "Erreur MikroTik");
       } else {
-        setAddEditOriginalName(addName.trim());
-        setAddDialogMode("edit");
+        const recapName = addName.trim();
+        setAddRecapUser({
+          name: recapName,
+          password: addPassword.trim(),
+          profile: addProfile,
+          server: addServer || "all",
+          limitUptime: addLimitUptime.trim(),
+          limitBytes: limitBytesTotal ?? "",
+          comment: addComment.trim(),
+        });
+        setAddEditOriginalName(recapName);
+        setAddDialogMode("recap");
         setAddError("");
       }
     } catch {
@@ -752,7 +763,9 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[90vh]">
           <DialogHeader className="px-3 pt-2 pb-1.5 border-b border-slate-600 bg-slate-700">
             <DialogTitle className="text-sm font-semibold flex items-center gap-1.5 text-slate-100">
-              {addDialogMode === "edit"
+              {addDialogMode === "recap"
+                ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /><span className="truncate">Client ajouté — {addEditOriginalName}</span></>
+                : addDialogMode === "edit"
                 ? <><Pencil className="h-3.5 w-3.5 text-cyan-400" /><span className="truncate">Modifier — {addEditOriginalName}</span></>
                 : <><UserPlus className="h-3.5 w-3.5" /> Ajouter un client</>}
             </DialogTitle>
@@ -761,12 +774,12 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           {/* ── Buttons bar ── */}
           <div className="flex items-center gap-2 px-3 pt-2 pb-2 bg-slate-700">
             <Button type="button" size="sm"
-              onClick={() => { setShowAddUser(false); setAddDialogMode("create"); setAddEditOriginalName(""); }}
+              onClick={() => { setShowAddUser(false); setAddDialogMode("create"); setAddEditOriginalName(""); setAddRecapUser(null); }}
               disabled={addLoading || addEditLoading}
               className="h-7 text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1 px-2.5">
               <X className="h-3 w-3" /> Fermer
             </Button>
-            {addDialogMode === "edit" && (
+            {(addDialogMode === "edit" || addDialogMode === "recap") && (
               <Button type="button" size="sm"
                 onClick={openAddUserDialog}
                 disabled={addEditLoading}
@@ -774,16 +787,75 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 <FilePlus2 className="h-3 w-3" /> Nouveau
               </Button>
             )}
-            <Button type="button" size="sm"
-              onClick={() => void (addDialogMode === "edit" ? handleEditCreatedUser() : handleAddHotspotUser())}
-              disabled={addLoading || addEditLoading || !selectedRouterId}
-              className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5">
-              {(addLoading || addEditLoading) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              Enregistrer
-            </Button>
+            {addDialogMode === "recap" && (
+              <Button type="button" size="sm"
+                onClick={() => setAddDialogMode("edit")}
+                className="h-7 text-xs bg-indigo-600 hover:bg-indigo-500 text-white gap-1 px-2.5">
+                <Pencil className="h-3 w-3" /> Modifier
+              </Button>
+            )}
+            {addDialogMode !== "recap" && (
+              <Button type="button" size="sm"
+                onClick={() => void (addDialogMode === "edit" ? handleEditCreatedUser() : handleAddHotspotUser())}
+                disabled={addLoading || addEditLoading || !selectedRouterId}
+                className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5">
+                {(addLoading || addEditLoading) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                Enregistrer
+              </Button>
+            )}
           </div>
 
-          <div className="px-3 pb-3 space-y-1.5 bg-slate-700 overflow-y-auto">
+          {/* ── RECAP card (mode recap seulement) ── */}
+          {addDialogMode === "recap" && addRecapUser && (
+            <div className="px-3 pb-4 pt-2 bg-slate-700 overflow-y-auto space-y-2">
+              <div className="bg-slate-800 rounded-lg border border-slate-600 divide-y divide-slate-600 text-xs overflow-hidden">
+                <div className="grid grid-cols-[76px_1fr] px-3 py-2 items-center">
+                  <span className="text-slate-400">Name</span>
+                  <span className="font-mono font-semibold text-slate-100 truncate">{addRecapUser.name}</span>
+                </div>
+                <div className="grid grid-cols-[76px_1fr] px-3 py-2 items-center">
+                  <span className="text-slate-400">Password</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-mono text-slate-100 truncate">{addShowPassword ? addRecapUser.password : "••••••••"}</span>
+                    <button type="button" onClick={() => setAddShowPassword((v) => !v)}
+                      className="h-5 w-5 flex-shrink-0 flex items-center justify-center rounded bg-slate-600 hover:bg-slate-500 text-slate-300">
+                      {addShowPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-[76px_1fr] px-3 py-2 items-center">
+                  <span className="text-slate-400">Profile</span>
+                  <span className="text-cyan-300 font-medium truncate">{addRecapUser.profile}</span>
+                </div>
+                {addRecapUser.server !== "all" && addRecapUser.server && (
+                  <div className="grid grid-cols-[76px_1fr] px-3 py-2 items-center">
+                    <span className="text-slate-400">Server</span>
+                    <span className="text-slate-100 truncate">{addRecapUser.server}</span>
+                  </div>
+                )}
+                {addRecapUser.limitUptime && (
+                  <div className="grid grid-cols-[76px_1fr] px-3 py-2 items-center">
+                    <span className="text-slate-400">Time Limit</span>
+                    <span className="font-mono text-slate-100">{addRecapUser.limitUptime}</span>
+                  </div>
+                )}
+                {addRecapUser.limitBytes && (
+                  <div className="grid grid-cols-[76px_1fr] px-3 py-2 items-center">
+                    <span className="text-slate-400">Data Limit</span>
+                    <span className="font-mono text-slate-100">{(parseInt(addRecapUser.limitBytes) / 1048576).toFixed(1)} MB</span>
+                  </div>
+                )}
+                {addRecapUser.comment && (
+                  <div className="grid grid-cols-[76px_1fr] px-3 py-2 items-center">
+                    <span className="text-slate-400">Comment</span>
+                    <span className="font-mono text-slate-100 truncate">{addRecapUser.comment}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className={`px-3 pb-3 space-y-1.5 bg-slate-700 overflow-y-auto${addDialogMode === "recap" ? " hidden" : ""}`}>
 
             {/* ── EDIT mode banner ── */}
             {addDialogMode === "edit" && (
