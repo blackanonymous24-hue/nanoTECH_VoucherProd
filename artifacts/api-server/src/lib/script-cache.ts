@@ -10,7 +10,7 @@
  * This eliminates the heavy ?comment=mikhmon call from the hot sync path and
  * relieves the MikroTik CPU significantly.
  */
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { db, scriptSalesTable, routersTable } from "@workspace/db";
 import { fetchScriptSales, removeMikhmonScriptsByRawNames, type RouterConnection } from "./mikrotik.js";
 import { logger } from "./logger.js";
@@ -221,20 +221,59 @@ export async function syncScriptCache(
         .limit(1);
 
       if (routerCfg?.autoDeleteSalesScripts) {
-        // Auto-clean on router: once the sale scripts are present locally,
-        // remove their MikHMon script entries to prevent accumulation.
-        // Non-blocking for business flow: local cache remains source of truth.
-        try {
-          const rawNames = rows.map((r) => r.rawName).filter(Boolean);
-          const cleaned = await removeMikhmonScriptsByRawNames(conn, rawNames);
-          if (cleaned.removed > 0 || cleaned.failed > 0) {
-            logger.info(
-              { routerId, removed: cleaned.removed, failed: cleaned.failed, scanned: cleaned.scanned },
-              "script cache: auto-cleaned MikroTik scripts after local persist",
-            );
+        // ── Suppression auto MikroTik — SÉCURISÉE ────────────────────────────
+        // RÈGLE ABSOLUE : on ne supprime jamais de scripts MikroTik sans avoir
+        // confirmé au préalable que CHAQUE entrée est bien persistée en base.
+        // Toute divergence entre le fetch et la DB annule entièrement la
+        // suppression et génère un log d'alerte — la perte de données est
+        // irréversible.
+        const rawNamesToDelete = rows.map((r) => r.rawName).filter(Boolean);
+
+        if (rawNamesToDelete.length > 0) {
+          try {
+            // Compter les rawNames confirmés en DB (par chunks pour éviter la
+            // limite de paramètres PostgreSQL).
+            const DB_CHUNK = 500;
+            let confirmedCount = 0;
+            for (let i = 0; i < rawNamesToDelete.length; i += DB_CHUNK) {
+              const chunk = rawNamesToDelete.slice(i, i + DB_CHUNK);
+              const [row] = await db
+                .select({ n: sql<number>`count(*)::int` })
+                .from(scriptSalesTable)
+                .where(
+                  and(
+                    eq(scriptSalesTable.routerId, routerId),
+                    inArray(scriptSalesTable.rawName, chunk),
+                  ),
+                );
+              confirmedCount += Number(row?.n ?? 0);
+            }
+
+            if (confirmedCount < rawNamesToDelete.length) {
+              // ⚠️ Toutes les entrées ne sont PAS confirmées en base — annulation
+              // absolue de la suppression MikroTik pour éviter toute perte de données.
+              logger.error(
+                {
+                  routerId,
+                  fetchedFromMikrotik: rawNamesToDelete.length,
+                  confirmedInDb: confirmedCount,
+                  missing: rawNamesToDelete.length - confirmedCount,
+                },
+                "script cache: auto-delete ANNULÉ — entrées manquantes en base locale, suppression MikroTik refusée pour éviter la perte de données",
+              );
+            } else {
+              // 100 % confirmé en base — suppression MikroTik autorisée.
+              const cleaned = await removeMikhmonScriptsByRawNames(conn, rawNamesToDelete);
+              if (cleaned.removed > 0 || cleaned.failed > 0) {
+                logger.info(
+                  { routerId, removed: cleaned.removed, failed: cleaned.failed, scanned: cleaned.scanned },
+                  "script cache: auto-cleaned MikroTik scripts après confirmation base locale",
+                );
+              }
+            }
+          } catch (cleanupErr) {
+            logger.warn({ routerId, err: cleanupErr }, "script cache: MikroTik auto-clean failed (non-blocking)");
           }
-        } catch (cleanupErr) {
-          logger.warn({ routerId, err: cleanupErr }, "script cache: MikroTik auto-clean failed (non-blocking)");
         }
       }
 

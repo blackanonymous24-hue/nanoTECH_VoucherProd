@@ -583,18 +583,25 @@ export default function Routers() {
                   />
                 </div>
               </div>
-              <label className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+              <label className={`flex items-start gap-2 rounded-md border px-3 py-2 cursor-pointer ${form.autoDeleteSalesScripts ? "border-red-300 bg-red-50" : "border-gray-200 bg-gray-50"}`}>
                 <input
                   type="checkbox"
-                  className="mt-0.5 h-4 w-4"
+                  className="mt-0.5 h-4 w-4 accent-red-600"
                   checked={form.autoDeleteSalesScripts}
                   onChange={(e) => setForm({ ...form, autoDeleteSalesScripts: e.target.checked })}
                 />
-                <span className="text-sm text-gray-700">
-                  Suppression auto des scripts de ventes MikroTik apres sauvegarde locale
-                  <span className="block text-xs text-gray-500 mt-0.5">
-                    Option facultative. Si desactivee, le fonctionnement reste inchangé.
+                <span className="text-sm">
+                  <span className={`font-medium ${form.autoDeleteSalesScripts ? "text-red-700" : "text-gray-700"}`}>
+                    Suppression auto des scripts de ventes MikroTik après sauvegarde locale
                   </span>
+                  <span className="block text-xs text-gray-500 mt-1">
+                    La suppression n'est exécutée que si <strong>100 % des données sont confirmées en base locale</strong>. En cas de doute, la suppression est annulée automatiquement.
+                  </span>
+                  {form.autoDeleteSalesScripts && (
+                    <span className="block text-xs text-red-600 font-medium mt-1">
+                      ⚠ Option active — les scripts supprimés de MikroTik sont irrecupérables. Vérifiez que la sauvegarde locale fonctionne correctement avant d'activer cette option.
+                    </span>
+                  )}
                 </span>
               </label>
               </div>
