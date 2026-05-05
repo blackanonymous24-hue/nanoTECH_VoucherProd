@@ -340,25 +340,30 @@ export async function withRouter<T>(
   }
 }
 
+/**
+ * Ping rapide style Mikhmon : simple test TCP sur le port RouterOS API.
+ * Pas d'authentification, pas de commande — si le socket s'ouvre, le routeur
+ * est en ligne. Équivalent de fsockopen($host, $port, $errno, $errstr, 3) en PHP.
+ * Résultat typique : <200 ms si en ligne, ~3 s si hors ligne.
+ */
 export async function pingRouter(conn: RouterConnection): Promise<boolean> {
-  const attempt = () =>
-    withRouter(conn, async (api) => {
-      await api.write("/system/identity/print");
-    }, 8000);
+  return new Promise<boolean>((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
 
-  try {
-    await attempt();
-    return true;
-  } catch {
-    // Wait 2s for concurrent connections to free up, then retry once
-    await new Promise<void>((r) => setTimeout(r, 2000));
-    try {
-      await attempt();
-      return true;
-    } catch {
-      return false;
-    }
-  }
+    const done = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+
+    socket.setTimeout(3_000);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error",   () => done(false));
+    socket.connect(conn.port, conn.host);
+  });
 }
 
 export async function testConnection(conn: RouterConnection): Promise<{ success: boolean; message: string; routerBoard: string | null; version: string | null }> {

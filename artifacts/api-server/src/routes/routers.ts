@@ -98,7 +98,7 @@ function purgeMikKeysForScope(scope: string): void {
 }
 
 const MIK_TTL = {
-  ping:       30_000,
+  ping:       10_000,
   info:        8_000,
   pools:     300_000,
   sessions:   15_000,
