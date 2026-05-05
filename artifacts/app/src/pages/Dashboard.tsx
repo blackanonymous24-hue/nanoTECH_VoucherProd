@@ -1105,7 +1105,7 @@ function StatCard({
 }) {
   const inner = (
     <Card className={`h-full ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <CardContent className="p-2.5 sm:pt-5 sm:px-6">
+      <CardContent className="p-2.5 sm:pt-5 sm:px-6 min-h-[3.75rem] sm:min-h-0">
         {/* Icône visible seulement sm+ */}
         <div className="hidden sm:flex items-start gap-3 mb-0">
           <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0 mt-0.5">{icon}</div>
