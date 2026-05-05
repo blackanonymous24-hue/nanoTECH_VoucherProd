@@ -99,6 +99,7 @@ export default function SuperAdmins() {
   const qc = useQueryClient();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [createKey, setCreateKey] = useState(0);
   const [editing, setEditing] = useState<AdminRow | null>(null);
   const [forfaitTarget, setForfaitTarget] = useState<{ admin: AdminRow; mode: "set" | "extend" } | null>(null);
   const [creditsTarget, setCreditsTarget] = useState<AdminRow | null>(null);
@@ -279,7 +280,7 @@ export default function SuperAdmins() {
             <UserCog className="h-4 w-4" />
             <span className="hidden sm:inline">Mon compte</span>
           </Button>
-          <Button onClick={() => setCreateOpen(true)} className="gap-2">
+          <Button onClick={() => { setCreateKey((k) => k + 1); setCreateOpen(true); }} className="gap-2">
             <Plus className="h-4 w-4" /> Nouvel administrateur
           </Button>
         </div>
@@ -469,7 +470,7 @@ export default function SuperAdmins() {
       </div>
 
       {/* Create dialog */}
-      <CreateDialog open={createOpen} onClose={() => setCreateOpen(false)} onSubmit={(v) => createM.mutate(v)} pending={createM.isPending} />
+      <CreateDialog key={createKey} open={createOpen} onClose={() => setCreateOpen(false)} onSubmit={(v) => createM.mutate(v)} pending={createM.isPending} />
 
       {/* Edit dialog */}
       {editing && (
