@@ -336,20 +336,44 @@ export default function TicketTemplate() {
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Importer un fichier .php
+  // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const raw = ev.target?.result as string;
-      try { localStorage.setItem(PHP_KEY, raw); } catch { /* ignore */ }
+      try {
+        localStorage.setItem(PHP_KEY, raw);
+        localStorage.setItem(CUSTOM_DEFAULT_KEY, raw);
+        localStorage.removeItem(TEMPLATE_KEY);
+      } catch { /* ignore */ }
       setPhpCode(raw);
       setTab("code");
-      toast({
-        title: "Fichier PHP chargé",
-        description: `« ${file.name} » prêt — cliquez Sauvegarder pour l'activer.`,
-      });
+      // Sauvegarde serveur immédiate — pas besoin de cliquer "Sauvegarder" séparément
+      let serverSynced = false;
+      try {
+        const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ template: raw }),
+        });
+        serverSynced = resp.ok;
+      } catch {
+        serverSynced = false;
+      }
+      if (serverSynced) {
+        toast({
+          title: "Fichier PHP importé et sauvegardé",
+          description: `« ${file.name} » actif sur tous les appareils (APK inclus).`,
+        });
+      } else {
+        toast({
+          title: "Fichier PHP chargé",
+          description: `« ${file.name} » chargé localement. Cliquez Sauvegarder pour synchroniser sur mobile.`,
+          variant: "destructive",
+        });
+      }
     };
     reader.readAsText(file, "UTF-8");
     e.target.value = "";
@@ -359,6 +383,7 @@ export default function TicketTemplate() {
   const handleSave = useCallback(async () => {
     try {
       localStorage.setItem(PHP_KEY, phpCode);
+      localStorage.setItem(CUSTOM_DEFAULT_KEY, phpCode);
       localStorage.removeItem(TEMPLATE_KEY);
     } catch { /* ignore */ }
     // Sauvegarde serveur : synchronise mobile, APK et tous les appareils
@@ -376,7 +401,7 @@ export default function TicketTemplate() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
     if (serverSynced) {
-      toast({ title: "Modèle sauvegardé", description: "Ce modèle est désormais votre modèle par défaut." });
+      toast({ title: "Modèle sauvegardé", description: "Synchronisé sur le serveur — l'APK mobile utilisera ce modèle." });
     } else {
       toast({
         title: "Modèle sauvegardé localement",
@@ -394,11 +419,35 @@ export default function TicketTemplate() {
     toast({ title: "Modèle réinitialisé", description: "Le modèle de base a été restauré." });
   }, [toast]);
 
-  // ── Définir comme modèle de base
-  const handleSetAsDefault = useCallback(() => {
+  // ── Définir comme modèle de base (local + serveur)
+  const handleSetAsDefault = useCallback(async () => {
     if (!phpCode.trim()) return;
-    try { localStorage.setItem(CUSTOM_DEFAULT_KEY, phpCode); } catch { /* ignore */ }
-    toast({ title: "Modèle de base défini", description: "Ce template est maintenant le modèle de repli par défaut sur cet appareil." });
+    try {
+      localStorage.setItem(CUSTOM_DEFAULT_KEY, phpCode);
+      localStorage.setItem(PHP_KEY, phpCode);
+      localStorage.removeItem(TEMPLATE_KEY);
+    } catch { /* ignore */ }
+    // Synchronise sur le serveur pour que l'APK mobile l'utilise aussi
+    let serverSynced = false;
+    try {
+      const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template: phpCode }),
+      });
+      serverSynced = resp.ok;
+    } catch {
+      serverSynced = false;
+    }
+    if (serverSynced) {
+      toast({ title: "Modèle de base défini", description: "Synchronisé sur le serveur — tous les appareils (APK, mobile) utiliseront ce modèle." });
+    } else {
+      toast({
+        title: "Modèle de base défini localement",
+        description: "Le serveur n'a pas été synchronisé. Ce modèle reste le défaut sur cet appareil uniquement.",
+        variant: "destructive",
+      });
+    }
   }, [phpCode, toast]);
 
   const handleUseDefaultMikhmon = useCallback(() => {
