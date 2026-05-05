@@ -757,7 +757,7 @@ export default function Dashboard() {
               <Skeleton className="h-6 w-32 rounded-full" />
             </div>
           ) : routerInfo ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 max-h-14 overflow-hidden sm:max-h-none sm:overflow-visible">
               {(routerInfo.boardName || routerInfo.model) && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs font-medium text-blue-700">
                   <Router className="h-3 w-3" />

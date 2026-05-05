@@ -966,53 +966,56 @@ export default function VendorTracking() {
 
         <CardContent className="pt-4 space-y-3">
           {/* Filter bar */}
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Date</span>
-              <div className="relative flex items-center">
-                <CalendarDays className="absolute left-2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
-                <input
-                  type="date"
-                  value={date}
-                  max={yesterdayLocal()}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="h-8 pl-7 pr-2 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+          <div className="space-y-2">
+            {/* Ligne 1 : date + filtres */}
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Date</span>
+                <div className="relative flex items-center">
+                  <CalendarDays className="absolute left-2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                  <input
+                    type="date"
+                    value={date}
+                    max={yesterdayLocal()}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="h-8 pl-7 pr-2 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
               </div>
+              <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { setApplied(date); setSearch(""); }}>
+                <Search className="h-3.5 w-3.5" /> Filtrer
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => { const y = yesterdayLocal(); setDate(y); setApplied(y); setSearch(""); }}>
+                <RotateCcw className="h-3.5 w-3.5" /> Hier
+              </Button>
             </div>
 
-            <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { setApplied(date); setSearch(""); }}>
-              <Search className="h-3.5 w-3.5" /> Filtrer
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => { const y = yesterdayLocal(); setDate(y); setApplied(y); setSearch(""); }}>
-              <RotateCcw className="h-3.5 w-3.5" /> Hier
-            </Button>
-
-            <div className="ml-auto flex flex-wrap gap-2">
+            {/* Ligne 2 : boutons impression/export — tous sur une seule ligne */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
               {/* Daily JPEG */}
-              <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={!data || grandCount === 0 || saving} onClick={handleSaveDailyJpeg} title="Enregistrer résumé journalier en image">
+              <Button size="sm" variant="outline" className="h-8 w-8 flex-shrink-0 p-0" disabled={!data || grandCount === 0 || saving} onClick={handleSaveDailyJpeg} title="Enregistrer résumé journalier en image">
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
               </Button>
               {/* Daily print */}
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={!data || grandCount === 0} onClick={() => data && openPrintWindow(data, search, arrearsData)}>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs flex-shrink-0 whitespace-nowrap" disabled={!data || grandCount === 0} onClick={() => data && openPrintWindow(data, search, arrearsData)}>
                 <Printer className="h-3.5 w-3.5" /> Imprimer
               </Button>
               {/* Hebdo JPEG */}
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs flex-shrink-0 whitespace-nowrap border-indigo-200 text-indigo-600 hover:bg-indigo-50"
                 disabled={!hasPrevWeekData || savingWeek || prevWeekLoading}
                 onClick={handleSaveWeekJpeg}
                 title={`Enregistrer rapport semaine précédente en image${prevWeekLabel !== "Semaine" ? " — " + prevWeekLabel : ""}`}
               >
                 {savingWeek ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
-                JPEG Hebdo
+                <span>JPEG Hebdo</span>
               </Button>
               {/* Hebdo print */}
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs flex-shrink-0 whitespace-nowrap border-indigo-200 text-indigo-600 hover:bg-indigo-50"
                 disabled={!hasPrevWeekData || prevWeekLoading}
                 onClick={() => prevWeekData && openWeekPrintWindow(prevWeekData)}
                 title={`Imprimer rapport semaine précédente${prevWeekLabel !== "Semaine" ? " — " + prevWeekLabel : ""}`}
               >
-                <CalendarRange className="h-3.5 w-3.5" /> Imprimer Hebdo
+                <CalendarRange className="h-3.5 w-3.5" /> <span>Imprimer Hebdo</span>
               </Button>
             </div>
           </div>

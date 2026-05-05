@@ -1201,7 +1201,7 @@ export default function GenerateVouchers() {
 
               {/* Dernier lot — barre d’actions : ne pas rétablir l’ancien bouton « copier tout » ni retirer export / suppression ; garder ce jeu de boutons. */}
               {/* ── Bouton Imprimer proéminent ── */}
-              <div className="px-3 py-2 border-b border-gray-100 flex flex-wrap gap-1.5">
+              <div className="px-3 py-2 border-b border-gray-100 flex gap-1.5">
                 <Button
                   size="sm"
                   className="flex-1 gap-1.5 h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white"
