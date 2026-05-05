@@ -15,9 +15,10 @@ import { foldText } from "@/lib/text";
 import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
 import {
   applyMaskedWeeksToDailyArrearsResponse,
+  ARREAR_UI_RECENT_DAY_COUNT,
   groupArrearsByCalendarWeek,
   mondayOfDateUtc,
-  splitArrearsMergedAndRecentTail,
+  splitCurrentWeekArrearsForPrint,
   sundayFromMondayUtc,
   weekArrearLabelWithFmt,
 } from "@/lib/arrearsWeekGrouping";
@@ -185,6 +186,66 @@ function mergeDailyArrearEntries(days: DailyArrearEntry[]): DailyArrearEntry & {
   };
 }
 
+function arrearDayBlockPrint(a: DailyArrearEntry): string {
+  return `<div class="arr-block">
+      <div class="arr-label">Arriéré du ${fmtDateFr(a.date)}</div>
+      <div class="arr-amount">${fmtAmount(a.remaining)} FCFA</div>
+    </div>`;
+}
+
+function dailyPrintArrearsSectionsHtml(selectedIso: string, raw: DailyArrearEntry[], totalDu: number): string {
+  const entries = [...raw].filter((e) => e.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
+  if (entries.length === 0) return "";
+
+  const currentWeekStart = mondayOfDateUtc(selectedIso);
+  const prev = entries.filter((e) => mondayOfDateUtc(e.date) < currentWeekStart);
+  const cur = entries.filter((e) => mondayOfDateUtc(e.date) === currentWeekStart);
+  const { merged, recent } = splitCurrentWeekArrearsForPrint(cur, ARREAR_UI_RECENT_DAY_COUNT);
+  const mergedEntry =
+    merged && merged.length > 0 ? mergeDailyArrearEntries(merged) : null;
+
+  const sections: string[] = [];
+
+  for (const g of groupArrearsByCalendarWeek(prev)) {
+    const days = [...(g.__underlying ?? [g])].sort((a, b) => a.date.localeCompare(b.date));
+    sections.push(`<div class="arr-section">
+        <div class="week-arrear-group-title">${weekArrearLabelWithFmt(g.__weekMonday, fmtDateFr)} <span class="week-arrear-meta">(${days.length} jour${days.length > 1 ? "s" : ""})</span></div>
+        ${days.map(arrearDayBlockPrint).join("")}
+      </div>`);
+  }
+
+  if (mergedEntry) {
+    const u = mergedEntry.__underlying;
+    const first = u[0]!;
+    const last = u[u.length - 1]!;
+    sections.push(`<div class="arr-section">
+        <div class="arr-section-title">Arriérés cumulés — semaine en cours</div>
+        <div class="arr-block arr-block--amber">
+          <div class="arr-label">Du ${fmtDateFr(first.date)} au ${fmtDateFr(last.date)} (${u.length} jour${u.length > 1 ? "s" : ""})</div>
+          <div class="arr-amount">${fmtAmount(mergedEntry.remaining)} FCFA</div>
+          <div class="arr-merged-detail">${u
+      .map(
+        (d) =>
+          `<div class="arr-mini"><span>${fmtDateFr(d.date)}</span><span>${fmtAmount(d.remaining)} FCFA</span></div>`,
+      )
+      .join("")}</div>
+        </div>
+      </div>`);
+  }
+
+  if (recent.length > 0) {
+    sections.push(`<div class="arr-section">
+        <div class="arr-section-title">Arriérés récents — semaine en cours <span class="week-arrear-meta">(${recent.length} jour${recent.length > 1 ? "s" : ""}, du plus ancien au plus récent)</span></div>
+        ${recent.map(arrearDayBlockPrint).join("")}
+      </div>`);
+  }
+
+  return `<div class="arr-list arr-list--structured">${sections.join("")}</div>
+  <div class="total-du">
+    <span>Total à verser</span><span>${fmtAmount(totalDu)} FCFA</span>
+  </div>`;
+}
+
 function statusBadge(status?: "none" | "partial" | "full"): {
   text: string; cls: string; icon?: boolean;
 } {
@@ -305,22 +366,22 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
 
   const vendorCards = activeSummary.map((s) => {
     const pal = vpal(s.vendorId);
-    const arr = (arrears?.arrears[String(s.vendorId)] ?? []).filter(a => a.remaining > 0);
+    const arr = [...(arrears?.arrears[String(s.vendorId)] ?? [])]
+      .filter((a) => a.remaining > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
     const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
     const totalDu = s.amount + arrTotal;
-    const arrearsSection = arr.length > 0 ? `
-  <table class="arr-table">
-    <tbody>${arr.map(a => `<tr><td>${fmtDateFr(a.date)}</td><td class="right">${fmtAmount(a.remaining)} FCFA</td></tr>`).join("")}</tbody>
-  </table>
-  <div class="total-du">
-    <span>Total à verser</span><span>${fmtAmount(totalDu)} FCFA</span>
-  </div>` : "";
+    const arrearsSection =
+      arr.length > 0 ? dailyPrintArrearsSectionsHtml(data.date, arr, totalDu) : "";
     const hasArr = arr.length > 0;
     const borderColor = hasArr ? "#fdba74" : pal.border;
     return `<div class="vcard" style="border-color:${borderColor}">
-  <div class="vcard-header" style="background:${pal.light};border-color:${pal.border}">
+  <div class="vcard-header vcard-header--daily" style="background:${pal.light};border-color:${pal.border}">
     <span class="vname" style="color:${pal.dark}">${s.vendorName}</span>
-    <span class="vamount" style="color:${pal.dark}">${fmtAmount(s.amount)} FCFA</span>
+    <div class="vhead-day-sale">
+      <span class="vday-label">Vente du ${dateFr}</span>
+      <span class="vamount" style="color:${pal.dark}">${fmtAmount(s.amount)} FCFA</span>
+    </div>
   </div>${arrearsSection}
 </div>`;
   }).join("");
@@ -345,6 +406,9 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
   .vcard { border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
   .vcard-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
+  .vcard-header--daily { gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+  .vhead-day-sale { display: flex; flex-direction: column; align-items: flex-end; text-align: right; gap: 2px; min-width: 0; }
+  .vday-label { font-size: 7px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
   .vname { font-weight: bold; font-size: 10px; color: #1e40af; }
   .vamount { font-weight: bold; font-size: 10px; color: #1d4ed8; }
   .vcard table { width: 100%; border-collapse: collapse; }
@@ -353,11 +417,32 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .vcard tfoot td { background: #eff6ff; font-weight: bold; color: #1d4ed8; border-top: 1px solid #bfdbfe; border-bottom: none; }
   .vcard tr:last-child td { border-bottom: none; }
   .vcard-arr { border-color: #fca5a5; }
-  .arr-header { display: flex; justify-content: space-between; padding: 3px 6px; background: #fef2f2; border-top: 1px solid #fca5a5; font-size: 8px; font-weight: bold; color: #b91c1c; }
-  .arr-table { width: 100%; border-collapse: collapse; }
-  .arr-table td { padding: 2px 6px; font-size: 8px; color: #ef4444; border-bottom: 1px solid #fee2e2; }
-  .arr-table tr:last-child td { border-bottom: none; }
-  .total-du { display: flex; justify-content: space-between; padding: 4px 6px; background: #1e3a8a; color: #ffffff; font-size: 9px; font-weight: bold; border-top: 2px solid #1e3a8a; }
+  .arr-list { padding: 8px 8px 6px; background: #f8fafc; border-top: 1px solid #fecaca; }
+  .arr-list--structured { padding-top: 10px; }
+  .arr-section { margin-bottom: 10px; }
+  .arr-section:last-of-type { margin-bottom: 6px; }
+  .arr-section-title {
+    font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #475569; margin: 0 0 6px; padding-bottom: 3px; border-bottom: 1px solid #e2e8f0;
+  }
+  .week-arrear-group-title {
+    font-size: 9px; font-weight: 700; color: #9a3412; margin: 0 0 6px; line-height: 1.3;
+  }
+  .week-arrear-meta { font-weight: 500; color: #78716c; font-size: 8px; }
+  .arr-block {
+    margin-bottom: 8px; padding: 8px 10px; background: #ffffff;
+    border: 1px solid #fecaca; border-radius: 6px; border-left: 4px solid #dc2626;
+    break-inside: avoid;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .arr-block:last-child { margin-bottom: 6px; }
+  .arr-label { font-size: 9px; font-weight: 700; color: #111827; line-height: 1.25; margin-bottom: 4px; }
+  .arr-amount { font-size: 10px; font-weight: 700; color: #991b1b; text-align: right; letter-spacing: 0.02em; }
+  .arr-block--amber { border-left-color: #d97706; background: #fffbeb; }
+  .arr-merged-detail { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #fcd34d; }
+  .arr-mini { display: flex; justify-content: space-between; font-size: 8px; color: #57534e; padding: 2px 0; }
+  .arr-mini span:last-child { font-weight: 700; color: #92400e; }
+  .total-du { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: linear-gradient(90deg, #1e293b, #0f172a); color: #ffffff; font-size: 9px; font-weight: bold; border-top: 1px solid #334155; }
   .week-vcard .vcard-header.week-vcard-h { background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
   .week-vcard .vname { color: #111; }
   .week-vcard .vstatus { font-size: 8px; font-weight: bold; padding: 2px 6px; border-radius: 10px; }
@@ -447,17 +532,20 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     const DPR = 2; const W = 430; const PAD = 16;
     const TITLE_H = 60; const CARD_GAP = 8;
     const CARD_HDR_H = 28;
-    const ARR_HDR_H = 20; const ARR_ROW_H = 18; const GRAND_ROW_H = 26; const FOOTER_H = 32;
+    const ARR_BLOCK_H = 34; /* label « Arriéré du … » + montant (comme carte à l’écran) */
+    const GRAND_ROW_H = 26; const FOOTER_H = 32;
 
     const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
     const dateFr = fmtDateFr(appliedDate);
 
     const vendorArrears = (vendorId: number | null) =>
-      (arrears?.arrears[String(vendorId)] ?? []).filter(a => a.remaining > 0);
+      [...(arrears?.arrears[String(vendorId)] ?? [])]
+        .filter((a) => a.remaining > 0)
+        .sort((a, b) => a.date.localeCompare(b.date));
 
     const cardH = (vendorId: number | null) => {
       const arr = vendorArrears(vendorId);
-      const arrH = arr.length > 0 ? arr.length * ARR_ROW_H + GRAND_ROW_H : 0;
+      const arrH = arr.length > 0 ? arr.length * ARR_BLOCK_H + GRAND_ROW_H : 0;
       return CARD_HDR_H + arrH;
     };
     const grandCount  = dailySummary.reduce((s, r) => s + r.count, 0);
@@ -511,17 +599,22 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 
       let ry = y + CARD_HDR_H;
 
-      // Arriérés rows (sum line removed)
+      // Arriérés : même libellé que les cartes (« Arriéré du … » puis montant)
       if (arr.length > 0) {
         const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
         const totalDu = s.amount + arrTotal;
         ln(PAD, ry, PAD + CW, ry, "#fca5a5");
         arr.forEach((a, ai) => {
-          rf(PAD, ry, CW, ARR_ROW_H, ai % 2 === 0 ? "#fff7f7" : "#fef2f2");
-          t(fmtDateFr(a.date), C_PROF, ry + ARR_ROW_H / 2, { size: 8, color: "#ef4444" });
-          t(fmtAmount(a.remaining) + " FCFA", C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: "#b91c1c", align: "right" });
-          ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#fee2e2");
-          ry += ARR_ROW_H;
+          rf(PAD, ry, CW, ARR_BLOCK_H, ai % 2 === 0 ? "#ffffff" : "#fefce8");
+          ctx.strokeStyle = "#fecaca";
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(PAD + 0.5, ry + 0.5, CW - 1, ARR_BLOCK_H - 1);
+          ctx.fillStyle = "#dc2626";
+          ctx.fillRect(PAD, ry, 3, ARR_BLOCK_H);
+          t(`Arriéré du ${fmtDateFr(a.date)}`, PAD + 10, ry + 12, { size: 9, bold: true, color: "#111827" });
+          t(fmtAmount(a.remaining) + " FCFA", C_AMT, ry + 26, { size: 10, bold: true, color: "#991b1b", align: "right" });
+          ln(PAD, ry + ARR_BLOCK_H, PAD + CW, ry + ARR_BLOCK_H, "#fee2e2");
+          ry += ARR_BLOCK_H;
         });
         // Total à verser row
         rf(PAD, ry, CW, GRAND_ROW_H, "#1e3a8a", [0, 0, 6, 6]);
@@ -1049,7 +1142,7 @@ export default function VendorTracking() {
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
-                        {/* Arriérés : semaines passées repliées ; semaine du jour consulté : cumul en Collapse si ≥4 jours + 2 derniers visibles */}
+                        {/* Arriérés : semaines passées repliées ; semaine du jour filtré : cumul + 3 derniers jours séparés (aligné impression / portail) */}
                         <div className="space-y-2.5 p-3 bg-slate-50/90">
                             {prevTotal > 0 &&
                               groupArrearsByCalendarWeek(prevArrears).map((grp) => {
@@ -1126,7 +1219,10 @@ export default function VendorTracking() {
                               })}
                             {(() => {
                               const ascCur = [...currentArrears].sort((a, b) => a.date.localeCompare(b.date));
-                              const { merged: mergedHead, recent: recentTail } = splitArrearsMergedAndRecentTail(ascCur, 4);
+                              const { merged: mergedHead, recent: recentTail } = splitCurrentWeekArrearsForPrint(
+                                ascCur,
+                                ARREAR_UI_RECENT_DAY_COUNT,
+                              );
                               const mergedEntry = mergedHead && mergedHead.length > 0 ? mergeDailyArrearEntries(mergedHead) : null;
                               const cumulPKey = `${s.vendorId}|cumul-${currentWeekStart}`;
                               const isPayingCumul = payingKey === cumulPKey;

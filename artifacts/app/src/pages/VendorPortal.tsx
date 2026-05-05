@@ -33,9 +33,10 @@ import {
 import { foldText } from "@/lib/text";
 import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown, weekVersPaymentDisplayCap } from "@/lib/vendorWeekPaymentDisplay";
 import {
+  ARREAR_UI_RECENT_DAY_COUNT,
   groupPortalArrearsByCalendarWeek,
   mondayOfDateUtc,
-  splitArrearsMergedAndRecentTail,
+  splitCurrentWeekArrearsForPrint,
   sundayFromMondayUtc,
   weekArrearLabelWithFmt,
 } from "@/lib/arrearsWeekGrouping";
@@ -1232,14 +1233,17 @@ function Dashboard({ token, vendor, onLogout }: {
               </Card>
             </div>
 
-            {/* ── Arriérés journaliers (semaines passées repliées ; semaine en cours : cumul en Collapse si ≥4 j. + 2 derniers jours visibles) ── */}
+            {/* ── Arriérés journaliers (sem. passées ; sem. en cours : cumul + 3 derniers jours — même règle que suivi admin / impression) ── */}
             {arrearsData && arrearsData.days.length > 0 && (() => {
               const todayIso = new Date().toISOString().slice(0, 10);
               const curMon = mondayOfDateUtc(todayIso);
               const asc = [...arrearsData.days].sort((a, b) => a.date.localeCompare(b.date));
               const prevDays = asc.filter((d) => mondayOfDateUtc(d.date) < curMon);
               const currentDays = asc.filter((d) => mondayOfDateUtc(d.date) === curMon);
-              const { merged: mergedHead, recent: recentTail } = splitArrearsMergedAndRecentTail(currentDays, 4);
+              const { merged: mergedHead, recent: recentTail } = splitCurrentWeekArrearsForPrint(
+                currentDays,
+                ARREAR_UI_RECENT_DAY_COUNT,
+              );
               const mergedPortal = mergedHead && mergedHead.length > 0 ? mergePortalArrearDays(mergedHead) : null;
 
               const reportNav = (iso: string) => {
