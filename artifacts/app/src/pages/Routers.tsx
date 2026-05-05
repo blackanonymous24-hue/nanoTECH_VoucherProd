@@ -572,10 +572,7 @@ export default function Routers() {
                 </div>
                 <div>
                   <Label>
-                    Mot de passe{" "}
-                    {editRouter
-                      ? <span className="text-xs font-normal text-gray-400">(laisser vide = inchangé)</span>
-                      : <span className="text-red-500">*</span>}
+                    Mot de passe{!editRouter && <span className="text-red-500"> *</span>}
                   </Label>
                   <PasswordInput
                     className="mt-1"
