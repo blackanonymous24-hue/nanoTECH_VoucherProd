@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -909,8 +909,10 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
 // GET /routers/:id/sessions/count — Mikhmon-style: returns the last known
 // count instantly (stale-while-revalidate). Never blocks on MikroTik when a
 // previous value (even expired) is available; refreshes in background.
-const _sessionsRefreshing = new Set<number>();
-const _infoRefreshing     = new Set<number>();
+const _sessionsRefreshing     = new Set<number>();
+const _sessionsFastRefreshing = new Set<number>();
+const _sessionsFastCount      = new Map<string, { count: number; cachedAt: number }>();
+const _infoRefreshing         = new Set<number>();
 router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
@@ -2188,11 +2190,30 @@ async function buildDashboardPrioritySnapshot(id: number) {
 
   const now = Date.now();
 
-  // Sessions count (stale-while-revalidate)
+  // Sessions count — style Mikhmon : comptage ultra-rapide via .proplist=.id
+  // quand le cache plein est froid (cold start). Le cache plein (sessionsKey)
+  // reste nécessaire pour la page Sessions et le snapshot SSE complet.
   const sessionsKey = `sessions:${sc}`;
   const sessionsFresh = mGet(sessionsKey) as unknown[] | null;
   const sessionsStale = mGetStale(sessionsKey) as unknown[] | null;
-  const sessionsCount = sessionsFresh?.length ?? sessionsStale?.length ?? 0;
+  const fastEntry    = _sessionsFastCount.get(sc);
+  const fastCount    = fastEntry && (now - fastEntry.cachedAt) < 8_000 ? fastEntry.count : null;
+  const sessionsCount = sessionsFresh?.length ?? sessionsStale?.length ?? fastCount ?? 0;
+
+  // Fast count path : ne tourne que si aucun cache plein (fresh ou stale) n'est dispo.
+  // Bien plus rapide que listSessions (ne transfère que les .id).
+  if (!sessionsFresh && !sessionsStale && !_sessionsFastRefreshing.has(id)) {
+    _sessionsFastRefreshing.add(id);
+    setImmediate(async () => {
+      try {
+        const count = await countSessionsFast(conn);
+        _sessionsFastCount.set(sc, { count, cachedAt: Date.now() });
+      } catch { /* ignore */ }
+      finally { _sessionsFastRefreshing.delete(id); }
+    });
+  }
+  // Full list refresh : toujours déclenché dès que le cache plein est expiré,
+  // pour alimenter la page Sessions et le snapshot SSE.
   if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
     _sessionsRefreshing.add(id);
     setImmediate(async () => {
@@ -2220,7 +2241,12 @@ async function buildDashboardPrioritySnapshot(id: number) {
     });
   }
 
-  // Users count from cache if possible, refresh asynchronously when needed
+  // Users count — style Mikhmon :
+  // • Cold start (aucun cache) : listHotspotUsersFast() ne transfère que
+  //   name/disabled/profile/mac-address, ce qui est suffisant pour computeUsersCount().
+  //   Bien plus rapide qu'un fetch complet sur les grands parcs (>5 000 vouchers).
+  // • Stale (cache présent mais > 20 s) : getCachedUsers() réutilise le cache
+  //   complet déjà en RAM ou fait un fetch complet pour rafraîchir les autres pages.
   const usersCached = _usersCountCache.get(sc) ?? null;
   const users = usersCached
     ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
@@ -2229,16 +2255,30 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const userHit = userCache.get(sc);
   const userFresh = !!userHit && now < userHit.expiresAt;
   const COUNT_FRESH_MS = 20_000;
-  if ((!usersCached || (now - usersCached.cachedAt) > COUNT_FRESH_MS) && !_usersRefreshing.has(id)) {
-    _usersRefreshing.add(id);
-    setImmediate(async () => {
-      try {
-        const list = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: !userFresh });
-        const payload = await computeUsersCount(id, conn, list);
-        _usersCountCache.set(sc, payload);
-      } catch { /* keep stale */ }
-      finally { _usersRefreshing.delete(id); }
-    });
+  if (!_usersRefreshing.has(id)) {
+    if (!usersCached) {
+      // Cold start : fetch minimal pour afficher "Tickets disponibles" rapidement
+      _usersRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const list = await listHotspotUsersFast(conn);
+          const payload = await computeUsersCount(id, conn, list);
+          _usersCountCache.set(sc, payload);
+        } catch { /* keep stale */ }
+        finally { _usersRefreshing.delete(id); }
+      });
+    } else if ((now - usersCached.cachedAt) > COUNT_FRESH_MS) {
+      // Stale : fetch complet (réutilise userCache si dispo) pour données précises
+      _usersRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const list = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: !userFresh });
+          const payload = await computeUsersCount(id, conn, list);
+          _usersCountCache.set(sc, payload);
+        } catch { /* keep stale */ }
+        finally { _usersRefreshing.delete(id); }
+      });
+    }
   }
 
   // Jour / mois : agrégation DB (alignée rapport local). Autres périodes : cache RAM live si dispo.

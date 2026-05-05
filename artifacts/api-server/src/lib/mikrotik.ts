@@ -407,49 +407,75 @@ export interface RouterInfo {
 
 export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo> {
   return withRouter(conn, async (api) => {
-    const [res] = await api.write("/system/resource/print");
+    // Mikhmon-style : les 4 appels RouterOS lancés en parallèle (Promise.all)
+    // au lieu de 4 await séquentiels → gain de ~3× sur la latence réseau.
+    const [resArr, idArr, boardArr, clockArr] = await Promise.all([
+      api.write("/system/resource/print"),
+      api.write("/system/identity/print").catch(() => [] as Record<string, unknown>[]),
+      api.write("/system/routerboard/print").catch(() => [] as Record<string, unknown>[]),
+      api.write("/system/clock/print").catch(() => [] as Record<string, unknown>[]),
+    ]);
 
-    let identity: string | null = null;
-    try {
-      const [idRes] = await api.write("/system/identity/print");
-      identity = (idRes?.["name"] as string) ?? null;
-    } catch { /* may be restricted */ }
-
-    let model: string | null = null;
-    let serialNumber: string | null = null;
-    let firmwareVersion: string | null = null;
-    try {
-      const [board] = await api.write("/system/routerboard/print");
-      model = (board?.["model"] as string) ?? null;
-      serialNumber = (board?.["serial-number"] as string) ?? null;
-      firmwareVersion = (board?.["current-firmware"] as string) ?? null;
-    } catch { /* routerboard may be restricted */ }
-
-    let clockDate: string | null = null;
-    let clockTime: string | null = null;
-    try {
-      const [clock] = await api.write("/system/clock/print");
-      clockDate = (clock?.["date"] as string) ?? null;
-      clockTime = (clock?.["time"] as string) ?? null;
-    } catch { /* clock may be restricted */ }
+    const res   = resArr[0]   ?? {};
+    const idRes = idArr[0]    ?? null;
+    const board = boardArr[0] ?? null;
+    const clock = clockArr[0] ?? null;
 
     return {
-      identity: identity ? decodeRouterText(identity) : null,
-      boardName: ((res?.["board-name"] as string) ?? "").trim() ? decodeRouterText((res?.["board-name"] as string) ?? "") : null,
-      model: model ? decodeRouterText(model) : null,
-      serialNumber,
-      routerOsVersion: (res?.["version"] as string) ?? null,
-      firmwareVersion,
-      cpu: (res?.["cpu"] as string) ?? null,
-      cpuCount: (res?.["cpu-count"] as string) ?? null,
-      totalMemory: (res?.["total-memory"] as string) ?? null,
-      freeMemory: (res?.["free-memory"] as string) ?? null,
-      uptime: (res?.["uptime"] as string) ?? null,
-      architecture: (res?.["architecture-name"] as string) ?? null,
-      clockDate,
-      clockTime,
+      identity:       idRes?.["name"]                   ? decodeRouterText(idRes["name"] as string)  : null,
+      boardName:      ((res["board-name"] as string) ?? "").trim() ? decodeRouterText(res["board-name"] as string) : null,
+      model:          board?.["model"]                  ? decodeRouterText(board["model"] as string) : null,
+      serialNumber:   (board?.["serial-number"]   as string) ?? null,
+      firmwareVersion:(board?.["current-firmware"] as string) ?? null,
+      routerOsVersion:(res["version"]             as string) ?? null,
+      cpu:            (res["cpu"]                 as string) ?? null,
+      cpuCount:       (res["cpu-count"]           as string) ?? null,
+      totalMemory:    (res["total-memory"]        as string) ?? null,
+      freeMemory:     (res["free-memory"]         as string) ?? null,
+      uptime:         (res["uptime"]              as string) ?? null,
+      architecture:   (res["architecture-name"]   as string) ?? null,
+      clockDate:      (clock?.["date"]            as string) ?? null,
+      clockTime:      (clock?.["time"]            as string) ?? null,
     };
   }, 12000);
+}
+
+/**
+ * Compte rapide style Mikhmon — /ip/hotspot/active/print count-only.
+ * Utilise =.proplist=.id pour ne transférer que les identifiants internes,
+ * sans uptime / bytes-in / bytes-out / address / mac → ~10-50× moins de
+ * données qu'un listSessions() complet sur un parc de 100+ sessions actives.
+ */
+export async function countSessionsFast(conn: RouterConnection): Promise<number> {
+  return withRouter(conn, async (api) => {
+    const result = await api.write("/ip/hotspot/active/print", ["=.proplist=.id"]);
+    return result.length;
+  }, 5_000, "high");
+}
+
+/**
+ * Fetch minimal des vouchers pour le comptage rapide du dashboard.
+ * N'interroge que name, disabled, profile, mac-address — les seuls champs
+ * nécessaires à computeUsersCount(). Pas de password / comment / limits.
+ * Beaucoup plus rapide sur les grands parcs (>5 000 vouchers).
+ */
+export async function listHotspotUsersFast(conn: RouterConnection): Promise<HotspotUser[]> {
+  return withRouter(conn, async (api) => {
+    const users = await api.write("/ip/hotspot/user/print", [
+      "=.proplist=name,disabled,profile,mac-address",
+    ]);
+    return users.map((u) => ({
+      username:        decodeRouterText((u["name"]        as string) ?? ""),
+      password:        "",   // non récupéré, non nécessaire au comptage
+      profile:         decodeRouterText((u["profile"]     as string) ?? ""),
+      comment:         null,
+      limitUptime:     null,
+      limitBytesTotal: null,
+      macAddress:      (u["mac-address"] as string) || null,
+      server:          null,
+      disabled:        (u["disabled"]    as string) === "true",
+    }));
+  }, 15_000, "high");
 }
 
 const EMPTY_PARSED = { price: "", validity: "", lockMac: false, sellingPrice: "", expiredMode: "", parentQueue: "" };
