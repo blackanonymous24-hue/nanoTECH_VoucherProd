@@ -748,7 +748,7 @@ export default function GenerateVouchers() {
 
   const handleCopyVouchers = async (lot: LastLot) => {
     const lines = lot.vouchers.map((v) =>
-      `${v.username}${v.username !== v.password ? ` / ${v.password}` : ""}${v.validity ? ` [${v.validity}]` : ""}${v.price ? ` - ${v.price} FCFA` : ""}`
+      v.username !== v.password ? `${v.username} / ${v.password}` : v.username
     );
     await navigator.clipboard.writeText(lines.join("\n"));
     setCopiedLot(true);
