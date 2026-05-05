@@ -309,6 +309,9 @@ export default function GenerateVouchers() {
       autoLoadAttempted.delete(selectedRouterId);
     }
     setLastLot(loadLastLot(selectedRouterId));
+    // Réinitialise le vendeur et le profil sélectionnés (spécifiques à chaque routeur)
+    setVendorId("");
+    setProfile("");
   }, [selectedRouterId, autoLoadAttempted]);
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher

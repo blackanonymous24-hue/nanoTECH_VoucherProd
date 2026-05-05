@@ -206,6 +206,20 @@ export default function Vouchers() {
   const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
   const [lotsVendorPopoverOpen, setLotsVendorPopoverOpen] = useState(false);
 
+  // Réinitialise tous les filtres et la sélection quand le routeur change
+  useEffect(() => {
+    setSearch("");
+    setFilterProfile("all");
+    setFilterComment("all");
+    setFilterVendor("all");
+    setFilterStatus("all");
+    setPage(0);
+    setSelectedUsernames(new Set());
+    setLotsSearch("");
+    setLotsFilterProfile("all");
+    setLotsFilterVendor("all");
+  }, [selectedRouterId]);
+
   // ── Add User dialog (Mikhmon-style) ─────────────────────────────────────────
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [addServer, setAddServer] = useState("all");

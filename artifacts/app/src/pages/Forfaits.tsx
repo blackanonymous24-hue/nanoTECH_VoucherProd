@@ -119,6 +119,15 @@ export default function Forfaits() {
 
   const localCacheKey = selectedRouterId ? `forfaits-cache:${selectedRouterId}` : null;
 
+  // Ferme le dialog d'édition si on change de routeur (évite d'éditer un profil du mauvais routeur)
+  useEffect(() => {
+    setShowDialog(false);
+    setEditingName(null);
+    setEditingMikrotikId(null);
+    setForm(defaultForm);
+    setError(null);
+  }, [selectedRouterId]);
+
   useEffect(() => {
     if (!localCacheKey) {
       setLocalProfiles([]);

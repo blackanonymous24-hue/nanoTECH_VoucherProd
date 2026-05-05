@@ -322,6 +322,9 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
   const [selectedVendor, setSelectedVendor] = useState<{ id: number; name: string } | null>(null);
   const queryClient = useQueryClient();
 
+  // Retour au classement si on change de routeur pendant la vue détail vendeur
+  useEffect(() => { setSelectedVendor(null); }, [selectedRouterId]);
+
   const isDaily = period === "daily";
   const title = isDaily ? "Ventes journalières" : "Ventes mensuelles";
   const subtitle = isDaily ? "Classement du jour" : "Classement du mois en cours";
