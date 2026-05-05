@@ -691,7 +691,7 @@ function RouterFormDialog({
   const [username, setUsername] = useState(router?.username ?? "admin");
   const [password, setPassword] = useState(router?.password ?? "");
 
-  const canSubmit = !pending && name.trim() && address.trim() && username.trim() && (!isEdit || true) && (isEdit ? true : password.length >= 1);
+  const canSubmit = !pending && !!name.trim() && !!address.trim() && !!username.trim() && password.length >= 1;
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -711,16 +711,10 @@ function RouterFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div><Label>Utilisateur <span className="text-red-500">*</span></Label><Input value={username} onChange={(e) => setUsername(e.target.value)} /></div>
             <div>
-              <Label>
-                Mot de passe{" "}
-                {isEdit
-                  ? <span className="text-xs font-normal text-gray-400">(vide = inchangé)</span>
-                  : <span className="text-red-500">*</span>}
-              </Label>
+              <Label>Mot de passe <span className="text-red-500">*</span></Label>
               <PasswordInput
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={isEdit ? "••••••••" : ""}
               />
             </div>
           </div>
