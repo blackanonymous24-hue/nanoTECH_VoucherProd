@@ -1853,12 +1853,12 @@ export default function Vouchers() {
               {lots.length > 0 && (
                 <Card className="mb-4">
                   <CardContent className="py-3">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="relative flex-1 min-w-48">
+                    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+                      <div className="relative flex-1 min-w-0">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                         <Input
-                          className="pl-8"
-                          placeholder="Rechercher un lot, un vendeur, un forfait..."
+                          className="pl-8 min-w-0"
+                          placeholder="Rechercher un lot..."
                           value={lotsSearch}
                           onChange={(e) => setLotsSearch(e.target.value)}
                         />
@@ -1869,7 +1869,7 @@ export default function Vouchers() {
                           <Button
                             variant="outline"
                             role="combobox"
-                            className={`w-40 justify-between text-sm font-normal ${lotsFilterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                            className={`flex-shrink-0 w-36 sm:w-40 justify-between text-sm font-normal ${lotsFilterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
                             <span className="truncate">
                               {lotsFilterVendor === "all" ? "Tous les vendeurs" : lotsFilterVendor}
@@ -1908,7 +1908,7 @@ export default function Vouchers() {
                           <Button
                             variant="outline"
                             role="combobox"
-                            className={`w-44 justify-between text-sm font-normal ${lotsFilterProfile !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                            className={`flex-shrink-0 w-36 sm:w-44 justify-between text-sm font-normal ${lotsFilterProfile !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
                             <span className="truncate">
                               {lotsFilterProfile === "all" ? "Tous les forfaits" : lotsFilterProfile}
@@ -1943,13 +1943,13 @@ export default function Vouchers() {
                           variant="ghost"
                           size="sm"
                           onClick={() => { setLotsSearch(""); setLotsFilterProfile("all"); setLotsFilterVendor("all"); }}
-                          className="text-gray-400 hover:text-gray-600"
+                          className="flex-shrink-0 text-gray-400 hover:text-gray-600"
                         >
                           Réinitialiser
                         </Button>
                       )}
 
-                      <span className="text-xs text-gray-400 ml-auto">
+                      <span className="text-xs text-gray-400 flex-shrink-0 ml-auto whitespace-nowrap">
                         {filteredLots.length === lots.length
                           ? `${lots.length} lot(s)`
                           : `${filteredLots.length} / ${lots.length} lot(s)`}
