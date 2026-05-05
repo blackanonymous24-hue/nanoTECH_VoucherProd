@@ -480,13 +480,14 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       ],
       sub: {
         key: "vendors",
-        label: "Suivi de vente par vendeur",
+        label: "Performance de vente",
         icon: Users,
         items: [
           { href: "/vendors",                    label: "Vendeurs",             icon: Users },
           ...(hasVendors ? [{ href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard }] : []),
           ...(hasVendors ? [{ href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet }] : []),
           ...(hasVendors ? [{ href: "/vendors/tracking",          label: "Rapport par vendeur",  icon: ListOrdered }] : []),
+          { href: "/reports", label: "Ventes par performance", icon: BarChart3 },
         ],
       },
     },
