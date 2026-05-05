@@ -1166,12 +1166,12 @@ function StatCard({
             <div className="h-5 w-16 bg-gray-200 rounded animate-pulse mt-0.5" />
           ) : label !== undefined ? (
             <>
-              <p className="font-bold text-gray-900 text-sm leading-tight truncate">
+              <p className="font-bold text-gray-900 text-2xl leading-none mt-0.5 truncate tabular-nums">
                 {amountValue !== undefined
                   ? amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })
                   : (label || "0")}
-                <span className="text-[9px] font-normal text-gray-400 ml-0.5">{currency || ""}</span>
               </p>
+              <p className="text-[9px] font-medium text-gray-400 leading-none truncate">{currency || "FCFA"}</p>
               {sub && <p className="text-[9px] text-gray-400 leading-tight truncate">{sub}</p>}
             </>
           ) : (
