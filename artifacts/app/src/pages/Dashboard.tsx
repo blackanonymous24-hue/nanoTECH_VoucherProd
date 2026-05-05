@@ -824,7 +824,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1 sm:gap-4 mb-3 [grid-auto-rows:5.5rem] sm:[grid-auto-rows:auto]">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1 sm:gap-4 mb-3 [grid-auto-rows:4.75rem] sm:[grid-auto-rows:auto]">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? activeSessions : 0}
@@ -874,21 +874,21 @@ export default function Dashboard() {
           onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
         >
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-3 h-full flex items-center gap-2.5">
-              <div className="p-2 bg-emerald-100 rounded-xl flex-shrink-0">
-                <UserPlus className="h-6 w-6 text-emerald-600" />
+            <CardContent className="p-2.5 h-full flex items-center gap-2">
+              <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
+                <UserPlus className="h-5 w-5 text-emerald-600" />
               </div>
-              <p className="text-[15px] font-bold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
+              <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
             </CardContent>
           </Card>
         </button>
         <Link href="/generate" className="block lg:hidden">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-3 h-full flex items-center gap-2.5">
-              <div className="p-2 bg-amber-100 rounded-xl flex-shrink-0">
-                <Zap className="h-6 w-6 text-amber-500" />
+            <CardContent className="p-2.5 h-full flex items-center gap-2">
+              <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
+                <Zap className="h-5 w-5 text-amber-500" />
               </div>
-              <p className="text-[15px] font-bold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
+              <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
             </CardContent>
           </Card>
         </Link>
