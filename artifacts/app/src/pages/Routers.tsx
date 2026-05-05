@@ -38,8 +38,6 @@ type RouterFormData = {
   address: string;
   username: string;
   password: string;
-  changePassword: string;
-  confirmPassword: string;
   autoDeleteSalesScripts: boolean;
 };
 
@@ -51,8 +49,6 @@ const emptyForm: RouterFormData = {
   address: "",
   username: "admin",
   password: "",
-  changePassword: "",
-  confirmPassword: "",
   autoDeleteSalesScripts: false,
 };
 
@@ -78,17 +74,13 @@ function parseAddress(address: string): { host: string; port: number } {
 function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { token } = useAuth();
   const { toast } = useToast();
-  const [form, setForm] = useState({ login: "", password: "", confirm: "" });
+  const [form, setForm] = useState({ login: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (form.password && form.password !== form.confirm) {
-      setError("Les mots de passe ne correspondent pas");
-      return;
-    }
     if (!form.login.trim() && !form.password) {
       setError("Renseignez au moins un champ à modifier");
       return;
@@ -120,7 +112,7 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
         return;
       }
       toast({ title: "Identifiants mis à jour" });
-      setForm({ login: "", password: "", confirm: "" });
+      setForm({ login: "", password: "" });
       onClose();
     } catch {
       setError("Erreur de communication avec le serveur");
@@ -146,22 +138,12 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
             />
           </div>
           <div>
-            <Label>Nouveau mot de passe</Label>
+            <Label>Mot de passe</Label>
             <PasswordInput
               className="mt-1"
               placeholder="Laisser vide pour conserver"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label>Confirmer le mot de passe</Label>
-            <PasswordInput
-              className="mt-1"
-              placeholder="••••••••"
-              value={form.confirm}
-              onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-              disabled={!form.password}
             />
           </div>
           {error && (
@@ -237,8 +219,6 @@ export default function Routers() {
       address: `${r.host}:${r.port}`,
       username: r.username,
       password: (r as { password?: string }).password ?? "",
-      changePassword: "",
-      confirmPassword: "",
       autoDeleteSalesScripts: (r as { autoDeleteSalesScripts?: boolean }).autoDeleteSalesScripts ?? false,
     });
     setEditRouter(r);
@@ -252,17 +232,6 @@ export default function Routers() {
       toast({ title: "Adresse invalide", description: "Format attendu: ip:port ou domaine:port", variant: "destructive" });
       return;
     }
-    // Validate password change when editing
-    if (editRouter && form.changePassword) {
-      if (form.changePassword.length < 4) {
-        toast({ title: "Mot de passe trop court", description: "Minimum 4 caractères requis", variant: "destructive" });
-        return;
-      }
-      if (form.changePassword !== form.confirmPassword) {
-        toast({ title: "Mots de passe différents", description: "Les deux mots de passe doivent être identiques", variant: "destructive" });
-        return;
-      }
-    }
     const basePayload = {
       name: form.name,
       hotspotName: form.hotspotName || undefined,
@@ -274,11 +243,7 @@ export default function Routers() {
       autoDeleteSalesScripts: form.autoDeleteSalesScripts,
     };
     if (editRouter) {
-      // Only include password if user explicitly typed a new one
-      const updateData = form.changePassword
-        ? { ...basePayload, password: form.changePassword }
-        : basePayload;
-      await updateMutation.mutateAsync({ id: editRouter.id, data: updateData });
+      await updateMutation.mutateAsync({ id: editRouter.id, data: { ...basePayload, password: form.password } });
       toast({ title: "Routeur mis à jour" });
     } else {
       await createMutation.mutateAsync({ data: { ...basePayload, password: form.password } });
@@ -584,7 +549,7 @@ export default function Routers() {
                 />
                 <p className="text-xs text-gray-400 mt-0.5">Port API RouterOS — par défaut 8728 (ou votre port NAT)</p>
               </div>
-              <div className={`grid gap-3 ${!editRouter ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 <div>
                   <Label>Utilisateur</Label>
                   <Input
@@ -595,47 +560,17 @@ export default function Routers() {
                     required
                   />
                 </div>
-                {!editRouter && (
-                  <div>
-                    <Label>Mot de passe <span className="text-red-500">*</span></Label>
-                    <PasswordInput
-                      className="mt-1"
-                      placeholder=""
-                      value={form.password}
-                      onChange={(e) => setForm({ ...form, password: e.target.value })}
-                      required
-                    />
-                  </div>
-                )}
-              </div>
-              {editRouter && (
-                <div className="space-y-3 pt-2 border-t border-dashed border-gray-200">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Changer le mot de passe</p>
-                  <div>
-                    <Label>
-                      Nouveau mot de passe{" "}
-                      <span className="text-gray-400 text-xs font-normal">(laisser vide pour conserver)</span>
-                    </Label>
-                    <PasswordInput
-                      className="mt-1"
-                      placeholder="(inchangé)"
-                      value={form.changePassword}
-                      onChange={(e) => setForm({ ...form, changePassword: e.target.value, confirmPassword: "" })}
-                    />
-                  </div>
-                  {form.changePassword && (
-                    <div>
-                      <Label>Confirmer le nouveau mot de passe</Label>
-                      <PasswordInput
-                        className="mt-1"
-                        placeholder="••••••••"
-                        value={form.confirmPassword}
-                        onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                      />
-                    </div>
-                  )}
+                <div>
+                  <Label>Mot de passe <span className="text-red-500">*</span></Label>
+                  <PasswordInput
+                    className="mt-1"
+                    placeholder=""
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    required
+                  />
                 </div>
-              )}
+              </div>
               <label className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
                 <input
                   type="checkbox"

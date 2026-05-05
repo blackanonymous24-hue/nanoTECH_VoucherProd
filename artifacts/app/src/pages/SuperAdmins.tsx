@@ -664,7 +664,8 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
   pending: boolean;
 }) {
   const [displayName, setDisplayName] = useState(admin.displayName ?? "");
-  const [password, setPassword] = useState("");
+  const originalPassword = admin.credentialPreview?.password ?? "";
+  const [password, setPassword] = useState(originalPassword);
   const [isActive, setIsActive] = useState(admin.isActive);
 
   return (
@@ -680,8 +681,8 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
             <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </div>
           <div>
-            <Label>Nouveau mot de passe</Label>
-            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="laisser vide pour conserver" />
+            <Label>Mot de passe</Label>
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
           </div>
           {!admin.isSuperAdmin && (
             <div className="flex items-center justify-between rounded-lg border p-3">
@@ -700,7 +701,7 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
             onClick={() => {
               const payload: { displayName?: string | null; password?: string; isActive?: boolean } = {};
               if (displayName !== (admin.displayName ?? "")) payload.displayName = displayName.trim() || null;
-              if (password.length >= 4) payload.password = password;
+              if (password !== originalPassword && password.length >= 4) payload.password = password;
               if (!admin.isSuperAdmin && isActive !== admin.isActive) payload.isActive = isActive;
               onSubmit(payload);
             }}

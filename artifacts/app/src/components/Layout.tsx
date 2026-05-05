@@ -904,17 +904,14 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             {/* Password */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Password</Label>
-              <div className="relative">
-                <Input type={addShowPassword ? "text" : "password"} value={addPassword}
-                  onChange={(e) => setAddPassword(e.target.value)}
-                  disabled={addLoading || addEditLoading}
-                  className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 pr-8"
-                  autoComplete="new-password" />
-                <button type="button" onClick={() => setAddShowPassword((v) => !v)}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded bg-white text-slate-700 hover:bg-slate-100">
-                  {addShowPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                </button>
-              </div>
+              <PasswordInput
+                value={addPassword}
+                onChange={(e) => setAddPassword(e.target.value)}
+                disabled={addLoading || addEditLoading}
+                className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+                buttonClassName="text-slate-300 hover:text-white"
+                autoComplete="new-password"
+              />
             </div>
             {/* Profile */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">

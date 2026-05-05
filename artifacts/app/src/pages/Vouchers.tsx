@@ -56,6 +56,7 @@ import {
   CheckCircle2,
   Copy,
 } from "lucide-react";
+import { PasswordInput } from "@/components/ui/password-input";
 import {
   Dialog,
   DialogContent,
@@ -190,7 +191,6 @@ export default function Vouchers() {
   const [editBypassMac, setEditBypassMac] = useState("");
   const [editBypassComment, setEditBypassComment] = useState("");
   const [linkBypass, setLinkBypass] = useState(false);
-  const [editShowPassword, setEditShowPassword] = useState(false);
   const [isSavingRename, setIsSavingRename] = useState(false);
   const [confirmResetUser, setConfirmResetUser] = useState<HotspotUser | null>(null);
   const [isResetting, setIsResetting] = useState(false);
@@ -903,7 +903,6 @@ export default function Vouchers() {
     setEditBypassMac(user.macAddress ?? "");
     setEditBypassComment("");
     setLinkBypass(!!user.macAddress);
-    setEditShowPassword(false);
   };
 
   const handleRenameUser = async () => {
@@ -2349,27 +2348,13 @@ export default function Vouchers() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-password" className="text-xs text-muted-foreground">Mot de passe</Label>
-              <div className="relative">
-                <Input
-                  id="edit-password"
-                  type={editShowPassword ? "text" : "password"}
-                  value={editPassword}
-                  onChange={(e) => setEditPassword(e.target.value)}
-                  className="font-mono pr-10"
-                  disabled={isSavingRename || isTogglingEditUserDisabled}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 shrink-0"
-                  onClick={() => setEditShowPassword((v) => !v)}
-                  disabled={isSavingRename || isTogglingEditUserDisabled}
-                  aria-label={editShowPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-                >
-                  {editShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
+              <PasswordInput
+                id="edit-password"
+                value={editPassword}
+                onChange={(e) => setEditPassword(e.target.value)}
+                className="font-mono"
+                disabled={isSavingRename || isTogglingEditUserDisabled}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-profile" className="text-xs text-muted-foreground">Forfait (profil)</Label>
@@ -2623,19 +2608,14 @@ export default function Vouchers() {
             {/* Password */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Password</Label>
-              <div className="relative">
-                <Input type={addShowPassword ? "text" : "password"} value={addPassword}
-                  onChange={(e) => setAddPassword(e.target.value)}
-                  disabled={isSavingUser || addEditLoading}
-                  className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 pr-8"
-                  autoComplete="new-password"
-                  aria-label={addShowPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} />
-                <button type="button" onClick={() => setAddShowPassword((v) => !v)}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded bg-white text-slate-700 hover:bg-slate-100"
-                  aria-pressed={addShowPassword}>
-                  {addShowPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                </button>
-              </div>
+              <PasswordInput
+                value={addPassword}
+                onChange={(e) => setAddPassword(e.target.value)}
+                disabled={isSavingUser || addEditLoading}
+                className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
+                buttonClassName="text-slate-300 hover:text-white"
+                autoComplete="new-password"
+              />
             </div>
 
             {/* Profile */}

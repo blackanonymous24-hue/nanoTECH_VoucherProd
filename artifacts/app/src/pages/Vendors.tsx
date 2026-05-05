@@ -67,6 +67,7 @@ export function PersonForm({
     phone: string | null;
     email: string | null;
     username: string | null;
+    password: string | null;
     commentSuffix: string | null;
     commentSuffix2: string | null;
     commissionRate: number | null;
@@ -86,7 +87,7 @@ export function PersonForm({
   const [phone, setPhone] = useState(initial?.phone ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [username, setUsername] = useState(initial?.username ?? "");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(initial?.password ?? "");
   const [commentSuffix, setCommentSuffix] = useState(initial?.commentSuffix ?? "");
   const [commentSuffix2, setCommentSuffix2] = useState(initial?.commentSuffix2 ?? "");
   const [suffixTouched, setSuffixTouched] = useState(!!initial?.commentSuffix);
@@ -181,10 +182,8 @@ export function PersonForm({
             </div>
             <div>
               <Label htmlFor="pf-password">
-                {isEdit ? "Nouveau mot de passe" : "Mot de passe"}
-                <span className="text-gray-400 text-xs ml-1">
-                  {isEdit ? "(laisser vide = inchangé)" : "(min. 4 caractères)"}
-                </span>
+                Mot de passe
+                {!isEdit && <span className="text-gray-400 text-xs ml-1">(min. 4 caractères)</span>}
               </Label>
               <PasswordInput
                 id="pf-password"
@@ -732,6 +731,7 @@ export default function Vendors() {
                 phone: editVendor.phone ?? null,
                 email: (editVendor as any).email ?? null,
                 username: (editVendor as any).username ?? null,
+                password: (editVendor as any).password ?? null,
                 commentSuffix: (editVendor as any).commentSuffix ?? null,
                 commentSuffix2: (editVendor as any).commentSuffix2 ?? null,
                 commissionRate: (editVendor as any).commissionRate ?? 0,
