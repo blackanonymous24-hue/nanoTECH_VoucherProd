@@ -1,6 +1,5 @@
-import { useState, useMemo, useRef, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
+import { useState, useMemo, useRef, useCallback, Fragment } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -171,6 +170,17 @@ function mondayOfDate(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Dimanche de la même semaine civile que le lundi ISO `mondayIso`. */
+function sundayOfWeekMonday(mondayIso: string): string {
+  return addDaysIso(mondayIso, 6);
+}
+
+/** Semaine civile (lun → dim) pour libellé regroupement arriérés. */
+function arrearWeekRangeLabel(mondayIso: string): string {
+  const sun = sundayOfWeekMonday(mondayIso);
+  return `Arriéré de la semaine du ${fmtDateFr(mondayIso)} au ${fmtDateFr(sun)}`;
+}
+
 function weekLabelFromRange(weekStart?: string, weekEnd?: string): string {
   if (!weekStart || !weekEnd) return "Semaine";
   return `${fmtDateFr(weekStart)} – ${fmtDateFr(weekEnd)}`;
@@ -225,8 +235,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   const grandCount  = data.summary.reduce((s, r) => s + r.count,  0);
   const activeSummary = data.summary.filter((s) => s.count > 0);
 
-  const summaryRows: string[] = [];
-  for (const s of activeSummary) {
+  const summaryByVendor = activeSummary.map((s) => {
     const arr = (arrears?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
     const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
     const weekCarry = data.weekSummary?.find((w) => w.vendorId === s.vendorId)?.carryOverAmount ?? 0;
@@ -235,30 +244,34 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
     const hasArr = weekCarry > 0 || arr.length > 0;
     const vname = escapeHtmlPrint(s.vendorName);
 
-    summaryRows.push(
-      `<tr><td>${vname}</td><td>Montant vendu</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
-    );
+    const bodyRows: string[] = [];
+    bodyRows.push(`<tr><td>Montant vendu</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`);
     if (weekCarry > 0) {
-      summaryRows.push(
-        `<tr><td></td><td>${escapeHtmlPrint(arrearsWeekLabel(data.weekStart))}</td><td class="num">${fmtAmount(weekCarry)} FCFA</td></tr>`,
+      bodyRows.push(
+        `<tr><td>${escapeHtmlPrint(arrearsWeekLabel(data.weekStart))}</td><td class="num">${fmtAmount(weekCarry)} FCFA</td></tr>`,
       );
     }
     for (const g of grouped) {
-      summaryRows.push(
-        `<tr><td></td><td>${escapeHtmlPrint(arrearDisplayLabel(g))}</td><td class="num">${fmtAmount(g.remaining)} FCFA</td></tr>`,
+      bodyRows.push(
+        `<tr><td>${escapeHtmlPrint(arrearDisplayLabel(g))}</td><td class="num">${fmtAmount(g.remaining)} FCFA</td></tr>`,
       );
     }
     if (hasArr) {
-      summaryRows.push(
-        `<tr class="sum-line"><td></td><td>Total à verser</td><td class="num">${fmtAmount(totalDu)} FCFA</td></tr>`,
+      bodyRows.push(
+        `<tr class="sum-line"><td>Total à verser</td><td class="num">${fmtAmount(totalDu)} FCFA</td></tr>`,
       );
     }
-  }
 
-  const summaryTable = `<table class="sum-print">
-  <thead><tr><th>Vendeur</th><th>Libellé</th><th class="num">Montant</th></tr></thead>
-  <tbody>${summaryRows.join("")}</tbody>
-</table>`;
+    return `<div class="vendor-summary">
+  <h4>${vname}</h4>
+  <table class="sum-print">
+  <thead><tr><th>Libellé</th><th class="num">Montant</th></tr></thead>
+  <tbody>${bodyRows.join("")}</tbody>
+  </table>
+</div>`;
+  }).join("");
+
+  const summarySection = `<div class="summary-vendors">${summaryByVendor}</div>`;
 
   const detailRows = vouchers.map((v, i) => `<tr>
     <td>${i + 1}</td><td>${escapeHtmlPrint(v.time ?? "—")}</td><td>${escapeHtmlPrint(v.username)}</td>
@@ -273,7 +286,10 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   h2 { margin: 0 0 8px; font-size: 14px; font-weight: bold; }
   h3 { margin: 16px 0 8px; font-size: 12px; font-weight: bold; padding-bottom: 4px; border-bottom: 1px solid #000; }
   p.meta { margin: 0 0 12px; font-size: 10px; color: #222; }
-  table.sum-print { width: 100%; border-collapse: collapse; margin-bottom: 4px; font-size: 10px; }
+  .summary-vendors { margin-bottom: 8px; }
+  .vendor-summary { margin: 0 0 14px; page-break-inside: avoid; break-inside: avoid; }
+  .vendor-summary h4 { margin: 0 0 6px; font-size: 11px; font-weight: bold; padding-bottom: 2px; border-bottom: 1px solid #000; }
+  table.sum-print { width: 100%; border-collapse: collapse; margin: 0; font-size: 10px; }
   table.sum-print th, table.sum-print td { border: 1px solid #000; padding: 6px 8px; vertical-align: top; }
   table.sum-print th { text-align: left; font-weight: bold; }
   table.sum-print td.num, table.sum-print th.num { text-align: right; white-space: nowrap; }
@@ -297,6 +313,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   .right { text-align: right; }
   @page { size: A4; margin: 12mm; }
   @media print {
+    .vendor-summary { page-break-inside: avoid; break-inside: avoid; }
     table.sum-print tr { break-inside: avoid; page-break-inside: avoid; }
     table.detail-table thead { display: table-header-group; }
     table.detail-table tr.row-total { page-break-inside: avoid; break-inside: avoid; page-break-before: avoid; break-before: avoid; }
@@ -305,7 +322,7 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
 <h2>Suivi des ventes par vendeur</h2>
 <p class="meta">Date : ${dateFr} &nbsp;|&nbsp; ${grandCount} ticket${grandCount !== 1 ? "s" : ""} &nbsp;|&nbsp; ${fmtAmount(grandTotal)} FCFA &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
 <h3>Résumé de la vente du ${dateFr}</h3>
-${summaryTable}
+${summarySection}
 <div class="detail-block">
 <h3 class="detail-title">Détail (${vouchers.length} ticket${vouchers.length !== 1 ? "s" : ""})</h3>
 <table class="detail-table">
@@ -716,16 +733,11 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
 export default function VendorTracking() {
   const { selectedRouterId } = useRouterContext();
 
-  const queryClient = useQueryClient();
-
   const [date, setDate]       = useState<string>(yesterdayLocal());
   const [applied, setApplied] = useState<string>(yesterdayLocal());
   const [search, setSearch]   = useState("");
   const [saving, setSaving]   = useState(false);
   const [savingWeek, setSavingWeek] = useState(false);
-  const [payingKey, setPayingKey]   = useState<string | null>(null); // "vendorId|date"
-  const [payAmount, setPayAmount]   = useState<string>("");
-  const [payLoading, setPayLoading] = useState(false);
 
   const summaryRef = useRef<HTMLDivElement>(null);
 
@@ -816,79 +828,6 @@ export default function VendorTracking() {
   const prevWeekLabel = weekLabelFromRange(prevWeekData?.weekStart, prevWeekData?.weekEnd);
   const prevWeekSummary = prevWeekData?.weekSummary ?? [];
   const hasPrevWeekData = prevWeekSummary.length > 0;
-
-  const submitDailyPayment = useCallback(async (vendorId: number | null, date: string, amount: number, underlying?: DailyArrearEntry[]) => {
-    if (!vendorId || !selectedRouterId || amount <= 0) return;
-    setPayLoading(true);
-    try {
-      // If consolidated entry: distribute payment across underlying days, oldest first
-      if (underlying && underlying.length > 0) {
-        const ordered = [...underlying].filter((e) => e.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
-        let left = Math.round(amount);
-        let applied = 0;
-        let failure: string | null = null;
-        for (const e of ordered) {
-          if (left <= 0) break;
-          const pay = Math.min(left, e.remaining);
-          if (pay > 0) {
-            const r = await fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ routerId: selectedRouterId, date: e.date, amount: pay }),
-            });
-            if (!r.ok) { failure = await r.text().catch(() => "Échec inconnu"); break; }
-            applied += pay;
-            left -= pay;
-          }
-        }
-        // Always invalidate if any sub-write succeeded so UI reflects partial application
-        if (applied > 0) await invalidateAllPaymentQueries(queryClient, selectedRouterId);
-        if (failure) {
-          window.alert(applied > 0
-            ? `Versement partiellement appliqué : ${applied} FCFA enregistré, ${Math.round(amount) - applied} FCFA non appliqué (${failure})`
-            : `Erreur : ${failure}`);
-          return;
-        }
-      } else {
-        const r = await fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ routerId: selectedRouterId, date, amount: Math.round(amount) }),
-        });
-        if (!r.ok) {
-          window.alert(`Erreur : ${await r.text().catch(() => "Échec inconnu")}`);
-          return;
-        }
-        await invalidateAllPaymentQueries(queryClient, selectedRouterId);
-      }
-      setPayingKey(null);
-      setPayAmount("");
-    } finally {
-      setPayLoading(false);
-    }
-  }, [selectedRouterId, applied, queryClient]);
-
-  /** Solder en intégralité tous les arriérés passés (avant la semaine en cours) pour un vendeur */
-  const solderPrevArrears = useCallback(async (vendorId: number | null, prevEntries: DailyArrearEntry[]) => {
-    if (!vendorId || !selectedRouterId || prevEntries.length === 0) return;
-    setPayLoading(true);
-    try {
-      await Promise.all(
-        prevEntries
-          .filter((e) => e.remaining > 0)
-          .map((e) =>
-            fetch(`${BASE}/api/vendors/${vendorId}/daily-payments`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ routerId: selectedRouterId, date: e.date, amount: Math.round(e.remaining) }),
-            })
-          )
-      );
-      await invalidateAllPaymentQueries(queryClient, selectedRouterId);
-    } finally {
-      setPayLoading(false);
-    }
-  }, [selectedRouterId, queryClient]);
 
   if (!selectedRouterId) {
     return (
@@ -1030,9 +969,16 @@ export default function VendorTracking() {
                     const allArrears = (arrearsData?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
                     const currentWeekStart = mondayOfDate(applied);
                     const prevArrears = allArrears.filter((a) => a.date < currentWeekStart);
-                    const prevTotal = prevArrears.reduce((sum, a) => sum + a.remaining, 0);
+                    const currentArrears = allArrears.filter((a) => a.date >= currentWeekStart);
                     const weekCarry = weekSummary.find((w) => w.vendorId === s.vendorId)?.carryOverAmount ?? 0;
-                    const groupedArrears = groupConsecutiveArrears(allArrears);
+                    const prevByWeek = new Map<string, DailyArrearEntry[]>();
+                    for (const a of prevArrears) {
+                      const m = mondayOfDate(a.date);
+                      if (!prevByWeek.has(m)) prevByWeek.set(m, []);
+                      prevByWeek.get(m)!.push(a);
+                    }
+                    const prevWeekMonSorted = [...prevByWeek.keys()].sort((a, b) => a.localeCompare(b));
+                    const groupedCurrentArrears = groupConsecutiveArrears(currentArrears);
                     const hasArrears = weekCarry > 0 || allArrears.length > 0;
                     const pal = vpal(s.vendorId);
                     return (
@@ -1054,22 +1000,48 @@ export default function VendorTracking() {
                         {/* Arrears only (forfait breakdown + total row removed) */}
                         <table className="w-full border-collapse">
                 <tbody>
-                            {prevTotal > 0 && (
-                              <tr className="border-t border-red-200 bg-red-50/80">
-                                <td colSpan={3} className="px-3 py-1.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-[10px] text-red-700">Arriérés avant la semaine en cours ({prevArrears.length} jour{prevArrears.length > 1 ? "s" : ""})</span>
-                                    <button
-                                      className="text-[10px] px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors whitespace-nowrap"
-                                      disabled={payLoading}
-                                      onClick={() => solderPrevArrears(s.vendorId, prevArrears)}
-                                    >
-                                      {payLoading ? "…" : "Solder tout"}
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
+                            {prevWeekMonSorted.map((weekMon) => {
+                              const entries = prevByWeek.get(weekMon) ?? [];
+                              const groupedPrev = groupConsecutiveArrears(entries);
+                              return (
+                                <Fragment key={`${s.vendorId}-prev-${weekMon}`}>
+                                  <tr className="border-t border-red-100 bg-red-50/50">
+                                    <td colSpan={3} className="px-3 py-1">
+                                      <span className="text-[10px] font-semibold text-red-900 leading-tight">
+                                        {arrearWeekRangeLabel(weekMon)}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                  {groupedPrev.map((arr) => {
+                                    const underlying = arr.__underlying;
+                                    const pKey = `${s.vendorId}|prev-${weekMon}|${underlying?.map((e) => e.date).join(",") ?? arr.date}`;
+                                    return (
+                                      <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
+                                        <td colSpan={3} className="px-3 py-1.5 pl-5">
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div className="flex flex-col gap-0.5 min-w-0">
+                                              <div className="flex items-center gap-1 text-orange-700">
+                                                <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
+                                                <span className="text-xs font-medium leading-tight">{arrearDisplayLabel(arr)}</span>
+                                              </div>
+                                              {arr.paidAmount > 0 && (
+                                                <span className="text-[10px] text-gray-500 pl-4">
+                                                  Ventes: {fmtAmount(arr.salesAmount)} · Versé:{" "}
+                                                  {fmtAmount(paidShownVersusWeekContext(arr.paidAmount, arr.salesAmount, 0, 0))}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <span className="text-xs font-bold text-orange-700 tabular-nums flex-shrink-0">
+                                              {fmtAmount(arr.remaining)} FCFA
+                                            </span>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </Fragment>
+                              );
+                            })}
                             {weekCarry > 0 && (
                               <tr className="border-t border-rose-200 bg-rose-50">
                                 <td colSpan={3} className="px-3 py-1.5">
@@ -1083,10 +1055,9 @@ export default function VendorTracking() {
                                 </td>
                               </tr>
                             )}
-                            {groupedArrears.map((arr) => {
+                            {groupedCurrentArrears.map((arr) => {
                               const underlying = arr.__underlying;
-                              const pKey = `${s.vendorId}|${underlying?.map((e) => e.date).join(",") ?? arr.date}`;
-                              const isPaying = payingKey === pKey;
+                              const pKey = `${s.vendorId}|cur|${underlying?.map((e) => e.date).join(",") ?? arr.date}`;
                               return (
                                 <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
                                   <td colSpan={3} className="px-3 py-1.5">
@@ -1102,45 +1073,10 @@ export default function VendorTracking() {
                                           </span>
                                         )}
                                       </div>
-                                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                        <span className="text-xs font-bold text-orange-700 tabular-nums">{fmtAmount(arr.remaining)} FCFA</span>
-                                        {!isPaying && (
-                                          <button
-                                            className="text-[10px] px-2 py-0.5 rounded bg-orange-600 text-white hover:bg-orange-700 transition-colors"
-                                            onClick={() => { setPayingKey(pKey); setPayAmount(String(arr.remaining)); }}
-                                          >
-                                            Verser
-                                          </button>
-                                        )}
-                                      </div>
+                                      <span className="text-xs font-bold text-orange-700 tabular-nums flex-shrink-0">
+                                        {fmtAmount(arr.remaining)} FCFA
+                                      </span>
                                     </div>
-                                    {isPaying && (
-                                      <div className="mt-2 flex items-center gap-1.5 pl-4">
-                                        <Input
-                                          type="number"
-                                          min={1}
-                                          max={arr.remaining}
-                                          className="h-7 w-28 text-xs"
-                                          value={payAmount}
-                                          onChange={(e) => setPayAmount(e.target.value)}
-                                          placeholder="Montant"
-                                        />
-                                        <span className="text-[10px] text-gray-500">FCFA</span>
-                                        <button
-                                          className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
-                                          disabled={payLoading || !payAmount || Number(payAmount) <= 0}
-                                          onClick={() => submitDailyPayment(s.vendorId, arr.date, Number(payAmount), underlying)}
-                                        >
-                                          {payLoading ? "…" : "Confirmer"}
-                                        </button>
-                                        <button
-                                          className="text-[10px] px-2 py-0.5 rounded bg-gray-300 text-gray-700 hover:bg-gray-400 transition-colors"
-                                          onClick={() => { setPayingKey(null); setPayAmount(""); }}
-                                        >
-                                          Annuler
-                                        </button>
-                                      </div>
-                                    )}
                     </td>
                   </tr>
                               );
