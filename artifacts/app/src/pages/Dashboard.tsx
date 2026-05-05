@@ -811,7 +811,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-3">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? activeSessions : 0}
@@ -1080,9 +1080,10 @@ function StatCard({
   href?: string;
 }) {
   const inner = (
-    <Card className={href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}>
-      <CardContent className="pt-5">
-        <div className="flex items-start gap-3">
+    <Card className={`h-full ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
+      <CardContent className="p-2.5 sm:pt-5 sm:px-6">
+        {/* Icône visible seulement sm+ */}
+        <div className="hidden sm:flex items-start gap-3 mb-0">
           <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0 mt-0.5">{icon}</div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
@@ -1123,6 +1124,37 @@ function StatCard({
               )}
             </div>
           </div>
+        </div>
+
+        {/* Version mobile ultra-compacte (< sm) */}
+        <div className="flex sm:hidden flex-col gap-0.5">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-gray-500 font-medium leading-tight truncate">{title}</span>
+            {live && (
+              <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+              </span>
+            )}
+            {fetching && <RefreshCw className="h-2 w-2 text-gray-300 animate-spin flex-shrink-0" />}
+          </div>
+          {loading ? (
+            <div className="h-5 w-16 bg-gray-200 rounded animate-pulse mt-0.5" />
+          ) : label !== undefined ? (
+            <>
+              <p className="font-bold text-gray-900 text-sm leading-tight truncate">
+                {amountValue !== undefined
+                  ? amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })
+                  : (label || "0")}
+                <span className="text-[9px] font-normal text-gray-400 ml-0.5">{currency || ""}</span>
+              </p>
+              {sub && <p className="text-[9px] text-gray-400 leading-tight truncate">{sub}</p>}
+            </>
+          ) : (
+            <p className="font-bold text-gray-900 text-sm leading-tight truncate">
+              {value === undefined ? "—" : value.toLocaleString()}
+            </p>
+          )}
         </div>
       </CardContent>
     </Card>
