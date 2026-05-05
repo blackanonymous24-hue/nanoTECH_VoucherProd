@@ -1400,7 +1400,7 @@ function Dashboard({ token, vendor, onLogout }: {
                           );
                         });
 
-                        if (weekCarry > 0 && weekLbl) {
+                        if (weekCarry > 0 && weekLbl && prevDays.length === 0) {
                           rows.push(
                             <div
                               key="week-carry"
@@ -1450,7 +1450,7 @@ function Dashboard({ token, vendor, onLogout }: {
                       <span className="text-xs font-semibold text-orange-700">Total à verser</span>
                       <span className="text-sm font-bold text-orange-700 tabular-nums">
                         {fmtFcfa(
-                          (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0) +
+                          (prevDays.length === 0 ? (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0) : 0) +
                             arrearsData.days.reduce((s, d) => s + d.remaining, 0),
                         )}{" "}
                         FCFA

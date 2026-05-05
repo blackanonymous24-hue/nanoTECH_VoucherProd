@@ -236,7 +236,7 @@ function vendorArrearSummaryLines(
     }
   }
 
-  if (weekCarry > 0) {
+  if (weekCarry > 0 && prevArrears.length === 0) {
     out.push({ label: arrearsWeekLabel(weekStartMonday), amount: weekCarry, kind: "carry" });
   }
 
@@ -314,7 +314,10 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
     const allArrears = (arrears?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
     const arrTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
     const weekCarry = data.weekSummary?.find((w) => w.vendorId === s.vendorId)?.carryOverAmount ?? 0;
-    const totalDu = s.amount + weekCarry + arrTotal;
+    const currentWeekStartPrint = mondayOfDate(data.date);
+    const prevArrearsPrint = allArrears.filter((a) => a.date < currentWeekStartPrint);
+    const weekCarryEff = weekCarry > 0 && prevArrearsPrint.length === 0 ? weekCarry : 0;
+    const totalDu = s.amount + weekCarryEff + arrTotal;
     const hasArr = weekCarry > 0 || allArrears.length > 0;
     const vname = escapeHtmlPrint(s.vendorName);
 
@@ -1159,7 +1162,7 @@ export default function VendorTracking() {
                                 </Fragment>
                               );
                             })}
-                            {weekCarry > 0 && (
+                            {weekCarry > 0 && prevArrears.length === 0 && (
                               <tr className="border-t border-rose-200 bg-rose-50">
                                 <td colSpan={3} className="px-3 py-1">
                                   <div className="flex items-center justify-between gap-1.5 min-w-0">
@@ -1206,7 +1209,8 @@ export default function VendorTracking() {
                             {/* ── Total à verser ── */}
                             {hasArrears && (() => {
                               const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
-                              const totalDu = s.amount + weekCarry + allArrearsTotal;
+                              const weekCarryForTotal = weekCarry > 0 && prevArrears.length === 0 ? weekCarry : 0;
+                              const totalDu = s.amount + weekCarryForTotal + allArrearsTotal;
                               return (
                                 <tr className="border-t-2 border-blue-900 bg-blue-900">
                                   <td colSpan={3} className="px-3 py-1">
