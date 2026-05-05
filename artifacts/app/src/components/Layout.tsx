@@ -872,7 +872,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
 
   return (
-    <div className="flex min-h-svh bg-gray-100 dark:bg-gray-950 overflow-x-hidden">
+    <div className="flex h-svh bg-gray-100 dark:bg-gray-950 overflow-hidden">
 
       {/* ── Desktop sidebar ── */}
       {!isMobile && (
@@ -882,7 +882,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* ── Mobile: top bar + custom slide-in drawer ── */}
-      <div className={cn("flex flex-col flex-1 min-w-0", !isMobile && "ml-60")}>
+      <div className={cn("flex flex-col flex-1 min-w-0 overflow-hidden", !isMobile && "ml-60")}>
 
         {/* Mobile top bar — 2 rows to avoid overlap on portrait phones */}
         {isMobile && (
@@ -914,7 +914,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Mobile slide-in drawer — positioned below the header */}
         {isMobile && (
-          <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
+          <div className="relative flex-1 min-w-0 overflow-hidden flex flex-col">
             {/* Backdrop */}
             {mobileOpen && (
               <div
@@ -923,19 +923,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               />
             )}
 
-            {/* Sliding nav panel */}
+            {/* Sliding nav panel — full height so it never clips content */}
             <div
               className={cn(
-                "absolute top-0 left-0 w-64 max-w-[min(18rem,85vw)] bg-[#0d1117] text-white border-r border-white/[0.06] z-20 flex flex-col overflow-y-auto overflow-x-hidden transition-transform duration-300 ease-in-out shadow-2xl",
-                "h-auto max-h-full min-h-0",
+                "absolute top-0 left-0 h-full w-64 max-w-[min(18rem,85vw)] bg-[#0d1117] text-white border-r border-white/[0.06] z-20 flex flex-col overflow-y-auto overflow-x-hidden transition-transform duration-300 ease-in-out shadow-2xl",
                 mobileOpen ? "translate-x-0" : "-translate-x-full"
               )}
             >
               <NavContent mobileDrawer onNavigate={() => setMobileOpen(false)} />
             </div>
 
-            {/* Main content — blocked from scrolling while menu is open */}
-            <main className={cn("flex-1 min-h-0", mobileOpen ? "overflow-hidden" : "overflow-y-auto")}>
+            {/* Main content — scrollable always, pointer-events blocked by backdrop when menu open */}
+            <main className="flex-1 overflow-y-auto">
               <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
             </main>
           </div>
