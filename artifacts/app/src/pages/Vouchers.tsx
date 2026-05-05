@@ -2459,7 +2459,7 @@ export default function Vouchers() {
               onClick={() => { resetAddUserForm(); setAddUserOpen(false); }}
               disabled={isSavingUser || addEditLoading}
               className="h-7 text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1 px-2.5">
-              <X className="h-3 w-3" /> Close
+              <X className="h-3 w-3" /> Fermer
             </Button>
             {addDialogMode === "edit" && (
               <Button type="button" size="sm"
@@ -2474,44 +2474,41 @@ export default function Vouchers() {
               disabled={isSavingUser || addEditLoading}
               className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5">
               {(isSavingUser || addEditLoading) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              Save
+              Enregistrer
             </Button>
           </div>
 
           <div className="px-3 pb-3 space-y-1.5 bg-slate-700 overflow-y-auto">
 
-            {/* ── CREATE mode — extra fields ── */}
-            {addDialogMode === "create" && (<>
-              {/* Server */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-                <Label className="text-xs text-slate-300 font-normal">Server</Label>
-                <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox"
-                      className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
-                      <span className="truncate">{addServer || "all"}</span>
-                      <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
-                    <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
-                      className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                      <Check className={`h-3 w-3 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                      all
-                    </button>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </>)}
-
             {/* ── EDIT mode — success banner ── */}
             {addDialogMode === "edit" && (
               <p className="text-xs text-emerald-300 bg-emerald-900/30 border border-emerald-700 rounded px-2 py-1.5">
-                ✓ Utilisateur créé. Modifiez les champs si besoin, puis Save.
+                ✓ Utilisateur créé. Modifiez les champs si besoin, puis Enregistrer.
               </p>
             )}
 
-            {/* ── Shared fields (create + edit) ── */}
+            {/* Server */}
+            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+              <Label className="text-xs text-slate-300 font-normal">Server</Label>
+              <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox"
+                    disabled={isSavingUser || addEditLoading || addDialogMode === "edit"}
+                    className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2 disabled:opacity-40">
+                    <span className="truncate">{addServer || "all"}</span>
+                    <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
+                  <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
+                    className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                    <Check className={`h-3 w-3 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                    all
+                  </button>
+                </PopoverContent>
+              </Popover>
+            </div>
+
             {/* Name */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Name</Label>
@@ -2567,51 +2564,51 @@ export default function Vouchers() {
               </Popover>
             </div>
 
-            {/* ── CREATE mode — remaining fields ── */}
-            {addDialogMode === "create" && (<>
-              {/* Time Limit */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-                <Label className="text-xs text-slate-300 font-normal">Time Limit</Label>
-                <Input value={addTimeLimit} onChange={(e) => setAddTimeLimit(e.target.value)} disabled={isSavingUser}
-                  placeholder="30d, 12h, 4w3d"
-                  className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
-              </div>
+            {/* Time Limit */}
+            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+              <Label className="text-xs text-slate-300 font-normal">Time Limit</Label>
+              <Input value={addTimeLimit} onChange={(e) => setAddTimeLimit(e.target.value)}
+                disabled={isSavingUser || addEditLoading || addDialogMode === "edit"}
+                placeholder="30d, 12h, 4w3d"
+                className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 disabled:opacity-40" />
+            </div>
 
-              {/* Data Limit */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-                <Label className="text-xs text-slate-300 font-normal">Data Limit</Label>
-                <div className="flex gap-1.5">
-                  <Input type="number" min="0" value={addDataLimit} onChange={(e) => setAddDataLimit(e.target.value)}
-                    disabled={isSavingUser}
-                    className="h-8 text-xs flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
-                  <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" role="combobox"
-                        className="h-8 w-16 justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
-                        {addDataUnit}
-                        <ChevronsUpDown className="h-3 w-3 opacity-70" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-16 p-1" align="end">
-                      {(["MB", "GB"] as const).map((u) => (
-                        <button key={u} type="button" onClick={() => { setAddDataUnit(u); setAddUnitPopoverOpen(false); }}
-                          className="flex w-full items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                          <Check className={`h-3 w-3 ${addDataUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                          {u}
-                        </button>
-                      ))}
-                    </PopoverContent>
-                  </Popover>
-                </div>
+            {/* Data Limit */}
+            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+              <Label className="text-xs text-slate-300 font-normal">Data Limit</Label>
+              <div className="flex gap-1.5">
+                <Input type="number" min="0" value={addDataLimit} onChange={(e) => setAddDataLimit(e.target.value)}
+                  disabled={isSavingUser || addEditLoading || addDialogMode === "edit"}
+                  className="h-8 text-xs flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 disabled:opacity-40" />
+                <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox"
+                      disabled={isSavingUser || addEditLoading || addDialogMode === "edit"}
+                      className="h-8 w-16 justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2 disabled:opacity-40">
+                      {addDataUnit}
+                      <ChevronsUpDown className="h-3 w-3 opacity-70" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-16 p-1" align="end">
+                    {(["MB", "GB"] as const).map((u) => (
+                      <button key={u} type="button" onClick={() => { setAddDataUnit(u); setAddUnitPopoverOpen(false); }}
+                        className="flex w-full items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                        <Check className={`h-3 w-3 ${addDataUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                        {u}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
               </div>
+            </div>
 
-              {/* Comment */}
-              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-                <Label className="text-xs text-slate-300 font-normal">Comment</Label>
-                <Input value={addComment} onChange={(e) => setAddComment(e.target.value)} disabled={isSavingUser}
-                  className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
-              </div>
-            </>)}
+            {/* Comment */}
+            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+              <Label className="text-xs text-slate-300 font-normal">Comment</Label>
+              <Input value={addComment} onChange={(e) => setAddComment(e.target.value)}
+                disabled={isSavingUser || addEditLoading || addDialogMode === "edit"}
+                className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 disabled:opacity-40" />
+            </div>
 
           </div>
         </DialogContent>
