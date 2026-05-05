@@ -320,23 +320,26 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
 
     const bodyRows: string[] = [];
     bodyRows.push(
-      `<tr class="sum-print-vendor"><td class="lbl">${vname}</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
+      `<tr><td class="lbl">Ventes du jour</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
     );
 
     for (const row of vendorArrearSummaryLines(data.date, data.weekStart, weekCarry, allArrears)) {
       bodyRows.push(
-        `<tr><td class="lbl">${escapeHtmlPrint(row.label)}</td><td class="num">${fmtAmount(row.amount)} FCFA</td></tr>`,
+        `<tr class="sum-print-arrear"><td class="lbl">${escapeHtmlPrint(row.label)}</td><td class="num">${fmtAmount(row.amount)} FCFA</td></tr>`,
       );
     }
 
     if (hasArr) {
       bodyRows.push(
-        `<tr class="sum-line"><td class="lbl">Total à verser</td><td class="num">${fmtAmount(totalDu)} FCFA</td></tr>`,
+        `<tr class="sum-line"><td class="lbl">Total à verser</td><td class="num"><span class="sum-line-amt">${fmtAmount(totalDu)} FCFA</span></td></tr>`,
       );
     }
 
     return `<div class="vendor-summary">
   <table class="sum-print">
+  <thead>
+    <tr><th colspan="2" class="sum-print-vendor-head">${vname} — Résumé de vente</th></tr>
+  </thead>
   <tbody>${bodyRows.join("")}</tbody>
   </table>
 </div>`;
@@ -356,14 +359,22 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   h2 { margin: 0 0 8px; font-size: 14px; font-weight: bold; }
   h3 { margin: 16px 0 8px; font-size: 12px; font-weight: bold; padding-bottom: 4px; border-bottom: 1px solid #000; }
   p.meta { margin: 0 0 12px; font-size: 10px; color: #222; }
-  .summary-vendors { margin-bottom: 8px; }
-  .vendor-summary { margin: 0 0 18px; page-break-inside: avoid; break-inside: avoid; }
-  table.sum-print { width: 100%; border-collapse: collapse; margin: 0; font-size: 10px; table-layout: fixed; }
-  table.sum-print td { border: none; padding: 4px 0; vertical-align: baseline; }
-  table.sum-print td.lbl { text-align: left; word-wrap: break-word; overflow-wrap: anywhere; padding-right: 16px; width: 72%; }
+  .summary-vendors { margin-bottom: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .vendor-summary { margin: 0; page-break-inside: avoid; break-inside: avoid; }
+  table.sum-print { width: 100%; border-collapse: collapse; margin: 0; font-size: 10px; table-layout: fixed; border: 1px solid #111; }
+  table.sum-print thead th.sum-print-vendor-head {
+    text-align: left; font-size: 11px; font-weight: bold; padding: 6px 8px;
+    background: #ececec; border-bottom: 1px solid #111; vertical-align: middle;
+  }
+  table.sum-print td { border-bottom: 1px solid #ddd; padding: 5px 8px; vertical-align: top; }
+  table.sum-print tbody tr:last-child td { border-bottom: none; }
+  table.sum-print td.lbl { text-align: left; word-wrap: break-word; overflow-wrap: anywhere; width: 72%; }
   table.sum-print td.num { text-align: right; white-space: nowrap; width: 28%; }
-  table.sum-print tr.sum-print-vendor td { font-weight: bold; font-size: 11px; padding-bottom: 10px; }
-  table.sum-print tr.sum-line td { font-weight: bold; border-top: 1px solid #000; padding-top: 10px; margin-top: 4px; }
+  table.sum-print tr.sum-print-arrear td { font-size: 9px; }
+  table.sum-print tr.sum-line td { font-weight: bold; border-top: 2px solid #111; border-bottom: none; padding-top: 8px; padding-bottom: 8px; background: #f7f7f7; }
+  table.sum-print tr.sum-line td.lbl { vertical-align: middle; }
+  table.sum-print tr.sum-line td.num { vertical-align: middle; }
+  table.sum-print .sum-line-amt { font-size: 11px; font-weight: bold; }
   table.detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; table-layout: fixed; }
   table.detail-table th, table.detail-table td { border: 1px solid #000; padding: 3px 5px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto; }
   table.detail-table th { font-weight: bold; text-align: left; background: #fff; }
@@ -512,16 +523,23 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   openPrintHtmlWindow(buildStandalonePrintHtml(weekPrintTitle, styles, body), weekPrintTitle);
 }
 
-/* ── Canvas JPEG: daily ──────────────────────────────────────── */
+/* ── Canvas JPEG: daily — même structure que l’impression (tableau par vendeur) ── */
 function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSaving: (v: boolean) => void, arrears?: DailyArrearsResponse) {
   setSaving(true);
   try {
-    const DPR = 2; const W = 430; const PAD = 16;
-    const TITLE_H = 52; const CARD_GAP = 8;
-    const CARD_HDR_H = 28;
-    const ARR_HDR_H = 20; const ARR_ROW_H = 18; const GRAND_ROW_H = 26; const FOOTER_H = 32;
+    const DPR = 2;
+    const W = 430;
+    const PAD = 16;
+    const CARD_GAP = 10;
+    const HEAD_BLOCK_H = 72;
+    const VENDOR_CAPTION_H = 24;
+    const DAY_ROW_H = 20;
+    const ARR_ROW_H = 17;
+    const GRAND_ROW_H = 26;
+    const FOOTER_H = 32;
+    const BOX_R = 4;
 
-    const dailySummary = (data.summary ?? []).filter(s => s.count > 0);
+    const dailySummary = (data.summary ?? []).filter((s) => s.count > 0);
     const dateFr = fmtDateFr(appliedDate);
 
     const vendorArrears = (vendorId: number | null) =>
@@ -530,7 +548,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     const weekCarryFor = (vendorId: number | null) =>
       (data.weekSummary ?? []).find((w) => w.vendorId === vendorId)?.carryOverAmount ?? 0;
 
-    const arrearsRowCount = (vendorId: number | null) => {
+    const arrearsLineCount = (vendorId: number | null) => {
       const arr = vendorArrears(vendorId);
       const wc = weekCarryFor(vendorId);
       if (wc <= 0 && arr.length === 0) return 0;
@@ -538,89 +556,125 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     };
 
     const cardH = (vendorId: number | null) => {
-      const n = arrearsRowCount(vendorId);
-      const arrH = n > 0 ? n * ARR_ROW_H + GRAND_ROW_H : 0;
-      return CARD_HDR_H + arrH;
+      const arr = vendorArrears(vendorId);
+      const wc = weekCarryFor(vendorId);
+      const hasArr = wc > 0 || arr.length > 0;
+      const n = arrearsLineCount(vendorId);
+      return VENDOR_CAPTION_H + DAY_ROW_H + n * ARR_ROW_H + (hasArr ? GRAND_ROW_H : 0);
     };
-    const grandCount  = dailySummary.reduce((s, r) => s + r.count, 0);
+
+    const grandCount = dailySummary.reduce((s, r) => s + r.count, 0);
     const grandAmount = dailySummary.reduce((s, r) => s + r.amount, 0);
-    let totalH = TITLE_H;
+    let totalH = PAD + HEAD_BLOCK_H;
     for (const s of dailySummary) totalH += cardH(s.vendorId) + CARD_GAP;
     totalH += FOOTER_H + PAD;
 
     const canvas = document.createElement("canvas");
-    canvas.width = W * DPR; canvas.height = totalH * DPR;
+    canvas.width = W * DPR;
+    canvas.height = totalH * DPR;
     const ctx = canvas.getContext("2d")!;
     ctx.scale(DPR, DPR);
 
     const rf = (x: number, y: number, w: number, h: number, fill: string, rad: number | number[] = 0) => {
       ctx.fillStyle = fill;
-      if (rad) { ctx.beginPath(); ctx.roundRect(x, y, w, h, rad); ctx.fill(); }
-      else ctx.fillRect(x, y, w, h);
+      if (rad) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, rad);
+        ctx.fill();
+      } else ctx.fillRect(x, y, w, h);
     };
-    const ln = (x1: number, y1: number, x2: number, y2: number, c = "#e5e7eb") => {
-      ctx.strokeStyle = c; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    const ln = (x1: number, y1: number, x2: number, y2: number, c = "#e5e7eb", w = 0.5) => {
+      ctx.strokeStyle = c;
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
     };
     const t = (str: string, x: number, y: number, { size = 10, bold = false, color = "#374151", align = "left" as CanvasTextAlign } = {}) => {
       ctx.font = `${bold ? "600" : "400"} ${size}px Inter,system-ui,sans-serif`;
-      ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(str, x, y);
+      ctx.fillStyle = color;
+      ctx.textAlign = align;
+      ctx.textBaseline = "middle";
+      ctx.fillText(str, x, y);
+    };
+    const strokeBox = (x: number, y: number, w: number, h: number, rad = BOX_R) => {
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, rad);
+      ctx.stroke();
     };
 
-    rf(0, 0, W, totalH, "#f8fafc");
-    t("Résumé de la vente du " + dateFr, PAD, 18, { size: 12, bold: true, color: "#111827" });
-    t("Généré le " + new Date().toLocaleString("fr-FR"), W - PAD, 32, { size: 8, color: "#9ca3af", align: "right" });
+    rf(0, 0, W, totalH, "#f3f4f6");
+
+    let headY = PAD;
+    t("Suivi des ventes par vendeur", PAD, headY + 9, { size: 12, bold: true, color: "#111827" });
+    headY += 20;
+    t(
+      `Date : ${dateFr}  |  ${grandCount} ticket${grandCount !== 1 ? "s" : ""}  |  ${fmtAmount(grandAmount)} FCFA  |  Généré le ${new Date().toLocaleString("fr-FR")}`,
+      PAD,
+      headY + 6,
+      { size: 8, color: "#374151" },
+    );
+    headY += 16;
+    t("Résumé de la vente du " + dateFr, PAD, headY + 9, { size: 11, bold: true, color: "#111827" });
+    headY += 22;
 
     const CW = W - PAD * 2;
-    const C_PROF = PAD + 10;
-    const C_TKT  = W - PAD - 110;
-    const C_AMT  = W - PAD - 10;
+    const C_LBL = PAD + 8;
+    const C_AMT = W - PAD - 8;
 
-    let y = TITLE_H;
+    let y = headY + 4;
     dailySummary.forEach((s) => {
-      const pal = vpal(s.vendorId);
       const arr = vendorArrears(s.vendorId);
-      const ch = cardH(s.vendorId);
-      rf(PAD, y, CW, ch, "#ffffff", 6);
-      ctx.strokeStyle = weekCarryFor(s.vendorId) > 0 || arr.length > 0 ? "#fdba74" : pal.border; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(PAD, y, CW, ch, 6); ctx.stroke();
-
-      // Header (vendor name + total amount only)
-      rf(PAD, y, CW, CARD_HDR_H, pal.light, [6, 6, 0, 0]);
-      t(s.vendorName, PAD + 10, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark });
-      t(fmtAmount(s.amount) + " FCFA", C_AMT, y + CARD_HDR_H / 2, { size: 10, bold: true, color: pal.dark, align: "right" });
-      ln(PAD, y + CARD_HDR_H, PAD + CW, y + CARD_HDR_H, pal.border);
-
-      let ry = y + CARD_HDR_H;
-
       const wc = weekCarryFor(s.vendorId);
       const summaryLines = vendorArrearSummaryLines(appliedDate, data.weekStart, wc, arr);
+      const hasArr = wc > 0 || arr.length > 0;
+      const ch = cardH(s.vendorId);
 
-      if (summaryLines.length > 0) {
+      rf(PAD, y, CW, ch, "#ffffff", BOX_R);
+
+      let ry = y;
+      rf(PAD, ry, CW, VENDOR_CAPTION_H, "#ececec", [BOX_R, BOX_R, 0, 0]);
+      t(`${s.vendorName} — Résumé de vente`, C_LBL, ry + VENDOR_CAPTION_H / 2, { size: 10, bold: true, color: "#111827" });
+      ln(PAD, ry + VENDOR_CAPTION_H, PAD + CW, ry + VENDOR_CAPTION_H, "#111", 1);
+      ry += VENDOR_CAPTION_H;
+
+      t("Ventes du jour", C_LBL, ry + DAY_ROW_H / 2, { size: 9, color: "#374151" });
+      t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + DAY_ROW_H / 2, { size: 9, bold: true, color: "#111827", align: "right" });
+      ln(PAD, ry + DAY_ROW_H, PAD + CW, ry + DAY_ROW_H, "#ddd");
+      ry += DAY_ROW_H;
+
+      summaryLines.forEach((line, ai) => {
+        const isCarry = line.kind === "carry";
+        const bg = isCarry ? "#fff1f2" : ai % 2 === 0 ? "#fafafa" : "#ffffff";
+        rf(PAD, ry, CW, ARR_ROW_H, bg);
+        const lbl = line.label;
+        const lblSize = lbl.length > 48 ? 7 : 8.5;
+        const lblColor = isCarry ? "#9f1239" : "#b45309";
+        const amtColor = isCarry ? "#9f1239" : "#b91c1c";
+        const lblDraw = lbl.length > 54 ? `${lbl.slice(0, 52)}…` : lbl;
+        t(lblDraw, C_LBL, ry + ARR_ROW_H / 2, { size: lblSize, color: lblColor });
+        t(fmtAmount(line.amount) + " FCFA", C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: amtColor, align: "right" });
+        ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#ddd");
+        ry += ARR_ROW_H;
+      });
+
+      if (hasArr) {
         const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
         const totalDu = s.amount + wc + arrTotal;
-        ln(PAD, ry, PAD + CW, ry, "#fca5a5");
-        summaryLines.forEach((line, ai) => {
-          const isCarry = line.kind === "carry";
-          rf(PAD, ry, CW, ARR_ROW_H, isCarry ? "#fff1f2" : ai % 2 === 0 ? "#fff7f7" : "#fef2f2");
-          const lbl = line.label;
-          const lblColor = isCarry ? "#9f1239" : "#ef4444";
-          const amtColor = isCarry ? "#9f1239" : "#b91c1c";
-          t(lbl.length > 52 ? lbl.slice(0, 50) + "…" : lbl, C_PROF, ry + ARR_ROW_H / 2, { size: lbl.length > 44 ? 6.5 : 8, color: lblColor });
-          t(fmtAmount(line.amount) + " FCFA", C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: amtColor, align: "right" });
-          ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#fee2e2");
-          ry += ARR_ROW_H;
-        });
-        rf(PAD, ry, CW, GRAND_ROW_H, "#1e3a8a", [0, 0, 6, 6]);
-        t("Total à verser", C_PROF, ry + GRAND_ROW_H / 2, { size: 8, bold: true, color: "#bfdbfe" });
-        t(fmtAmount(totalDu) + " FCFA", C_AMT, ry + GRAND_ROW_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
-        ry += GRAND_ROW_H;
+        ln(PAD, ry, PAD + CW, ry, "#111", 1.5);
+        rf(PAD, ry, CW, GRAND_ROW_H, "#f7f7f7");
+        t("Total à verser", C_LBL, ry + GRAND_ROW_H / 2, { size: 9, bold: true, color: "#111827" });
+        t(fmtAmount(totalDu) + " FCFA", C_AMT, ry + GRAND_ROW_H / 2, { size: 11, bold: true, color: "#111827", align: "right" });
       }
 
+      strokeBox(PAD, y, CW, ch);
       y += ch + CARD_GAP;
     });
 
-    // Footer total bar
-    rf(PAD, y, CW, FOOTER_H, "#1e3a8a", 6);
+    rf(PAD, y, CW, FOOTER_H, "#1e3a8a", BOX_R);
     t("TOTAL", PAD + 10, y + FOOTER_H / 2, { size: 10, bold: true, color: "#ffffff" });
     t(String(grandCount) + " ticket" + (grandCount !== 1 ? "s" : ""), W / 2, y + FOOTER_H / 2, { size: 9, bold: true, color: "#93c5fd", align: "center" });
     t(fmtAmount(grandAmount) + " FCFA", C_AMT, y + FOOTER_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
@@ -629,7 +683,9 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     link.download = `suivi-vendeurs-${appliedDate}.jpeg`;
     link.href = canvas.toDataURL("image/jpeg", 0.93);
     link.click();
-  } finally { setSaving(false); }
+  } finally {
+    setSaving(false);
+  }
 }
 
 /* ── Canvas JPEG: weekly — grille de cartes par vendeur ─────── */
@@ -1069,8 +1125,11 @@ export default function VendorTracking() {
                                 <Fragment key={`${s.vendorId}-prev-${weekMon}`}>
                                   {!singleGroup && (
                                     <tr className="border-t border-red-100 bg-red-50/50">
-                                      <td colSpan={3} className="px-3 py-1">
-                                        <span className="text-[10px] font-semibold text-red-900 leading-tight">
+                                      <td colSpan={3} className="px-3 py-0.5">
+                                        <span
+                                          className="text-[9px] font-semibold text-red-900 leading-none truncate block"
+                                          title={arrearWeekRangeLabel(weekMon)}
+                                        >
                                           {arrearWeekRangeLabel(weekMon)}
                                         </span>
                                       </td>
@@ -1086,14 +1145,19 @@ export default function VendorTracking() {
                                       <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
                                         <td
                                           colSpan={3}
-                                          className={`px-3 py-1.5 ${singleGroup ? "pl-3" : "pl-5"}`}
+                                          className={`px-3 py-1 ${singleGroup ? "pl-3" : "pl-5"}`}
                                         >
-                                          <div className="flex items-start justify-between gap-2">
-                                            <div className="flex items-center gap-1 text-orange-700 min-w-0">
-                                              <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
-                                              <span className="text-xs font-medium leading-tight">{lineLabel}</span>
+                                          <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                            <div className="flex items-center gap-0.5 text-orange-700 min-w-0 flex-1">
+                                              <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0 text-orange-500" />
+                                              <span
+                                                className="text-[9px] sm:text-[10px] font-medium leading-none truncate"
+                                                title={lineLabel}
+                                              >
+                                                {lineLabel}
+                                              </span>
                                             </div>
-                                            <span className="text-xs font-bold text-orange-700 tabular-nums flex-shrink-0">
+                                            <span className="text-[9px] sm:text-[10px] font-bold text-orange-700 tabular-nums whitespace-nowrap flex-shrink-0">
                                               {fmtAmount(arr.remaining)} FCFA
                                             </span>
                                           </div>
@@ -1106,13 +1170,20 @@ export default function VendorTracking() {
                             })}
                             {weekCarry > 0 && (
                               <tr className="border-t border-rose-200 bg-rose-50">
-                                <td colSpan={3} className="px-3 py-1.5">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="flex items-center gap-1 text-rose-800 min-w-0">
-                                      <AlertTriangle className="h-3 w-3 flex-shrink-0 text-rose-500" />
-                                      <span className="text-xs font-medium leading-tight">{arrearsWeekLabel(data?.weekStart)}</span>
+                                <td colSpan={3} className="px-3 py-1">
+                                  <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                    <div className="flex items-center gap-0.5 text-rose-800 min-w-0 flex-1">
+                                      <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0 text-rose-500" />
+                                      <span
+                                        className="text-[9px] sm:text-[10px] font-medium leading-none truncate"
+                                        title={arrearsWeekLabel(data?.weekStart)}
+                                      >
+                                        {arrearsWeekLabel(data?.weekStart)}
+                                      </span>
                                     </div>
-                                    <span className="text-xs font-bold text-rose-800 tabular-nums flex-shrink-0">{fmtAmount(weekCarry)} FCFA</span>
+                                    <span className="text-[9px] sm:text-[10px] font-bold text-rose-800 tabular-nums whitespace-nowrap flex-shrink-0">
+                                      {fmtAmount(weekCarry)} FCFA
+                                    </span>
                                   </div>
                                 </td>
                               </tr>
@@ -1122,13 +1193,18 @@ export default function VendorTracking() {
                               const pKey = `${s.vendorId}|cur|${underlying?.map((e) => e.date).join(",") ?? arr.date}`;
                               return (
                                 <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
-                                  <td colSpan={3} className="px-3 py-1.5">
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div className="flex items-center gap-1 text-orange-700 min-w-0">
-                                        <AlertTriangle className="h-3 w-3 flex-shrink-0 text-orange-500" />
-                                        <span className="text-xs font-medium leading-tight">{arrearDisplayLabel(arr)}</span>
+                                  <td colSpan={3} className="px-3 py-1">
+                                    <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                      <div className="flex items-center gap-0.5 text-orange-700 min-w-0 flex-1">
+                                        <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0 text-orange-500" />
+                                        <span
+                                          className="text-[9px] sm:text-[10px] font-medium leading-none truncate"
+                                          title={arrearDisplayLabel(arr)}
+                                        >
+                                          {arrearDisplayLabel(arr)}
+                                        </span>
                                       </div>
-                                      <span className="text-xs font-bold text-orange-700 tabular-nums flex-shrink-0">
+                                      <span className="text-[9px] sm:text-[10px] font-bold text-orange-700 tabular-nums whitespace-nowrap flex-shrink-0">
                                         {fmtAmount(arr.remaining)} FCFA
                                       </span>
                                     </div>
@@ -1142,9 +1218,16 @@ export default function VendorTracking() {
                               const totalDu = s.amount + weekCarry + allArrearsTotal;
                               return (
                                 <tr className="border-t-2 border-blue-900 bg-blue-900">
-                                  <td className="px-3 py-2 font-bold text-white text-xs">Total à verser</td>
-                                  <td />
-                                  <td className="px-3 py-2 text-right font-bold text-white text-sm tabular-nums">{fmtAmount(totalDu)} FCFA</td>
+                                  <td colSpan={3} className="px-3 py-1">
+                                    <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                      <span className="text-[9px] sm:text-[10px] font-bold text-white leading-none truncate">
+                                        Total à verser
+                                      </span>
+                                      <span className="text-[9px] sm:text-[10px] font-bold text-white tabular-nums whitespace-nowrap flex-shrink-0">
+                                        {fmtAmount(totalDu)} FCFA
+                                      </span>
+                                    </div>
+                                  </td>
                                 </tr>
                               );
                             })()}
@@ -1201,10 +1284,15 @@ export default function VendorTracking() {
                   </tr>
                             {(s.carryOverAmount ?? 0) > 0 && (
                               <tr className="border-b border-gray-50">
-                                <td className="px-3 py-1.5 text-gray-500 text-[10px] leading-tight">
-                                  {arrearsWeekLabel(data?.weekStart)}
+                                <td className="px-3 py-1 text-gray-500 min-w-0 max-w-[58%]">
+                                  <span
+                                    className="text-[9px] leading-none truncate block"
+                                    title={arrearsWeekLabel(data?.weekStart)}
+                                  >
+                                    {arrearsWeekLabel(data?.weekStart)}
+                                  </span>
                                 </td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-red-600 tabular-nums">
+                                <td className="px-3 py-1 text-right font-semibold text-red-600 tabular-nums text-[9px] sm:text-[10px] whitespace-nowrap">
                                   {fmtAmount(s.carryOverAmount!)} FCFA
                                 </td>
                               </tr>
@@ -1242,13 +1330,15 @@ export default function VendorTracking() {
                   </tr>
                             {(s.carryOverAmount ?? 0) > 0 && (
                               <tr>
-                                <td className="px-3 py-1.5 text-gray-500 align-top">
-                                  <div>Total à verser à ce jour</div>
-                                  <div className="text-[9px] text-gray-400 font-normal mt-0.5 leading-tight">
-                                    = {arrearsWeekLabel(data?.weekStart)} + Montant à verser
-                                  </div>
+                                <td className="px-3 py-1 text-gray-500 min-w-0 align-middle">
+                                  <span
+                                    className="text-[9px] leading-none truncate block"
+                                    title={`= ${arrearsWeekLabel(data?.weekStart)} + Montant à verser`}
+                                  >
+                                    Total à verser à ce jour
+                                  </span>
                                 </td>
-                                <td className={`px-3 py-1.5 text-right font-bold tabular-nums align-top ${(s.totalToPay ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
+                                <td className={`px-3 py-1 text-right font-bold tabular-nums align-middle text-[9px] sm:text-[10px] whitespace-nowrap ${(s.totalToPay ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
                                   {fmtAmount(s.totalToPay ?? 0)} FCFA
                                 </td>
                               </tr>
