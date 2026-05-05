@@ -145,6 +145,15 @@ function downloadFile(content: string, filename: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+function makeClientBatchId(mode: "vc" | "up"): string {
+  const now = new Date();
+  const M = String(now.getMonth() + 1).padStart(2, "0");
+  const D = String(now.getDate()).padStart(2, "0");
+  const Y = String(now.getFullYear()).slice(-2);
+  const rand = String(Math.floor(Math.random() * 900) + 100);
+  return `${mode}-${rand}-${M}.${D}.${Y}`;
+}
+
 export default function Vouchers() {
   const { selectedRouterId, routers } = useRouterContext();
   const { toast } = useToast();
@@ -2554,7 +2563,11 @@ export default function Vouchers() {
                   )}
                   {sortedProfiles.map((p) => (
                     <button key={p.name} type="button"
-                      onClick={() => { setAddProfile(p.name); setAddProfilePopoverOpen(false); }}
+                      onClick={() => {
+                        setAddProfile(p.name);
+                        setAddProfilePopoverOpen(false);
+                        setAddComment(makeClientBatchId(p.validity ? "vc" : "up"));
+                      }}
                       className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
                       <Check className={`h-3 w-3 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
                       <span className="truncate">{p.name}</span>
