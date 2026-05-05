@@ -101,24 +101,69 @@ type VersementData = { weeks: VersementWeek[] };
 type DailyArrearsDay = { date: string; count: number; amount: number; paid: number; remaining: number };
 type DailyArrearsData = { days: DailyArrearsDay[] };
 
-/** Consolidated arrears: when >3 daily arrears, merge all but the 2 most recent into one line dated the most recent of the merged days. */
-type ConsolidatableDailyArrearsDay = DailyArrearsDay & { __underlyingCount?: number; __firstDate?: string };
-function consolidateDailyArrears(days: DailyArrearsDay[]): ConsolidatableDailyArrearsDay[] {
-  // Always return ascending (oldest first, most recent last)
-  const asc = [...days].sort((a, b) => a.date.localeCompare(b.date));
-  if (asc.length <= 3) return asc;
-  const older = asc.slice(0, asc.length - 2);
-  const recent = asc.slice(asc.length - 2);
-  const merged: ConsolidatableDailyArrearsDay = {
-    date: older[older.length - 1].date,
-    count:     older.reduce((s, d) => s + d.count, 0),
-    amount:    older.reduce((s, d) => s + d.amount, 0),
-    paid:      older.reduce((s, d) => s + d.paid, 0),
-    remaining: older.reduce((s, d) => s + d.remaining, 0),
-    __underlyingCount: older.length,
-    __firstDate: older[0].date,
+/** Jours calendaires consécutifs regroupés (somme des reliquats). */
+type GroupedDailyArrearsDay = DailyArrearsDay & { __underlying?: DailyArrearsDay[] };
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(iso + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Ex. 30 Mars 2026 — aligné sur MONTHS + année ISO */
+function fmtDayMonthYear(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${parseInt(d, 10)} ${MONTHS[parseInt(m, 10) - 1]} ${y}`;
+}
+
+/** Semaine civile précédant le lundi `weekStartMonday` (lun → dim). */
+function arrearsWeekLabelPortal(weekStartMonday?: string): string | null {
+  if (!weekStartMonday) return null;
+  const mon = new Date(weekStartMonday + "T12:00:00Z");
+  const prevMon = new Date(mon.getTime() - 7 * 86400000);
+  const prevSun = new Date(mon.getTime() - 86400000);
+  const a = fmtDayMonthYear(prevMon.toISOString().slice(0, 10));
+  const b = fmtDayMonthYear(prevSun.toISOString().slice(0, 10));
+  return `Arriéré semaine du ${a} au ${b}`;
+}
+
+function mergeDailyArrearRun(run: DailyArrearsDay[]): GroupedDailyArrearsDay {
+  if (run.length === 1) return run[0]!;
+  const last = run[run.length - 1]!;
+  return {
+    date: last.date,
+    count: run.reduce((s, d) => s + d.count, 0),
+    amount: run.reduce((s, d) => s + d.amount, 0),
+    paid: run.reduce((s, d) => s + d.paid, 0),
+    remaining: run.reduce((s, d) => s + d.remaining, 0),
+    __underlying: run,
   };
-  return [merged, ...recent];
+}
+
+function groupConsecutiveDailyArrears(days: DailyArrearsDay[]): GroupedDailyArrearsDay[] {
+  const asc = [...days].filter((d) => d.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
+  if (asc.length === 0) return [];
+  const out: GroupedDailyArrearsDay[] = [];
+  let run: DailyArrearsDay[] = [asc[0]!];
+  for (let i = 1; i < asc.length; i++) {
+    const cur = asc[i]!;
+    const prev = run[run.length - 1]!;
+    if (addDaysIso(prev.date, 1) === cur.date) run.push(cur);
+    else {
+      out.push(mergeDailyArrearRun(run));
+      run = [cur];
+    }
+  }
+  out.push(mergeDailyArrearRun(run));
+  return out;
+}
+
+function portalArrearLabel(d: GroupedDailyArrearsDay): string {
+  const u = d.__underlying;
+  if (u && u.length > 1) {
+    return `Arriéré du ${fmtDayMonthYear(u[0]!.date)} au ${fmtDayMonthYear(u[u.length - 1]!.date)}`;
+  }
+  return `Arriéré du ${fmtDayMonthYear(d.date)}`;
 }
 type PeriodSalesData = {
   period: string;
@@ -1200,7 +1245,8 @@ function Dashboard({ token, vendor, onLogout }: {
             </div>
 
             {/* ── Arriérés journaliers ──────────────────────────────── */}
-            {arrearsData && arrearsData.days.length > 0 && (
+            {arrearsData &&
+              (arrearsData.days.length > 0 || (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0) > 0) && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-orange-500" />
@@ -1209,48 +1255,69 @@ function Dashboard({ token, vendor, onLogout }: {
                 <Card className="border border-orange-200 bg-orange-50/20">
                   <CardContent className="p-0">
                     <div className="divide-y divide-orange-100">
-                      {consolidateDailyArrears(arrearsData.days.slice().sort((a, b) => a.date.localeCompare(b.date))).map((d) => {
-                        const dateObj = new Date(d.date + "T00:00:00Z");
-                        const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-                        const weekday  = cap(dateObj.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" }));
-                        const dayNum   = String(dateObj.getUTCDate());
-                        const monthNum = String(dateObj.getUTCMonth() + 1);
-                        const yearNum  = String(dateObj.getUTCFullYear());
-                        const monthLabel = cap(dateObj.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
-                        const firstDateFmt = (() => {
-                          if (!d.__firstDate) return "";
-                          const fd = new Date(d.__firstDate + "T00:00:00Z");
-                          const fDay   = String(fd.getUTCDate()).padStart(2, "0");
-                          const fMonth = cap(fd.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" }));
-                          const fYear  = String(fd.getUTCFullYear());
-                          return `${fDay} ${fMonth} ${fYear}`;
-                        })();
-                        const label    = d.__underlyingCount
-                          ? `Arriérés cumulés (${d.__underlyingCount} jours, du ${firstDateFmt} au ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum})`
-                          : `Arriéré du ${weekday} ${dayNum.padStart(2,"0")} ${monthLabel} ${yearNum}`;
-                        return (
-                          <button
-                            key={d.date}
-                            type="button"
-                            onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
-                            className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer"
-                          >
-                            <span className="text-[11px] font-semibold text-orange-700 whitespace-nowrap truncate flex-1 min-w-0 flex items-center gap-1.5">
-                              {label}
-                              <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0" />
-                            </span>
-                            <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
-                              <span className="text-[10px] text-gray-400 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
-                              <span className="text-[11px] font-bold text-orange-700 tabular-nums">{fmtFcfa(d.remaining)} FCFA</span>
-                            </div>
-                          </button>
-                        );
-                      })}
+                      {(() => {
+                        const weekCarry = versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0;
+                        const weekStart = versData?.weeks?.[0]?.weekStart;
+                        const weekLbl = weekCarry > 0 ? arrearsWeekLabelPortal(weekStart) : null;
+                        const grouped = groupConsecutiveDailyArrears(arrearsData.days);
+                        const rows: React.ReactNode[] = [];
+                        if (weekCarry > 0 && weekLbl) {
+                          rows.push(
+                            <div
+                              key="week-carry"
+                              className="w-full flex items-center justify-between gap-2 px-4 py-2.5 bg-rose-50/60 border-b border-orange-100"
+                            >
+                              <span className="text-[11px] font-semibold text-rose-800 leading-tight flex-1 min-w-0">
+                                {weekLbl}
+                              </span>
+                              <span className="text-[11px] font-bold text-rose-800 tabular-nums flex-shrink-0">
+                                {fmtFcfa(weekCarry)} FCFA
+                              </span>
+                            </div>,
+                          );
+                        }
+                        grouped.forEach((d) => {
+                          const navIso = d.__underlying?.length
+                            ? d.__underlying[d.__underlying.length - 1]!.date
+                            : d.date;
+                          const dateObj = new Date(navIso + "T00:00:00Z");
+                          const dayNum = String(dateObj.getUTCDate());
+                          const monthNum = String(dateObj.getUTCMonth() + 1);
+                          const yearNum = String(dateObj.getUTCFullYear());
+                          const pKey = d.__underlying?.map((x) => x.date).join(",") ?? d.date;
+                          rows.push(
+                            <button
+                              key={pKey}
+                              type="button"
+                              onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
+                              className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer"
+                            >
+                              <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
+                                <span className="break-words">{portalArrearLabel(d)}</span>
+                                <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
+                              </span>
+                              <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap pl-2">
+                                <span className="text-[10px] text-gray-400 tabular-nums">
+                                  {d.count} ticket{d.count !== 1 ? "s" : ""}
+                                </span>
+                                <span className="text-[11px] font-bold text-orange-700 tabular-nums">
+                                  {fmtFcfa(d.remaining)} FCFA
+                                </span>
+                              </div>
+                            </button>,
+                          );
+                        });
+                        return rows;
+                      })()}
                     </div>
                     <div className="border-t border-orange-200 bg-orange-50 flex items-center justify-between px-4 py-2 rounded-b-lg">
-                      <span className="text-xs font-semibold text-orange-700">Total arriérés</span>
+                      <span className="text-xs font-semibold text-orange-700">Total à verser</span>
                       <span className="text-sm font-bold text-orange-700 tabular-nums">
-                        {fmtFcfa(arrearsData.days.reduce((s, d) => s + d.remaining, 0))} FCFA
+                        {fmtFcfa(
+                          (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0) +
+                            arrearsData.days.reduce((s, d) => s + d.remaining, 0),
+                        )}{" "}
+                        FCFA
                       </span>
                     </div>
                   </CardContent>

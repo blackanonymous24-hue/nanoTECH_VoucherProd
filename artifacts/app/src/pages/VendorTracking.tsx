@@ -11,7 +11,7 @@ import {
   CalendarDays, ImageDown, AlertTriangle, CalendarRange,
 } from "lucide-react";
 import { foldText } from "@/lib/text";
-import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
+import { paidShownVersusWeekContext } from "@/lib/vendorWeekPaymentDisplay";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -200,6 +200,14 @@ function pct(paid: number, expected: number): string {
   return Math.round((paid / expected) * 100) + "%";
 }
 
+function escapeHtmlPrint(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /* ── Print helper: daily ─────────────────────────────────────── */
 function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: DailyArrearsResponse) {
   const dateFr = fmtDateFr(data.date);
@@ -217,84 +225,117 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   const grandCount  = data.summary.reduce((s, r) => s + r.count,  0);
   const activeSummary = data.summary.filter((s) => s.count > 0);
 
-  const vendorCards = activeSummary.map((s) => {
-    const pal = vpal(s.vendorId);
+  const summaryRows: string[] = [];
+  for (const s of activeSummary) {
     const arr = (arrears?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
     const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
     const weekCarry = data.weekSummary?.find((w) => w.vendorId === s.vendorId)?.carryOverAmount ?? 0;
     const totalDu = s.amount + weekCarry + arrTotal;
     const grouped = groupConsecutiveArrears(arr);
-    const arrearsRows: string[] = [];
+    const hasArr = weekCarry > 0 || arr.length > 0;
+    const vname = escapeHtmlPrint(s.vendorName);
+
+    summaryRows.push(
+      `<tr><td>${vname}</td><td>Montant vendu</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
+    );
     if (weekCarry > 0) {
-      arrearsRows.push(`<tr><td>${arrearsWeekLabel(data.weekStart)}</td><td class="right">${fmtAmount(weekCarry)} FCFA</td></tr>`);
+      summaryRows.push(
+        `<tr><td></td><td>${escapeHtmlPrint(arrearsWeekLabel(data.weekStart))}</td><td class="num">${fmtAmount(weekCarry)} FCFA</td></tr>`,
+      );
     }
     for (const g of grouped) {
-      arrearsRows.push(`<tr><td>${arrearDisplayLabel(g)}</td><td class="right">${fmtAmount(g.remaining)} FCFA</td></tr>`);
+      summaryRows.push(
+        `<tr><td></td><td>${escapeHtmlPrint(arrearDisplayLabel(g))}</td><td class="num">${fmtAmount(g.remaining)} FCFA</td></tr>`,
+      );
     }
-    const hasArr = weekCarry > 0 || arr.length > 0;
-    const arrearsSection = hasArr ? `
-  <table class="arr-table">
-    <tbody>${arrearsRows.join("")}</tbody>
-  </table>
-  <div class="total-du">
-    <span>Total à verser</span><span>${fmtAmount(totalDu)} FCFA</span>
-  </div>` : "";
-    const borderColor = hasArr ? "#fdba74" : pal.border;
-    return `<div class="vcard" style="border-color:${borderColor}">
-  <div class="vcard-header" style="background:${pal.light};border-color:${pal.border}">
-    <span class="vname" style="color:${pal.dark}">${s.vendorName}</span>
-    <span class="vamount" style="color:${pal.dark}">${fmtAmount(s.amount)} FCFA</span>
-  </div>${arrearsSection}
-</div>`;
-  }).join("");
+    if (hasArr) {
+      summaryRows.push(
+        `<tr class="sum-line"><td></td><td>Total à verser</td><td class="num">${fmtAmount(totalDu)} FCFA</td></tr>`,
+      );
+    }
+  }
+
+  const summaryTable = `<table class="sum-print">
+  <thead><tr><th>Vendeur</th><th>Libellé</th><th class="num">Montant</th></tr></thead>
+  <tbody>${summaryRows.join("")}</tbody>
+</table>`;
 
   const detailRows = vouchers.map((v, i) => `<tr>
-    <td>${i + 1}</td><td>${v.time ?? "—"}</td><td>${v.username}</td>
-    <td>${v.profileName || "—"}</td><td>${v.vendorName}</td>
-        <td style="text-align:right">${fmtAmount(v.amount)}</td>
+    <td>${i + 1}</td><td>${escapeHtmlPrint(v.time ?? "—")}</td><td>${escapeHtmlPrint(v.username)}</td>
+    <td>${escapeHtmlPrint(v.profileName || "—")}</td><td>${escapeHtmlPrint(v.vendorName)}</td>
+    <td class="num">${fmtAmount(v.amount)}</td>
   </tr>`).join("");
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Suivi vendeurs — ${dateFr}</title>
 <style>
-  body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 8mm; }
-  h2 { margin: 0 0 2px; font-size: 14px; }
-  h3 { margin: 10px 0 4px; font-size: 12px; border-bottom: 1px solid #ccc; padding-bottom: 2px; color: #1e40af; }
-  p  { margin: 0 0 8px; font-size: 10px; color: #555; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-  .vcard { border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; break-inside: avoid; }
-  .vcard-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
-  .vname { font-weight: bold; font-size: 10px; color: #1e40af; }
-  .vamount { font-weight: bold; font-size: 10px; color: #1d4ed8; }
-  .vcard table { width: 100%; border-collapse: collapse; }
-  .vcard th, .vcard td { padding: 3px 6px; font-size: 9px; border-bottom: 1px solid #f3f4f6; }
-  .vcard th { background: #f9fafb; font-weight: 600; color: #6b7280; text-align: left; }
-  .vcard tfoot td { background: #eff6ff; font-weight: bold; color: #1d4ed8; border-top: 1px solid #bfdbfe; border-bottom: none; }
-  .vcard tr:last-child td { border-bottom: none; }
-  .vcard-arr { border-color: #fca5a5; }
-  .arr-header { display: flex; justify-content: space-between; padding: 3px 6px; background: #fef2f2; border-top: 1px solid #fca5a5; font-size: 8px; font-weight: bold; color: #b91c1c; }
-  .arr-table { width: 100%; border-collapse: collapse; }
-  .arr-table td { padding: 2px 6px; font-size: 8px; color: #ef4444; border-bottom: 1px solid #fee2e2; }
-  .arr-table tr:last-child td { border-bottom: none; }
-  .total-du { display: flex; justify-content: space-between; padding: 4px 6px; background: #1e3a8a; color: #ffffff; font-size: 9px; font-weight: bold; border-top: 2px solid #1e3a8a; }
-  .detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-  .detail-table th, .detail-table td { border: 1px solid #d1d5db; padding: 3px 5px; font-size: 9px; }
-  .detail-table th { background: #f0f0f0; font-weight: bold; text-align: left; }
-  .right { text-align: right; } .center { text-align: center; }
-  @page { size: A4; margin: 0; }
-  @media print { .vcard, tr { break-inside: avoid; } thead { display: table-header-group; } }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; margin: 0; padding: 10mm; color: #000; }
+  h2 { margin: 0 0 8px; font-size: 14px; font-weight: bold; }
+  h3 { margin: 16px 0 8px; font-size: 12px; font-weight: bold; padding-bottom: 4px; border-bottom: 1px solid #000; }
+  p.meta { margin: 0 0 12px; font-size: 10px; color: #222; }
+  table.sum-print { width: 100%; border-collapse: collapse; margin-bottom: 4px; font-size: 10px; }
+  table.sum-print th, table.sum-print td { border: 1px solid #000; padding: 6px 8px; vertical-align: top; }
+  table.sum-print th { text-align: left; font-weight: bold; }
+  table.sum-print td.num, table.sum-print th.num { text-align: right; white-space: nowrap; }
+  table.sum-print tr.sum-line td { font-weight: bold; }
+  table.detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; table-layout: fixed; }
+  table.detail-table th, table.detail-table td { border: 1px solid #000; padding: 3px 5px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto; }
+  table.detail-table th { font-weight: bold; text-align: left; background: #fff; }
+  table.detail-table td.num, table.detail-table th.num { text-align: right; white-space: nowrap; }
+  table.detail-table thead { display: table-header-group; }
+  table.detail-table tbody { display: table-row-group; }
+  table.detail-table col.col-n { width: 4%; }
+  table.detail-table col.col-time { width: 8%; }
+  table.detail-table col.col-user { width: 26%; }
+  table.detail-table col.col-prof { width: 18%; }
+  table.detail-table col.col-vend { width: 22%; }
+  table.detail-table col.col-price { width: 12%; }
+  table.detail-table tr.row-total td { font-weight: bold; border-top: 2px solid #000; }
+  table.detail-table tr.row-total td.total-label { text-align: right; }
+  h3.detail-title { page-break-after: avoid; break-after: avoid; }
+  .detail-block { page-break-inside: auto; }
+  .right { text-align: right; }
+  @page { size: A4; margin: 12mm; }
+  @media print {
+    table.sum-print tr { break-inside: avoid; page-break-inside: avoid; }
+    table.detail-table thead { display: table-header-group; }
+    table.detail-table tr.row-total { page-break-inside: avoid; break-inside: avoid; page-break-before: avoid; break-before: avoid; }
+  }
 </style></head><body>
 <h2>Suivi des ventes par vendeur</h2>
-<p>Date : ${dateFr} &nbsp;|&nbsp; ${grandCount} ticket${grandCount !== 1 ? "s" : ""} &nbsp;|&nbsp; ${fmtAmount(grandTotal)} FCFA &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
+<p class="meta">Date : ${dateFr} &nbsp;|&nbsp; ${grandCount} ticket${grandCount !== 1 ? "s" : ""} &nbsp;|&nbsp; ${fmtAmount(grandTotal)} FCFA &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
 <h3>Résumé de la vente du ${dateFr}</h3>
-<div class="grid">${vendorCards}</div>
-<h3>Détail (${vouchers.length} ticket${vouchers.length !== 1 ? "s" : ""})</h3>
+${summaryTable}
+<div class="detail-block">
+<h3 class="detail-title">Détail (${vouchers.length} ticket${vouchers.length !== 1 ? "s" : ""})</h3>
 <table class="detail-table">
-  <thead><tr><th>#</th><th>Heure</th><th>Utilisateur</th><th>Profil</th><th>Vendeur</th><th class="right">Prix (FCFA)</th></tr></thead>
+  <colgroup>
+    <col class="col-n" />
+    <col class="col-time" />
+    <col class="col-user" />
+    <col class="col-prof" />
+    <col class="col-vend" />
+    <col class="col-price" />
+  </colgroup>
+  <thead>
+    <tr>
+      <th class="num">#</th>
+      <th>Heure</th>
+      <th>Utilisateur</th>
+      <th>Profil</th>
+      <th>Vendeur</th>
+      <th class="num">Prix (FCFA)</th>
+    </tr>
+  </thead>
   <tbody>${detailRows}
-    <tr><td colspan="4"></td><td style="text-align:right;font-weight:bold">TOTAL</td><td class="right" style="font-weight:bold">${fmtAmount(vouchers.reduce((s, v) => s + v.amount, 0))}</td></tr>
+    <tr class="row-total">
+      <td colspan="4"></td>
+      <td class="total-label">TOTAL</td>
+      <td class="num">${fmtAmount(vouchers.reduce((s, v) => s + v.amount, 0))}</td>
+    </tr>
   </tbody>
 </table>
+</div>
 <script>window.onload = function() { window.print(); };</script>
 </body></html>`;
 
@@ -1141,13 +1182,6 @@ export default function VendorTracking() {
                 {/* Grille de cartes 2 colonnes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[...weekSummary].sort((a, b) => b.amount - a.amount).map((s) => {
-                    const { daily: dailyShown, weekly: weeklyShown } = splitDailyWeeklyPaidShown(
-                      s.dailyPaid,
-                      s.weeklyPaid,
-                      s.amount,
-                      s.commission,
-                      s.carryOverAmount,
-                    );
                     const paidAggregateShown = paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount);
                     const badge = statusBadge(s.paymentStatus);
                     const commRate = s.commissionRate ?? 0;
@@ -1184,28 +1218,10 @@ export default function VendorTracking() {
                                 </td>
                               </tr>
                             )}
-                            {(s.dailyPaid ?? 0) > 0 && (
-                              <tr className="border-b border-gray-50 bg-sky-50/40">
-                                <td className="px-3 py-1.5 text-sky-700">Versé en journalier</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-sky-700 tabular-nums">{fmtAmount(dailyShown)} FCFA</td>
-                  </tr>
-                            )}
-                            {(s.weeklyPaid ?? 0) > 0 && (
-                              <tr className="border-b border-gray-50 bg-emerald-50/40">
-                                <td className="px-3 py-1.5 text-emerald-700">Versé en hebdomadaire</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-700 tabular-nums">{fmtAmount(weeklyShown)} FCFA</td>
-                              </tr>
-                            )}
                             {s.dailyPaid === undefined && (s.paidAmount ?? 0) > 0 && (
                               <tr className="border-b border-gray-50 bg-gray-50/50">
                                 <td className="px-3 py-1.5 text-gray-500">Versé</td>
                                 <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(paidAggregateShown)} FCFA</td>
-                              </tr>
-                            )}
-                            {(s.dailyPaid ?? 0) > 0 && (s.weeklyExpected ?? 0) > 0 && (
-                              <tr className="border-b border-gray-50 bg-blue-50/40">
-                                <td className="px-3 py-1.5 text-blue-700">Hebdo. à régler</td>
-                                <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.weeklyExpected!)} FCFA</td>
                               </tr>
                             )}
                             <tr className="border-b border-gray-50">
