@@ -1002,7 +1002,7 @@ export default function Vouchers() {
       resetToast.update({
         id: resetToast.id,
         title: "Réinitialisation réussie",
-        description: `${user.username} réinitialisé — sessions coupées: ${resetResult.sessionKicked ?? 0}, cookies supprimés: ${resetResult.cookiesRemoved ?? 0}, scheduler supprimé: ${resetResult.schedulerRemoved ?? 0}.`,
+        description: `${user.username} a été réinitialisé avec succès.`,
       });
 
     } catch (err) {
@@ -2335,6 +2335,15 @@ export default function Vouchers() {
                   <option key={p.name} value={p.name}>{p.name}</option>
                 ))}
               </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Commentaire</Label>
+              <div className={cn(
+                "flex min-h-9 w-full items-center rounded-md border border-input bg-muted/40 px-3 py-2 text-sm font-mono",
+                !editingUser?.comment && "text-muted-foreground/50 italic",
+              )}>
+                {editingUser?.comment || "—"}
+              </div>
             </div>
             <div className="flex items-center gap-2 pt-0.5">
               <input
