@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchServerTemplate } from "@/pages/TicketTemplate";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -19,17 +19,64 @@ export default function VoucherPrint() {
   const [htmlItems, setHtmlItems] = useState<string[]>([]);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const renderedRef = useRef<HTMLDivElement | null>(null);
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const lotId = query.get("id")?.trim() ?? "";
+  const cacheKey = useMemo(() => `voucher-print-cache:${lotId}`, [lotId]);
+
+  const waitAndPrint = async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const root = renderedRef.current;
+    if (!root) {
+      window.print();
+      return;
+    }
+    const imgs = Array.from(root.querySelectorAll("img"));
+    if (imgs.length === 0) {
+      window.print();
+      return;
+    }
+    await Promise.race([
+      Promise.all(
+        imgs.map(
+          (img) =>
+            new Promise<void>((resolve) => {
+              if (img.complete) return resolve();
+              img.addEventListener("load", () => resolve(), { once: true });
+              img.addEventListener("error", () => resolve(), { once: true });
+            }),
+        ),
+      ),
+      new Promise<void>((resolve) => window.setTimeout(resolve, 1800)),
+    ]);
+    window.print();
+  };
 
   useEffect(() => {
     if (htmlItems.length === 0) return;
-    const triggerPrint = () => window.setTimeout(() => window.print(), 120);
+    const triggerPrint = () => {
+      void waitAndPrint();
+    };
     triggerPrint();
     const onPageShow = () => triggerPrint();
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
   }, [htmlItems]);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(cacheKey);
+      if (!raw) return;
+      const cached = JSON.parse(raw) as { html?: string[] };
+      if (Array.isArray(cached.html) && cached.html.length > 0) {
+        setHtmlItems(cached.html);
+        setLoading(false);
+      }
+    } catch {
+      // ignore malformed cache
+    }
+  }, [cacheKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +131,14 @@ export default function VoucherPrint() {
         if (!renderResp.ok || payload.error) throw new Error(payload.error || `HTTP ${renderResp.status}`);
         if (!payload.html || payload.html.length === 0) throw new Error("Le template n'a généré aucun ticket.");
 
-        if (!cancelled) setHtmlItems(payload.html);
+        if (!cancelled) {
+          setHtmlItems(payload.html);
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify({ html: payload.html }));
+          } catch {
+            // ignore storage quota errors
+          }
+        }
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -99,7 +153,18 @@ export default function VoucherPrint() {
   if (loading) return <div className="p-4 text-sm text-gray-600">Préparation de l'impression…</div>;
   if (error) return <div className="p-4 text-sm text-red-600">Erreur impression: {error}</div>;
   return (
-    <div>
+    <div ref={renderedRef}>
+      <div className="no-print p-3 border-b border-gray-200 bg-white sticky top-0 z-10">
+        <button
+          type="button"
+          onClick={() => {
+            void waitAndPrint();
+          }}
+          className="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+        >
+          Réimprimer maintenant
+        </button>
+      </div>
       {htmlItems.map((h, i) => <div key={i} dangerouslySetInnerHTML={{ __html: h }} />)}
     </div>
   );

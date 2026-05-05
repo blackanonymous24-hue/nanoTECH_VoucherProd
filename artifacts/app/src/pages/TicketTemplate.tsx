@@ -351,16 +351,28 @@ export default function TicketTemplate() {
       localStorage.removeItem(TEMPLATE_KEY);
     } catch { /* ignore */ }
     // Sauvegarde serveur : synchronise mobile, APK et tous les appareils
+    let serverSynced = false;
     try {
-      await fetch(`${BASE}/api/admin/ticket-template`, {
+      const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ template: phpCode }),
       });
-    } catch { /* hors ligne — le cache local reste valide */ }
+      serverSynced = resp.ok;
+    } catch {
+      serverSynced = false;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
-    toast({ title: "Modèle sauvegardé", description: "Synchronisé sur tous vos appareils." });
+    if (serverSynced) {
+      toast({ title: "Modèle sauvegardé", description: "Ce modèle est désormais votre modèle par défaut." });
+    } else {
+      toast({
+        title: "Modèle sauvegardé localement",
+        description: "Le serveur n'a pas été synchronisé. Ce modèle reste le défaut sur cet appareil.",
+        variant: "destructive",
+      });
+    }
   }, [phpCode, toast]);
 
   // ── Réinitialiser
