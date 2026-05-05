@@ -1853,11 +1853,11 @@ export default function Vouchers() {
               {lots.length > 0 && (
                 <Card className="mb-4">
                   <CardContent className="py-3">
-                    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+                    <div className="flex flex-nowrap items-center gap-1.5">
                       <div className="relative flex-1 min-w-0">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                         <Input
-                          className="pl-8 min-w-0"
+                          className="pl-8 h-8 text-[11px] min-w-0"
                           placeholder="Rechercher un lot..."
                           value={lotsSearch}
                           onChange={(e) => setLotsSearch(e.target.value)}
@@ -1869,12 +1869,14 @@ export default function Vouchers() {
                           <Button
                             variant="outline"
                             role="combobox"
-                            className={`flex-shrink-0 w-36 sm:w-40 justify-between text-sm font-normal ${lotsFilterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                            className={`flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5 ${lotsFilterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
                             <span className="truncate">
-                              {lotsFilterVendor === "all" ? "Tous les vendeurs" : lotsFilterVendor}
+                              {lotsFilterVendor === "all"
+                                ? <><span className="md:hidden">Vendeurs</span><span className="hidden md:inline">Tous les vendeurs</span></>
+                                : lotsFilterVendor}
                             </span>
-                            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 text-gray-400 shrink-0 opacity-50" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-48 p-1" align="start">
@@ -1908,12 +1910,14 @@ export default function Vouchers() {
                           <Button
                             variant="outline"
                             role="combobox"
-                            className={`flex-shrink-0 w-36 sm:w-44 justify-between text-sm font-normal ${lotsFilterProfile !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                            className={`flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5 ${lotsFilterProfile !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
                             <span className="truncate">
-                              {lotsFilterProfile === "all" ? "Tous les forfaits" : lotsFilterProfile}
+                              {lotsFilterProfile === "all"
+                                ? <><span className="md:hidden">Forfaits</span><span className="hidden md:inline">Tous les forfaits</span></>
+                                : lotsFilterProfile}
                             </span>
-                            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 text-gray-400 shrink-0 opacity-50" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-52 p-1" align="end">
@@ -1943,13 +1947,13 @@ export default function Vouchers() {
                           variant="ghost"
                           size="sm"
                           onClick={() => { setLotsSearch(""); setLotsFilterProfile("all"); setLotsFilterVendor("all"); }}
-                          className="flex-shrink-0 text-gray-400 hover:text-gray-600"
+                          className="shrink-0 text-gray-400 hover:text-gray-600 h-8 px-2 text-[11px]"
                         >
                           Réinitialiser
                         </Button>
                       )}
 
-                      <span className="text-xs text-gray-400 flex-shrink-0 ml-auto whitespace-nowrap">
+                      <span className="text-[11px] text-gray-400 shrink-0 whitespace-nowrap">
                         {filteredLots.length === lots.length
                           ? `${lots.length} lot(s)`
                           : `${filteredLots.length} / ${lots.length} lot(s)`}
