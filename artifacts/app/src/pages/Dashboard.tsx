@@ -757,41 +757,41 @@ export default function Dashboard() {
               <Skeleton className="h-6 w-32 rounded-full" />
             </div>
           ) : routerInfo ? (
-            <div className="flex flex-wrap items-center gap-2 max-h-14 overflow-hidden sm:max-h-none sm:overflow-visible">
+            <div className="grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
               {(routerInfo.boardName || routerInfo.model) && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-xs font-medium text-blue-700">
-                  <Router className="h-3 w-3" />
-                  {routerInfo.boardName ?? routerInfo.model}
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-100 text-[10px] sm:text-xs font-medium text-blue-700 truncate">
+                  <Router className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                  <span className="truncate">{routerInfo.boardName ?? routerInfo.model}</span>
                 </span>
               )}
               {routerInfo.routerOsVersion && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-50 border border-violet-100 text-xs font-medium text-violet-700">
-                  <Shield className="h-3 w-3" />
-                  RouterOS {routerInfo.routerOsVersion}
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-violet-50 border border-violet-100 text-[10px] sm:text-xs font-medium text-violet-700 truncate">
+                  <Shield className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                  <span className="truncate">ROS {routerInfo.routerOsVersion}</span>
                 </span>
               )}
               {routerInfo.cpu && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-100 text-xs font-medium text-amber-700">
-                  <Cpu className="h-3 w-3" />
-                  {routerInfo.cpu}{routerInfo.cpuCount && routerInfo.cpuCount !== "1" ? ` × ${routerInfo.cpuCount}` : ""}
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 border border-amber-100 text-[10px] sm:text-xs font-medium text-amber-700 truncate">
+                  <Cpu className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                  <span className="truncate">{routerInfo.cpu}{routerInfo.cpuCount && routerInfo.cpuCount !== "1" ? ` ×${routerInfo.cpuCount}` : ""}</span>
                 </span>
               )}
               {(routerInfo.freeMemory || routerInfo.totalMemory) && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-green-50 border border-green-100 text-xs font-medium text-green-700">
-                  <HardDrive className="h-3 w-3" />
-                  {formatMemory(routerInfo.freeMemory)} libre / {formatMemory(routerInfo.totalMemory)}
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-100 text-[10px] sm:text-xs font-medium text-green-700 truncate">
+                  <HardDrive className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                  <span className="truncate">{formatMemory(routerInfo.freeMemory)}/{formatMemory(routerInfo.totalMemory)}</span>
                 </span>
               )}
               {routerInfo.uptime && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-xs font-medium text-gray-600">
-                  <Clock className="h-3 w-3" />
-                  En ligne {formatUptime(routerInfo.uptime)}
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200 text-[10px] sm:text-xs font-medium text-gray-600 truncate">
+                  <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                  <span className="truncate">{formatUptime(routerInfo.uptime)}</span>
                 </span>
               )}
               {(routerInfo.clockDate || routerInfo.clockTime) && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-xs text-gray-500 font-mono">
-                  <Clock className="h-3 w-3" />
-                  {[routerInfo.clockDate, routerInfo.clockTime].filter(Boolean).join(" ")}
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-[10px] sm:text-xs text-gray-500 font-mono truncate">
+                  <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                  <span className="truncate">{[routerInfo.clockDate, routerInfo.clockTime].filter(Boolean).join(" ")}</span>
                 </span>
               )}
             </div>
@@ -859,7 +859,7 @@ export default function Dashboard() {
               <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
                 <UserPlus className="h-5 w-5 text-emerald-600" />
               </div>
-              <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
+              <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
             </CardContent>
           </Card>
         </button>
@@ -869,7 +869,7 @@ export default function Dashboard() {
               <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
                 <Zap className="h-5 w-5 text-amber-500" />
               </div>
-              <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
+              <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
             </CardContent>
           </Card>
         </Link>
