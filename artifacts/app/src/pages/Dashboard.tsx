@@ -1181,7 +1181,7 @@ function StatCard({
               {sub && <p className="text-[9px] text-gray-400 leading-tight truncate">{sub}</p>}
             </>
           ) : (
-            <p className="font-bold text-gray-900 text-sm leading-tight truncate">
+            <p className="font-bold text-gray-900 text-2xl leading-none mt-0.5 truncate">
               {value === undefined ? "—" : value.toLocaleString()}
             </p>
           )}
