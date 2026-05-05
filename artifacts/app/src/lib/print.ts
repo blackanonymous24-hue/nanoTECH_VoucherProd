@@ -60,6 +60,53 @@ function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
+function normalizeSessionName(raw: string): string {
+  const normalized = raw
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Za-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+  return normalized || "WIFI_SESSION";
+}
+
+function buildVoucherPrintUrl(voucherId: string, sessionName: string): string {
+  const customBase = (typeof window !== "undefined" ? localStorage.getItem("mikhmon-print-base-url") : "")?.trim() ?? "";
+  const base = (customBase || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/$/, "");
+  return `${base}/voucher/print.php?id=${encodeURIComponent(voucherId)}&small=yes&session=${encodeURIComponent(sessionName)}`;
+}
+
+/**
+ * Mobile flow for Mikhmon print page:
+ * open /voucher/print.php?id=...&small=yes&session=...
+ * Returns true when URL flow is used; false means fallback to HTML printing.
+ */
+export function tryOpenVoucherPrintPage(voucherId: string, hotspotOrSessionName: string): boolean {
+  if (!voucherId || !hotspotOrSessionName) return false;
+  if (!isMobile() && !isNativeWebView()) return false;
+
+  const url = buildVoucherPrintUrl(voucherId, normalizeSessionName(hotspotOrSessionName));
+
+  if (isNativeWebView()) {
+    try {
+      window.location.href = url;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  const win = window.open(url, "_blank");
+  if (win) return true;
+  try {
+    window.location.assign(url);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Impression depuis une page HTML complète (comme « Imprimer Hebdo » : write + print).
  * — APK (React Native WebView) : envoi au natif → expo-print (`Print.printAsync`) — `window.open` est souvent bloqué.

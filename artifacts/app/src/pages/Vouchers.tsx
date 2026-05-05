@@ -72,7 +72,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { fetchServerTemplate } from "@/pages/TicketTemplate";
-import { printTickets } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -640,6 +640,14 @@ export default function Vouchers() {
 
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
+    const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
+    if (tryOpenVoucherPrintPage(lot.name, hotspotName)) {
+      toast({
+        title: "Impression Mikhmon",
+        description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
+      });
+      return;
+    }
     const php = await fetchServerTemplate();
     setPrintingLot(lot.name);
     try {
@@ -649,7 +657,6 @@ export default function Vouchers() {
         return;
       }
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
       const vouchers = users.map((user, idx) => {
         const profile = profilesList.find((p) => p.name === user.profile);
         return {
@@ -695,7 +702,6 @@ export default function Vouchers() {
 
   // ── Print ────────────────────────────────────────────────────────────────────
   const handlePrintVouchers = async () => {
-    const php = await fetchServerTemplate();
     const usersForPrint = selectedUsernames.size > 0
       ? filtered.filter((u) => selectedUsernames.has(u.username))
       : filtered;
@@ -703,6 +709,19 @@ export default function Vouchers() {
       toast({ title: "Aucun voucher à imprimer", description: "Sélectionnez un lot ou des vouchers d'abord.", variant: "destructive" });
       return;
     }
+    const hotspotName = (activeRouter as any)?.hotspotName || activeRouter?.name || "";
+    const uniqueLots = new Set(usersForPrint.map((u) => (u.comment ?? "").trim()).filter(Boolean));
+    if (uniqueLots.size === 1) {
+      const [lotId] = [...uniqueLots];
+      if (lotId && tryOpenVoucherPrintPage(lotId, hotspotName)) {
+        toast({
+          title: "Impression Mikhmon",
+          description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
+        });
+        return;
+      }
+    }
+    const php = await fetchServerTemplate();
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -789,7 +808,6 @@ export default function Vouchers() {
       const rawValidity = profilesList.find((p) => p.name === printProfile)?.validity ?? "";
       const compactValidity = toFileValidity(rawValidity);
       const printComment = firstUser?.comment ?? "";
-      const hotspotName = (activeRouter as any)?.hotspotName || activeRouter?.name || "";
       const profileSlug = printProfile.trim().split(/\s+/)[0] ?? printProfile;
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment, profileSlug].filter(Boolean);
 

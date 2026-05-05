@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchServerTemplate } from "@/pages/TicketTemplate";
-import { printTickets } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -616,6 +616,14 @@ export default function GenerateVouchers() {
   };
 
   const handlePrint = async (lot: LastLot) => {
+    const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
+    if (lot.comment && tryOpenVoucherPrintPage(lot.comment, hotspotName)) {
+      toast({
+        title: "Impression Mikhmon",
+        description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
+      });
+      return;
+    }
     const php = await fetchServerTemplate();
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
@@ -655,7 +663,6 @@ export default function GenerateVouchers() {
       };
       const rawValidity = lot.validity || lot.vouchers[0]?.validity || "";
       const compactValidity = toFileValidity(rawValidity);
-      const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
       const profileSlug = lot.profileName.trim().split(/\s+/)[0] ?? lot.profileName;
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       printTickets(data.html as string[], printParts.join("-"));
