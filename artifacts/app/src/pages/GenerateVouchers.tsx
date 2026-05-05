@@ -749,38 +749,38 @@ export default function GenerateVouchers() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Générer des vouchers</h1>
-        <p className="text-sm text-gray-500">Créez des comptes hotspot sur votre routeur MikroTik</p>
+      <div className="mb-2">
+        <h1 className="text-lg font-bold text-gray-900 leading-tight">Générer des vouchers</h1>
+        <p className="text-xs text-gray-500">Créez des comptes hotspot sur votre routeur MikroTik</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Zap className="h-4 w-4 text-blue-500" /> Paramètres de génération
+          <CardHeader className="py-2 px-4">
+            <CardTitle className="text-sm flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5 text-blue-500" /> Paramètres de génération
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleGenerate} className="form-shell space-y-2.5">
+          <CardContent className="px-4 pb-4 pt-0">
+            <form onSubmit={handleGenerate} className="form-shell space-y-1.5">
 
               {selectedRouter ? (
-                <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-200 rounded-lg">
-                  <RouterIcon className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                <div className="flex items-center gap-2 px-2.5 py-1.5 bg-blue-50 border border-blue-200 rounded-lg">
+                  <RouterIcon className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-blue-900 truncate">{selectedRouter.name}</p>
-                    <p className="text-xs text-blue-600">{selectedRouter.host}:{selectedRouter.port}</p>
+                    <p className="text-xs font-medium text-blue-900 truncate">{selectedRouter.name}</p>
+                    <p className="text-[10px] text-blue-500">{selectedRouter.host}:{selectedRouter.port}</p>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg text-sm">
-                  <RouterIcon className="h-4 w-4 flex-shrink-0" />
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 px-3 py-1.5 rounded-lg text-xs">
+                  <RouterIcon className="h-3.5 w-3.5 flex-shrink-0" />
                   Sélectionnez un routeur dans la barre latérale pour commencer
                 </div>
               )}
 
               <div>
-                <Label>Profil</Label>
+                <Label className="text-xs">Profil</Label>
                 <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -789,7 +789,7 @@ export default function GenerateVouchers() {
                       role="combobox"
                       aria-expanded={profilePopoverOpen}
                       disabled={!selectedRouterId || (profilesRefreshing && displayedProfilesSorted.length === 0)}
-                      className="w-full mt-1 justify-between font-normal"
+                      className="w-full mt-0.5 h-8 text-xs justify-between font-normal"
                     >
                       <span className="truncate flex items-center gap-2">
                         {(profilesRefreshing && displayedProfilesSorted.length === 0) ? (
@@ -888,12 +888,12 @@ export default function GenerateVouchers() {
               </div>
 
               <div>
-                <Label className="mb-1 block text-xs">Mode de connexion</Label>
+                <Label className="mb-0.5 block text-xs">Mode de connexion</Label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => { setPasswordMode("same"); setComment(makeBatchId("vc")); }}
-                    className={`py-1.5 px-2 rounded-lg border text-xs font-medium transition-colors text-left ${
+                    className={`py-1 px-2 rounded-lg border text-xs font-medium transition-colors text-left ${
                       passwordMode === "same"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
@@ -904,7 +904,7 @@ export default function GenerateVouchers() {
                   <button
                     type="button"
                     onClick={() => { setPasswordMode("random"); setComment(makeBatchId("up")); }}
-                    className={`py-1.5 px-2 rounded-lg border text-xs font-medium transition-colors text-left ${
+                    className={`py-1 px-2 rounded-lg border text-xs font-medium transition-colors text-left ${
                       passwordMode === "random"
                         ? "bg-blue-50 border-blue-400 text-blue-700"
                         : "border-gray-200 text-gray-500 hover:border-gray-300"
@@ -985,7 +985,7 @@ export default function GenerateVouchers() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-0.5">
+                <div className="flex items-center justify-between">
                   <Label className="text-xs">Identifiant de lot</Label>
                   <button
                     type="button"
@@ -1013,14 +1013,14 @@ export default function GenerateVouchers() {
 
               {vendors.length > 0 && (
                 <div>
-                  <Label>Vendeur <span className="text-gray-400 text-xs">(optionnel)</span></Label>
+                  <Label className="text-xs">Vendeur <span className="text-gray-400">(optionnel)</span></Label>
                   <Popover open={vendorPopoverOpen} onOpenChange={setVendorPopoverOpen}>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
                         role="combobox"
                         aria-expanded={vendorPopoverOpen}
-                        className="w-full mt-1 justify-between font-normal"
+                        className="w-full mt-0.5 h-8 text-xs justify-between font-normal"
                       >
                         <span className="truncate">
                           {vendorId
@@ -1064,10 +1064,10 @@ export default function GenerateVouchers() {
               <div>
                 <Button
                   type="submit"
-                  className="w-full gap-2"
+                  className="w-full gap-1.5 h-9 text-sm"
                   disabled={!selectedRouterId || !profile || !!progress}
                 >
-                  <Zap className="h-4 w-4" />
+                  <Zap className="h-3.5 w-3.5" />
                   {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
                 </Button>
                 {progress && (
