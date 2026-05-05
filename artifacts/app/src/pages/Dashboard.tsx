@@ -10,7 +10,7 @@ import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity, WifiOff } from "lucide-react";
+import { Ticket, TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity, WifiOff, PlusCircle, Zap } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -860,15 +860,21 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-2 mb-3 sm:hidden">
         <Link href="/vouchers" className="block">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-2.5">
-              <p className="font-bold text-gray-900 text-2xl leading-tight">Ajouter un ticket</p>
+            <CardContent className="p-3 flex flex-col items-center justify-center gap-1.5 text-center">
+              <div className="p-2.5 bg-emerald-100 rounded-2xl">
+                <PlusCircle className="h-7 w-7 text-emerald-600" />
+              </div>
+              <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Ajouter un ticket</p>
             </CardContent>
           </Card>
         </Link>
         <Link href="/generate" className="block">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-2.5">
-              <p className="font-bold text-gray-900 text-2xl leading-tight">Générer un ticket</p>
+            <CardContent className="p-3 flex flex-col items-center justify-center gap-1.5 text-center">
+              <div className="p-2.5 bg-amber-100 rounded-2xl">
+                <Zap className="h-7 w-7 text-amber-500" />
+              </div>
+              <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
             </CardContent>
           </Card>
         </Link>
