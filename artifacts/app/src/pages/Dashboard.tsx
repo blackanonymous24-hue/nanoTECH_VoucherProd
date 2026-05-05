@@ -860,9 +860,9 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-2 mb-3 sm:hidden">
         <Link href="/vouchers" className="block">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-3 flex flex-col items-center justify-center gap-1.5 text-center">
-              <div className="p-2.5 bg-emerald-100 rounded-2xl">
-                <PlusCircle className="h-7 w-7 text-emerald-600" />
+            <CardContent className="p-2.5 flex items-center gap-2">
+              <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
+                <PlusCircle className="h-5 w-5 text-emerald-600" />
               </div>
               <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Ajouter un ticket</p>
             </CardContent>
@@ -870,9 +870,9 @@ export default function Dashboard() {
         </Link>
         <Link href="/generate" className="block">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-3 flex flex-col items-center justify-center gap-1.5 text-center">
-              <div className="p-2.5 bg-amber-100 rounded-2xl">
-                <Zap className="h-7 w-7 text-amber-500" />
+            <CardContent className="p-2.5 flex items-center gap-2">
+              <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
+                <Zap className="h-5 w-5 text-amber-500" />
               </div>
               <p className="text-[11px] font-semibold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
             </CardContent>
