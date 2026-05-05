@@ -857,7 +857,7 @@ export default function Dashboard() {
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
           loading={!!selectedRouterId && !usersKnown}
           href="/vouchers"
-          className="order-4 sm:order-none"
+          className="sm:order-4"
         />
         <StatCard
           title="Vente mensuelle"
@@ -870,12 +870,12 @@ export default function Dashboard() {
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
           loading={!!selectedRouterId && !salesFresh}
           href="/sales/monthly"
-          className="order-3 sm:order-none"
+          className="sm:order-3"
         />
         {/* Raccourcis actions — mobile uniquement */}
         <button
           type="button"
-          className="block lg:hidden w-full h-full text-left order-5 sm:order-none"
+          className="block lg:hidden w-full h-full text-left"
           onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
         >
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
@@ -887,7 +887,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </button>
-        <Link href="/generate" className="block lg:hidden order-6 sm:order-none">
+        <Link href="/generate" className="block lg:hidden">
           <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
             <CardContent className="p-2.5 h-full flex items-center gap-2">
               <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
