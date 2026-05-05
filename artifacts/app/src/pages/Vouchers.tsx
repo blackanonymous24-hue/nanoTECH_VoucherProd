@@ -822,8 +822,7 @@ export default function Vouchers() {
       const rawValidity = profilesList.find((p) => p.name === printProfile)?.validity ?? "";
       const compactValidity = toFileValidity(rawValidity);
       const printComment = firstUser?.comment ?? "";
-      const profileSlug = printProfile.trim().split(/\s+/)[0] ?? printProfile;
-      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment, profileSlug].filter(Boolean);
+      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment].filter(Boolean);
 
       try {
         printTickets(data.html, printParts.join("-"));
