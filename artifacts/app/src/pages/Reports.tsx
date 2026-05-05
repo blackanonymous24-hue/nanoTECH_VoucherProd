@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useRouterContext } from "@/contexts/RouterContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
   useGetVendorReportsSummary,
@@ -548,6 +549,7 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 /* ─── main page ───────────────────────────────────────────────── */
 export default function Reports() {
   const isVisible = usePageVisibility();
+  const { selectedRouterId: routerId } = useRouterContext();
   const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), refetchInterval: isVisible ? 60_000 : false } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
@@ -560,9 +562,10 @@ export default function Reports() {
     }
   }, []);
 
-  const routerId = (() => {
-    try { const v = localStorage.getItem("vouchernet_router_id"); return v ? parseInt(v) : null; } catch { return null; }
-  })();
+  // Quand le routeur change, revenir à la liste (le vendeur affiché appartient à l'ancien routeur)
+  useEffect(() => {
+    setSelectedVendorId(null);
+  }, [routerId]);
 
   // Filter to only vendors of the active router
   const filtered = useMemo(
