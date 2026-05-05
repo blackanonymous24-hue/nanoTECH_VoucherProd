@@ -5,6 +5,7 @@ import {
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
   UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie, ChevronDown,
   Eye, EyeOff, ChevronsUpDown, Check, Save, Loader2, Pencil, FilePlus2,
+  PowerOff, RefreshCw, Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -18,6 +19,11 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -91,6 +97,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const { logout, role, token, isSuperAdmin } = useAuth();
   const appNavigate = useAppNavigate();
 
+  const { toast } = useToast();
+
   const handleLogout = () => {
     logout();
     appNavigate("/admin");
@@ -108,6 +116,42 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const isVendorPage = vendorNavPaths.some((p) => location.startsWith(p));
   const [vendorsOpen, setVendorsOpen] = useState(() => isVendorPage);
   useEffect(() => { if (isVendorPage) setVendorsOpen(true); }, [isVendorPage]);
+  /* ── Outils collapsible ── */
+  const outilsPaths = ["/ticket-template", "/managers", "/collaborateurs", "/maintenance"];
+  const isOutilsPage = outilsPaths.some((p) => location.startsWith(p));
+  const [outilsOpen, setOutilsOpen] = useState(() => isOutilsPage);
+  useEffect(() => { if (isOutilsPage) setOutilsOpen(true); }, [isOutilsPage]);
+  /* ── Système collapsible ── */
+  const [systemeOpen, setSystemeOpen] = useState(false);
+  const [systemAction, setSystemAction] = useState<"reboot" | "shutdown" | null>(null);
+  const [isSystemLoading, setIsSystemLoading] = useState(false);
+
+  const handleSystemAction = async () => {
+    if (!systemAction || !selectedRouterId || isSystemLoading) return;
+    setIsSystemLoading(true);
+    const action = systemAction;
+    setSystemAction(null);
+    try {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/system/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      toast({
+        title: action === "reboot" ? "Redémarrage envoyé" : "Extinction envoyée",
+        description: action === "reboot"
+          ? "Le MikroTik va redémarrer dans quelques secondes."
+          : "Le MikroTik va s'éteindre dans quelques secondes.",
+      });
+    } catch (err) {
+      toast({ title: "Erreur", description: String(err), variant: "destructive" });
+    } finally {
+      setIsSystemLoading(false);
+    }
+  };
   /* ── Vendor count — masquer les items vendeur si aucun vendeur sur ce routeur ── */
   const { data: vendorsList } = useQuery<{ id: number }[]>({
     queryKey: ["vendors-nav-count", selectedRouterId],
@@ -442,16 +486,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         ],
       },
     },
-    {
-      label: "Outils",
-      collapsible: false,
-      items: [
-        { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode },
-        ...((isAdmin || isSuperAdmin) ? [{ href: "/managers",      label: "Gérants de zone", icon: UserCog }] : []),
-        ...((isAdmin || isSuperAdmin) ? [{ href: "/collaborateurs", label: "Collaborateurs",  icon: Users }] : []),
-        ...(isAdmin ? [{ href: "/maintenance", label: "Maintenance", icon: Wrench }] : []),
-      ],
-    },
     ...(isSuperAdmin ? [{
       label: "Super Admin",
       collapsible: false,
@@ -652,6 +686,98 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               })()}
             </div>
         ))}
+
+        {/* ── Outils + Système (collapsibles) ── */}
+        <div className="mt-3 mb-1">
+          <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">Outils</p>
+          <div className="space-y-0.5">
+
+            {/* Outils collapsible */}
+            <div>
+              <button
+                onClick={() => setOutilsOpen((v) => !v)}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                  isOutilsPage && !outilsOpen ? "text-blue-300" : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
+                )}
+              >
+                <Wrench className={cn("h-4 w-4 flex-shrink-0", isOutilsPage && !outilsOpen ? "text-blue-400" : "text-gray-500")} />
+                <span className="flex-1 text-left">Outils</span>
+                {!outilsOpen && (
+                  <span className="text-[10px] font-semibold tabular-nums bg-white/8 text-gray-500 rounded-full px-1.5 py-0.5">
+                    {1 + (isAdmin || isSuperAdmin ? 2 : 0) + (isAdmin ? 1 : 0)}
+                  </span>
+                )}
+                <ChevronDown className={cn("h-3.5 w-3.5 text-gray-500 flex-shrink-0 transition-transform duration-200", outilsOpen && "rotate-180")} />
+              </button>
+              {outilsOpen && (
+                <div className="space-y-0.5 mt-0.5">
+                  {[
+                    { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode, show: true },
+                    { href: "/managers",        label: "Gérants de zone",  icon: UserCog,  show: isAdmin || isSuperAdmin },
+                    { href: "/collaborateurs",  label: "Collaborateurs",   icon: Users,    show: isAdmin || isSuperAdmin },
+                    { href: "/maintenance",     label: "Maintenance",      icon: Wrench,   show: isAdmin },
+                  ].filter((i) => i.show).map(({ href, label, icon: Icon }) => {
+                    const isActive = location === href || location.startsWith(href + "/");
+                    return (
+                      <Link
+                        key={href}
+                        href={href}
+                        onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate(); appNavigate(href); } }}
+                        className={cn(
+                          "flex items-center gap-2.5 pl-8 pr-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                          isActive ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]" : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
+                        )}
+                      >
+                        <Icon className={cn("h-4 w-4 flex-shrink-0", isActive ? "text-blue-400" : "text-gray-500")} />
+                        <span className="flex-1 truncate">{label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Système collapsible — admin/superadmin uniquement */}
+            {(isAdmin || isSuperAdmin) && (
+              <div>
+                <button
+                  onClick={() => setSystemeOpen((v) => !v)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100"
+                >
+                  <Cpu className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                  <span className="flex-1 text-left">Système</span>
+                  {!systemeOpen && (
+                    <span className="text-[10px] font-semibold tabular-nums bg-white/8 text-gray-500 rounded-full px-1.5 py-0.5">2</span>
+                  )}
+                  <ChevronDown className={cn("h-3.5 w-3.5 text-gray-500 flex-shrink-0 transition-transform duration-200", systemeOpen && "rotate-180")} />
+                </button>
+                {systemeOpen && (
+                  <div className="space-y-0.5 mt-0.5">
+                    <button
+                      disabled={!selectedRouterId || isSystemLoading}
+                      onClick={() => setSystemAction("reboot")}
+                      className="flex items-center gap-2.5 pl-8 pr-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100 w-full disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <RefreshCw className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                      <span className="flex-1 text-left truncate">Redémarrer le MikroTik</span>
+                    </button>
+                    <button
+                      disabled={!selectedRouterId || isSystemLoading}
+                      onClick={() => setSystemAction("shutdown")}
+                      className="flex items-center gap-2.5 pl-8 pr-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-red-900/20 hover:text-red-300 w-full disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <PowerOff className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                      <span className="flex-1 text-left truncate">Éteindre le MikroTik</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        </div>
+
       </nav>
 
       {/* ── Divider ── */}
@@ -998,6 +1124,36 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           </div>
         </DialogContent>
       </Dialog>
+      {/* ── Confirmation action système ── */}
+      <AlertDialog open={systemAction !== null} onOpenChange={(open) => { if (!open) setSystemAction(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              {systemAction === "reboot"
+                ? <><RefreshCw className="h-4 w-4 text-amber-500" /> Redémarrer le MikroTik ?</>
+                : <><PowerOff className="h-4 w-4 text-red-500" /> Éteindre le MikroTik ?</>}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {systemAction === "reboot"
+                ? "Le routeur sera indisponible pendant le redémarrage. Les sessions Hotspot actives seront interrompues."
+                : "Le routeur va s'éteindre complètement. Il faudra le rallumer manuellement pour qu'il soit de nouveau accessible."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSystemLoading}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isSystemLoading}
+              onClick={(e) => { e.preventDefault(); void handleSystemAction(); }}
+              className={systemAction === "shutdown" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-amber-500 hover:bg-amber-600 text-white"}
+            >
+              {isSystemLoading
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : systemAction === "reboot" ? "Redémarrer" : "Éteindre"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }

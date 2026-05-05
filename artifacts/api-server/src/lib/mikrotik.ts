@@ -2579,3 +2579,23 @@ export async function generateVouchers(
     }));
   }, 120_000, "high");
 }
+
+export async function rebootRouter(conn: RouterConnection): Promise<void> {
+  try {
+    await withRouter(conn, async (api) => {
+      await api.write("/system/reboot");
+    }, 15_000, "high");
+  } catch {
+    // La connexion est coupée dès que le routeur redémarre — c'est attendu
+  }
+}
+
+export async function shutdownRouter(conn: RouterConnection): Promise<void> {
+  try {
+    await withRouter(conn, async (api) => {
+      await api.write("/system/shutdown");
+    }, 15_000, "high");
+  } catch {
+    // La connexion est coupée dès que le routeur s'éteint — c'est attendu
+  }
+}
