@@ -192,7 +192,6 @@ export default function Vouchers() {
   const [editBypassComment, setEditBypassComment] = useState("");
   const [linkBypass, setLinkBypass] = useState(false);
   const [isSavingRename, setIsSavingRename] = useState(false);
-  const [confirmResetUser, setConfirmResetUser] = useState<HotspotUser | null>(null);
   const [isResetting, setIsResetting] = useState(false);
   const [confirmDeleteEditUser, setConfirmDeleteEditUser] = useState<HotspotUser | null>(null);
   const [isDeletingEditUser, setIsDeletingEditUser] = useState(false);
@@ -971,12 +970,8 @@ export default function Vouchers() {
     })();
   };
 
-  const handleResetUser = async () => {
-    if (!activeRouterId || !confirmResetUser || isResetting) return;
-    const user = confirmResetUser;
-
-    // 1. Close dialog + loading state
-    setConfirmResetUser(null);
+  const handleResetUser = async (user: HotspotUser) => {
+    if (!activeRouterId || isResetting) return;
     setIsResetting(true);
     const resetToast = toast({
       title: "Réinitialisation… en cours",
@@ -1675,7 +1670,7 @@ export default function Vouchers() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => setConfirmResetUser(selUser)}
+                              onClick={() => void handleResetUser(selUser)}
                               disabled={isResetting}
                               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
                             >
@@ -1807,7 +1802,7 @@ export default function Vouchers() {
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
-                          onReset={() => setConfirmResetUser(user)}
+                          onReset={() => void handleResetUser(user)}
                           onExtend={() => openExtendUser(user)}
                           onCopy={() => { void navigator.clipboard.writeText(user.username); }}
                         />
@@ -2182,39 +2177,6 @@ export default function Vouchers() {
         </DialogContent>
       </Dialog>
 
-      {/* Reset user confirmation dialog */}
-      <AlertDialog open={!!confirmResetUser} onOpenChange={(o) => { if (!o && !isResetting) setConfirmResetUser(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Réinitialiser l'utilisateur ?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm text-gray-600">
-                <p>
-                  L'utilisateur <span className="font-mono font-semibold">{confirmResetUser?.username}</span> sera supprimé puis recréé avec les mêmes identifiants :
-                </p>
-                <ul className="list-disc pl-4 space-y-1 text-gray-500">
-                  <li>Suppression de l'utilisateur sur MikroTik</li>
-                  <li>Recréation avec le même nom, mot de passe et profil</li>
-                  <li>Compteurs (uptime, octets) repartent à zéro</li>
-                  <li>Session active déconnectée</li>
-                  <li>Marqué comme non vendu en base de données</li>
-                </ul>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isResetting}>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => void handleResetUser()}
-              disabled={isResetting}
-              className="bg-orange-600 hover:bg-orange-700"
-            >
-              {isResetting ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Réinitialisation…</> : "Réinitialiser"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Edit user dialog — thème app + actions icônes (ordre : Fermer / Enregistrer / Activer·Désactiver / Supprimer / Réinitialiser) */}
       <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename && !isTogglingEditUserDisabled) setEditingUser(null); }}>
         <DialogContent className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:hidden">
@@ -2321,7 +2283,7 @@ export default function Vouchers() {
                       if (!editingUser) return;
                       const u = editingUser;
                       setEditingUser(null);
-                      setConfirmResetUser(u);
+                      void handleResetUser(u);
                     }}
                     aria-label="Réinitialiser"
                   >
