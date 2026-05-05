@@ -233,6 +233,10 @@ export default function Routers() {
       toast({ title: "Adresse invalide", description: "Format attendu: ip:port ou domaine:port", variant: "destructive" });
       return;
     }
+    if (!editRouter && !form.password) {
+      toast({ title: "Mot de passe requis", description: "Veuillez saisir un mot de passe pour le routeur.", variant: "destructive" });
+      return;
+    }
     const basePayload = {
       name: form.name,
       hotspotName: form.hotspotName || undefined,
@@ -244,6 +248,7 @@ export default function Routers() {
       autoDeleteSalesScripts: form.autoDeleteSalesScripts,
     };
     if (editRouter) {
+      // password vide = non modifié → le serveur conserve l'ancien
       await updateMutation.mutateAsync({ id: editRouter.id, data: { ...basePayload, password: form.password } });
       toast({ title: "Routeur mis à jour" });
     } else {
@@ -565,13 +570,18 @@ export default function Routers() {
                   />
                 </div>
                 <div>
-                  <Label>Mot de passe <span className="text-red-500">*</span></Label>
+                  <Label>
+                    Mot de passe{" "}
+                    {editRouter
+                      ? <span className="text-xs font-normal text-gray-400">(laisser vide = inchangé)</span>
+                      : <span className="text-red-500">*</span>}
+                  </Label>
                   <PasswordInput
                     className="mt-1"
-                    placeholder=""
+                    placeholder={editRouter ? "••••••••" : ""}
                     value={form.password}
                     onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    required
+                    required={!editRouter}
                   />
                 </div>
               </div>

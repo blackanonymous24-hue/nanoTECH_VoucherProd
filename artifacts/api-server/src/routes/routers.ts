@@ -267,6 +267,7 @@ router.get("/routers", async (req, res): Promise<void> => {
       host: routersTable.host,
       port: routersTable.port,
       username: routersTable.username,
+      password: routersTable.password,
       autoDeleteSalesScripts: routersTable.autoDeleteSalesScripts,
       isActive: routersTable.isActive,
       ownerAdminId: routersTable.ownerAdminId,
@@ -491,7 +492,8 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   if (host !== undefined) updates.host = host;
   if (port !== undefined) updates.port = port;
   if (username !== undefined) updates.username = username;
-  if (password !== undefined) updates.password = password;
+  // Chaîne vide = "ne pas changer le mot de passe" (cas édition sans modification)
+  if (password !== undefined && password !== "") updates.password = password;
   if (autoDeleteSalesScripts !== undefined) updates.autoDeleteSalesScripts = autoDeleteSalesScripts;
   if (isActive !== undefined) updates.isActive = isActive;
 
