@@ -172,7 +172,7 @@ function VendorRow({
   const [note, setNote]     = useState("");
   const { toast } = useToast();
 
-  const isFullyPaid = vendor.remaining === 0 && vendor.totalPaid > 0;
+  const isFullyPaid = vendor.remaining === 0 && (vendor.totalPaid > 0 || vendor.commission >= vendor.amount);
   const addPayment = async () => {
     const amt = parseInt(amount.replace(/\s/g, ""), 10);
     if (!amt || amt <= 0) { toast({ title: "Montant invalide", variant: "destructive" }); return; }
@@ -286,8 +286,7 @@ function VendorRow({
             )}
             {vendor.totalPaid > 0 && (() => {
               const co = Math.max(0, vendor.carryOverFromPriorWeeks ?? 0);
-              const net = Math.max(0, vendor.amount - vendor.commission);
-              const verseAmt = net + co;
+              const verseAmt = paidShownVersusWeekContext(vendor.totalPaid, vendor.amount, vendor.commission, vendor.carryOverFromPriorWeeks);
               const label = co > 0 ? "Total versé" : "Versé";
               return (
                 <span className="whitespace-nowrap">{label} : <span className="font-medium text-emerald-700">{fmtAmount(verseAmt)} FCFA</span></span>

@@ -1450,8 +1450,14 @@ function Dashboard({ token, vendor, onLogout }: {
                       <span className="text-xs font-semibold text-orange-700">Total à verser</span>
                       <span className="text-sm font-bold text-orange-700 tabular-nums">
                         {fmtFcfa(
-                          (prevDays.length === 0 ? (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0) : 0) +
-                            arrearsData.days.reduce((s, d) => s + d.remaining, 0),
+                          (() => {
+                            const todayIso = new Date().toISOString().slice(0, 10);
+                            const cwStart = mondayOfDateUtc(todayIso);
+                            const daysPos = arrearsData.days.filter((d) => d.remaining > 0);
+                            const hasPrevDays = daysPos.some((d) => d.date < cwStart);
+                            const carry = hasPrevDays ? 0 : (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0);
+                            return carry + daysPos.reduce((s, d) => s + d.remaining, 0);
+                          })()
                         )}{" "}
                         FCFA
                       </span>

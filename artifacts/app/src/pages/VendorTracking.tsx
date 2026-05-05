@@ -1210,7 +1210,9 @@ export default function VendorTracking() {
                             {hasArrears && (() => {
                               const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
                               const weekCarryForTotal = weekCarry > 0 && prevArrears.length === 0 ? weekCarry : 0;
-                              const totalDu = s.amount + weekCarryForTotal + allArrearsTotal;
+                              const commRate = weekSummary.find((w) => w.vendorId === s.vendorId)?.commissionRate ?? 0;
+                              const netDayAmount = commRate > 0 ? Math.round(s.amount * (1 - commRate / 100)) : s.amount;
+                              const totalDu = netDayAmount + weekCarryForTotal + allArrearsTotal;
                               return (
                                 <tr className="border-t-2 border-blue-900 bg-blue-900">
                                   <td colSpan={3} className="px-3 py-1">
