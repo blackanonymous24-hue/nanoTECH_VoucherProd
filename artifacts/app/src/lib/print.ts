@@ -71,9 +71,9 @@ function normalizeSessionName(raw: string): string {
   return normalized || "WIFI_SESSION";
 }
 
-function buildVoucherPrintUrl(voucherId: string, sessionName: string): string {
-  const customBase = (typeof window !== "undefined" ? localStorage.getItem("mikhmon-print-base-url") : "")?.trim() ?? "";
-  const base = (customBase || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/$/, "");
+function buildVoucherPrintUrl(voucherId: string, sessionName: string): string | null {
+  const base = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
+  if (!base) return null;
   return `${base}/voucher/print.php?id=${encodeURIComponent(voucherId)}&small=yes&session=${encodeURIComponent(sessionName)}`;
 }
 
@@ -87,6 +87,7 @@ export function tryOpenVoucherPrintPage(voucherId: string, hotspotOrSessionName:
   if (!isMobile() && !isNativeWebView()) return false;
 
   const url = buildVoucherPrintUrl(voucherId, normalizeSessionName(hotspotOrSessionName));
+  if (!url) return false;
 
   if (isNativeWebView()) {
     try {
