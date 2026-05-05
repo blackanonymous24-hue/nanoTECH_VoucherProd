@@ -2195,51 +2195,20 @@ async function buildDashboardPrioritySnapshot(id: number) {
 
   const now = Date.now();
 
-  // Sessions count — style Mikhmon : comptage ultra-rapide via .proplist=.id
-  // quand le cache plein est froid (cold start). Le cache plein (sessionsKey)
-  // reste nécessaire pour la page Sessions et le snapshot SSE complet.
+  // ── Cold-start parallèle : sessions + info routeur + comptage tickets ────────
+  // Stratégie "instant-on" pour les 3 KPIs du dashboard :
+  //   • Cold server (après restart/déploiement) : les 3 fetches MikroTik manquants
+  //     sont lancés EN PARALLÈLE (Promise.all) → premier appel retourne les vraies
+  //     données en max(latences) au lieu de leur somme.
+  //   • Cache chaud : données stale servies immédiatement, refresh en arrière-plan.
+  //   • Cache localStorage client (initialData) : affiche les dernières valeurs
+  //     connues dès le montage du composant, avant même la réponse réseau.
+
   const sessionsKey = `sessions:${sc}`;
   const sessionsFresh = mGet(sessionsKey) as unknown[] | null;
   const sessionsStale = mGetStale(sessionsKey) as unknown[] | null;
-  const fastEntry    = _sessionsFastCount.get(sc);
-  const fastCount    = fastEntry && (now - fastEntry.cachedAt) < 8_000 ? fastEntry.count : null;
-  const sessionsCount = sessionsFresh?.length ?? sessionsStale?.length ?? fastCount ?? 0;
-
-  // Fast count path : ne tourne que si aucun cache plein (fresh ou stale) n'est dispo.
-  // Bien plus rapide que listSessions (ne transfère que les .id).
-  if (!sessionsFresh && !sessionsStale && !_sessionsFastRefreshing.has(id)) {
-    _sessionsFastRefreshing.add(id);
-    setImmediate(async () => {
-      try {
-        const count = await countSessionsFast(conn);
-        _sessionsFastCount.set(sc, { count, cachedAt: Date.now() });
-      } catch { /* ignore */ }
-      finally { _sessionsFastRefreshing.delete(id); }
-    });
-  }
-  // Full list refresh : toujours déclenché dès que le cache plein est expiré,
-  // pour alimenter la page Sessions et le snapshot SSE.
-  if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
-    _sessionsRefreshing.add(id);
-    setImmediate(async () => {
-      try {
-        const sessions = await listSessions(conn);
-        mSet(sessionsKey, MIK_TTL.sessions, sessions);
-      } catch { /* keep stale */ }
-      finally { _sessionsRefreshing.delete(id); }
-    });
-  }
-
-  // ── Info routeur + comptage tickets : cold-start parallèle ──────────────────
-  // Stratégie "instant-on" :
-  //   • Si les deux caches sont vides (cold server après restart/déploiement) :
-  //     on lance getRouterInfo() ET listHotspotUsersFast() EN PARALLÈLE (Promise.all),
-  //     puis on répond. Premier appel ≈ max(info_latency, users_latency) au lieu de leur somme.
-  //   • Si un seul cache est vide : on lance uniquement le fetch manquant en inline await.
-  //   • Si les deux caches sont présents mais stale : refresh non-bloquant (setImmediate),
-  //     on sert les données stale immédiatement.
-  // Le cache localStorage côté client (initialData) affiche les dernières valeurs connues
-  // dès le montage du composant, sans attendre la réponse réseau.
+  const fastEntryBefore = _sessionsFastCount.get(sc);
+  const fastCountBefore = fastEntryBefore && (now - fastEntryBefore.cachedAt) < 8_000 ? fastEntryBefore.count : null;
 
   const infoKey = `info:${sc}`;
   const infoFresh = mGet(infoKey);
@@ -2250,13 +2219,24 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const userFresh = !!userHit && now < userHit.expiresAt;
   const COUNT_FRESH_MS = 20_000;
 
-  const needInfoCold  = !infoFresh && !infoStale && !_infoRefreshing.has(id);
-  const needUsersCold = !usersCachedBefore && !_usersRefreshing.has(id);
+  // Détecter les manques (cold start pour chaque KPI)
+  const needSessionsCold = !sessionsFresh && !sessionsStale && fastCountBefore === null && !_sessionsFastRefreshing.has(id);
+  const needInfoCold     = !infoFresh && !infoStale && !_infoRefreshing.has(id);
+  const needUsersCold    = !usersCachedBefore && !_usersRefreshing.has(id);
 
-  if (needInfoCold || needUsersCold) {
-    // Cold start : fetch inline (bloquant) en parallèle pour les deux données manquantes
+  if (needSessionsCold || needInfoCold || needUsersCold) {
+    // Fetch manquants en parallèle — bloquant pour que la première réponse soit complète
     const tasks: Promise<void>[] = [];
 
+    if (needSessionsCold) {
+      _sessionsFastRefreshing.add(id);
+      tasks.push(
+        countSessionsFast(conn)
+          .then((count) => { _sessionsFastCount.set(sc, { count, cachedAt: Date.now() }); })
+          .catch(() => { /* keep 0 */ })
+          .finally(() => { _sessionsFastRefreshing.delete(id); }),
+      );
+    }
     if (needInfoCold) {
       _infoRefreshing.add(id);
       tasks.push(
@@ -2278,7 +2258,15 @@ async function buildDashboardPrioritySnapshot(id: number) {
     }
     await Promise.all(tasks);
   } else {
-    // Refresh stale en arrière-plan (non-bloquant) — on sert le cache immédiatement
+    // Cache chaud — refresh stale en arrière-plan (non-bloquant)
+    if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
+      _sessionsRefreshing.add(id);
+      setImmediate(async () => {
+        try { mSet(sessionsKey, MIK_TTL.sessions, await listSessions(conn)); }
+        catch { /* keep stale */ }
+        finally { _sessionsRefreshing.delete(id); }
+      });
+    }
     if (!infoFresh && !_infoRefreshing.has(id)) {
       _infoRefreshing.add(id);
       setImmediate(async () => {
@@ -2300,9 +2288,25 @@ async function buildDashboardPrioritySnapshot(id: number) {
     }
   }
 
+  // Full sessions list refresh (pour la page Sessions) — toujours en arrière-plan
+  if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
+    _sessionsRefreshing.add(id);
+    setImmediate(async () => {
+      try { mSet(sessionsKey, MIK_TTL.sessions, await listSessions(conn)); }
+      catch { /* keep stale */ }
+      finally { _sessionsRefreshing.delete(id); }
+    });
+  }
+
   // Lire les caches après les fetches éventuels
-  const infoFreshAfter  = mGet(infoKey);
-  const infoStaleAfter  = mGetStale(infoKey);
+  const sessionsFreshAfter = mGet(sessionsKey) as unknown[] | null;
+  const sessionsStaleAfter = mGetStale(sessionsKey) as unknown[] | null;
+  const fastEntryAfter     = _sessionsFastCount.get(sc);
+  const fastCountAfter     = fastEntryAfter && (now - fastEntryAfter.cachedAt) < 8_000 ? fastEntryAfter.count : null;
+  const sessionsCount = sessionsFreshAfter?.length ?? sessionsStaleAfter?.length ?? fastCountAfter ?? 0;
+
+  const infoFreshAfter = mGet(infoKey);
+  const infoStaleAfter = mGetStale(infoKey);
   const info = (infoFreshAfter ?? infoStaleAfter ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
 
   const usersCached = _usersCountCache.get(sc) ?? null;
