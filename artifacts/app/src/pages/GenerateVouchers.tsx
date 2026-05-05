@@ -641,6 +641,24 @@ export default function GenerateVouchers() {
     const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
 
+    if (preWin) {
+      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chargement…</title>
+<style>
+  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
+    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
+  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#2563eb;
+    border-radius:50%;animation:spin 0.9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
+</style></head>
+<body><div class="spinner"></div>
+<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
+</body></html>`);
+      preWin.document.close();
+    }
+
     const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
     if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) {
       preWin?.close();
