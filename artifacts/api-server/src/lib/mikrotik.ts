@@ -2072,196 +2072,104 @@ export async function updateHotspotUser(
   }, 20_000, "high");
 }
 
+/**
+ * Déconnecter une session active — procédé exact de Mikhmon removeuseractive.php :
+ * 1) /ip/hotspot/active/print ?user=username → récupérer l'ID de session
+ * 2) /ip/hotspot/cookie/print ?user=username → récupérer le cookie
+ * 3) /ip/hotspot/cookie/remove
+ * 4) /ip/hotspot/active/remove
+ */
 export async function disconnectSession(
   conn: RouterConnection,
   username: string,
-): Promise<number> {
+): Promise<{ removed: number; cookiesRemoved: number }> {
   return withRouter(conn, async (api) => {
     const target = username.trim();
-    if (!target) return 0;
-    const targetLower = target.toLowerCase();
+    if (!target) return { removed: 0, cookiesRemoved: 0 };
 
-    // Fast path: ask MikroTik for the exact user first (very fast on large active lists).
-    // Include common encoded variants to handle accents/special chars gracefully.
+    // Variantes d'encodage pour MikroTik 7.x (accents, caractères spéciaux)
     const candidates = Array.from(new Set([
       target,
+      toWin1252(target),
       fixEncoding(target),
       decodeRouterText(target),
     ].map((v) => v.trim()).filter(Boolean)));
 
-    const byId = new Map<string, Record<string, unknown>>();
+    // 1) Trouver la session active — requête ciblée comme Mikhmon ?.id=...
+    const sessionIds = new Map<string, string>(); // id → user
     for (const cand of candidates) {
-      const rows = await api.write("/ip/hotspot/active/print", [`?user=${cand}`]);
+      const rows = await api.write("/ip/hotspot/active/print", [`?user=${cand}`]).catch(() => []);
       for (const row of rows) {
-        const id = String(row[".id"] ?? "");
-        if (id) byId.set(id, row as Record<string, unknown>);
+        const sid = String(row[".id"] ?? "");
+        const user = String(row["user"] ?? cand);
+        if (sid) sessionIds.set(sid, user);
       }
-      if (byId.size > 0) break;
+      if (sessionIds.size > 0) break;
     }
 
-    // Fallback path (rare): full scan + robust compare for mixed encodings.
-    if (byId.size === 0) {
-      const sessions = await api.write("/ip/hotspot/active/print");
-      for (const s of sessions) {
-        const rawUser = String(s["user"] ?? "").trim();
-        const decodedUser = decodeRouterText(rawUser).trim();
-        if (rawUser.toLowerCase() === targetLower || decodedUser.toLowerCase() === targetLower) {
-          const id = String(s[".id"] ?? "");
-          if (id) byId.set(id, s as Record<string, unknown>);
-        }
-      }
-    }
-
+    // 2) Pour chaque session trouvée : supprimer cookie puis session (ordre Mikhmon)
     let removed = 0;
-    for (const id of byId.keys()) {
-      await api.write("/ip/hotspot/active/remove", [`=.id=${id}`]);
+    let cookiesRemoved = 0;
+
+    for (const [sid, sessionUser] of sessionIds) {
+      // Cookie par username (Mikhmon : /ip/hotspot/cookie/print ?user=username)
+      for (const cand of Array.from(new Set([target, toWin1252(sessionUser), sessionUser]))) {
+        const cookies = await api.write("/ip/hotspot/cookie/print", [`?user=${cand}`]).catch(() => []);
+        for (const c of cookies) {
+          const cid = String(c[".id"] ?? "");
+          if (!cid) continue;
+          await api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]).catch(() => undefined);
+          cookiesRemoved++;
+        }
+        if (cookies.length > 0) break;
+      }
+      // Supprimer la session active
+      await api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]).catch(() => undefined);
       removed++;
     }
-    return removed;
+
+    return { removed, cookiesRemoved };
   }, 10_000, "high");
 }
 
 /**
- * Reset a hotspot user — Mikhmon-style fast reset:
+ * Reset a hotspot user — procédé exact de Mikhmon resethotspotuser.php :
  * 1) /ip/hotspot/user/set (limit-uptime=0, comment="")
  * 2) /ip/hotspot/user/reset-counters
- * 3) remove /system/scheduler entries by username
+ * 3) /system/scheduler/print ?name=username → remove
+ *
+ * Pas de déconnexion de session ni de cookie : Mikhmon gère ça séparément
+ * via removeuseractive. Garder le reset minimal = réponse instantanée.
  */
 export async function resetHotspotUser(
   conn: RouterConnection,
   username: string,
-): Promise<{
-  found: boolean;
-  sessionKicked: number;
-  salesScriptsRemoved: number;
-  salesScriptsFailed: number;
-  schedulerRemoved: number;
-  cookiesRemoved: number;
-  comment: string | null;
-}> {
+): Promise<{ found: boolean; schedulerRemoved: number }> {
   return withRouter(conn, async (api) => {
-    // 1) Find the user by name (same target as Mikhmon reset-hotspot-user)
+    // 1) Récupérer l'utilisateur par nom pour obtenir son .id
     const user = await findHotspotUserByName(api, username);
-    if (!user) {
-      return {
-        found: false,
-        sessionKicked: 0,
-        salesScriptsRemoved: 0,
-        salesScriptsFailed: 0,
-        schedulerRemoved: 0,
-        cookiesRemoved: 0,
-        comment: null,
-      };
-    }
+    if (!user) return { found: false, schedulerRemoved: 0 };
 
     const id = user[".id"] as string | undefined;
     const name = (user["name"] as string) ?? username;
-    if (!id) {
-      return {
-        found: false,
-        sessionKicked: 0,
-        salesScriptsRemoved: 0,
-        salesScriptsFailed: 0,
-        schedulerRemoved: 0,
-        cookiesRemoved: 0,
-        comment: null,
-      };
-    }
+    if (!id) return { found: false, schedulerRemoved: 0 };
 
-    // 2) Reset quota marker exactly like Mikhmon does.
+    // 2) Reset quota — identique à Mikhmon
     await api.write("/ip/hotspot/user/set", [`=.id=${id}`, "=limit-uptime=0", "=comment="]);
     await api.write("/ip/hotspot/user/reset-counters", [`=.id=${id}`]);
 
-    // 3) Mikhmon-like cleanup around the reset: scheduler + active sessions + cookies.
-    // Keep a fast targeted pass first, then robust fallback for mixed encodings.
+    // 3) Supprimer le scheduler par nom — identique à Mikhmon
     let schedulerRemoved = 0;
-    let sessionKicked = 0;
-    let cookiesRemoved = 0;
+    const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
+    for (const sch of schedulers) {
+      const sid = sch[".id"] as string | undefined;
+      if (!sid) continue;
+      await api.write("/system/scheduler/remove", [`=.id=${sid}`]).catch(() => undefined);
+      schedulerRemoved++;
+    }
 
-    const targetLower = name.trim().toLowerCase();
-
-    const removeSchedulersTask = (async () => {
-      const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
-      for (const sch of schedulers) {
-        const sid = sch[".id"] as string | undefined;
-        if (!sid) continue;
-        try {
-          await api.write("/system/scheduler/remove", [`=.id=${sid}`]);
-          schedulerRemoved++;
-        } catch {
-          // non-fatal
-        }
-      }
-    })();
-
-    const removeSessionsTask = (async () => {
-      const byId = new Map<string, Record<string, unknown>>();
-      const targeted = await api.write("/ip/hotspot/active/print", [`?user=${toWin1252(name)}`]).catch(() => []);
-      for (const s of targeted) {
-        const sid = String(s[".id"] ?? "");
-        if (sid) byId.set(sid, s as Record<string, unknown>);
-      }
-      if (byId.size === 0) {
-        const all = await api.write("/ip/hotspot/active/print").catch(() => []);
-        for (const s of all) {
-          const raw = String(s["user"] ?? "").trim();
-          const dec = decodeRouterText(raw).trim();
-          if (raw.toLowerCase() === targetLower || dec.toLowerCase() === targetLower) {
-            const sid = String(s[".id"] ?? "");
-            if (sid) byId.set(sid, s as Record<string, unknown>);
-          }
-        }
-      }
-      for (const sid of byId.keys()) {
-        try {
-          await api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]);
-          sessionKicked++;
-        } catch {
-          // non-fatal
-        }
-      }
-    })();
-
-    const removeCookiesTask = (async () => {
-      const byId = new Map<string, Record<string, unknown>>();
-      const targeted = await api.write("/ip/hotspot/cookie/print", [`?user=${toWin1252(name)}`]).catch(() => []);
-      for (const c of targeted) {
-        const cid = String(c[".id"] ?? "");
-        if (cid) byId.set(cid, c as Record<string, unknown>);
-      }
-      if (byId.size === 0) {
-        const all = await api.write("/ip/hotspot/cookie/print").catch(() => []);
-        for (const c of all) {
-          const raw = String(c["user"] ?? "").trim();
-          const dec = decodeRouterText(raw).trim();
-          if (raw.toLowerCase() === targetLower || dec.toLowerCase() === targetLower) {
-            const cid = String(c[".id"] ?? "");
-            if (cid) byId.set(cid, c as Record<string, unknown>);
-          }
-        }
-      }
-      for (const cid of byId.keys()) {
-        try {
-          await api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]);
-          cookiesRemoved++;
-        } catch {
-          // non-fatal
-        }
-      }
-    })();
-
-    await Promise.all([removeSchedulersTask, removeSessionsTask, removeCookiesTask]);
-
-    return {
-      found: true,
-      sessionKicked,
-      salesScriptsRemoved: 0,
-      salesScriptsFailed: 0,
-      schedulerRemoved,
-      cookiesRemoved,
-      comment: null,
-    };
-  }, 12_000, "high");
+    return { found: true, schedulerRemoved };
+  }, 8_000, "high");
 }
 
 /**

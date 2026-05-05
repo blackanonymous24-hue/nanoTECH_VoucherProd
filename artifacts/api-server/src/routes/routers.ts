@@ -1621,8 +1621,9 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
     // post-reset state instantly (no MikroTik round-trip for thousands of
     // users). The fields below mirror what `resetHotspotUser` writes back:
     // a pristine voucher with no quota override/MAC binding and normalized comment.
+    // Mikhmon reset vide le commentaire — on reflète ça dans le cache
     const patched = patchCachedUser(uScope, username, {
-      comment: result.comment,
+      comment: null,
       limitUptime: null,
       limitBytesTotal: null,
       macAddress: null,
@@ -1654,10 +1655,6 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
     res.json({
       ok: true,
       username,
-      sessionKicked: result.sessionKicked,
-      cookiesRemoved: result.cookiesRemoved,
-      salesScriptsRemoved: result.salesScriptsRemoved,
-      salesScriptsFailed: result.salesScriptsFailed,
       schedulerRemoved: result.schedulerRemoved,
     });
   } catch (err) {
@@ -2918,8 +2915,8 @@ router.post("/routers/:id/sessions/disconnect", async (req, res): Promise<void> 
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const removed = await disconnectSession(conn, user);
-    res.json({ removed, user });
+    const result = await disconnectSession(conn, user);
+    res.json({ removed: result.removed, cookiesRemoved: result.cookiesRemoved, user });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
