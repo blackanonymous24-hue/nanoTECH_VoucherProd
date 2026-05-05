@@ -193,10 +193,17 @@ export function getStoredPHP(): string {
  * Fallback : localStorage → DEFAULT_MIKHMON_PHP.
  * Appelé avant chaque impression et au montage de la page Template.
  */
+const _TOKEN_KEY = "vouchernet_admin_token";
+function _readAuthToken(): string | null {
+  try { return localStorage.getItem(_TOKEN_KEY) ?? sessionStorage.getItem(_TOKEN_KEY); } catch { return null; }
+}
+
 export async function fetchServerTemplate(): Promise<string> {
   try {
     // /tenant/… : admin, vendeur, manager, collaborateur (l’ancien /admin/… échoue en 401 pour les vendeurs).
-    const r = await fetch(`${BASE}/api/tenant/ticket-template`);
+    const token = _readAuthToken();
+    const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+    const r = await fetch(`${BASE}/api/tenant/ticket-template`, { headers });
     if (r.ok) {
       const data = (await r.json()) as { template: string | null };
       if (data.template && data.template.trim().length > 0) {
@@ -207,7 +214,6 @@ export async function fetchServerTemplate(): Promise<string> {
   } catch { /* réseau indisponible — fallback local */ }
   return getStoredPHP();
 }
-
 export function isPHPMode(): boolean {
   return true;
 }
