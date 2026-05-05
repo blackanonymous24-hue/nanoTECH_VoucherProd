@@ -253,7 +253,7 @@ function StatCard({
 }) {
   const formatted = fcfa ? fmtFcfa(value) : String(value);
   const inner = (
-    <CardContent className="p-3 flex items-center gap-2.5 h-full">
+    <div className="flex-1 flex items-center gap-2.5 px-3 py-3">
       <div className={`h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
         <Icon className="h-4 w-4 text-white" />
       </div>
@@ -266,16 +266,16 @@ function StatCard({
         )}
         <p className="text-[10px] text-gray-500 truncate leading-tight">{label}</p>
       </div>
-    </CardContent>
+    </div>
   );
   if (onClick) {
     return (
-      <Card className="h-full cursor-pointer hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.98]" onClick={onClick}>
+      <Card className="min-h-[72px] flex flex-col cursor-pointer hover:shadow-md hover:border-blue-300 transition-all active:scale-[0.98]" onClick={onClick}>
         {inner}
       </Card>
     );
   }
-  return <Card className="h-full">{inner}</Card>;
+  return <Card className="min-h-[72px] flex flex-col">{inner}</Card>;
 }
 
 function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) => void }) {
@@ -1210,15 +1210,15 @@ function Dashboard({ token, vendor, onLogout }: {
         {loading && !data && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 animate-pulse" aria-label="Tableau de bord">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Card key={i}>
-                <CardContent className="p-3 flex items-center gap-2.5">
+              <Card key={i} className="min-h-[72px] flex flex-col">
+                <div className="flex-1 flex items-center gap-2.5 px-3 py-3">
                   <div className="h-9 w-9 rounded-xl bg-gray-200 flex-shrink-0" />
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="h-5 bg-gray-200 rounded w-2/3" />
                     <div className="h-2.5 bg-gray-100 rounded w-1/2" />
                     <div className="h-2.5 bg-gray-100 rounded w-3/4" />
                   </div>
-                </CardContent>
+                </div>
               </Card>
             ))}
           </div>

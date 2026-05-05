@@ -878,23 +878,23 @@ export default function Dashboard() {
           className="block lg:hidden w-full h-full text-left"
           onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
         >
-          <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-2.5 h-full flex items-center gap-2">
+          <Card className="min-h-[52px] flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+            <div className="flex-1 flex items-center gap-2 p-2.5">
               <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
                 <UserPlus className="h-5 w-5 text-emerald-600" />
               </div>
               <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
-            </CardContent>
+            </div>
           </Card>
         </button>
         <Link href="/generate" className="block lg:hidden">
-          <Card className="h-full cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <CardContent className="p-2.5 h-full flex items-center gap-2">
+          <Card className="min-h-[52px] flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+            <div className="flex-1 flex items-center gap-2 p-2.5">
               <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
                 <Zap className="h-5 w-5 text-amber-500" />
               </div>
               <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
-            </CardContent>
+            </div>
           </Card>
         </Link>
       </div>
@@ -1125,8 +1125,8 @@ function StatCard({
   className?: string;
 }) {
   const inner = (
-    <Card className={`h-full ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <CardContent className="p-2.5 sm:pt-5 sm:px-6 h-full flex flex-col justify-center">
+    <Card className={`h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
+      <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6">
         {/* Icône visible seulement sm+ */}
         <div className="hidden sm:flex items-center gap-3">
           <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0">{icon}</div>
@@ -1201,7 +1201,7 @@ function StatCard({
             </p>
           )}
         </div>
-      </CardContent>
+      </div>
     </Card>
   );
   if (href) return <Link href={href} className={`block${className ? ` ${className}` : ""}`}>{inner}</Link>;
