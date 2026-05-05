@@ -118,13 +118,32 @@ function writePriorityCache(routerId: number | null, snapshot: PrioritySnapshot 
 
 function formatUptime(raw: string | null): string | null {
   if (!raw) return null;
-  return raw
-    .replace(/(\d+)w/, "$1sem ")
-    .replace(/(\d+)d/, "$1j ")
-    .replace(/(\d+)h/, "$1h ")
-    .replace(/(\d+)m/, "$1min ")
-    .replace(/(\d+)s/, "")
-    .trim();
+  const w = parseInt(raw.match(/(\d+)w/)?.[1] ?? "0", 10);
+  const d = parseInt(raw.match(/(\d+)d/)?.[1] ?? "0", 10);
+  const h = parseInt(raw.match(/(\d+)h/)?.[1] ?? "0", 10);
+  const m = parseInt(raw.match(/(\d+)m(?!s)/)?.[1] ?? "0", 10);
+  const s = parseInt(raw.match(/(\d+)s/)?.[1] ?? "0", 10);
+  const days = w * 7 + d;
+  const hh = String(h).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return days > 0 ? `${days}j ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
+}
+
+const MONTH_MAP: Record<string, string> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+};
+function formatClockDateTime(clockDate: string | null, clockTime: string | null): string {
+  let datePart = clockDate ?? "";
+  if (clockDate) {
+    const match = clockDate.match(/^(\w{3})\/(\d{2})\/(\d{4})$/);
+    if (match) {
+      const mm = MONTH_MAP[match[1].toLowerCase()] ?? "??";
+      datePart = `${match[3]}-${mm}-${match[2]}`;
+    }
+  }
+  return [datePart, clockTime].filter(Boolean).join(" ");
 }
 
 function formatMemory(bytes: string | null): string | null {
@@ -785,19 +804,13 @@ export default function Dashboard() {
               {routerInfo.uptime && (
                 <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200 text-[10px] sm:text-xs font-medium text-gray-600 overflow-hidden">
                   <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  {/* Mobile : afficher seulement jours+heures pour laisser la place à la date */}
-                  <span className="truncate min-w-0 sm:hidden">
-                    {formatUptime(routerInfo.uptime)?.replace(/\s*\d+min.*$/, "") ?? ""}
-                  </span>
-                  <span className="truncate min-w-0 hidden sm:inline">{formatUptime(routerInfo.uptime)}</span>
+                  <span className="truncate min-w-0">{formatUptime(routerInfo.uptime)}</span>
                 </span>
               )}
               {(routerInfo.clockDate || routerInfo.clockTime) && (
-                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-[10px] sm:text-xs text-gray-500 font-mono overflow-hidden">
+                <span className="flex items-center gap-0.5 px-1.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-[9px] sm:text-xs text-gray-500 font-mono overflow-hidden">
                   <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  {/* Mobile : heure seule (hh:mm:ss) — économise la largeur du badge date */}
-                  <span className="truncate min-w-0 sm:hidden">{routerInfo.clockTime ?? ""}</span>
-                  <span className="truncate min-w-0 hidden sm:inline">{[routerInfo.clockDate, routerInfo.clockTime].filter(Boolean).join(" ")}</span>
+                  <span className="truncate min-w-0">{formatClockDateTime(routerInfo.clockDate, routerInfo.clockTime)}</span>
                 </span>
               )}
             </div>
@@ -811,7 +824,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-3 [grid-auto-rows:4.75rem] sm:[grid-auto-rows:auto]">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1 sm:gap-4 mb-3 [grid-auto-rows:4.75rem] sm:[grid-auto-rows:auto]">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? activeSessions : 0}
