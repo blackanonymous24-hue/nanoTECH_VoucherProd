@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
   UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie, ChevronDown,
-  Eye, EyeOff, ChevronsUpDown, Check, Save, Loader2,
+  Eye, EyeOff, ChevronsUpDown, Check, Save, Loader2, Pencil, FilePlus2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -180,8 +180,10 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const [addLimitBytesUnit, setAddLimitBytesUnit] = useState<"MB" | "GB">("MB");
   const [addMac, setAddMac]                     = useState("");
   const [addError, setAddError]                 = useState("");
-  const [addSuccess, setAddSuccess]             = useState(false);
   const [addLoading, setAddLoading]             = useState(false);
+  const [addDialogMode, setAddDialogMode]       = useState<"create" | "edit">("create");
+  const [addEditOriginalName, setAddEditOriginalName] = useState("");
+  const [addEditLoading, setAddEditLoading]     = useState(false);
 
   /* Profile list for the selected router (fetched when dialog opens) */
   const { data: dialogProfiles } = useQuery<
@@ -231,7 +233,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     setAddName(""); setAddPassword(""); setAddShowPassword(false); setAddServer("all"); setAddProfile("");
     setAddComment(""); setAddLimitUptime(""); setAddLimitBytes("");
     setAddLimitBytesUnit("MB"); setAddMac("");
-    setAddError(""); setAddSuccess(false);
+    setAddError("");
+    setAddDialogMode("create"); setAddEditOriginalName(""); setAddEditLoading(false);
     setAddServerPopoverOpen(false); setAddProfilePopoverOpen(false); setAddUnitPopoverOpen(false);
     setShowAddUser(true);
   }
@@ -275,12 +278,46 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         const data = await res.json() as { error?: string };
         setAddError(data.error ?? "Erreur MikroTik");
       } else {
-        setAddSuccess(true);
+        setAddEditOriginalName(addName.trim());
+        setAddDialogMode("edit");
+        setAddError("");
       }
     } catch {
       setAddError("Erreur réseau. Réessayez.");
     } finally {
       setAddLoading(false);
+    }
+  }
+
+  async function handleEditCreatedUser() {
+    if (!selectedRouterId || !addEditOriginalName) return;
+    setAddEditLoading(true);
+    setAddError("");
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${selectedRouterId}/users/${encodeURIComponent(addEditOriginalName)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            newUsername: addName.trim(),
+            password: addPassword.trim(),
+            profile: addProfile,
+            linkBypass: false,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        setAddError(data.error ?? "Erreur MikroTik");
+      } else {
+        setAddEditOriginalName(addName.trim());
+        setAddError("");
+      }
+    } catch {
+      setAddError("Erreur réseau. Réessayez.");
+    } finally {
+      setAddEditLoading(false);
     }
   }
 
@@ -696,69 +733,143 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       </Dialog>
 
       {/* ── Add hotspot user dialog — style Mikhmon compact ── */}
-      <Dialog open={showAddUser} onOpenChange={(v) => { if (!v && !addLoading) setShowAddUser(false); }}>
+      <Dialog open={showAddUser} onOpenChange={(v) => {
+        if (!v && !addLoading && !addEditLoading) {
+          setShowAddUser(false);
+          setAddDialogMode("create");
+          setAddEditOriginalName("");
+        }
+      }}>
         <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[90vh]">
           <DialogHeader className="px-3 pt-2 pb-1.5 border-b border-slate-600 bg-slate-700">
             <DialogTitle className="text-sm font-semibold flex items-center gap-1.5 text-slate-100">
-              <UserPlus className="h-3.5 w-3.5" /> Ajouter un client
+              {addDialogMode === "edit"
+                ? <><Pencil className="h-3.5 w-3.5 text-cyan-400" /><span className="truncate">Modifier — {addEditOriginalName}</span></>
+                : <><UserPlus className="h-3.5 w-3.5" /> Ajouter un client</>}
             </DialogTitle>
           </DialogHeader>
 
+          {/* ── Buttons bar ── */}
           <div className="flex items-center gap-2 px-3 pt-2 pb-2 bg-slate-700">
-            <Button type="button" size="sm" onClick={() => setShowAddUser(false)} disabled={addLoading}
+            <Button type="button" size="sm"
+              onClick={() => { setShowAddUser(false); setAddDialogMode("create"); setAddEditOriginalName(""); }}
+              disabled={addLoading || addEditLoading}
               className="h-7 text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1 px-2.5">
               <X className="h-3 w-3" /> Close
             </Button>
-            <Button type="button" size="sm" onClick={() => void handleAddHotspotUser()} disabled={addLoading || !selectedRouterId}
+            {addDialogMode === "edit" && (
+              <Button type="button" size="sm"
+                onClick={openAddUserDialog}
+                disabled={addEditLoading}
+                className="h-7 text-xs bg-slate-500 hover:bg-slate-400 text-white gap-1 px-2.5">
+                <FilePlus2 className="h-3 w-3" /> Nouveau
+              </Button>
+            )}
+            <Button type="button" size="sm"
+              onClick={() => void (addDialogMode === "edit" ? handleEditCreatedUser() : handleAddHotspotUser())}
+              disabled={addLoading || addEditLoading || !selectedRouterId}
               className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5">
-              {addLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+              {(addLoading || addEditLoading) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
               Save
             </Button>
           </div>
 
           <div className="px-3 pb-3 space-y-1.5 bg-slate-700 overflow-y-auto">
-            {/* Server */}
-            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-              <Label className="text-xs text-slate-300 font-normal">Server</Label>
-              <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox"
-                    className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
-                    <span className="truncate">{addServer || "all"}</span>
-                    <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-48 overflow-y-auto" align="start">
-                  <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
-                    className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                    <Check className={`h-3 w-3 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                    all
-                  </button>
-                  {(dialogServers ?? []).map((s) => (
-                    <button key={s.name} type="button" onClick={() => { setAddServer(s.name); setAddServerPopoverOpen(false); }}
-                      className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                      <Check className={`h-3 w-3 ${addServer === s.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                      {s.name}
-                    </button>
-                  ))}
-                </PopoverContent>
-              </Popover>
-            </div>
 
+            {/* ── CREATE mode fields ── */}
+            {addDialogMode === "create" && (<>
+              {/* Server */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+                <Label className="text-xs text-slate-300 font-normal">Server</Label>
+                <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox"
+                      className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
+                      <span className="truncate">{addServer || "all"}</span>
+                      <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-48 overflow-y-auto" align="start">
+                    <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
+                      className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                      <Check className={`h-3 w-3 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                      all
+                    </button>
+                    {(dialogServers ?? []).map((s) => (
+                      <button key={s.name} type="button" onClick={() => { setAddServer(s.name); setAddServerPopoverOpen(false); }}
+                        className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                        <Check className={`h-3 w-3 ${addServer === s.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                        {s.name}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              </div>
+              {/* Time Limit */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+                <Label className="text-xs text-slate-300 font-normal">Time Limit</Label>
+                <Input value={addLimitUptime} onChange={(e) => setAddLimitUptime(e.target.value)} disabled={addLoading}
+                  placeholder="30d, 12h, 4w3d"
+                  className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
+              </div>
+              {/* Data Limit */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+                <Label className="text-xs text-slate-300 font-normal">Data Limit</Label>
+                <div className="flex gap-1.5">
+                  <Input type="number" min="0" value={addLimitBytes} onChange={(e) => setAddLimitBytes(e.target.value)}
+                    disabled={addLoading}
+                    className="h-8 text-xs flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
+                  <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox"
+                        className="h-8 w-16 justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
+                        {addLimitBytesUnit}
+                        <ChevronsUpDown className="h-3 w-3 opacity-70" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-16 p-1" align="end">
+                      {(["MB", "GB"] as const).map((u) => (
+                        <button key={u} type="button" onClick={() => { setAddLimitBytesUnit(u); setAddUnitPopoverOpen(false); }}
+                          className="flex w-full items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                          <Check className={`h-3 w-3 ${addLimitBytesUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                          {u}
+                        </button>
+                      ))}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+              {/* Comment */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+                <Label className="text-xs text-slate-300 font-normal">Comment</Label>
+                <Input value={addComment} onChange={(e) => setAddComment(e.target.value)} disabled={addLoading}
+                  className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
+              </div>
+            </>)}
+
+            {/* ── EDIT mode banner ── */}
+            {addDialogMode === "edit" && (
+              <p className="text-xs text-emerald-300 bg-emerald-900/30 border border-emerald-700 rounded px-2 py-1.5">
+                ✓ Utilisateur créé. Modifiez les champs si besoin, puis Save.
+              </p>
+            )}
+
+            {/* ── Shared fields (create + edit) ── */}
             {/* Name */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Name</Label>
-              <Input value={addName} onChange={(e) => setAddName(e.target.value)} disabled={addLoading}
+              <Input value={addName} onChange={(e) => setAddName(e.target.value)}
+                disabled={addLoading || addEditLoading}
                 className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
                 autoComplete="off" />
             </div>
-
             {/* Password */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Password</Label>
               <div className="relative">
                 <Input type={addShowPassword ? "text" : "password"} value={addPassword}
-                  onChange={(e) => setAddPassword(e.target.value)} disabled={addLoading}
+                  onChange={(e) => setAddPassword(e.target.value)}
+                  disabled={addLoading || addEditLoading}
                   className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 pr-8"
                   autoComplete="new-password" />
                 <button type="button" onClick={() => setAddShowPassword((v) => !v)}
@@ -767,13 +878,13 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 </button>
               </div>
             </div>
-
             {/* Profile */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Profile</Label>
               <Popover open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox"
+                    disabled={addLoading || addEditLoading}
                     className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
                     <span className="truncate">{addProfile || "—"}</span>
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
@@ -792,49 +903,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                   ))}
                 </PopoverContent>
               </Popover>
-            </div>
-
-            {/* Time Limit */}
-            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-              <Label className="text-xs text-slate-300 font-normal">Time Limit</Label>
-              <Input value={addLimitUptime} onChange={(e) => setAddLimitUptime(e.target.value)} disabled={addLoading}
-                placeholder="30d, 12h, 4w3d"
-                className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
-            </div>
-
-            {/* Data Limit */}
-            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-              <Label className="text-xs text-slate-300 font-normal">Data Limit</Label>
-              <div className="flex gap-1.5">
-                <Input type="number" min="0" value={addLimitBytes} onChange={(e) => setAddLimitBytes(e.target.value)}
-                  disabled={addLoading}
-                  className="h-8 text-xs flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
-                <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox"
-                      className="h-8 w-16 justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
-                      {addLimitBytesUnit}
-                      <ChevronsUpDown className="h-3 w-3 opacity-70" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-16 p-1" align="end">
-                    {(["MB", "GB"] as const).map((u) => (
-                      <button key={u} type="button" onClick={() => { setAddLimitBytesUnit(u); setAddUnitPopoverOpen(false); }}
-                        className="flex w-full items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                        <Check className={`h-3 w-3 ${addLimitBytesUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                        {u}
-                      </button>
-                    ))}
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-
-            {/* Comment */}
-            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-              <Label className="text-xs text-slate-300 font-normal">Comment</Label>
-              <Input value={addComment} onChange={(e) => setAddComment(e.target.value)} disabled={addLoading}
-                className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
             </div>
 
             {addError && (

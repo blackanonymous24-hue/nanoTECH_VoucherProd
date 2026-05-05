@@ -52,6 +52,7 @@ import {
   X,
   Save,
   CalendarPlus,
+  FilePlus2,
 } from "lucide-react";
 import {
   Dialog,
@@ -210,6 +211,9 @@ export default function Vouchers() {
   const [addServerPopoverOpen, setAddServerPopoverOpen] = useState(false);
   const [addUnitPopoverOpen, setAddUnitPopoverOpen] = useState(false);
   const [isSavingUser, setIsSavingUser] = useState(false);
+  const [addDialogMode, setAddDialogMode] = useState<"create" | "edit">("create");
+  const [addEditOriginalName, setAddEditOriginalName] = useState("");
+  const [addEditLoading, setAddEditLoading] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
 
@@ -1082,6 +1086,9 @@ export default function Vouchers() {
     setAddDataLimit("");
     setAddDataUnit("MB");
     setAddComment("");
+    setAddDialogMode("create");
+    setAddEditOriginalName("");
+    setAddEditLoading(false);
   }
 
   function bytesFromInput(value: string, unit: "MB" | "GB"): string | undefined {
@@ -1134,34 +1141,69 @@ export default function Vouchers() {
     if (bytes) body.limitBytesTotal = bytes;
     if (addComment.trim()) body.comment = addComment.trim();
 
-    resetAddUserForm();
-    setAddUserOpen(false);
-    setIsSavingUser(false);
-    toast({ title: "Création lancée", description: `${creatingName} en cours de création...` });
-    void (async () => {
-      try {
-        const res = await fetch(`${BASE}/api/routers/${activeRouterId}/hotspot-users`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err?.error || `HTTP ${res.status}`);
-        }
-        toast({ title: "Utilisateur ajouté", description: `${creatingName} créé sur MikroTik.` });
-      } catch (e) {
+    setIsSavingUser(true);
+    try {
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/hotspot-users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
         toast({
           title: "Échec de la création",
-          description: e instanceof Error ? e.message : "Erreur inconnue",
+          description: err?.error || `HTTP ${res.status}`,
           variant: "destructive",
         });
-      } finally {
-        void refetchUsers();
-        void refetchLots();
-        void queryClient.invalidateQueries({ queryKey: [`/routers/${activeRouterId}/users/count`] });
+        return;
       }
-    })();
+      toast({ title: "Utilisateur ajouté", description: `${creatingName} créé sur MikroTik.` });
+      setAddEditOriginalName(creatingName);
+      setAddDialogMode("edit");
+      void refetchUsers();
+      void refetchLots();
+      void queryClient.invalidateQueries({ queryKey: [`/routers/${activeRouterId}/users/count`] });
+    } catch (e) {
+      toast({
+        title: "Échec de la création",
+        description: e instanceof Error ? e.message : "Erreur inconnue",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingUser(false);
+    }
+  }
+
+  async function handleEditSavedUser() {
+    if (!activeRouterId || !addEditOriginalName) return;
+    setAddEditLoading(true);
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(addEditOriginalName)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            newUsername: addName.trim(),
+            password: addPassword.trim(),
+            profile: addProfile.trim(),
+            linkBypass: false,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        toast({ title: "Erreur modification", description: err?.error || `HTTP ${res.status}`, variant: "destructive" });
+      } else {
+        setAddEditOriginalName(addName.trim());
+        toast({ title: "Utilisateur modifié", description: `${addName.trim()} mis à jour.` });
+        void Promise.all([refetchUsers(), refetchLots()]);
+      }
+    } catch (e) {
+      toast({ title: "Erreur modification", description: String(e), variant: "destructive" });
+    } finally {
+      setAddEditLoading(false);
+    }
   }
 
   const handleProfileChange = (v: string) => {
@@ -2396,52 +2438,85 @@ export default function Vouchers() {
       </AlertDialog>
 
       {/* ── Add User dialog (Mikhmon-style compact) ─────────────────────── */}
-      <Dialog open={addUserOpen} onOpenChange={(o) => { if (!isSavingUser) setAddUserOpen(o); }}>
+      <Dialog open={addUserOpen} onOpenChange={(o) => {
+        if (!isSavingUser && !addEditLoading) {
+          if (!o) { resetAddUserForm(); }
+          setAddUserOpen(o);
+        }
+      }}>
         <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[90vh]">
           <DialogHeader className="px-3 pt-2 pb-1.5 border-b border-slate-600 bg-slate-700">
             <DialogTitle className="text-sm font-semibold flex items-center gap-1.5 text-slate-100">
-              <UserPlus className="h-3.5 w-3.5" /> Ajouter un client
+              {addDialogMode === "edit"
+                ? <><Pencil className="h-3.5 w-3.5 text-cyan-400" /><span className="truncate">Modifier — {addEditOriginalName}</span></>
+                : <><UserPlus className="h-3.5 w-3.5" /> Ajouter un client</>}
             </DialogTitle>
           </DialogHeader>
 
+          {/* ── Buttons bar ── */}
           <div className="flex items-center gap-2 px-3 pt-2 pb-2 bg-slate-700">
-            <Button type="button" size="sm" onClick={() => setAddUserOpen(false)} disabled={isSavingUser}
+            <Button type="button" size="sm"
+              onClick={() => { resetAddUserForm(); setAddUserOpen(false); }}
+              disabled={isSavingUser || addEditLoading}
               className="h-7 text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1 px-2.5">
               <X className="h-3 w-3" /> Close
             </Button>
-            <Button type="button" size="sm" onClick={handleSaveUser} disabled={isSavingUser}
+            {addDialogMode === "edit" && (
+              <Button type="button" size="sm"
+                onClick={() => { resetAddUserForm(); }}
+                disabled={addEditLoading}
+                className="h-7 text-xs bg-slate-500 hover:bg-slate-400 text-white gap-1 px-2.5">
+                <FilePlus2 className="h-3 w-3" /> Nouveau
+              </Button>
+            )}
+            <Button type="button" size="sm"
+              onClick={() => void (addDialogMode === "edit" ? handleEditSavedUser() : handleSaveUser())}
+              disabled={isSavingUser || addEditLoading}
               className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5">
-              {isSavingUser ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+              {(isSavingUser || addEditLoading) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
               Save
             </Button>
           </div>
 
           <div className="px-3 pb-3 space-y-1.5 bg-slate-700 overflow-y-auto">
-            {/* Server */}
-            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-              <Label className="text-xs text-slate-300 font-normal">Server</Label>
-              <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" role="combobox"
-                    className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
-                    <span className="truncate">{addServer || "all"}</span>
-                    <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
-                  <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
-                    className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                    <Check className={`h-3 w-3 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                    all
-                  </button>
-                </PopoverContent>
-              </Popover>
-            </div>
 
+            {/* ── CREATE mode — extra fields ── */}
+            {addDialogMode === "create" && (<>
+              {/* Server */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+                <Label className="text-xs text-slate-300 font-normal">Server</Label>
+                <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox"
+                      className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
+                      <span className="truncate">{addServer || "all"}</span>
+                      <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
+                    <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
+                      className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                      <Check className={`h-3 w-3 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                      all
+                    </button>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </>)}
+
+            {/* ── EDIT mode — success banner ── */}
+            {addDialogMode === "edit" && (
+              <p className="text-xs text-emerald-300 bg-emerald-900/30 border border-emerald-700 rounded px-2 py-1.5">
+                ✓ Utilisateur créé. Modifiez les champs si besoin, puis Save.
+              </p>
+            )}
+
+            {/* ── Shared fields (create + edit) ── */}
             {/* Name */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Name</Label>
-              <Input value={addName} onChange={(e) => setAddName(e.target.value)} disabled={isSavingUser}
+              <Input value={addName} onChange={(e) => setAddName(e.target.value)}
+                disabled={isSavingUser || addEditLoading}
                 className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500"
                 autoComplete="off" />
             </div>
@@ -2451,7 +2526,8 @@ export default function Vouchers() {
               <Label className="text-xs text-slate-300 font-normal">Password</Label>
               <div className="relative">
                 <Input type={addShowPassword ? "text" : "password"} value={addPassword}
-                  onChange={(e) => setAddPassword(e.target.value)} disabled={isSavingUser}
+                  onChange={(e) => setAddPassword(e.target.value)}
+                  disabled={isSavingUser || addEditLoading}
                   className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 pr-8"
                   autoComplete="new-password"
                   aria-label={addShowPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} />
@@ -2469,6 +2545,7 @@ export default function Vouchers() {
               <Popover open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox"
+                    disabled={isSavingUser || addEditLoading}
                     className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
                     <span className="truncate">{addProfile || "—"}</span>
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
@@ -2490,48 +2567,52 @@ export default function Vouchers() {
               </Popover>
             </div>
 
-            {/* Time Limit */}
-            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-              <Label className="text-xs text-slate-300 font-normal">Time Limit</Label>
-              <Input value={addTimeLimit} onChange={(e) => setAddTimeLimit(e.target.value)} disabled={isSavingUser}
-                placeholder="30d, 12h, 4w3d"
-                className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
-            </div>
-
-            {/* Data Limit */}
-            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-              <Label className="text-xs text-slate-300 font-normal">Data Limit</Label>
-              <div className="flex gap-1.5">
-                <Input type="number" min="0" value={addDataLimit} onChange={(e) => setAddDataLimit(e.target.value)}
-                  disabled={isSavingUser}
-                  className="h-8 text-xs flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
-                <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox"
-                      className="h-8 w-16 justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
-                      {addDataUnit}
-                      <ChevronsUpDown className="h-3 w-3 opacity-70" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-16 p-1" align="end">
-                    {(["MB", "GB"] as const).map((u) => (
-                      <button key={u} type="button" onClick={() => { setAddDataUnit(u); setAddUnitPopoverOpen(false); }}
-                        className="flex w-full items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                        <Check className={`h-3 w-3 ${addDataUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                        {u}
-                      </button>
-                    ))}
-                  </PopoverContent>
-                </Popover>
+            {/* ── CREATE mode — remaining fields ── */}
+            {addDialogMode === "create" && (<>
+              {/* Time Limit */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+                <Label className="text-xs text-slate-300 font-normal">Time Limit</Label>
+                <Input value={addTimeLimit} onChange={(e) => setAddTimeLimit(e.target.value)} disabled={isSavingUser}
+                  placeholder="30d, 12h, 4w3d"
+                  className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
               </div>
-            </div>
 
-            {/* Comment */}
-            <div className="grid grid-cols-[68px_1fr] items-center gap-2">
-              <Label className="text-xs text-slate-300 font-normal">Comment</Label>
-              <Input value={addComment} onChange={(e) => setAddComment(e.target.value)} disabled={isSavingUser}
-                className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
-            </div>
+              {/* Data Limit */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+                <Label className="text-xs text-slate-300 font-normal">Data Limit</Label>
+                <div className="flex gap-1.5">
+                  <Input type="number" min="0" value={addDataLimit} onChange={(e) => setAddDataLimit(e.target.value)}
+                    disabled={isSavingUser}
+                    className="h-8 text-xs flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
+                  <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" role="combobox"
+                        className="h-8 w-16 justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
+                        {addDataUnit}
+                        <ChevronsUpDown className="h-3 w-3 opacity-70" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-16 p-1" align="end">
+                      {(["MB", "GB"] as const).map((u) => (
+                        <button key={u} type="button" onClick={() => { setAddDataUnit(u); setAddUnitPopoverOpen(false); }}
+                          className="flex w-full items-center gap-1.5 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                          <Check className={`h-3 w-3 ${addDataUnit === u ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                          {u}
+                        </button>
+                      ))}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              {/* Comment */}
+              <div className="grid grid-cols-[68px_1fr] items-center gap-2">
+                <Label className="text-xs text-slate-300 font-normal">Comment</Label>
+                <Input value={addComment} onChange={(e) => setAddComment(e.target.value)} disabled={isSavingUser}
+                  className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500" />
+              </div>
+            </>)}
+
           </div>
         </DialogContent>
       </Dialog>
