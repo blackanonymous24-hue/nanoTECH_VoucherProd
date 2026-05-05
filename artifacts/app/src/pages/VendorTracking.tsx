@@ -1014,15 +1014,16 @@ export default function VendorTracking() {
             {/* ── Résumé d'hier — cartes par vendeur ── */}
           {!isLoading && activeSummary.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between px-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white px-3 py-2.5 shadow-sm">
+                  <span className="text-xs font-bold uppercase tracking-wide text-slate-800">
                     Résumé de la vente du {dateLabelFr}
                   </span>
-                  <span className="text-[10px] text-gray-400 tabular-nums">
-                    {grandCount} ticket{grandCount !== 1 ? "s" : ""} · {fmtAmount(grandTotal)} FCFA
+                  <span className="text-[11px] text-slate-600 tabular-nums font-medium">
+                    {grandCount} ticket{grandCount !== 1 ? "s" : ""} ·{" "}
+                    <span className="text-slate-900">{fmtAmount(grandTotal)} FCFA</span>
                   </span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {activeSummary.map((s) => {
                     const allArrears = arrearsDataEffective?.arrears[String(s.vendorId)] ?? [];
                     const currentWeekStart = mondayOfDateUtc(applied);
@@ -1035,21 +1036,21 @@ export default function VendorTracking() {
                     return (
                       <div
                         key={`day-${s.vendorId ?? "none"}`}
-                        className="rounded-lg border overflow-hidden text-xs"
-                        style={{ borderColor: hasArrears ? "#fdba74" : pal.border }}
+                        className="rounded-xl border border-slate-200 bg-white text-xs shadow-sm ring-1 ring-slate-900/5 overflow-hidden"
+                        style={{
+                          borderLeftWidth: 4,
+                          borderLeftColor: hasArrears ? "#f97316" : pal.border,
+                        }}
                       >
-                        {/* Card header */}
-                        <div
-                          className="flex items-center justify-between px-3 py-2 border-b"
-                          style={{ backgroundColor: pal.light, borderColor: pal.border }}
-                        >
-                          <span className="font-semibold truncate mr-2" style={{ color: pal.dark }}>{s.vendorName}</span>
+                        {/* Card header — lisible : fond neutre, montant en couleur vendeur */}
+                        <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-slate-200 bg-gradient-to-r from-white to-slate-50">
+                          <span className="font-semibold truncate text-slate-900">{s.vendorName}</span>
                           <span className="font-bold tabular-nums flex-shrink-0" style={{ color: pal.dark }}>
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
                         {/* Arriérés : semaines passées repliées ; semaine du jour consulté : cumul en Collapse si ≥4 jours + 2 derniers visibles */}
-                        <div className="space-y-2 p-2 bg-white/60">
+                        <div className="space-y-2.5 p-3 bg-slate-50/90">
                             {prevTotal > 0 &&
                               groupArrearsByCalendarWeek(prevArrears).map((grp) => {
                                 const weekRows = grp.__underlying ?? [grp];
@@ -1059,40 +1060,42 @@ export default function VendorTracking() {
                                     <CollapsibleTrigger asChild>
                                       <button
                                         type="button"
-                                        className="flex w-full items-center justify-between gap-2 rounded-lg border-2 border-red-300 bg-red-50/95 px-3 py-2.5 text-left shadow-sm hover:bg-red-100/80"
+                                        className="flex w-full items-center justify-between gap-2 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-left shadow-sm transition-colors hover:border-red-300 hover:bg-red-50/50"
                                       >
                                         <div className="flex min-w-0 flex-1 items-start gap-1.5">
-                                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-500" />
+                                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-600" />
                                           <div className="min-w-0">
-                                            <span className="text-xs font-semibold text-red-800 break-words">
+                                            <span className="text-xs font-semibold text-red-950 break-words">
                                               {weekArrearLabelWithFmt(grp.__weekMonday, fmtDateFr)}
                                             </span>
-                                            <span className="text-[10px] text-red-600">
+                                            <span className="text-[10px] text-slate-600">
                                               {" "}
                                               ({weekRows.length} jour{weekRows.length > 1 ? "s" : ""})
                                             </span>
                                           </div>
                                         </div>
                                         <div className="flex flex-shrink-0 items-center gap-2">
-                                          <span className="text-xs font-bold tabular-nums text-red-800">{fmtAmount(weekRem)} FCFA</span>
-                                          <ChevronDown className="h-4 w-4 flex-shrink-0 text-red-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                          <span className="text-xs font-bold tabular-nums text-red-900">{fmtAmount(weekRem)} FCFA</span>
+                                          <ChevronDown className="h-4 w-4 flex-shrink-0 text-red-600/80 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                                         </div>
                                       </button>
                                     </CollapsibleTrigger>
                                     <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                                      <div className="space-y-2 border-t border-red-200/80 bg-red-50/80 px-3 py-2">
-                                        <ul className="space-y-1.5">
+                                      <div className="space-y-2 border-t border-red-100 bg-white px-3 py-2.5">
+                                        <ul className="space-y-2">
                                           {[...weekRows]
                                             .sort((a, b) => a.date.localeCompare(b.date))
                                             .map((day) => (
                                               <li
                                                 key={day.date}
-                                                className="flex items-start justify-between gap-2 rounded-md border border-red-100/90 bg-white/90 px-2.5 py-1.5 text-[11px]"
+                                                className="flex items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm"
                                               >
                                                 <div className="min-w-0 flex-1">
-                                                  <span className="font-medium text-red-900">Arriéré du {fmtDateFr(day.date)}</span>
+                                                  <span className="font-semibold text-slate-900">
+                                                    Arriéré du <span className="text-red-800">{fmtDateFr(day.date)}</span>
+                                                  </span>
                                                   {day.paidAmount > 0 && (
-                                                    <span className="mt-0.5 block text-[10px] text-gray-600">
+                                                    <span className="mt-1 block text-[10px] leading-snug text-slate-600">
                                                       Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
                                                       {fmtAmount(
                                                         paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
@@ -1100,13 +1103,13 @@ export default function VendorTracking() {
                                                     </span>
                                                   )}
                                                 </div>
-                                                <span className="flex-shrink-0 font-bold tabular-nums text-red-800">
+                                                <span className="flex-shrink-0 font-bold tabular-nums text-red-900">
                                                   {fmtAmount(day.remaining)} FCFA
                                                 </span>
                                               </li>
                                             ))}
                                         </ul>
-                                        <div className="border-t border-red-200/70 pt-2">
+                                        <div className="border-t border-slate-200 pt-2">
                                           <button
                                             type="button"
                                             className="text-[10px] rounded bg-red-600 px-2 py-0.5 text-white transition-colors hover:bg-red-700 disabled:opacity-50"
@@ -1134,35 +1137,38 @@ export default function VendorTracking() {
                                       <CollapsibleTrigger asChild>
                                         <button
                                           type="button"
-                                          className="flex w-full items-center justify-between gap-2 rounded-lg border border-orange-400 bg-orange-50/95 px-3 py-2.5 text-left shadow-sm hover:bg-orange-100/80"
+                                          className="flex w-full items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 text-left shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-50/40"
                                         >
-                                          <div className="flex min-w-0 flex-1 items-start gap-1 text-orange-900">
-                                            <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0 text-orange-500" />
-                                            <span className="text-xs font-medium break-words">
+                                          <div className="flex min-w-0 flex-1 items-start gap-1.5 text-slate-900">
+                                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                                            <span className="text-xs font-semibold break-words">
                                               Arriérés cumulés ({mergedHead!.length} jour{mergedHead!.length > 1 ? "s" : ""}, du{" "}
-                                              {fmtDateFr(mergedHead![0]!.date)} au {fmtDateFr(mergedHead![mergedHead!.length - 1]!.date)})
+                                              <span className="text-amber-900">{fmtDateFr(mergedHead![0]!.date)}</span> au{" "}
+                                              <span className="text-amber-900">{fmtDateFr(mergedHead![mergedHead!.length - 1]!.date)}</span>)
                                             </span>
                                           </div>
                                           <div className="flex flex-shrink-0 items-center gap-2">
-                                            <span className="text-xs font-bold tabular-nums text-orange-900">{fmtAmount(mergedEntry.remaining)} FCFA</span>
-                                            <ChevronDown className="h-4 w-4 flex-shrink-0 text-orange-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                            <span className="text-xs font-bold tabular-nums text-amber-950">{fmtAmount(mergedEntry.remaining)} FCFA</span>
+                                            <ChevronDown className="h-4 w-4 flex-shrink-0 text-amber-700/80 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                                           </div>
                                         </button>
                                       </CollapsibleTrigger>
                                       <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                                        <div className="space-y-2 border-t border-orange-200/80 bg-orange-50/90 px-3 py-2">
-                                          <ul className="space-y-1.5">
+                                        <div className="space-y-2 border-t border-amber-100 bg-white px-3 py-2.5">
+                                          <ul className="space-y-2">
                                             {[...mergedHead!]
                                               .sort((a, b) => a.date.localeCompare(b.date))
                                               .map((day) => (
                                                 <li
                                                   key={day.date}
-                                                  className="flex items-start justify-between gap-2 rounded-md border border-orange-200/90 bg-white/95 px-2.5 py-1.5 text-[11px]"
+                                                  className="flex items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm"
                                                 >
                                                   <div className="min-w-0 flex-1">
-                                                    <span className="font-medium text-orange-900">Arriéré du {fmtDateFr(day.date)}</span>
+                                                    <span className="font-semibold text-slate-900">
+                                                      Arriéré du <span className="text-amber-900">{fmtDateFr(day.date)}</span>
+                                                    </span>
                                                     {day.paidAmount > 0 && (
-                                                      <span className="mt-0.5 block text-[10px] text-gray-600">
+                                                      <span className="mt-1 block text-[10px] leading-snug text-slate-600">
                                                         Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
                                                         {fmtAmount(
                                                           paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0),
@@ -1170,7 +1176,7 @@ export default function VendorTracking() {
                                                       </span>
                                                     )}
                                                   </div>
-                                                  <span className="flex-shrink-0 font-bold tabular-nums text-orange-900">
+                                                  <span className="flex-shrink-0 font-bold tabular-nums text-amber-950">
                                                     {fmtAmount(day.remaining)} FCFA
                                                   </span>
                                                 </li>
@@ -1179,7 +1185,7 @@ export default function VendorTracking() {
                                           {!isPayingCumul && (
                                             <button
                                               type="button"
-                                              className="text-[10px] rounded bg-orange-600 px-2 py-0.5 text-white hover:bg-orange-700"
+                                              className="text-[10px] rounded-md bg-amber-600 px-2.5 py-1 text-white shadow-sm hover:bg-amber-700"
                                               onClick={() => {
                                                 setPayingKey(cumulPKey);
                                                 setPayAmount(String(mergedEntry.remaining));
@@ -1235,26 +1241,31 @@ export default function VendorTracking() {
                                     const pKey = `${s.vendorId}|${day.date}`;
                                     const isPaying = payingKey === pKey;
                                     return (
-                                      <div key={day.date} className="rounded-lg border border-orange-300 bg-orange-50/95 px-3 py-2.5 shadow-sm">
+                                      <div
+                                        key={day.date}
+                                        className="rounded-lg border border-amber-200 bg-white px-3 py-2.5 shadow-sm ring-1 ring-slate-900/5"
+                                      >
                                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                            <div className="flex items-start gap-1 text-orange-800">
-                                              <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0 text-orange-500" />
-                                              <span className="text-xs font-medium break-words">Arriéré du {fmtDateFr(day.date)}</span>
+                                            <div className="flex items-start gap-1.5 text-slate-900">
+                                              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                                              <span className="text-xs font-semibold break-words">
+                                                Arriéré du <span className="text-amber-950">{fmtDateFr(day.date)}</span>
+                                              </span>
                                             </div>
                                             {day.paidAmount > 0 && (
-                                              <span className="pl-4 text-[10px] text-gray-600 sm:pl-7">
+                                              <span className="pl-5 text-[10px] leading-snug text-slate-600 sm:pl-8">
                                                 Ventes: {fmtAmount(day.salesAmount)} · Versé:{" "}
                                                 {fmtAmount(paidShownVersusWeekContext(day.paidAmount, day.salesAmount, 0, 0))}
                                               </span>
                                             )}
                                           </div>
                                           <div className="flex flex-col items-stretch gap-1 sm:items-end sm:flex-shrink-0">
-                                            <span className="text-xs font-bold tabular-nums text-orange-800 sm:text-right">{fmtAmount(day.remaining)} FCFA</span>
+                                            <span className="text-xs font-bold tabular-nums text-amber-950 sm:text-right">{fmtAmount(day.remaining)} FCFA</span>
                                             {!isPaying && (
                                               <button
                                                 type="button"
-                                                className="self-start rounded bg-orange-600 px-2 py-0.5 text-[10px] text-white hover:bg-orange-700 sm:self-end"
+                                                className="self-start rounded-md bg-amber-600 px-2.5 py-1 text-[10px] text-white shadow-sm hover:bg-amber-700 sm:self-end"
                                                 onClick={() => {
                                                   setPayingKey(pKey);
                                                   setPayAmount(String(day.remaining));
@@ -1266,7 +1277,7 @@ export default function VendorTracking() {
                                           </div>
                                         </div>
                                         {isPaying && (
-                                          <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-orange-200/80 pt-2 pl-1 sm:pl-4">
+                                          <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-200 pt-2 pl-1 sm:pl-4">
                                             <Input
                                               type="number"
                                               min={1}
@@ -1307,9 +1318,9 @@ export default function VendorTracking() {
                               const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
                               const totalDu = s.amount + allArrearsTotal;
                               return (
-                                <div className="rounded-lg bg-blue-900 text-white flex items-center justify-between gap-2 px-3 py-2.5 shadow-sm">
-                                  <span className="font-bold text-xs">Total à verser</span>
-                                  <span className="font-bold text-sm tabular-nums">{fmtAmount(totalDu)} FCFA</span>
+                                <div className="rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between gap-2 px-3 py-2.5 shadow-md ring-1 ring-slate-900/20">
+                                  <span className="font-bold text-xs tracking-wide">Total à verser</span>
+                                  <span className="font-bold text-sm tabular-nums text-white">{fmtAmount(totalDu)} FCFA</span>
                                 </div>
                               );
                             })()}
@@ -1325,11 +1336,11 @@ export default function VendorTracking() {
           {!isLoading && weekSummary.length > 0 && (
               <div className="space-y-2">
                 {/* Titre section */}
-                <div className="flex items-center justify-between px-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-gradient-to-br from-indigo-50/50 to-white px-3 py-2.5 shadow-sm">
+                  <span className="text-xs font-bold uppercase tracking-wide text-slate-800">
                     Semaine — {weekLabelFromRange(data?.weekStart, data?.weekEnd)}
                   </span>
-                  <span className="text-[10px] text-gray-400 tabular-nums">
+                  <span className="text-[11px] text-slate-600 tabular-nums font-medium">
                     {fmtAmount(weekTotal_amount)} FCFA total · {fmtAmount(weekTotal_paid)} versé
                   </span>
                 </div>
@@ -1366,10 +1377,10 @@ export default function VendorTracking() {
                       : "border-red-200";
 
                     return (
-                      <div key={`week-${s.vendorId ?? "none"}`} className={`rounded-lg border ${cardBorder} overflow-hidden text-xs`}>
+                      <div key={`week-${s.vendorId ?? "none"}`} className={`rounded-xl border ${cardBorder} overflow-hidden text-xs shadow-sm ring-1 ring-slate-900/5 bg-white`}>
                         {/* Card header */}
-                        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
-                          <span className="font-semibold text-gray-800 truncate mr-2">{s.vendorName}</span>
+                        <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200">
+                          <span className="font-semibold text-slate-900 truncate mr-2">{s.vendorName}</span>
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold flex-shrink-0 ${badge.cls}`}>
                             {badge.icon && <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0" />}
                             {badge.text}
@@ -1378,44 +1389,44 @@ export default function VendorTracking() {
                         {/* Card body */}
                         <table className="w-full border-collapse">
                           <tbody>
-                            <tr className="border-b border-gray-50">
-                              <td className="px-3 py-1.5 text-gray-500">Montant vendu</td>
-                              <td className="px-3 py-1.5 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-1.5 text-slate-600">Montant vendu</td>
+                              <td className="px-3 py-1.5 text-right font-semibold text-slate-900 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
                             </tr>
                             {bd.co0 > 0 && (
-                              <tr className="border-b border-gray-50 bg-amber-50/30">
-                                <td className="px-3 py-1.5 text-gray-600 leading-snug">{arrearSemaineLabel}</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-red-600 tabular-nums">
+                              <tr className="border-b border-slate-100 bg-white">
+                                <td className="px-3 py-1.5 text-slate-700 leading-snug border-l-4 border-l-amber-400 pl-2">{arrearSemaineLabel}</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-red-700 tabular-nums">
                                   {fmtAmount(bd.remainingCarry)} FCFA
                                 </td>
                               </tr>
                             )}
                             {(s.dailyPaid ?? 0) > 0 && (
-                              <tr className="border-b border-gray-50 bg-sky-50/40">
-                                <td className="px-3 py-1.5 text-sky-700">Versé en journalier</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-sky-700 tabular-nums">{fmtAmount(dailyShown)} FCFA</td>
+                              <tr className="border-b border-slate-100">
+                                <td className="px-3 py-1.5 text-slate-700 border-l-4 border-l-sky-400 pl-2">Versé en journalier</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-sky-800 tabular-nums">{fmtAmount(dailyShown)} FCFA</td>
                   </tr>
                             )}
                             {(s.weeklyPaid ?? 0) > 0 && (
-                              <tr className="border-b border-gray-50 bg-emerald-50/40">
-                                <td className="px-3 py-1.5 text-emerald-700">Versé en hebdomadaire</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-700 tabular-nums">{fmtAmount(weeklyShown)} FCFA</td>
+                              <tr className="border-b border-slate-100">
+                                <td className="px-3 py-1.5 text-slate-700 border-l-4 border-l-emerald-400 pl-2">Versé en hebdomadaire</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-emerald-800 tabular-nums">{fmtAmount(weeklyShown)} FCFA</td>
                               </tr>
                             )}
                             {s.dailyPaid === undefined && (s.paidAmount ?? 0) > 0 && (
-                              <tr className="border-b border-gray-50 bg-gray-50/50">
-                                <td className="px-3 py-1.5 text-gray-500">Versé</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(paidAggregateShown)} FCFA</td>
+                              <tr className="border-b border-slate-100">
+                                <td className="px-3 py-1.5 text-slate-600">Versé</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-slate-800 tabular-nums">{fmtAmount(paidAggregateShown)} FCFA</td>
                               </tr>
                             )}
                             {(s.dailyPaid ?? 0) > 0 && (s.weeklyExpected ?? 0) > 0 && (
-                              <tr className="border-b border-gray-50 bg-blue-50/40">
-                                <td className="px-3 py-1.5 text-blue-700">Hebdo. à régler</td>
-                                <td className="px-3 py-1.5 text-right font-bold text-blue-700 tabular-nums">{fmtAmount(s.weeklyExpected!)} FCFA</td>
+                              <tr className="border-b border-slate-100">
+                                <td className="px-3 py-1.5 text-slate-800 font-medium border-l-4 border-l-blue-500 pl-2">Hebdo. à régler</td>
+                                <td className="px-3 py-1.5 text-right font-bold text-blue-800 tabular-nums">{fmtAmount(s.weeklyExpected!)} FCFA</td>
                               </tr>
                             )}
-                            <tr className="border-b border-gray-50">
-                              <td className="px-3 py-1.5 text-gray-500">
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-1.5 text-slate-600">
                                 {bd.co0 > 0 ? "Montant à verser" : "Total à verser"}
                               </td>
                               <td
@@ -1426,29 +1437,29 @@ export default function VendorTracking() {
                                 {fmtAmount(bd.co0 > 0 ? bd.montantAVerser : bd.totalToPay)} FCFA
                               </td>
                             </tr>
-                            <tr className="border-b border-gray-50 bg-gray-50/50">
-                              <td className="px-3 py-1.5 text-gray-500">Commission</td>
-                              <td className="px-3 py-1.5 text-right font-medium text-gray-600 tabular-nums">
-                                {commRate > 0 ? `${commRate}%` : <span className="text-gray-300">—</span>}
+                            <tr className="border-b border-slate-100 bg-slate-50/60">
+                              <td className="px-3 py-1.5 text-slate-600">Commission</td>
+                              <td className="px-3 py-1.5 text-right font-medium text-slate-700 tabular-nums">
+                                {commRate > 0 ? `${commRate}%` : <span className="text-slate-300">—</span>}
                               </td>
                             </tr>
-                            <tr className="border-b border-gray-50">
-                              <td className="px-3 py-1.5 text-gray-500">Rémunération</td>
-                              <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">
-                                {(s.commission ?? 0) > 0 ? `${fmtAmount(s.commission!)} FCFA` : <span className="text-gray-300">—</span>}
+                            <tr className="border-b border-slate-100">
+                              <td className="px-3 py-1.5 text-slate-600">Rémunération</td>
+                              <td className="px-3 py-1.5 text-right font-semibold text-slate-800 tabular-nums">
+                                {(s.commission ?? 0) > 0 ? `${fmtAmount(s.commission!)} FCFA` : <span className="text-slate-300">—</span>}
                               </td>
                             </tr>
                             {bd.co0 > 0 && (
-                              <tr className="bg-indigo-50/40">
-                                <td className="px-3 py-1.5 align-top">
-                                  <div className="font-bold text-gray-800">Total à verser à ce jour</div>
-                                  <div className="text-[9px] text-gray-500 font-normal leading-snug mt-0.5">
+                              <tr className="border-t-2 border-slate-200 bg-slate-50/80">
+                                <td className="px-3 py-1.5 align-top border-l-4 border-l-indigo-500 pl-2">
+                                  <div className="font-bold text-slate-900">Total à verser à ce jour</div>
+                                  <div className="text-[9px] text-slate-500 font-normal leading-snug mt-0.5">
                                     = {arrearFormulaHint}
                                   </div>
                                 </td>
                                 <td
                                   className={`px-3 py-1.5 text-right font-bold tabular-nums align-top ${
-                                    bd.totalVerseCeJour > 0 ? "text-red-600" : "text-gray-400"
+                                    bd.totalVerseCeJour > 0 ? "text-red-700" : "text-slate-400"
                                   }`}
                                 >
                                   {fmtAmount(bd.totalVerseCeJour)} FCFA

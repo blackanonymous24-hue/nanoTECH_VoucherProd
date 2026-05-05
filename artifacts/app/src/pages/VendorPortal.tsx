@@ -1252,37 +1252,52 @@ function Dashboard({ token, vendor, onLogout }: {
               };
 
               return (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-orange-500" />
-                    <h3 className="text-sm font-semibold text-gray-700">Mes versements non effectués</h3>
-                  </div>
-                  <div className="space-y-2">
+                <Card className="overflow-hidden border border-amber-200/90 shadow-md ring-1 ring-slate-900/5">
+                  <CardHeader className="border-b border-amber-100 bg-gradient-to-r from-amber-50/90 via-white to-white pb-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-white shadow-sm">
+                        <AlertTriangle className="h-5 w-5 text-amber-600" />
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <CardTitle className="text-base font-semibold leading-tight text-slate-900">
+                          Mes versements non effectués
+                        </CardTitle>
+                        <p className="text-[11px] leading-snug text-slate-500">
+                          Arriérés journaliers par semaine — touchez une ligne pour voir le détail ou ouvrir le rapport du jour.
+                        </p>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3 bg-slate-50/80 p-4 pt-4">
                     {groupPortalArrearsByCalendarWeek(prevDays).map((w) => {
                       const dayCount = w.__underlying?.length ?? 1;
                       return (
-                        <Collapsible key={w.__weekMonday} defaultOpen={false} className="group">
+                        <div
+                          key={w.__weekMonday}
+                          className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/5"
+                        >
+                          <Collapsible defaultOpen={false} className="group">
                           <CollapsibleTrigger asChild>
                             <button
                               type="button"
-                              className="flex w-full items-center justify-between gap-2 rounded-lg border border-orange-200 bg-orange-50/40 px-4 py-2.5 text-left shadow-sm hover:bg-orange-50/80"
+                              className="flex w-full items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-white to-amber-50/40 px-4 py-3 text-left transition-colors hover:bg-amber-50/60"
                             >
-                              <span className="min-w-0 flex-1 text-[11px] font-semibold text-orange-800 break-words">
+                              <span className="min-w-0 flex-1 text-[11px] font-semibold text-slate-900 break-words">
                                 {weekArrearLabelWithFmt(w.__weekMonday, fmtDayMonthYearUtc)}
-                                <span className="font-normal text-orange-700/90">
+                                <span className="font-normal text-slate-600">
                                   {" "}
                                   ({dayCount} jour{dayCount > 1 ? "s" : ""})
                                 </span>
                               </span>
                               <div className="flex flex-shrink-0 items-center gap-2">
-                                <span className="text-[11px] font-bold tabular-nums text-orange-800">{fmtFcfa(w.remaining)} FCFA</span>
-                                <ChevronDown className="h-4 w-4 text-orange-700/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                <span className="text-[11px] font-bold tabular-nums text-amber-900">{fmtFcfa(w.remaining)} FCFA</span>
+                                <ChevronDown className="h-4 w-4 text-amber-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                               </div>
                             </button>
                           </CollapsibleTrigger>
                           <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                            <Card className="mt-1 border border-orange-200 bg-orange-50/30 shadow-sm overflow-hidden">
-                              <CardContent className="p-0 divide-y divide-orange-100">
+                            <Card className="rounded-none border-0 shadow-none">
+                              <CardContent className="divide-y divide-slate-100 p-0">
                                 {[...(w.__underlying ?? [w])]
                                   .sort((a, b) => a.date.localeCompare(b.date))
                                   .map((d) => (
@@ -1290,19 +1305,19 @@ function Dashboard({ token, vendor, onLogout }: {
                                       key={d.date}
                                       type="button"
                                       onClick={() => reportNav(d.date)}
-                                      className="flex w-full items-start justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:bg-orange-50/90 sm:items-center"
+                                      className="flex w-full items-start justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-amber-50/80 sm:items-center"
                                     >
-                                      <span className="min-w-0 text-[11px] font-semibold text-orange-800 break-words">
-                                        Arriéré du {fmtDayMonthYearUtc(d.date)}
+                                      <span className="min-w-0 text-[11px] font-semibold text-slate-900 break-words">
+                                        Arriéré du <span className="text-amber-900">{fmtDayMonthYearUtc(d.date)}</span>
                                       </span>
                                       <div className="flex flex-shrink-0 items-center gap-2">
-                                        <span className="text-[10px] text-gray-500 tabular-nums">
+                                        <span className="text-[10px] text-slate-500 tabular-nums">
                                           {d.count} ticket{d.count !== 1 ? "s" : ""}
                                         </span>
-                                        <span className="text-[11px] font-bold text-orange-800 tabular-nums whitespace-nowrap">
+                                        <span className="text-[11px] font-bold text-amber-950 tabular-nums whitespace-nowrap">
                                           {fmtFcfa(d.remaining)} FCFA
                                         </span>
-                                        <ChevronRight className="h-3 w-3 text-orange-400 opacity-60 hidden sm:block" />
+                                        <ChevronRight className="h-3 w-3 text-amber-400 opacity-70 hidden sm:block" />
                                       </div>
                                     </button>
                                   ))}
@@ -1310,28 +1325,31 @@ function Dashboard({ token, vendor, onLogout }: {
                             </Card>
                           </CollapsibleContent>
                         </Collapsible>
+                        </div>
                       );
                     })}
                     {mergedPortal && mergedHead && (
+                      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/5">
                       <Collapsible defaultOpen={false} className="group">
                         <CollapsibleTrigger asChild>
                           <button
                             type="button"
-                            className="flex w-full items-center justify-between gap-2 rounded-lg border border-orange-300 bg-orange-50/90 px-4 py-2.5 text-left shadow-sm hover:bg-orange-50"
+                            className="flex w-full items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-white to-amber-50/50 px-4 py-3 text-left transition-colors hover:bg-amber-50/70"
                           >
-                            <span className="min-w-0 flex-1 text-[11px] font-semibold text-orange-900 break-words">
+                            <span className="min-w-0 flex-1 text-[11px] font-semibold text-slate-900 break-words">
                               Arriérés cumulés ({mergedHead.length} jour{mergedHead.length > 1 ? "s" : ""}, du{" "}
-                              {fmtDayMonthYearUtc(mergedHead[0]!.date)} au {fmtDayMonthYearUtc(mergedHead[mergedHead.length - 1]!.date)})
+                              <span className="text-amber-950">{fmtDayMonthYearUtc(mergedHead[0]!.date)}</span> au{" "}
+                              <span className="text-amber-950">{fmtDayMonthYearUtc(mergedHead[mergedHead.length - 1]!.date)}</span>)
                             </span>
                             <div className="flex flex-shrink-0 items-center gap-2">
-                              <span className="text-[11px] font-bold tabular-nums text-orange-900">{fmtFcfa(mergedPortal.remaining)} FCFA</span>
-                              <ChevronDown className="h-4 w-4 text-orange-800/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                              <span className="text-[11px] font-bold tabular-nums text-amber-950">{fmtFcfa(mergedPortal.remaining)} FCFA</span>
+                              <ChevronDown className="h-4 w-4 text-amber-700/70 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                             </div>
                           </button>
                         </CollapsibleTrigger>
                         <CollapsibleContent className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                          <Card className="mt-1 border border-orange-200 bg-white shadow-sm overflow-hidden">
-                            <CardContent className="p-0 divide-y divide-orange-100">
+                          <Card className="rounded-none border-0 shadow-none">
+                            <CardContent className="divide-y divide-slate-100 p-0">
                               {mergedHead
                                 .slice()
                                 .sort((a, b) => a.date.localeCompare(b.date))
@@ -1340,19 +1358,19 @@ function Dashboard({ token, vendor, onLogout }: {
                                     key={d.date}
                                     type="button"
                                     onClick={() => reportNav(d.date)}
-                                    className="flex w-full items-start justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:bg-orange-50/90 sm:items-center"
+                                    className="flex w-full items-start justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-amber-50/80 sm:items-center"
                                   >
-                                    <span className="min-w-0 text-[11px] font-semibold text-orange-900 break-words">
-                                      Arriéré du {fmtDayMonthYearUtc(d.date)}
+                                    <span className="min-w-0 text-[11px] font-semibold text-slate-900 break-words">
+                                      Arriéré du <span className="text-amber-950">{fmtDayMonthYearUtc(d.date)}</span>
                                     </span>
                                     <div className="flex flex-shrink-0 items-center gap-2">
-                                      <span className="text-[10px] text-gray-500 tabular-nums">
+                                      <span className="text-[10px] text-slate-500 tabular-nums">
                                         {d.count} ticket{d.count !== 1 ? "s" : ""}
                                       </span>
-                                      <span className="text-[11px] font-bold text-orange-900 tabular-nums whitespace-nowrap">
+                                      <span className="text-[11px] font-bold text-amber-950 tabular-nums whitespace-nowrap">
                                         {fmtFcfa(d.remaining)} FCFA
                                       </span>
-                                      <ChevronRight className="h-3 w-3 text-orange-400 opacity-60 hidden sm:block" />
+                                      <ChevronRight className="h-3 w-3 text-amber-400 opacity-70 hidden sm:block" />
                                     </div>
                                   </button>
                                 ))}
@@ -1360,6 +1378,7 @@ function Dashboard({ token, vendor, onLogout }: {
                           </Card>
                         </CollapsibleContent>
                       </Collapsible>
+                      </div>
                     )}
                     {recentTail.map((d) => {
                       const dateObj = new Date(d.date + "T00:00:00Z");
@@ -1367,34 +1386,37 @@ function Dashboard({ token, vendor, onLogout }: {
                       const monthNum = String(dateObj.getUTCMonth() + 1);
                       const yearNum = String(dateObj.getUTCFullYear());
                       return (
-                        <Card key={d.date} className="border border-orange-200 bg-orange-50/30 shadow-sm overflow-hidden">
+                        <Card
+                          key={d.date}
+                          className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/5"
+                        >
                           <CardContent className="p-0">
                             <button
                               type="button"
                               onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
-                              className="flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors hover:bg-orange-50/80 sm:flex-row sm:items-start sm:justify-between"
+                              className="flex w-full flex-col gap-2 border-l-4 border-l-amber-500 px-4 py-3.5 text-left transition-colors hover:bg-amber-50/50 sm:flex-row sm:items-center sm:justify-between"
                             >
-                              <span className="text-[11px] font-semibold text-orange-700 break-words">
-                                Arriéré du {fmtDayMonthYearUtc(d.date)}
+                              <span className="text-[11px] font-semibold text-slate-900 break-words">
+                                Arriéré du <span className="text-amber-950">{fmtDayMonthYearUtc(d.date)}</span>
                               </span>
                               <div className="flex items-center gap-2 self-end sm:self-start">
-                                <span className="text-[10px] text-gray-500 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
-                                <span className="text-[11px] font-bold text-orange-700 tabular-nums whitespace-nowrap">{fmtFcfa(d.remaining)} FCFA</span>
-                                <ChevronRight className="h-3 w-3 text-orange-400 opacity-60" />
+                                <span className="text-[10px] text-slate-500 tabular-nums">{d.count} ticket{d.count !== 1 ? "s" : ""}</span>
+                                <span className="text-[12px] font-bold text-amber-950 tabular-nums whitespace-nowrap">{fmtFcfa(d.remaining)} FCFA</span>
+                                <ChevronRight className="h-3 w-3 text-amber-500 opacity-80" />
                               </div>
                             </button>
                           </CardContent>
                         </Card>
                       );
                     })}
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg border border-orange-200 bg-orange-50/80 px-4 py-2.5">
-                    <span className="text-xs font-semibold text-orange-800">Total arriérés</span>
-                    <span className="text-sm font-bold text-orange-800 tabular-nums">
+                  <div className="flex items-center justify-between rounded-xl border border-amber-200/90 bg-gradient-to-r from-amber-950 to-slate-900 px-4 py-3.5 text-white shadow-inner">
+                    <span className="text-xs font-semibold tracking-wide text-amber-50">Total arriérés</span>
+                    <span className="text-base font-bold tabular-nums text-white">
                       {fmtFcfa(arrearsData.days.reduce((s, d) => s + d.remaining, 0))} FCFA
                     </span>
                   </div>
-                </div>
+                  </CardContent>
+                </Card>
               );
             })()}
 
