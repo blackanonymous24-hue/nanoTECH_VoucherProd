@@ -107,9 +107,11 @@ export async function tryOpenVoucherPrintPage(_voucherId: string, _hotspotOrSess
 }
 
 /**
- * Impression depuis une page HTML complète (comme « Imprimer Hebdo » : write + print).
- * — APK (React Native WebView) : envoi au natif → expo-print (`Print.printAsync`) — `window.open` est souvent bloqué.
- * — Navigateur mobile : nouvel onglet + document.write.
+ * Impression depuis une page HTML complète.
+ * — APK (React Native WebView) : envoi au natif → expo-print.
+ * — Navigateur mobile/desktop : Blob URL → window.open (évite document.write
+ *   qui bloque le thread UI sur les gros documents, et contourne le blocage
+ *   popup lié aux appels async).
  */
 export function openPrintHtmlWindow(html: string, title: string): void {
   if (isNativeWebView()) {
@@ -117,15 +119,21 @@ export function openPrintHtmlWindow(html: string, title: string): void {
     return;
   }
 
-  const win = window.open("", "_blank");
-  if (!win) return;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  try {
-    win.document.title = title;
-  } catch (_) {
-    /* ignore */
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  // Revoke after 5 min — enough time for the print dialog to load
+  setTimeout(() => URL.revokeObjectURL(url), 300_000);
+
+  const win = window.open(url, "_blank");
+  if (!win) {
+    // Popup blocked: create a temporary <a> and click it
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 }
 
