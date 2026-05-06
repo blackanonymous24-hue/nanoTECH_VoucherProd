@@ -4,14 +4,15 @@ const PRINT_CSS = `
   #num { float:right; display:inline-block; }
   .doc-header { display:none !important; }
   /* Grille 4 colonnes — chaque .ticket-page = 1 page imprimée (32 tickets max) */
-  table.ticket-page { border-collapse:collapse; margin-bottom:4px; }
-  table.ticket-page td { padding:2px; vertical-align:top; }
-  @page { size:A4 portrait; margin:4mm; }
+  table.ticket-page { border-collapse:collapse; margin-bottom:2px; }
+  table.ticket-page td { padding:1px; vertical-align:top; }
+  /* margin:0 supprime les en-têtes/pieds de page natifs du navigateur */
+  @page { size:A4 portrait; margin:0; }
   @media screen {
     body { padding-bottom:100px; }
   }
   @media print {
-    body { padding-bottom:0 !important; padding-top:0 !important; }
+    body { padding:2mm !important; }
     table.ticket-page { page-break-after:always; break-after:page; margin:0; }
     table.ticket-page:last-child { page-break-after:auto; break-after:auto; }
     tr { page-break-inside:avoid; }
