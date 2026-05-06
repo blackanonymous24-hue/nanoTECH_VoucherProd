@@ -198,8 +198,9 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
     // rien à calculer, chaque bloc est garantiellement complet.
 
-    // 3 colonnes : 3 × 215px = 645px < 794px (A4 portrait) — pas de débordement horizontal
-    const MOBILE_COLS = 3;
+    // 4 colonnes — le zoom `s` sur html élargit la zone de contenu à 794/s px,
+    // ce qui permet à 4 × 215 = 860px de tenir (ex: zoom 0.85 → 934px disponibles).
+    const MOBILE_COLS = 4;
 
     // Hauteur estimée d'un ticket PHP (215px large ≈ 205px haut pour le template standard).
     // A4 portrait sans marges à 96dpi = 1122px. On prend 88% de la hauteur comme marge de sécurité.
