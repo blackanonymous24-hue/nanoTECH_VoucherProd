@@ -337,8 +337,8 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
   const yTicks = [0, yTop * 0.333, yTop * 0.667, yTop];
 
   return (
-    <Card className="flex flex-col flex-1 min-w-0 min-h-[300px]">
-      <CardHeader className="pb-2 border-b border-gray-100">
+    <Card className="flex flex-col flex-1 min-w-0 min-h-[300px] lg:min-h-0">
+      <CardHeader className="pb-2 lg:pb-1 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             <Activity className="h-4 w-4 text-gray-400" />
@@ -372,7 +372,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col flex-1 pt-3 pb-2 px-3" style={{ minHeight: 0 }}>
+      <CardContent className="flex flex-col flex-1 pt-3 pb-2 px-3 lg:pt-1.5 lg:pb-1 lg:px-2" style={{ minHeight: 0 }}>
         {!routerId ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2">
             <Activity className="h-8 w-8 text-gray-200" />
@@ -391,7 +391,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
         ) : (
           <div className="flex flex-col flex-1" style={{ minHeight: 0 }}>
             {selectedIface && (
-              <p className="text-center text-xs font-medium text-gray-400 mb-1 font-mono">Interface {selectedIface}</p>
+              <p className="text-center text-xs font-medium text-gray-400 mb-1 lg:mb-0.5 font-mono">Interface {selectedIface}</p>
             )}
             {/* position:relative wrapper is the recharts trick to fill flex space with height="100%" */}
             <div className="flex-1" style={{ position: "relative", minHeight: 220 }}>
@@ -423,7 +423,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
                     formatter={(value, name) => [formatBps(value as number), name === "rx" ? "Rx" : "Tx"]}
                   />
                   <Legend
-                    wrapperStyle={{ paddingTop: 8, fontSize: 12, color: "#6b7280" }}
+                    wrapperStyle={{ paddingTop: 4, fontSize: 12, color: "#6b7280" }}
                     formatter={(v) => v === "rx" ? "Rx" : "Tx"}
                   />
                   <Line type="monotone" dataKey="rx" stroke={RX_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
