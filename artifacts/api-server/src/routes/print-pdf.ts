@@ -99,9 +99,14 @@ router.post("/print-pdf", async (req, res) => {
       ? Math.min(2, Math.max(0.1, scale / 100))
       : 0.82;
 
+    // Puppeteer ne supporte pas height:"auto" — on mesure la hauteur réelle du contenu
+    const contentHeightPx = await page.evaluate(() => document.documentElement.scrollHeight);
+    // Conversion px → mm (96 dpi CSS standard : 1px = 25.4/96 mm)
+    const contentHeightMm = Math.ceil((contentHeightPx * 25.4) / 96);
+
     const pdf = await page.pdf({
       width: "80mm",
-      height: "auto",
+      height: `${contentHeightMm}mm`,
       printBackground: true,
       scale: pdfScale,
       margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
