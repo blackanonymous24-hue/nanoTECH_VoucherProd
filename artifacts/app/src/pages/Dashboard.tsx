@@ -423,7 +423,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
                     formatter={(value, name) => [formatBps(value as number), name === "rx" ? "Rx" : "Tx"]}
                   />
                   <Legend
-                    wrapperStyle={{ paddingTop: 4, fontSize: 12, color: "#6b7280" }}
+                    wrapperStyle={{ paddingTop: 8, fontSize: 12, color: "#6b7280" }}
                     formatter={(v) => v === "rx" ? "Rx" : "Tx"}
                   />
                   <Line type="monotone" dataKey="rx" stroke={RX_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
@@ -827,7 +827,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_1fr] gap-1 sm:gap-4 lg:gap-2 mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_1fr] gap-1 sm:gap-4 lg:gap-2 mb-3 [grid-auto-rows:4.75rem] sm:[grid-auto-rows:auto]">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? activeSessions : 0}
@@ -1159,7 +1159,7 @@ function StatCard({
   className?: string;
 }) {
   const inner = (
-    <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
+    <Card className={`h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
       <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6 lg:px-4 lg:py-2.5">
         {/* Icône visible seulement sm+ */}
         <div className="hidden sm:flex items-center gap-3 lg:gap-2.5">
