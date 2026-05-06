@@ -739,16 +739,19 @@ export default function Vouchers() {
       return;
     }
     setPrintingLot(lot.name);
-    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
-    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-    const mobileRowsPerPage = isMikHmon ? 9 : 6;
     try {
-      const users = await fetchLotUsers(lot);
+      // Parallélisation : template + users en simultané (économise ~300–800 ms)
+      const [{ template: php, isDefault: isMikHmonDefault }, users] = await Promise.all([
+        fetchServerTemplateWithMeta(),
+        fetchLotUsers(lot),
+      ]);
       if (users.length === 0) {
         preWin?.close();
         toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
         return;
       }
+      const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+      const mobileRowsPerPage = isMikHmon ? 9 : 6;
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const vouchers = users.map((user, idx) => {
         const profile = profilesList.find((p) => p.name === user.profile);

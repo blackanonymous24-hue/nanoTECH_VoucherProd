@@ -232,11 +232,29 @@ export type ServerTemplateResult = {
   isDefault: boolean;
 };
 
+// ── Cache mémoire — évite un aller-retour réseau à chaque clic Imprimer ────────
+let _templateCache: { result: ServerTemplateResult; expiresAt: number } | null = null;
+const TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Invalide le cache (à appeler après toute modification du template). */
+export function invalidateTemplateCache(): void {
+  _templateCache = null;
+}
+
 /**
  * Charge le template avec métadonnée isDefault pour choisir le layout mobile.
- * Priorité : serveur DB → cache localStorage → DEFAULT_MIKHMON_PHP (dernier recours).
+ * Priorité : cache mémoire (5 min) → serveur DB → cache localStorage → DEFAULT_MIKHMON_PHP.
  */
 export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResult> {
+  if (_templateCache && Date.now() < _templateCache.expiresAt) {
+    return _templateCache.result;
+  }
+
+  const _cache = (result: ServerTemplateResult): ServerTemplateResult => {
+    _templateCache = { result, expiresAt: Date.now() + TEMPLATE_CACHE_TTL_MS };
+    return result;
+  };
+
   try {
     const token = _readAuthToken();
     const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
@@ -245,7 +263,7 @@ export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResul
       const data = (await r.json()) as { template: string | null };
       if (data.template && data.template.trim().length > 0) {
         try { localStorage.setItem(PHP_KEY, data.template); } catch {}
-        return { template: data.template, isDefault: false };
+        return _cache({ template: data.template, isDefault: false });
       }
       // Serveur joignable, aucun template en DB — vérifier localStorage
     }
@@ -255,11 +273,11 @@ export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResul
     try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault(); } catch { return null; }
   })();
   if (cached && cached.trim().length > 0) {
-    return { template: cached, isDefault: false };
+    return _cache({ template: cached, isDefault: false });
   }
 
   // Dernier recours : DEFAULT_MIKHMON_PHP (rien enregistré nulle part)
-  return { template: DEFAULT_MIKHMON_PHP, isDefault: true };
+  return _cache({ template: DEFAULT_MIKHMON_PHP, isDefault: true });
 }
 
 /**
@@ -401,6 +419,7 @@ export default function TicketTemplate() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const raw = ev.target?.result as string;
+      invalidateTemplateCache();
       try {
         localStorage.setItem(PHP_KEY, raw);
         localStorage.setItem(CUSTOM_DEFAULT_KEY, raw);
@@ -439,6 +458,7 @@ export default function TicketTemplate() {
 
   // ── Sauvegarder — local + serveur (source de vérité cross-device)
   const handleSave = useCallback(async () => {
+    invalidateTemplateCache();
     try {
       localStorage.setItem(PHP_KEY, phpCode);
       localStorage.setItem(CUSTOM_DEFAULT_KEY, phpCode);
@@ -480,6 +500,7 @@ export default function TicketTemplate() {
   // ── Définir comme modèle de base (local + serveur)
   const handleSetAsDefault = useCallback(async () => {
     if (!phpCode.trim()) return;
+    invalidateTemplateCache();
     try {
       localStorage.setItem(CUSTOM_DEFAULT_KEY, phpCode);
       localStorage.setItem(PHP_KEY, phpCode);
