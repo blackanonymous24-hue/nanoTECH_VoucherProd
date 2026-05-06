@@ -638,13 +638,10 @@ export default function GenerateVouchers() {
     // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
     // de clic, puis on y écrit le HTML une fois prêt.
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    // Mobile web : nouvel onglet pré-ouvert avant tout await (popup sinon bloqué)
-    // Desktop : impression via iframe silencieux (printTickets)
-    const useMobileWindow = !isNativeWV && isMobileDevice;
+    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const printScale = (() => {
       try {
-        const key = isMobileDevice ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
+        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
         const v = parseInt(localStorage.getItem(key) ?? "85", 10);
         return isNaN(v) ? 85 : v;
       } catch { return 85; }
