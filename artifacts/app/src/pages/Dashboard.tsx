@@ -827,7 +827,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_1fr] gap-1 sm:gap-4 mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_1fr] gap-1 sm:gap-4 lg:gap-2 mb-3">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? activeSessions : 0}
