@@ -424,6 +424,26 @@ export default function Vouchers() {
     }
     return map;
   }, [profilesList]);
+  // true = le profil a une durée de validité définie (expiration possible)
+  // false = pas de validity → profil sans expiration (illimité selon sa config réelle)
+  const profileHasValidity = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const p of (profilesList as unknown as Array<Record<string, unknown>>)) {
+      const name = String(p.name ?? "").trim();
+      if (!name) continue;
+      const validity = String(p.validity ?? "").trim();
+      map.set(name, validity.length > 0);
+    }
+    return map;
+  }, [profilesList]);
+  const profileIsUnlimited = (profileName: string | null | undefined): boolean => {
+    if (!profileName) return false;
+    const known = profileHasValidity.get(profileName);
+    // Si le profil est connu et n'a pas de validity → illimité
+    if (known !== undefined) return !known;
+    // Profil inconnu (non chargé) → fallback sur le nom
+    return isUnlimitedProfile(profileName);
+  };
   const userIsExpired = (u: HotspotUser): boolean => {
     const mode = profileExpiryModeByName.get(u.profile ?? "");
     if (mode) {
@@ -1659,7 +1679,7 @@ export default function Vouchers() {
                               <Pencil className="h-3 w-3" />
                               <span>Modifier</span>
                             </button>
-                            {!isUnlimitedProfile(selUser.profile) && (
+                            {!profileIsUnlimited(selUser.profile) && (
                               <button
                                 type="button"
                                 onClick={() => openExtendUser(selUser)}
@@ -1783,6 +1803,7 @@ export default function Vouchers() {
                           key={user.username}
                           user={user}
                           isExpired={userIsExpired(user)}
+                          isUnlimited={profileIsUnlimited(user.profile)}
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
@@ -2254,7 +2275,7 @@ export default function Vouchers() {
                   </TooltipTrigger>
                   <TooltipContent side="bottom">Supprimer</TooltipContent>
                 </Tooltip>
-                {!isUnlimitedProfile(editingUser?.profile) && (
+                {!profileIsUnlimited(editingUser?.profile) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -2776,6 +2797,7 @@ function isUnlimitedProfile(profile: string | null | undefined): boolean {
 function UserRow({
   user,
   isExpired: expired,
+  isUnlimited,
   selected,
   onToggle,
   onEdit,
@@ -2784,6 +2806,7 @@ function UserRow({
 }: {
   user: HotspotUser;
   isExpired: boolean;
+  isUnlimited: boolean;
   selected: boolean;
   onToggle: () => void;
   onEdit: () => void;
@@ -2884,7 +2907,7 @@ function UserRow({
             <Pencil className="h-3.5 w-3.5" />
             Modifier utilisateur
           </DropdownMenuItem>
-          {!isUnlimitedProfile(user.profile) && (
+          {!isUnlimited && (
             <DropdownMenuItem
               onClick={(e) => { e.stopPropagation(); onExtend(); }}
               className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-600"
