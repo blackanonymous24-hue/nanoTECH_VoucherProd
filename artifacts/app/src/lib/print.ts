@@ -134,55 +134,14 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
 }
 
 /**
- * Construit le HTML dédié au rendu PDF Puppeteer (POST /api/print-pdf).
+ * Construit le HTML pour la génération PDF Puppeteer.
  *
- * Identique au rendu desktop (buildHtml mobile=false) :
- * - Même PRINT_CSS avec ses règles @media print (actives via emulateMediaType("print"))
- * - Même structure HTML : blocs de 32, table.ticket-page, 4 colonnes
- * - Même centrage : .ticket-page-wrap text-align:center + table display:inline-table
- *
- * Seules différences justifiées :
- * - @page { margin:0 } au lieu de 4mm (marges gérées par le lecteur PDF)
- * - Pas de zoom CSS body (l'échelle est gérée par Puppeteer page.pdf({ scale }))
- * - Pas de script window.print()
+ * Puppeteer embarque Chromium — même moteur que le navigateur desktop.
+ * On réutilise donc exactement le même HTML que l'impression desktop (buildHtml),
+ * sans autoprint et avec scale=100 (l'échelle est gérée par page.pdf({ scale })).
  */
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
-  const COLS = 4;
-
-  // Une seule table continue — pas de blocs fixes.
-  // Puppeteer pagine selon combien de rangées tiennent à l'échelle choisie.
-  // break-inside:avoid (hérité de PRINT_CSS) garantit qu'aucune rangée n'est coupée.
-  const rows: string[] = [];
-  for (let r = 0; r < htmlItems.length; r += COLS) {
-    const cells = htmlItems.slice(r, r + COLS)
-      .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
-      .join("");
-    rows.push(`<tr>${cells}</tr>`);
-  }
-
-  // Même CSS que le desktop (PRINT_CSS) — @media print actif via emulateMediaType.
-  // @page margin:0 — marges gérées par le lecteur PDF, pas par le HTML.
-  const PDF_PAGE_CSS = `
-    @page        { margin:0; }
-    @page :first { margin:0; }
-    @page :left  { margin:0; }
-    @page :right { margin:0; }
-  `;
-
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>${PDF_PAGE_CSS}</style>
-    <style>${PRINT_CSS}</style>
-  </head>
-  <body>
-    <div class="ticket-page-wrap">
-      <table class="ticket-page"><tbody>${rows.join("")}</tbody></table>
-    </div>
-  </body>
-</html>`;
+  return buildHtml(htmlItems, title, false, 100, false);
 }
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
