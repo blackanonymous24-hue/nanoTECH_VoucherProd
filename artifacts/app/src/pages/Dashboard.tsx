@@ -928,8 +928,12 @@ export default function Dashboard() {
             </div>
           </Card>
         </Link>
-        {/* ── Log hotspot : desktop cols 3-4 row-span-2, mobile pleine largeur ── */}
-        <div className="col-span-2 sm:order-7 lg:order-none lg:row-span-2 flex flex-col">
+        {/* ── Trafic : desktop cols 1-2 row 3, mobile pleine largeur ── */}
+        <div className="col-span-2 sm:order-6 lg:col-start-1 lg:row-start-3 flex flex-col">
+          <TrafficMonitorCard routerId={selectedRouterId} enabled={enableSecondaries} />
+        </div>
+        {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}
+        <div className="col-span-2 sm:order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col">
         <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
@@ -1060,10 +1064,6 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
-        </div>
-        {/* ── Trafic : desktop cols 1-2 row 3, mobile pleine largeur ── */}
-        <div className="col-span-2 sm:order-6 lg:order-none flex flex-col">
-          <TrafficMonitorCard routerId={selectedRouterId} enabled={enableSecondaries} />
         </div>
       </div>
 
