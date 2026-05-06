@@ -827,7 +827,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_1fr] gap-1 sm:gap-4 lg:gap-2 mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_260px] gap-1 sm:gap-4 lg:gap-2 mb-3">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? activeSessions : 0}
@@ -929,11 +929,11 @@ export default function Dashboard() {
           </Card>
         </Link>
         {/* ── Trafic : desktop cols 1-2 row 3, mobile pleine largeur ── */}
-        <div className="col-span-2 sm:order-6 lg:col-start-1 lg:row-start-3 flex flex-col lg:max-h-[260px]">
+        <div className="col-span-2 sm:order-6 lg:col-start-1 lg:row-start-3 flex flex-col lg:h-full">
           <TrafficMonitorCard routerId={selectedRouterId} enabled={enableSecondaries} />
         </div>
         {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}
-        <div className="col-span-2 sm:order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col lg:max-h-[344px]">
+        <div className="col-span-2 sm:order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col lg:h-full">
         <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
