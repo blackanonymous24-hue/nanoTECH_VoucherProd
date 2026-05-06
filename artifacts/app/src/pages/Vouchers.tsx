@@ -2393,33 +2393,54 @@ export default function Vouchers() {
             </div>
             {(() => {
               const comment = editingUser?.comment;
-              const isLotTag = comment && /^(vc|up)[-_]/i.test(comment.trim());
+              const profile = editingUser?.profile;
+              const disabled = editingUser?.disabled;
+              const isLotTag = !!(comment && /^(vc|up)[-_]/i.test(comment.trim()));
+              const expDate = parseExpirationDate(comment);
+              const isVoucher = isLotTag || !!expDate;
+              const disabledLabel = isVoucher ? "ticket" : "utilisateur";
+              const disabledSuffix = disabled
+                ? <span className="font-semibold text-orange-500 dark:text-orange-400">&nbsp;— {disabledLabel} désactivé</span>
+                : null;
+
+              // Unlimited profile takes priority (fixes accounts like Teddy who have a lot-tag comment but an illimité profile)
+              if (!isLotTag && isUnlimitedProfile(profile)) {
+                return (
+                  <div className="flex items-center flex-wrap gap-1 rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    Cet utilisateur est sur un forfait illimité{disabledSuffix}
+                  </div>
+                );
+              }
+
+              // Unsold lot voucher
               if (isLotTag) {
                 return (
-                  <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs font-medium text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400">
-                    Ce ticket n'a pas encore été vendu
+                  <div className="flex items-center flex-wrap gap-1 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs font-medium text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400">
+                    Ce ticket n'a pas encore été vendu{disabledSuffix}
                   </div>
                 );
               }
-              const expDate = parseExpirationDate(comment);
+
+              // No parseable date and not unlimited → treat as unlimited
               if (!expDate) {
                 return (
-                  <div className="flex items-center gap-2 rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                    Cet utilisateur est sur un forfait illimité
+                  <div className="flex items-center flex-wrap gap-1 rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    Cet utilisateur est sur un forfait illimité{disabledSuffix}
                   </div>
                 );
               }
+
               const msLeft = expDate.getTime() - editUserNow;
               if (msLeft <= 0) {
                 return (
-                  <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400">
-                    Ce forfait est expiré&nbsp;!!!
+                  <div className="flex items-center flex-wrap gap-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400">
+                    Ce forfait est expiré&nbsp;!!!{disabledSuffix}
                   </div>
                 );
               }
               return (
-                <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-400">
-                  Ce forfait expire dans&nbsp;<span className="font-mono font-semibold">{formatCountdown(msLeft)}</span>
+                <div className="flex items-center flex-wrap gap-1 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-400">
+                  Ce forfait expire dans&nbsp;<span className="font-mono font-semibold">{formatCountdown(msLeft)}</span>{disabledSuffix}
                 </div>
               );
             })()}
