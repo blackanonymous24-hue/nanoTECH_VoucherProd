@@ -1196,8 +1196,8 @@ function StatCard({
                 </>
               ) : (
                 <>
-                  <p className="fit-price font-bold text-gray-900 truncate">{value === undefined ? "—" : value.toLocaleString()}</p>
-                  {sub && <p className="text-xs text-gray-400 -mt-0.5 truncate">{sub}</p>}
+                  <p className="text-2xl sm:text-xl lg:text-lg font-bold text-gray-900 truncate leading-none tabular-nums">{value === undefined ? "—" : value.toLocaleString()}</p>
+                  {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
                 </>
               )}
             </div>
