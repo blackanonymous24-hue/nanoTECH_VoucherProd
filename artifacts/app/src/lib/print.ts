@@ -18,11 +18,15 @@ const PRINT_CSS = `
     body { padding-bottom:100px; }
   }
   @media print {
-    /* Flexbox colonne + align-items:center = centrage horizontal des blocs en impression */
-    body { padding:3mm 1mm 1mm !important; display:flex; flex-direction:column; align-items:center; }
-    table.ticket-page { margin:0; }
-    /* break-inside:avoid sur tr : chaque rangée de 4 tickets ne se coupe pas */
-    tr { page-break-inside:avoid; break-inside:avoid; }
+    body { padding:3mm 1mm 1mm !important; }
+    /* inline-table + div wrapper text-align:center = centrage sans flex (flex casse break-inside) */
+    .ticket-page-wrap { display:block; text-align:center; }
+    table.ticket-page { display:inline-table; margin:0; }
+    /* Empêche une rangée de 4 tickets d'être coupée entre deux pages */
+    table.ticket-page tr { page-break-inside:avoid; break-inside:avoid; }
+    /* Empêche chaque ticket individuel d'être coupé */
+    table.ticket-page td > table,
+    table.ticket-page td > table * { page-break-inside:avoid; break-inside:avoid; }
   }
 `;
 
@@ -145,7 +149,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
         .join("");
       rows.push(`<tr>${cells}</tr>`);
     }
-    pageBlocks.push(`<table class="ticket-page"><tbody>${rows.join("")}</tbody></table>`);
+    pageBlocks.push(`<div class="ticket-page-wrap"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`);
   }
 
   return `<!doctype html>
