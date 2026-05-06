@@ -1168,7 +1168,7 @@ function StatCard({
     <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
       <div className="flex-1 flex p-2.5 sm:p-6 lg:px-4 lg:py-2.5 gap-2 sm:gap-3 lg:gap-2.5">
         {/* Icône — alignée avec le titre */}
-        <div className={`p-1.5 rounded-xl flex-shrink-0 self-start ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
+        <div className={`p-1.5 rounded-xl flex-shrink-0 self-center ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
         {/* Colonne texte : titre en haut, montant centré, sous-titre en bas */}
         <div className="min-w-0 flex-1 flex flex-col">
           {/* Titre */}
