@@ -164,9 +164,10 @@ function formatAmount(amount: number): string {
 function amountTextStyle(amount: number, currency = "FCFA"): React.CSSProperties {
   const amountStr = amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
   const len = `${amountStr} ${currency}`.length;
-  // Shrink aggressively from 24px down to 8px to always show full text.
-  const size = Math.max(8, 24 - (len - 8) * 1.15);
-  return { fontSize: `${size}px`, lineHeight: 1.15 };
+  // Taille de départ 20px pour les courts (≤8 chars), réduit de 1.2px par char supplémentaire.
+  // "9 999 999 FCFA" = 14 chars → 12.8px — tient dans ~130px de large.
+  const size = Math.max(8, 20 - Math.max(0, len - 8) * 1.2);
+  return { fontSize: `${size}px`, lineHeight: 1.15, minWidth: 0 };
 }
 
 /**
