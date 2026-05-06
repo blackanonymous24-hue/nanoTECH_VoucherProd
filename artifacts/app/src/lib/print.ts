@@ -148,24 +148,20 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
  */
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
   const COLS = 4;
-  const PER_PAGE = COLS * 8; // 32 tickets par bloc, identique au desktop
 
-  const pageBlocks: string[] = [];
-  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
-    const page = htmlItems.slice(p, p + PER_PAGE);
-    const rows: string[] = [];
-    for (let r = 0; r < page.length; r += COLS) {
-      const cells = page.slice(r, r + COLS)
-        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
-        .join("");
-      rows.push(`<tr>${cells}</tr>`);
-    }
-    pageBlocks.push(
-      `<div class="ticket-page-wrap"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`,
-    );
+  // Une seule table continue — pas de blocs fixes.
+  // Puppeteer pagine selon combien de rangées tiennent à l'échelle choisie.
+  // break-inside:avoid (hérité de PRINT_CSS) garantit qu'aucune rangée n'est coupée.
+  const rows: string[] = [];
+  for (let r = 0; r < htmlItems.length; r += COLS) {
+    const cells = htmlItems.slice(r, r + COLS)
+      .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
+      .join("");
+    rows.push(`<tr>${cells}</tr>`);
   }
 
-  // @page margin:0 (pas de 4mm — l'utilisateur contrôle via le lecteur PDF)
+  // Même CSS que le desktop (PRINT_CSS) — @media print actif via emulateMediaType.
+  // @page margin:0 — marges gérées par le lecteur PDF, pas par le HTML.
   const PDF_PAGE_CSS = `
     @page        { margin:0; }
     @page :first { margin:0; }
@@ -181,7 +177,11 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
     <style>${PDF_PAGE_CSS}</style>
     <style>${PRINT_CSS}</style>
   </head>
-  <body>${pageBlocks.join("")}</body>
+  <body>
+    <div class="ticket-page-wrap">
+      <table class="ticket-page"><tbody>${rows.join("")}</tbody></table>
+    </div>
+  </body>
 </html>`;
 }
 
