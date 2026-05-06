@@ -1048,20 +1048,23 @@ export default function Vouchers() {
 
   const handleExtend = async () => {
     if (!activeRouterId || !extendUser || isExtending) return;
-    const n = parseInt(extendAmount, 10);
-    if (!n || n <= 0) {
-      toast({ title: "Durée invalide", description: "Entrez un nombre positif.", variant: "destructive" });
-      return;
-    }
     const user = extendUser;
+    const existing = parseExpirationDate(user.comment);
+    const isExpired = !existing || existing.getTime() <= Date.now();
+
+    if (!isExpired) {
+      const n = parseInt(extendAmount, 10);
+      if (!n || n <= 0) {
+        toast({ title: "Durée invalide", description: "Entrez un nombre positif.", variant: "destructive" });
+        return;
+      }
+    }
+
     setExtendUser(null);
     setIsExtending(true);
     try {
-      const existing = parseExpirationDate(user.comment);
-      const isExpired = !existing || existing.getTime() <= Date.now();
-
-      // Si expiré → réinitialiser le compte (compteurs, session, MAC) avant d'appliquer la nouvelle date
       if (isExpired) {
+        // Forfait expiré → réinitialiser uniquement, sans appliquer de nouvelle date
         const resetRes = await fetch(
           `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}/reset`,
           { method: "POST", headers: { "Content-Type": "application/json" } },
@@ -1070,31 +1073,29 @@ export default function Vouchers() {
           const err = await resetRes.json() as { error?: string };
           throw new Error(err.error ?? `HTTP ${resetRes.status}`);
         }
-      }
+        toast({ title: "Compte réinitialisé", description: user.username });
+      } else {
+        // Forfait actif → prolonger depuis la date actuelle, sans reset
+        const n = parseInt(extendAmount, 10);
+        const next = new Date(existing!);
+        if (extendUnit === "Heure") next.setHours(next.getHours() + n);
+        else if (extendUnit === "Jour") next.setDate(next.getDate() + n);
+        else next.setMonth(next.getMonth() + n);
+        const newComment = formatMikrotikDate(next);
 
-      // Calculer la nouvelle date d'expiration
-      const base = isExpired ? new Date() : existing!;
-      const next = new Date(base);
-      if (extendUnit === "Heure") next.setHours(next.getHours() + n);
-      else if (extendUnit === "Jour") next.setDate(next.getDate() + n);
-      else next.setMonth(next.getMonth() + n);
-      const newComment = formatMikrotikDate(next);
-
-      const patchRes = await fetch(
-        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}`,
-        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment: newComment }) },
-      );
-      if (!patchRes.ok) {
-        const err = await patchRes.json() as { error?: string };
-        throw new Error(err.error ?? `HTTP ${patchRes.status}`);
+        const patchRes = await fetch(
+          `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}`,
+          { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment: newComment }) },
+        );
+        if (!patchRes.ok) {
+          const err = await patchRes.json() as { error?: string };
+          throw new Error(err.error ?? `HTTP ${patchRes.status}`);
+        }
+        toast({ title: "Forfait prolongé", description: `${user.username} — expire : ${newComment}` });
       }
-      toast({
-        title: isExpired ? "Compte réinitialisé et prolongé" : "Forfait prolongé",
-        description: `${user.username} — expire : ${newComment}`,
-      });
       void Promise.all([refetchUsers(), refetchLots()]);
     } catch (err) {
-      toast({ title: "Erreur prolongation", description: String(err), variant: "destructive" });
+      toast({ title: isExpired ? "Erreur réinitialisation" : "Erreur prolongation", description: String(err), variant: "destructive" });
     } finally {
       setIsExtending(false);
     }
@@ -2116,23 +2117,24 @@ export default function Vouchers() {
       {/* Prolonger dialog */}
       <Dialog open={!!extendUser} onOpenChange={(o) => { if (!o && !isExtending) setExtendUser(null); }}>
         <DialogContent className="max-w-sm gap-0 overflow-hidden p-0 [&>button]:hidden">
-          <div className="border-b bg-muted/30 px-6 py-4">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <CalendarPlus className="h-4 w-4 text-blue-600" />
-                Prolonger le forfait
-              </DialogTitle>
-            </DialogHeader>
-            {extendUser && (
-              <p className="mt-1 text-xs text-muted-foreground font-mono">{extendUser.username}</p>
-            )}
-          </div>
-          <div className="px-6 py-5 space-y-4">
-            {extendUser && (() => {
-              const expDate = parseExpirationDate(extendUser.comment);
-              const alreadyExpired = !expDate || expDate.getTime() <= Date.now();
-              return (
-                <>
+          {(() => {
+            const expDate = extendUser ? parseExpirationDate(extendUser.comment) : null;
+            const alreadyExpired = !expDate || expDate.getTime() <= Date.now();
+            return (
+              <>
+                <div className="border-b bg-muted/30 px-6 py-4">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      {alreadyExpired
+                        ? <><RotateCcw className="h-4 w-4 text-orange-600" /> Réinitialiser le compte</>
+                        : <><CalendarPlus className="h-4 w-4 text-blue-600" /> Prolonger le forfait</>}
+                    </DialogTitle>
+                  </DialogHeader>
+                  {extendUser && (
+                    <p className="mt-1 text-xs text-muted-foreground font-mono">{extendUser.username}</p>
+                  )}
+                </div>
+                <div className="px-6 py-5 space-y-4">
                   <div className="text-xs text-muted-foreground">
                     <p>
                       Expiration actuelle :{" "}
@@ -2141,62 +2143,60 @@ export default function Vouchers() {
                         : <span className="italic">aucune date</span>}
                     </p>
                   </div>
-                  {alreadyExpired && (
-                    <div className="flex items-start gap-2 rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-xs text-orange-700">
-                      <RotateCcw className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                      <span>Forfait expiré — le compte sera <strong>réinitialisé</strong> avant d'appliquer la nouvelle date.</span>
+                  {!alreadyExpired && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Durée à ajouter</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min="1"
+                          max="999"
+                          value={extendAmount}
+                          onChange={(e) => setExtendAmount(e.target.value)}
+                          disabled={isExtending}
+                          className="flex-1 h-9 font-mono text-center text-base"
+                          onKeyDown={(e) => { if (e.key === "Enter") void handleExtend(); }}
+                        />
+                        <select
+                          value={extendUnit}
+                          onChange={(e) => setExtendUnit(e.target.value as "Heure" | "Jour" | "Mois")}
+                          disabled={isExtending}
+                          className="h-9 w-28 rounded-md border border-input bg-background px-3 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="Heure">Heure(s)</option>
+                          <option value="Jour">Jour(s)</option>
+                          <option value="Mois">Mois</option>
+                        </select>
+                      </div>
                     </div>
                   )}
-                </>
-              );
-            })()}
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Durée à ajouter</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="1"
-                  max="999"
-                  value={extendAmount}
-                  onChange={(e) => setExtendAmount(e.target.value)}
-                  disabled={isExtending}
-                  className="flex-1 h-9 font-mono text-center text-base"
-                  onKeyDown={(e) => { if (e.key === "Enter") void handleExtend(); }}
-                />
-                <select
-                  value={extendUnit}
-                  onChange={(e) => setExtendUnit(e.target.value as "Heure" | "Jour" | "Mois")}
-                  disabled={isExtending}
-                  className="h-9 w-28 rounded-md border border-input bg-background px-3 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="Heure">Heure(s)</option>
-                  <option value="Jour">Jour(s)</option>
-                  <option value="Mois">Mois</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1"
-                onClick={() => setExtendUser(null)}
-                disabled={isExtending}
-              >
-                Annuler
-              </Button>
-              <Button
-                type="button"
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
-                onClick={() => void handleExtend()}
-                disabled={isExtending || !extendAmount || parseInt(extendAmount, 10) <= 0}
-              >
-                {isExtending
-                  ? <><Loader2 className="h-4 w-4 animate-spin" /> En cours…</>
-                  : <><CalendarPlus className="h-4 w-4" /> Prolonger</>}
-              </Button>
-            </div>
-          </div>
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setExtendUser(null)}
+                      disabled={isExtending}
+                    >
+                      Annuler
+                    </Button>
+                    <Button
+                      type="button"
+                      className={`flex-1 gap-1.5 text-white ${alreadyExpired ? "bg-orange-600 hover:bg-orange-700" : "bg-blue-600 hover:bg-blue-700"}`}
+                      onClick={() => void handleExtend()}
+                      disabled={isExtending || (!alreadyExpired && (!extendAmount || parseInt(extendAmount, 10) <= 0))}
+                    >
+                      {isExtending
+                        ? <><Loader2 className="h-4 w-4 animate-spin" /> En cours…</>
+                        : alreadyExpired
+                          ? <><RotateCcw className="h-4 w-4" /> Réinitialiser</>
+                          : <><CalendarPlus className="h-4 w-4" /> Prolonger</>}
+                    </Button>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
