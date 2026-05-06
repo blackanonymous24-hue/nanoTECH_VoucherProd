@@ -10,19 +10,22 @@ const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; margin:0; }
   .doc-header { display:none !important; }
-  /* Grille 4 colonnes — chaque .ticket-page = 1 page imprimée (32 tickets max) */
-  table.ticket-page { border-collapse:collapse; margin-bottom:2px; }
-  /* > tbody > tr > td : cible uniquement les td directs du wrapper, pas les td internes du ticket */
-  table.ticket-page > tbody > tr > td { padding:1px; vertical-align:top; }
+  /* Grille flex — div.ticket-page > div.ticket-row > div.ticket-cell */
+  .ticket-page { display:flex; flex-direction:column; margin-bottom:2px; }
+  .ticket-row  { display:flex; flex-direction:row; flex-wrap:nowrap; }
+  .ticket-cell { padding:2px; flex-shrink:0; vertical-align:top; }
   @media screen {
     body { padding-bottom:100px; }
   }
   @media print {
-    /* Flexbox colonne + align-items:center = centrage horizontal des blocs en impression */
+    /* Flexbox colonne + align-items:center = centrage horizontal en impression */
     body { padding:3mm 1mm 1mm !important; display:flex; flex-direction:column; align-items:center; }
-    table.ticket-page { margin:0; }
-    /* break-inside:avoid sur tr : chaque rangée de 4 tickets ne se coupe pas */
-    tr { page-break-inside:avoid; break-inside:avoid; }
+    .ticket-page { margin:0; }
+    /* break-inside:avoid sur div.ticket-row : respecté par WebKit/Safari iOS (contrairement à <tr>) */
+    .ticket-row {
+      break-inside:avoid; -webkit-column-break-inside:avoid;
+      page-break-inside:avoid;
+    }
   }
 `;
 
@@ -141,11 +144,11 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     const rows: string[] = [];
     for (let r = 0; r < page.length; r += COLS) {
       const cells = page.slice(r, r + COLS)
-        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
+        .map(item => `<div class="ticket-cell">${item}</div>`)
         .join("");
-      rows.push(`<tr>${cells}</tr>`);
+      rows.push(`<div class="ticket-row">${cells}</div>`);
     }
-    pageBlocks.push(`<table class="ticket-page"><tbody>${rows.join("")}</tbody></table>`);
+    pageBlocks.push(`<div class="ticket-page">${rows.join("")}</div>`);
   }
 
   return `<!doctype html>
