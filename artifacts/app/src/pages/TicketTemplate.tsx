@@ -5,17 +5,7 @@ import { Button } from "@/components/ui/button";
 import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
-import { Slider } from "@/components/ui/slider";
-
-const SCALE_DESKTOP_KEY = "vn_print_scale_desktop";
-const SCALE_MOBILE_KEY  = "vn_print_scale_mobile";
 const COLS_DESKTOP_KEY  = "vn_print_cols_desktop";
-const COLS_MOBILE_KEY   = "vn_print_cols_mobile";
-
-function readScale(key: string, def = 85): number {
-  try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
-}
-function saveScale(key: string, v: number) { try { localStorage.setItem(key, String(v)); } catch {} }
 
 function readCols(key: string, def = 4): number {
   try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
@@ -405,12 +395,9 @@ export default function TicketTemplate() {
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Paramètres d'impression (échelle + colonnes)
+  // ── Paramètres d'impression (colonnes desktop)
   const [showScaleDialog, setShowScaleDialog] = useState(false);
-  const [scaleDesktop, setScaleDesktop] = useState(() => readScale(SCALE_DESKTOP_KEY, 85));
-  const [scaleMobile,  setScaleMobile]  = useState(() => readScale(SCALE_MOBILE_KEY,  85));
   const [colsDesktop,  setColsDesktop]  = useState(() => readCols(COLS_DESKTOP_KEY, 4));
-  const [colsMobile,   setColsMobile]   = useState(() => readCols(COLS_MOBILE_KEY,  4));
 
   // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -596,12 +583,9 @@ export default function TicketTemplate() {
               <span className="hidden sm:inline">Définir par défaut</span>
             </Button>
           </>
-          <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50 h-auto py-1" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
+          <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
             <Sliders className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline leading-tight text-left">
-              <span className="block text-[11px]">🖥 {scaleDesktop}% · {colsDesktop}col</span>
-              <span className="block text-[11px]">📱 {scaleMobile}% · {colsMobile}col</span>
-            </span>
+            <span className="hidden sm:inline text-[11px]">🖥 {colsDesktop} col</span>
           </Button>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
@@ -618,78 +602,17 @@ export default function TicketTemplate() {
               Paramètres d'impression
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-5 py-2">
-            {/* ── Desktop ── */}
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-gray-700">🖥 Desktop / Laptop</p>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-xs text-gray-500">Échelle d'impression</span>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number" min={50} max={100} step={5}
-                      value={scaleDesktop}
-                      onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
-                      className="w-14 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
-                    />
-                    <span className="text-xs text-gray-500">%</span>
-                  </div>
-                </div>
-                <Slider
-                  min={50} max={100} step={5}
-                  value={[scaleDesktop]}
-                  onValueChange={([v]) => { setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <span className="text-xs text-gray-500">Nombre de colonnes</span>
-                <div className="flex gap-1.5">
-                  {[2, 3, 4, 5, 6].map((n) => (
-                    <button
-                      key={n} type="button"
-                      onClick={() => { setColsDesktop(n); saveCols(COLS_DESKTOP_KEY, n); }}
-                      className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsDesktop === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
-                    >{n}</button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <hr className="border-gray-100" />
-
-            {/* ── Mobile ── */}
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-gray-700">📱 Mobile / Tablette</p>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-xs text-gray-500">Échelle d'impression</span>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number" min={50} max={100} step={5}
-                      value={scaleMobile}
-                      onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
-                      className="w-14 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
-                    />
-                    <span className="text-xs text-gray-500">%</span>
-                  </div>
-                </div>
-                <Slider
-                  min={50} max={100} step={5}
-                  value={[scaleMobile]}
-                  onValueChange={([v]) => { setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <span className="text-xs text-gray-500">Nombre de colonnes</span>
-                <div className="flex gap-1.5">
-                  {[2, 3, 4, 5, 6].map((n) => (
-                    <button
-                      key={n} type="button"
-                      onClick={() => { setColsMobile(n); saveCols(COLS_MOBILE_KEY, n); }}
-                      className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsMobile === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
-                    >{n}</button>
-                  ))}
-                </div>
+          <div className="py-2">
+            <div className="space-y-1.5">
+              <span className="text-xs text-gray-500">Nombre de colonnes</span>
+              <div className="flex gap-1.5">
+                {[2, 3, 4, 5, 6].map((n) => (
+                  <button
+                    key={n} type="button"
+                    onClick={() => { setColsDesktop(n); saveCols(COLS_DESKTOP_KEY, n); }}
+                    className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsDesktop === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
+                  >{n}</button>
+                ))}
               </div>
             </div>
           </div>
