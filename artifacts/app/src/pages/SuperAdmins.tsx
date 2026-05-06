@@ -390,7 +390,7 @@ export default function SuperAdmins() {
                                 {a.displayName || a.login}
                               </button>
                             )}
-                            <p className="text-xs text-gray-500">@{a.login}</p>
+
                             {a.credentialPreview && (
                               <p className="text-[11px] text-amber-700 mt-0.5">
                                 Nouveaux identifiants:{" "}
