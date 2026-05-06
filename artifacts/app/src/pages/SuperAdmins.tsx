@@ -532,6 +532,7 @@ export default function SuperAdmins() {
         onClose={() => setAccountOpen(false)}
         onSubmit={(v) => accountM.mutate(v)}
         pending={accountM.isPending}
+        currentAdmin={admins.find((a) => a.isSuperAdmin) ?? null}
       />
     </div>
   );
@@ -1364,18 +1365,26 @@ function CreditsDialog({ admin, onClose, onSubmit, pending }: {
 }
 
 /* ──────────── AccountDialog: super-admin self-service login/password ──────────── */
-function AccountDialog({ open, onClose, onSubmit, pending }: {
+function AccountDialog({ open, onClose, onSubmit, pending, currentAdmin }: {
   open: boolean;
   onClose: () => void;
   onSubmit: (v: { login?: string; password?: string }) => void;
   pending: boolean;
+  currentAdmin: AdminRow | null;
 }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
 
+  useEffect(() => {
+    if (open) {
+      setLogin(currentAdmin?.login ?? "");
+      setPassword(currentAdmin?.passwordPlain ?? "");
+    }
+  }, [open, currentAdmin]);
+
   const reset = () => { setLogin(""); setPassword(""); };
 
-  const loginInvalid = login.length > 0 && login.trim().length < 2;
+  const loginInvalid = login.trim().length > 0 && login.trim().length < 2;
   const passwordInvalid = password.length > 0 && password.length < 4;
   const nothingToChange = login.trim().length === 0 && password.length === 0;
 
@@ -1396,11 +1405,11 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label htmlFor="acc-login">Nouveau login</Label>
+            <Label htmlFor="acc-login">Login</Label>
             <Input
               id="acc-login"
               autoComplete="username"
-              placeholder="Laisser vide pour conserver"
+              placeholder="Identifiant de connexion"
               value={login}
               onChange={(e) => setLogin(e.target.value)}
             />
@@ -1409,11 +1418,11 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
             )}
           </div>
           <div>
-            <Label htmlFor="acc-password">Nouveau mot de passe</Label>
+            <Label htmlFor="acc-password">Mot de passe</Label>
             <PasswordInput
               id="acc-password"
               autoComplete="new-password"
-              placeholder="Laisser vide pour conserver"
+              placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

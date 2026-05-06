@@ -88,8 +88,18 @@ Réponse collaborateur : `{ role: "collaborateur", token, collaborateur: { id, n
 - `artifacts/api-server/src/lib/vendor-auth.ts` — token vendor (JWT-like avec vendorId)
 
 ### DB Schema Collaborateur
-- `collaborateurs` table — id, name, username, passwordHash, isActive
+- `collaborateurs` table — id, name, username, passwordHash, passwordPlain, isActive
 - `collaborateur_routers` table — junction many-to-many (collaborateurId, routerId)
+
+### Pré-remplissage des mots de passe en clair (mai 2026)
+- `passwordPlain` ajouté sur `vendors`, `managers`, `collaborateurs`, `admin_settings`
+- Sauvegardé à chaque POST/PUT (création, mise à jour, changement de mot de passe /me/password)
+- Retourné par l'API (safeVendor / safeManager / safeCollab strippent seulement passwordHash)
+- Formulaires d'édition : login et mot de passe pré-remplis avec les valeurs actuelles
+  - Vendors.tsx: `password: vendor.passwordPlain`
+  - Managers.tsx: `password: manager.passwordPlain`
+  - Collaborateurs.tsx: `password: collab.passwordPlain`
+  - SuperAdmins.tsx AccountDialog: login + passwordPlain pré-remplis via `currentAdmin` prop
 
 ### Frontend
 - `AuthContext.tsx` — stocke `{ token, role, vendorInfo, collaborateurRouterIds }` en localStorage

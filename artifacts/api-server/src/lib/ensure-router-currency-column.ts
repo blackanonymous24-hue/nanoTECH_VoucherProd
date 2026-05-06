@@ -73,3 +73,30 @@ export async function ensurePasswordPlainColumn(): Promise<void> {
     logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.password_plain");
   }
 }
+
+export async function ensureVendorPasswordPlainColumn(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE vendors ADD COLUMN IF NOT EXISTS password_plain text`);
+    logger.info("DB compat: colonne vendors.password_plain vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter vendors.password_plain");
+  }
+}
+
+export async function ensureManagerPasswordPlainColumn(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE managers ADD COLUMN IF NOT EXISTS password_plain text`);
+    logger.info("DB compat: colonne managers.password_plain vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter managers.password_plain");
+  }
+}
+
+export async function ensureCollaborateurPasswordPlainColumn(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE collaborateurs ADD COLUMN IF NOT EXISTS password_plain text`);
+    logger.info("DB compat: colonne collaborateurs.password_plain vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter collaborateurs.password_plain");
+  }
+}

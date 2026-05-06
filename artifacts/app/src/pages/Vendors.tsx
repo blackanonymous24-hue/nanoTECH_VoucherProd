@@ -730,7 +730,7 @@ export default function Vendors() {
                 phone: editVendor.phone ?? null,
                 email: (editVendor as any).email ?? null,
                 username: (editVendor as any).username ?? null,
-                password: (editVendor as any).password ?? null,
+                password: (editVendor as any).passwordPlain ?? (editVendor as any).password ?? null,
                 commentSuffix: (editVendor as any).commentSuffix ?? null,
                 commentSuffix2: (editVendor as any).commentSuffix2 ?? null,
                 commissionRate: (editVendor as any).commissionRate ?? 0,

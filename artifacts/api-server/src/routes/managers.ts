@@ -90,6 +90,7 @@ router.post("/managers", async (req, res): Promise<void> => {
       name: name.trim(),
       username: username.trim(),
       passwordHash,
+      passwordPlain: password,
       routerId: routerId ?? null,
     })
     .returning();
@@ -116,7 +117,7 @@ router.put("/managers/me/password", async (req, res): Promise<void> => {
   if (!manager) { res.status(404).json({ error: "Gérant introuvable" }); return; }
 
   const passwordHash = await hashPassword(newPassword);
-  await db.update(managersTable).set({ passwordHash }).where(eq(managersTable.id, manager.id));
+  await db.update(managersTable).set({ passwordHash, passwordPlain: newPassword }).where(eq(managersTable.id, manager.id));
 
   res.json({ success: true });
 });
@@ -165,6 +166,7 @@ router.put("/managers/:id", async (req, res): Promise<void> => {
   if (password && password.trim()) {
     if (password.length < 4) { res.status(400).json({ error: "Mot de passe trop court (4 car. minimum)" }); return; }
     updates.passwordHash = await hashPassword(password);
+    updates.passwordPlain = password;
   }
 
   const [manager] = await db.update(managersTable).set(updates)

@@ -33,6 +33,7 @@ type Manager = {
   id: number;
   name: string;
   username: string;
+  passwordPlain?: string | null;
   isActive: boolean;
   createdAt: string;
   routerId: number | null;
@@ -340,7 +341,7 @@ export default function Managers() {
           <DialogHeader><DialogTitle>Modifier le gérant</DialogTitle></DialogHeader>
           {editManager && (
             <PersonForm
-              initial={{ name: editManager.name, username: editManager.username }}
+              initial={{ name: editManager.name, username: editManager.username, password: editManager.passwordPlain ?? "" }}
               onSubmit={handleEdit}
               onCancel={() => { setEditManager(null); setEditError(""); }}
               loading={updateMutation.isPending}

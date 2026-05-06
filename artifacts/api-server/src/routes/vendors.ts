@@ -160,6 +160,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
       email: email?.trim() || null,
       username: resolvedUsername,
       passwordHash,
+      passwordPlain: (password && password.trim()) ? password : null,
       commentSuffix: commentSuffix?.trim() || null,
       commentSuffix2: commentSuffix2?.trim() || null,
       commissionRate: Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0))),
@@ -253,6 +254,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
       return;
     }
     updates.passwordHash = await hashPassword(password);
+    updates.passwordPlain = password;
   }
 
   const [vendor] = await db

@@ -14,6 +14,7 @@ export const vendorsTable = pgTable("vendors", {
   email: text("email"),
   username: text("username"),
   passwordHash: text("password_hash"),
+  passwordPlain: text("password_plain"),
   commentSuffix: text("comment_suffix"),
   commentSuffix2: text("comment_suffix2"),
   commissionRate: integer("commission_rate").notNull().default(0), // % of sales as remuneration (0-100)

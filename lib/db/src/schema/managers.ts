@@ -9,6 +9,7 @@ export const managersTable = pgTable("managers", {
   name: text("name").notNull(),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash"),
+  passwordPlain: text("password_plain"),
   isActive: boolean("is_active").notNull().default(true),
   routerId: integer("router_id").references(() => routersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

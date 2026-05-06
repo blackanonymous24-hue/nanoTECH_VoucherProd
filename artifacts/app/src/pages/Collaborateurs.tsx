@@ -29,6 +29,7 @@ type Collaborateur = {
   id: number;
   name: string;
   username: string;
+  passwordPlain?: string | null;
   isActive: boolean;
   createdAt: string;
   routerIds: number[];
@@ -377,7 +378,7 @@ export default function Collaborateurs() {
               </div>
 
               <PersonForm
-                initial={{ name: editCollab.name, username: editCollab.username }}
+                initial={{ name: editCollab.name, username: editCollab.username, password: editCollab.passwordPlain ?? "" }}
                 onSubmit={handleEdit}
                 onCancel={() => { setEditCollab(null); setEditError(""); }}
                 loading={updateMutation.isPending}
