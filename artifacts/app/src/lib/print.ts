@@ -70,7 +70,10 @@ function isNativeWebView(): boolean {
 }
 
 function isMobile(): boolean {
-  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+  // iPad iOS 13+ masquerade: UA dit "Macintosh" mais maxTouchPoints > 1
+  if (typeof navigator !== "undefined" && navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform)) return true;
+  return false;
 }
 
 function normalizeSessionName(raw: string): string {

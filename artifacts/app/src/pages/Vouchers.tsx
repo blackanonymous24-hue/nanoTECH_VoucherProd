@@ -703,7 +703,8 @@ export default function Vouchers() {
 
     // Pré-ouvrir la fenêtre AVANT tout await (popup blocker mobile sinon)
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isIpadOS = navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform);
+    const useMobileWindow = !isNativeWV && (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || isIpadOS);
     const printScale = (() => {
       try {
         const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
@@ -826,7 +827,8 @@ export default function Vouchers() {
 
     // Pré-ouvrir la fenêtre AVANT tout await (popup blocker mobile sinon)
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isIpadOS = navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform);
+    const useMobileWindow = !isNativeWV && (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || isIpadOS);
     const printScale = (() => {
       try {
         const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
