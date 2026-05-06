@@ -50,6 +50,7 @@ function publicAdminShape(a: typeof adminSettingsTable.$inferSelect, routerCount
     extraRouterSlots: a.extraRouterSlots,
     routerCount,
     routerLimit: 5 + a.extraRouterSlots,
+    passwordPlain: a.passwordPlain ?? null,
     credentialPreview,
     createdAt: a.createdAt,
     updatedAt: a.updatedAt,
@@ -144,6 +145,7 @@ router.post("/super/admins", async (req, res): Promise<void> => {
     .values({
       login: loginTrimmed,
       passwordHash,
+      passwordPlain: password,
       displayName: displayName?.trim() || null,
       isSuperAdmin: false,
       isActive: true,
@@ -205,6 +207,7 @@ router.patch("/super/admins/:id", async (req, res): Promise<void> => {
       return;
     }
     patch.passwordHash = await hashPassword(password);
+    patch.passwordPlain = password;
   }
 
   if (Object.keys(patch).length === 0) {

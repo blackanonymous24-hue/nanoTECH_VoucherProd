@@ -63,6 +63,7 @@ interface AdminRow {
   credits: number;
   extraRouterSlots: number;
   routerCount: number;
+  passwordPlain: string | null;
   credentialPreview?: {
     login: string | null;
     password: string | null;
@@ -823,7 +824,7 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
 }) {
   const [login, setLogin] = useState(admin.login);
   const [displayName, setDisplayName] = useState(admin.displayName ?? "");
-  const originalPassword = admin.credentialPreview?.password ?? "";
+  const originalPassword = admin.passwordPlain ?? admin.credentialPreview?.password ?? "";
   const [password, setPassword] = useState(originalPassword);
   const [isActive, setIsActive] = useState(admin.isActive);
   const [loginError, setLoginError] = useState("");

@@ -19,6 +19,7 @@ export const adminSettingsTable = pgTable("admin_settings", {
   // Template PHP Mikhmon v3 sauvegardé côté serveur pour synchronisation
   // cross-device (mobile, APK, desktop). null = utiliser le template par défaut.
   ticketTemplate: text("ticket_template"),
+  passwordPlain: text("password_plain"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

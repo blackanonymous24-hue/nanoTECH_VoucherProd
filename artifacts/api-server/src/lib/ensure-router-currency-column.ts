@@ -57,3 +57,19 @@ export async function ensureTicketTemplateColumn(): Promise<void> {
     logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.ticket_template");
   }
 }
+
+/**
+ * Ajoute la colonne password_plain sur admin_settings si elle n'existe pas.
+ * Stocke le mot de passe en clair pour affichage dans l'interface super-admin.
+ */
+export async function ensurePasswordPlainColumn(): Promise<void> {
+  try {
+    await db.execute(sql`
+      ALTER TABLE admin_settings
+      ADD COLUMN IF NOT EXISTS password_plain text
+    `);
+    logger.info("DB compat: colonne admin_settings.password_plain vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.password_plain");
+  }
+}

@@ -227,6 +227,7 @@ router.put("/admin/credentials", async (req, res): Promise<void> => {
       return;
     }
     patch.passwordHash = await hashPassword(password);
+    patch.passwordPlain = password;
   }
 
   if (Object.keys(patch).length === 0) {
