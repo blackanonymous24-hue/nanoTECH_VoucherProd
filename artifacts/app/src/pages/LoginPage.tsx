@@ -100,6 +100,11 @@ export default function LoginPage({ mode }: LoginPageProps) {
         return;
       }
 
+      const connectedName: string | null =
+        data.role === "manager"       ? (data.manager?.name ?? null) :
+        data.role === "collaborateur" ? (data.collaborateur?.name ?? null) :
+        data.role === "admin"         ? (data.displayName ?? data.login ?? null) :
+        null;
       login(
         data.token,
         data.role,
@@ -108,6 +113,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
         data.collaborateur?.routerIds ?? undefined,
         remember,
         data.isSuperAdmin === true,
+        connectedName,
       );
       if (data.role === "vendor") {
         navigate("/vendor-portal");

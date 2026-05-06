@@ -95,7 +95,7 @@ function makeClientBatchId(mode: "vc" | "up"): string {
 function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mobileDrawer?: boolean }) {
   const [location] = useLocation();
   const { routerIdentity, selectedRouterId } = useRouterContext();
-  const { logout, role, token, isSuperAdmin } = useAuth();
+  const { logout, role, token, isSuperAdmin, connectedName } = useAuth();
   const appNavigate = useAppNavigate();
 
   const { toast } = useToast();
@@ -790,27 +790,37 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 
       {/* ── Footer ── */}
       <div className="px-3 py-3 flex-shrink-0">
-        {/* Badge rôle + actions sur une seule ligne */}
-        <div className="flex items-center justify-between gap-2">
-          {/* Badge rôle */}
-          {isManager ? (
-            <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-400/80 bg-amber-400/10 px-2 py-0.5 rounded-full ring-1 ring-amber-400/20 flex-shrink-0">
-              Gérant de zone
-            </span>
-          ) : isCollaborateur ? (
-            <span className="text-[9px] font-semibold uppercase tracking-wide text-purple-400/80 bg-purple-400/10 px-2 py-0.5 rounded-full ring-1 ring-purple-400/20 flex-shrink-0">
-              Collaborateur
-            </span>
-          ) : isAdmin ? (
-            <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20 flex-shrink-0">
-              Admin
-            </span>
-          ) : (
-            <span className="flex-shrink-0" />
-          )}
+        <div className="flex items-start justify-between gap-2">
+          {/* Gauche : badge rôle + nom de l'utilisateur */}
+          <div className="flex flex-col gap-1 min-w-0">
+            {/* Badge rôle */}
+            {isSuperAdmin ? (
+              <span className="text-[9px] font-bold uppercase tracking-wide text-orange-400 bg-orange-500/15 px-2 py-0.5 rounded-full ring-1 ring-orange-400/40 self-start">
+                Super Admin
+              </span>
+            ) : isManager ? (
+              <span className="text-[9px] font-semibold uppercase tracking-wide text-emerald-400/80 bg-emerald-400/10 px-2 py-0.5 rounded-full ring-1 ring-emerald-400/20 self-start">
+                Gérant de zone
+              </span>
+            ) : isCollaborateur ? (
+              <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20 self-start">
+                Collaborateur
+              </span>
+            ) : isAdmin ? (
+              <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20 self-start">
+                Admin
+              </span>
+            ) : null}
+            {/* Nom de l'utilisateur connecté */}
+            {connectedName && (
+              <span className="text-[11px] text-gray-400 leading-tight break-words">
+                {connectedName}
+              </span>
+            )}
+          </div>
 
-          {/* Actions à droite */}
-          <div className="flex items-center gap-1">
+          {/* Droite : actions (flex-shrink-0 pour ne jamais être compressées) */}
+          <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
             {/* Modifier mot de passe — managers et collaborateurs */}
             {(isManager || isCollaborateur) && (
               <button
@@ -822,7 +832,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 <span>Mot de passe</span>
               </button>
             )}
-            {/* Déconnexion — toujours en rouge, sur la même ligne que le badge */}
+            {/* Déconnexion */}
             <button
               onClick={handleLogout}
               className="flex items-center gap-1 text-[11px] font-medium text-red-400/80 hover:text-red-300 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
