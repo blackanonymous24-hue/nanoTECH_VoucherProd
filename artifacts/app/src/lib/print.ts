@@ -19,7 +19,7 @@ const PRINT_CSS = `
   }
   @media print {
     /* Flexbox colonne + align-items:center = centrage horizontal des blocs en impression */
-    body { padding:1mm !important; display:flex; flex-direction:column; align-items:center; }
+    body { padding:3mm 1mm 1mm !important; display:flex; flex-direction:column; align-items:center; }
     table.ticket-page { margin:0; }
     /* break-inside:avoid sur tr : chaque rangée de 4 tickets ne se coupe pas */
     tr { page-break-inside:avoid; break-inside:avoid; }
