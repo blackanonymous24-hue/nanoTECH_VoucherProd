@@ -26,7 +26,7 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchServerTemplate, isDefaultMikHmonPHP } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
@@ -692,10 +692,10 @@ export default function GenerateVouchers() {
       });
       return;
     }
-    const php = await fetchServerTemplate();
-    // 4×9 uniquement pour le template MikHmon intégré (DEFAULT_MIKHMON_PHP).
-    // Jamais pour un template importé/enregistré, même s'il ressemble au modèle MikHmon.
-    const mobileRowsPerPage = isDefaultMikHmonPHP(php) ? 9 : 6;
+    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
+    // 4×9 uniquement quand aucun template n'est enregistré nulle part (DB ni localStorage)
+    // et que DEFAULT_MIKHMON_PHP est utilisé. Dès qu'un template est enregistré → 4×6.
+    const mobileRowsPerPage = isMikHmonDefault ? 9 : 6;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",

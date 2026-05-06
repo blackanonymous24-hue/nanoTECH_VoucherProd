@@ -204,17 +204,6 @@ export function getStoredPHP(): string {
   try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault() ?? DEFAULT_MIKHMON_PHP; } catch { return DEFAULT_MIKHMON_PHP; }
 }
 
-/**
- * Retourne true si le template fourni est le template MikHmon intégré par défaut
- * (DEFAULT_MIKHMON_PHP) — utilisé pour activer le layout 4×9 et l'encadrement
- * automatique des tickets sur mobile.
- * Ne retourne JAMAIS true pour un template importé/enregistré par l'admin, même
- * si ce template ressemble au modèle MikHmon.
- */
-export function isDefaultMikHmonPHP(tpl: string): boolean {
-  const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-  return norm(tpl) === norm(DEFAULT_MIKHMON_PHP);
-}
 
 /**
  * Charge le template depuis le serveur (source de vérité cross-device).
@@ -227,9 +216,23 @@ function _readAuthToken(): string | null {
   try { return localStorage.getItem(_TOKEN_KEY) ?? sessionStorage.getItem(_TOKEN_KEY); } catch { return null; }
 }
 
-export async function fetchServerTemplate(): Promise<string> {
+export type ServerTemplateResult = {
+  template: string;
+  /**
+   * true  → aucun template enregistré nulle part (DB ni localStorage)
+   *          → DEFAULT_MIKHMON_PHP utilisé en dernier recours → layout 4×9 mobile.
+   * false → template explicitement enregistré (DB ou cache localStorage)
+   *          → ne JAMAIS appliquer le layout 4×9, même contenu similaire au modèle.
+   */
+  isDefault: boolean;
+};
+
+/**
+ * Charge le template avec métadonnée isDefault pour choisir le layout mobile.
+ * Priorité : serveur DB → cache localStorage → DEFAULT_MIKHMON_PHP (dernier recours).
+ */
+export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResult> {
   try {
-    // /tenant/… : admin, vendeur, manager, collaborateur (l’ancien /admin/… échoue en 401 pour les vendeurs).
     const token = _readAuthToken();
     const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
     const r = await fetch(`${BASE}/api/tenant/ticket-template`, { headers });
@@ -237,12 +240,31 @@ export async function fetchServerTemplate(): Promise<string> {
       const data = (await r.json()) as { template: string | null };
       if (data.template && data.template.trim().length > 0) {
         try { localStorage.setItem(PHP_KEY, data.template); } catch {}
-        return data.template;
+        return { template: data.template, isDefault: false };
       }
+      // Serveur joignable, aucun template en DB — vérifier localStorage
     }
-  } catch { /* réseau indisponible — fallback local */ }
-  return getStoredPHP();
+  } catch { /* réseau indisponible — utiliser cache local */ }
+
+  const cached = (() => {
+    try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault(); } catch { return null; }
+  })();
+  if (cached && cached.trim().length > 0) {
+    return { template: cached, isDefault: false };
+  }
+
+  // Dernier recours : DEFAULT_MIKHMON_PHP (rien enregistré nulle part)
+  return { template: DEFAULT_MIKHMON_PHP, isDefault: true };
 }
+
+/**
+ * Compatibilité pour les appelants qui n'ont besoin que de la chaîne template.
+ * Pour les impressions, utiliser fetchServerTemplateWithMeta().
+ */
+export async function fetchServerTemplate(): Promise<string> {
+  return (await fetchServerTemplateWithMeta()).template;
+}
+
 export function isPHPMode(): boolean {
   return true;
 }
