@@ -1003,7 +1003,9 @@ export default function Vouchers() {
     if (!activeRouterId || !extendUser || isExtending) return;
     const user = extendUser;
     const existing = parseExpirationDate(user.comment);
-    const isExpired = !existing || existing.getTime() <= Date.now();
+    // Expiré uniquement si une date existe et est dans le passé.
+    // Pas de date (illimité / sans expiration) → on prolonge depuis maintenant.
+    const isExpired = !!existing && existing.getTime() <= Date.now();
 
     if (!isExpired) {
       const n = parseInt(extendAmount, 10);
@@ -1028,9 +1030,10 @@ export default function Vouchers() {
         }
         toast({ title: "Compte réinitialisé", description: user.username });
       } else {
-        // Forfait actif → prolonger depuis la date actuelle, sans reset
+        // Pas de date ou forfait encore actif → prolonger depuis la date existante (ou maintenant si aucune)
         const n = parseInt(extendAmount, 10);
-        const next = new Date(existing!);
+        const base = existing ?? new Date();
+        const next = new Date(base);
         if (extendUnit === "Heure") next.setHours(next.getHours() + n);
         else if (extendUnit === "Jour") next.setDate(next.getDate() + n);
         else next.setMonth(next.getMonth() + n);
@@ -2062,7 +2065,7 @@ export default function Vouchers() {
         <DialogContent className="max-w-sm gap-0 overflow-hidden p-0 [&>button]:hidden">
           {(() => {
             const expDate = extendUser ? parseExpirationDate(extendUser.comment) : null;
-            const alreadyExpired = !expDate || expDate.getTime() <= Date.now();
+            const alreadyExpired = !!expDate && expDate.getTime() <= Date.now();
             return (
               <>
                 <div className="border-b bg-muted/30 px-6 py-4">
