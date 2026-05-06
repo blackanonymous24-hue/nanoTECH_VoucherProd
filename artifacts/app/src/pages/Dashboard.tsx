@@ -161,11 +161,11 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " FCFA";
 }
 
-function amountTextStyle(amount: number, currency = "FCFA"): React.CSSProperties {
+function amountTextStyle(amount: number): React.CSSProperties {
   const amountStr = amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
-  const len = `${amountStr} ${currency}`.length;
-  // Shrink aggressively from 24px down to 8px to always show full text.
-  const size = Math.max(8, 24 - (len - 8) * 1.15);
+  const len = amountStr.length;
+  // Shrink from 22px down to 10px based on number length only.
+  const size = Math.max(10, 22 - (len - 4) * 1.4);
   return { fontSize: `${size}px`, lineHeight: 1.15 };
 }
 
@@ -1189,11 +1189,11 @@ function StatCard({
               ) : label !== undefined ? (
                 <>
                   {amountValue !== undefined ? (
-                    <p
-                      className="font-bold text-gray-900 whitespace-nowrap leading-tight tracking-tight"
-                      style={amountTextStyle(amountValue, currency || "FCFA")}
-                    >
-                      {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
+                    <p className="font-bold text-gray-900 leading-tight tracking-tight flex items-baseline gap-0.5 flex-wrap">
+                      <span style={amountTextStyle(amountValue)} className="tabular-nums">
+                        {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
+                      </span>
+                      <span className="text-[9px] font-bold text-gray-400 shrink-0">{currency || "FCFA"}</span>
                     </p>
                   ) : (
                     <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
