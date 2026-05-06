@@ -192,7 +192,6 @@ export default function Vouchers() {
   const [editBypassComment, setEditBypassComment] = useState("");
   const [linkBypass, setLinkBypass] = useState(false);
   const [isSavingRename, setIsSavingRename] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
   const [confirmDeleteEditUser, setConfirmDeleteEditUser] = useState<HotspotUser | null>(null);
   const [isDeletingEditUser, setIsDeletingEditUser] = useState(false);
   const [isTogglingEditUserDisabled, setIsTogglingEditUserDisabled] = useState(false);
@@ -993,52 +992,6 @@ export default function Vouchers() {
     })();
   };
 
-  const handleResetUser = async (user: HotspotUser) => {
-    if (!activeRouterId || isResetting) return;
-    setIsResetting(true);
-    const resetToast = toast({
-      title: "Réinitialisation… en cours",
-      description: `${user.username} — traitement en cours`,
-    });
-
-    try {
-      const res = await fetch(
-        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}/reset`,
-        { method: "POST", headers: { "Content-Type": "application/json" } },
-      );
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? `HTTP ${res.status}`);
-      }
-      const resetResult = (await res.json()) as {
-        sessionKicked?: number;
-        cookiesRemoved?: number;
-        schedulerRemoved?: number;
-      };
-
-      await Promise.all([refetchUsers(), refetchLots()]);
-      setEditingUser((prev) =>
-        prev && prev.username === user.username
-          ? { ...prev, comment: "", disabled: undefined }
-          : prev,
-      );
-      resetToast.update({
-        id: resetToast.id,
-        title: "Réinitialisation réussie",
-        description: `${user.username} a été réinitialisé avec succès.`,
-      });
-
-    } catch (err) {
-      resetToast.update({
-        id: resetToast.id,
-        title: "Erreur de réinitialisation",
-        description: String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setIsResetting(false);
-    }
-  };
 
   const openExtendUser = (user: HotspotUser) => {
     setExtendUser(user);
@@ -1695,15 +1648,6 @@ export default function Vouchers() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void handleResetUser(selUser)}
-                              disabled={isResetting}
-                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                              <span>Réinitialiser</span>
-                            </button>
-                            <button
-                              type="button"
                               onClick={() => openExtendUser(selUser)}
                               disabled={isExtending}
                               className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
@@ -1827,7 +1771,6 @@ export default function Vouchers() {
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
-                          onReset={() => void handleResetUser(user)}
                           onExtend={() => openExtendUser(user)}
                           onCopy={() => { void navigator.clipboard.writeText(user.username); }}
                         />
@@ -2201,7 +2144,7 @@ export default function Vouchers() {
       </Dialog>
 
       {/* Edit user dialog — thème app + actions icônes (ordre : Fermer / Enregistrer / Activer·Désactiver / Supprimer / Réinitialiser) */}
-      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename && !isTogglingEditUserDisabled && !isResetting) setEditingUser(null); }}>
+      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename && !isTogglingEditUserDisabled) setEditingUser(null); }}>
         <DialogContent className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:hidden">
           <div className="space-y-1.5 border-b bg-muted/30 px-6 py-4">
             <DialogHeader className="space-y-1.5 text-left">
@@ -2217,7 +2160,7 @@ export default function Vouchers() {
                     variant="destructive"
                     className="shrink-0"
                     onClick={() => setEditingUser(null)}
-                    disabled={isSavingRename || isTogglingEditUserDisabled || isResetting}
+                    disabled={isSavingRename || isTogglingEditUserDisabled}
                     aria-label="Fermer"
                   >
                     <X className="h-4 w-4" />
@@ -2300,29 +2243,10 @@ export default function Vouchers() {
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      size="icon"
-                      variant="outline"
-                      className="shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-700 dark:hover:bg-orange-950/40"
-                      disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser}
-                      onClick={() => {
-                        if (!editingUser) return;
-                        void handleResetUser(editingUser);
-                      }}
-                      aria-label="Réinitialiser"
-                    >
-                      {isResetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Réinitialiser</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
                       size="sm"
                       variant="outline"
                       className="shrink-0 gap-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
-                      disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser}
+                      disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
                       onClick={() => {
                         if (!editingUser) return;
                         const u = editingUser;
@@ -2838,7 +2762,6 @@ function UserRow({
   selected,
   onToggle,
   onEdit,
-  onReset,
   onExtend,
   onCopy,
 }: {
@@ -2847,7 +2770,6 @@ function UserRow({
   selected: boolean;
   onToggle: () => void;
   onEdit: () => void;
-  onReset: () => void;
   onExtend: () => void;
   onCopy: () => void;
 }) {
@@ -2951,13 +2873,6 @@ function UserRow({
           >
             <CalendarPlus className="h-3.5 w-3.5" />
             Prolonger
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(e) => { e.stopPropagation(); onReset(); }}
-            className="gap-2 cursor-pointer text-orange-600 focus:text-orange-600"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Réinitialiser
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
