@@ -1393,9 +1393,6 @@ function AccountDialog({ open, onClose, onSubmit, pending }: {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Mes identifiants</DialogTitle>
-          <DialogDescription>
-            Modifiez votre login et/ou votre mot de passe. Laissez un champ vide pour ne pas le changer.
-          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div>
