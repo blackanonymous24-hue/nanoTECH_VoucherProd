@@ -245,22 +245,32 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
           transform-origin: top left;
           width: ${widthComp}%;
         }
+        /* Centrage sans flex (flex casse break-inside sur Safari) */
+        .ticket-page-wrap { display: block; text-align: center; }
+        table.ticket-page { display: inline-table; margin: 0; }
         /* Empêche les rangées de tickets d'être coupées — Safari exige les deux propriétés */
         table.ticket-page tr,
         .ticket-row {
           break-inside: avoid !important;
           page-break-inside: avoid !important;
         }
-        /* Chaque ticket individuel intact */
+        /* Chaque ticket : break-inside sur un display:block (Safari ignore inline-block) */
         .ticket {
+          display: block !important;
           break-inside: avoid !important;
           page-break-inside: avoid !important;
         }
+        /* Le template PHP génère <table style="display:inline-block"> comme racine du ticket.
+           display:inline-block bloque break-inside sur Safari — on force display:table. */
+        .ticket > table,
+        .ticket table.voucher {
+          display: table !important;
+          width: 135px;
+        }
+        /* Supprimer float en impression — sort du flux et peut provoquer des coupures */
+        .ticket img { float: none !important; display: inline-block !important; }
         /* Safari bug : overflow:hidden coupe le contenu lors des sauts de page */
         * { overflow: visible !important; }
-        /* Centrage sans flex (flex casse break-inside sur Safari) */
-        .ticket-page-wrap { display: block; text-align: center; }
-        table.ticket-page { display: inline-table; margin: 0; }
       }
     `;
 

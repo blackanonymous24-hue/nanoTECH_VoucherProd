@@ -25,7 +25,7 @@ const TEMPLATE_KEY = "voucher-ticket-template";
 //             {{qrcode}} {{num}}
 // {{codeblock}} est pré-calculé selon le mode (Voucher ou Compte) avant rendu.
 export const DEFAULT_TEMPLATE = `<!--mks-mulai-->
-<table style="display:inline-block;border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;overflow:hidden;position:relative;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
+<table style="border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;overflow:hidden;position:relative;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
 <tbody>
 <tr>
 <td style="background:{{color}};color:#676;padding:0px;" valign="top" colspan="2">
@@ -40,7 +40,7 @@ export const DEFAULT_TEMPLATE = `<!--mks-mulai-->
 <tbody>
 <tr>
 <td style="width:35px;">
-<div style="position:relative;z-index:-1;padding:0px;float:left;">
+<div style="position:relative;z-index:-1;padding:0px;">
 <div style="position:absolute;top:0;display:inline;margin-top:-100px;width:0;height:0;border-top:170px solid transparent;border-left:30px solid transparent;border-right:170px solid #DCDCDC;"></div>
 </div>
 </td>
@@ -70,13 +70,13 @@ Veuillez conserver ce ticket jusqu'à l'épuisement du forfait.
 <div style="clear:both;padding:0 2.5px;font-size:7px;font-weight:bold;color:#000000;">
 {{validity}}<br>{{timelimit}}<br>{{datalimit}}
 </div>
-<img style="border:1px {{color}} solid;border-radius:3px;width:32px;height:32px;float:right;margin:0 1px -5px 0;" src="{{qrcode}}" alt="QR" />
+<img style="border:1px {{color}} solid;border-radius:3px;width:32px;height:32px;display:inline-block;margin:0 1px -5px 0;vertical-align:bottom;" src="{{qrcode}}" alt="QR" />
 </td>
 </tr>
 <tr>
 <td style="background:{{color}};color:#666;padding:0px;" valign="top" colspan="2">
 <div style="text-align:left;color:#fff;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
-<b>{{dnsname}}</b><span style="float:right;"> [{{num}}]</span>
+<b>{{dnsname}}</b><span style="margin-left:4px;"> [{{num}}]</span>
 </div>
 </td>
 </tr>
