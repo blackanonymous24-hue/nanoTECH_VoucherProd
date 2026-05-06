@@ -202,12 +202,9 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // ce qui permet à 4 × 215 = 860px de tenir (ex: zoom 0.85 → 934px disponibles).
     const MOBILE_COLS = 4;
 
-    // Hauteur estimée d'un ticket PHP (215px large ≈ 205px haut pour le template standard).
-    // A4 portrait sans marges à 96dpi = 1122px. On prend 88% de la hauteur comme marge de sécurité.
-    const TICKET_H_PX = 205;
-    const PAGE_H_PX   = 1122;
-    const rowsPerPage  = Math.max(3, Math.floor((PAGE_H_PX / s) * 0.88 / TICKET_H_PX));
-    const perPage      = MOBILE_COLS * rowsPerPage;
+    // Grille fixe 4 × 6 : 24 tickets par bloc de page, indépendamment du zoom.
+    const rowsPerPage = 6;
+    const perPage     = MOBILE_COLS * rowsPerPage;
 
     // Construction des blocs de page avec page-break-after:always explicite
     const mobileBlocks: string[] = [];
