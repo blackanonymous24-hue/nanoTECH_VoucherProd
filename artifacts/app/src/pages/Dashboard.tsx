@@ -850,6 +850,16 @@ export default function Dashboard() {
           href="/sales/daily"
         />
         <StatCard
+          title="Tickets disponibles"
+          value={selectedRouterId ? hotspotUserCount : (data?.totalVouchers ?? 0)}
+          live={!!selectedRouterId}
+          fetching={usersFetching}
+          icon={<Ticket className="h-5 w-5 text-blue-500" />}
+          loading={!!selectedRouterId && !usersKnown}
+          href="/vouchers"
+          className="sm:order-4"
+        />
+        <StatCard
           title="Vente mensuelle"
           label={salesFresh ? formatAmount(sales!.monthlyAmount) : undefined}
           amountValue={salesFresh ? sales!.monthlyAmount : undefined}
@@ -860,15 +870,7 @@ export default function Dashboard() {
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
           loading={!!selectedRouterId && !salesFresh}
           href="/sales/monthly"
-        />
-        <StatCard
-          title="Tickets disponibles"
-          value={selectedRouterId ? hotspotUserCount : (data?.totalVouchers ?? 0)}
-          live={!!selectedRouterId}
-          fetching={usersFetching}
-          icon={<Ticket className="h-5 w-5 text-blue-500" />}
-          loading={!!selectedRouterId && !usersKnown}
-          href="/vouchers"
+          className="sm:order-3"
         />
         {/* Raccourcis actions — mobile uniquement */}
         <div className="col-span-2 lg:hidden" style={{display:"flex", flexDirection:"row", gap:"4px", alignItems:"stretch"}}>
@@ -897,34 +899,6 @@ export default function Dashboard() {
             </Card>
           </Link>
         </div>
-      </div>
-
-      {/* Raccourcis actions — desktop uniquement, ligne séparée pleine largeur */}
-      <div className="hidden lg:flex gap-4 mb-3">
-        <button
-          type="button"
-          className="flex-1"
-          onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
-        >
-          <Card className="h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-3 px-5 py-3">
-              <div className="p-2 bg-emerald-100 rounded-xl flex-shrink-0">
-                <UserPlus className="h-5 w-5 text-emerald-600" />
-              </div>
-              <p className="text-sm font-bold text-gray-700">Ajouter un client</p>
-            </div>
-          </Card>
-        </button>
-        <Link href="/generate" className="flex-1">
-          <Card className="h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-3 px-5 py-3">
-              <div className="p-2 bg-amber-100 rounded-xl flex-shrink-0">
-                <Zap className="h-5 w-5 text-amber-500" />
-              </div>
-              <p className="text-sm font-bold text-gray-700">Générer un ticket</p>
-            </div>
-          </Card>
-        </Link>
       </div>
 
       <div className="traffic-logs-layout flex flex-col gap-4 items-stretch">
