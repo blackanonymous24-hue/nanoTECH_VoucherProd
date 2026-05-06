@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
+import { printTickets, openPrintHtmlWindow, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -745,8 +745,13 @@ export default function GenerateVouchers() {
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
+      } else if (isNativeWV) {
+        // APK WebView natif : HTML mobile envoyé au pont expo-print
+        const colsMobile = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_mobile") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, 4, colsMobile);
+        openPrintHtmlWindow(html, title);
       } else {
-        // APK WebView natif ou desktop
+        // Navigateur desktop
         const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
         printTickets(data.html as string[], title, printScale, colsDesktop);
       }

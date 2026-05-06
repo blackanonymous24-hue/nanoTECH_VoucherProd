@@ -75,7 +75,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
-import { printTickets, buildTicketPrintHtml, tryOpenVoucherPrintPage } from "@/lib/print";
+import { printTickets, openPrintHtmlWindow, buildTicketPrintHtml, tryOpenVoucherPrintPage } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -790,7 +790,13 @@ export default function Vouchers() {
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
+      } else if (isNativeWV) {
+        // APK WebView natif : HTML mobile envoyé au pont expo-print
+        const colsMobile = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_mobile") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
+        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage, 4, colsMobile);
+        openPrintHtmlWindow(html, title);
       } else {
+        // Navigateur desktop
         const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
         try {
           printTickets(data.html, title, printScale, colsDesktop);
@@ -959,7 +965,13 @@ export default function Vouchers() {
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
+      } else if (isNativeWV) {
+        // APK WebView natif : HTML mobile envoyé au pont expo-print
+        const colsMobile = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_mobile") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, 4, colsMobile);
+        openPrintHtmlWindow(html, title);
       } else {
+        // Navigateur desktop
         const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
         try {
           printTickets(data.html as string[], title, printScale, colsDesktop);
