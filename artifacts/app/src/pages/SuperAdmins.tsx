@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save, ServerCog,
+  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Sliders,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +12,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogFooter, DialogDescription,
+  DialogFooter, DialogDescription, DialogClose,
 } from "@/components/ui/dialog";
+import { Slider } from "@/components/ui/slider";
+import {
+  DEFAULT_MIKHMON_PHP,
+  PHP_KEY,
+  CUSTOM_DEFAULT_KEY,
+  getCustomDefault,
+} from "@/pages/TicketTemplate";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
@@ -879,6 +886,15 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
   );
 }
 
+const SCALE_DESKTOP_KEY = "vn_print_scale_desktop";
+const SCALE_MOBILE_KEY  = "vn_print_scale_mobile";
+function readScale(key: string, def = 85): number {
+  try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
+}
+function saveScale(key: string, v: number) {
+  try { localStorage.setItem(key, String(v)); } catch { /* ignore */ }
+}
+
 function TemplateDialog({ admin, onClose }: {
   admin: AdminRow;
   onClose: () => void;
@@ -887,6 +903,10 @@ function TemplateDialog({ admin, onClose }: {
   const [templateCode, setTemplateCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showScaleDialog, setShowScaleDialog] = useState(false);
+  const [scaleDesktop, setScaleDesktop] = useState(() => readScale(SCALE_DESKTOP_KEY, 85));
+  const [scaleMobile,  setScaleMobile]  = useState(() => readScale(SCALE_MOBILE_KEY,  85));
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -918,47 +938,167 @@ function TemplateDialog({ admin, onClose }: {
     }
   };
 
+  const handleReset = () => {
+    const base = getCustomDefault() ?? DEFAULT_MIKHMON_PHP;
+    setTemplateCode(base);
+    toast({ title: "Modèle réinitialisé", description: "Le modèle de base a été restauré." });
+  };
+
+  const handleUseDefaultMikhmon = () => {
+    setTemplateCode(DEFAULT_MIKHMON_PHP);
+    toast({ title: "Modèle Mikhmon chargé", description: "Le template PHP par défaut est prêt. Cliquez Sauvegarder pour l'activer." });
+  };
+
+  const handleImportPHP = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const raw = ev.target?.result as string;
+      setTemplateCode(raw);
+      try { localStorage.setItem(PHP_KEY, raw); localStorage.setItem(CUSTOM_DEFAULT_KEY, raw); } catch { /* ignore */ }
+      toast({ title: "Fichier PHP importé", description: `« ${file.name} » chargé. Cliquez Sauvegarder pour l'activer.` });
+    };
+    reader.readAsText(file, "UTF-8");
+    e.target.value = "";
+  };
+
+  const handleSetAsDefault = () => {
+    if (!templateCode.trim()) return;
+    try { localStorage.setItem(CUSTOM_DEFAULT_KEY, templateCode); localStorage.setItem(PHP_KEY, templateCode); } catch { /* ignore */ }
+    toast({ title: "Modèle de base défini", description: "Ce modèle sera utilisé comme base locale sur cet appareil." });
+  };
+
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileCode className="h-5 w-5 text-violet-600" />
-            Modèle de ticket — {admin.displayName || admin.login}
-          </DialogTitle>
-          <DialogDescription>
-            Template PHP Mikhmon v3 appliqué à cet admin sur tous ses appareils (mobile, APK, desktop).
-            Laisser vide pour utiliser le template par défaut.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileCode className="h-5 w-5 text-violet-600" />
+              Modèle de ticket — {admin.displayName || admin.login}
+            </DialogTitle>
+            <DialogDescription>
+              Template PHP Mikhmon v3 appliqué à cet admin sur tous ses appareils (mobile, APK, desktop).
+              Laisser vide pour utiliser le template par défaut.
+            </DialogDescription>
+          </DialogHeader>
 
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Chargement du template…
+          {/* ── Barre d'outils ── */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50" title="Réinitialiser">
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Réinitialiser</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5" title="Coller modèle Mikhmon">
+              <FileCode className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Coller modèle Mikhmon</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5" title="Importer .php">
+              <Upload className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Importer .php</span>
+            </Button>
+            <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
+            <Button variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50" title="Définir comme modèle de base">
+              <BookMarked className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Définir par défaut</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowScaleDialog(true)} className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50 h-auto py-1" title="Échelle d'impression">
+              <Sliders className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline leading-tight text-left">
+                <span className="block text-[11px]">🖥 {scaleDesktop}%</span>
+                <span className="block text-[11px]">📱 {scaleMobile}%</span>
+              </span>
+            </Button>
           </div>
-        ) : (
-          <textarea
-            className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            rows={16}
-            value={templateCode}
-            onChange={(e) => setTemplateCode(e.target.value)}
-            placeholder="Collez ici le template PHP Mikhmon v3…"
-            spellCheck={false}
-          />
-        )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button disabled={saving || loading} onClick={handleSave}>
-            {saving
-              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sauvegarde…</>
-              : <><Save className="h-4 w-4 mr-2" />Sauvegarder</>
-            }
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Chargement du template…
+            </div>
+          ) : (
+            <textarea
+              className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              rows={16}
+              value={templateCode}
+              onChange={(e) => setTemplateCode(e.target.value)}
+              placeholder="Collez ici le template PHP Mikhmon v3…"
+              spellCheck={false}
+            />
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose}>Annuler</Button>
+            <Button disabled={saving || loading} onClick={handleSave}>
+              {saving
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sauvegarde…</>
+                : <><Save className="h-4 w-4 mr-2" />Sauvegarder</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog échelle d'impression ── */}
+      <Dialog open={showScaleDialog} onOpenChange={setShowScaleDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sliders className="h-4 w-4 text-purple-600" />
+              Échelle d'impression
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-2">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium text-gray-700">🖥 Desktop / Laptop</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number" min={50} max={150} step={5}
+                    value={scaleDesktop}
+                    onChange={(e) => { const v = Math.min(150, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
+                    className="w-16 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                  />
+                  <span className="text-xs text-gray-500">%</span>
+                </div>
+              </div>
+              <Slider
+                min={50} max={150} step={5}
+                value={[scaleDesktop]}
+                onValueChange={([v]) => { setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
+              />
+              <p className="text-xs text-gray-400">Correspond au zoom d'impression du navigateur web sur ordinateur.</p>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium text-gray-700">📱 Mobile / Tablette</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number" min={50} max={150} step={5}
+                    value={scaleMobile}
+                    onChange={(e) => { const v = Math.min(150, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
+                    className="w-16 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                  />
+                  <span className="text-xs text-gray-500">%</span>
+                </div>
+              </div>
+              <Slider
+                min={50} max={150} step={5}
+                value={[scaleMobile]}
+                onValueChange={([v]) => { setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
+              />
+              <p className="text-xs text-gray-400">Correspond au zoom d'impression sur iPhone / Android.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button size="sm" className="gap-1.5"><Save className="h-3.5 w-3.5" />Enregistrer</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

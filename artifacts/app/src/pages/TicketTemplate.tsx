@@ -311,7 +311,7 @@ const SAMPLE_VARS_2: Record<string, string> = {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const DEFAULT_MIKHMON_PHP = `<table class="voucher" style=" width: 160px;">
+export const DEFAULT_MIKHMON_PHP = `<table class="voucher" style=" width: 160px;">
   <tbody>
     <tr>
       <td style="text-align: left; font-size: 14px; font-weight:bold; border-bottom: 1px black solid;"><?= $hotspotname; ?><span id="num"><?= " [$num]"; ?></span></td>
