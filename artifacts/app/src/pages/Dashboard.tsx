@@ -865,6 +865,7 @@ export default function Dashboard() {
           iconBg="bg-green-100"
           loading={!!selectedRouterId && !salesFresh}
           href="/sales/monthly"
+          className="order-4 lg:order-3"
         />
         <StatCard
           title="Tickets disponibles"
@@ -874,6 +875,7 @@ export default function Dashboard() {
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
           iconBg="bg-blue-100"
           loading={!!selectedRouterId && !usersKnown}
+          className="order-3 lg:order-4"
           href="/vouchers"
         />
         {/* Raccourcis actions — sm/md uniquement (caché sur lg) */}
