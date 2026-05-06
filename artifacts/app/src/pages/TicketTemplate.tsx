@@ -24,8 +24,8 @@ const TEMPLATE_KEY = "voucher-ticket-template";
 //             {{codeblock}} {{validity}} {{timelimit}} {{datalimit}}
 //             {{qrcode}} {{num}}
 // {{codeblock}} est pré-calculé selon le mode (Voucher ou Compte) avant rendu.
-export const DEFAULT_TEMPLATE = `<!--mks-mulai-->
-<table style="border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;overflow:hidden;position:relative;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
+export const DEFAULT_TEMPLATE = `<!--mks-mulai--><div style="display:inline-block;width:135px;overflow:hidden;position:relative;">
+<table style="border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
 <tbody>
 <tr>
 <td style="background:{{color}};color:#676;padding:0px;" valign="top" colspan="2">
@@ -86,7 +86,7 @@ Veuillez conserver ce ticket jusqu'à l'épuisement du forfait.
 </tr>
 </tbody>
 </table>
-<!--mks-akhir-->`;
+</div><!--mks-akhir-->`;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
