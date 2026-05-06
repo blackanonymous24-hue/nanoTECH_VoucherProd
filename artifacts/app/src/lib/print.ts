@@ -225,52 +225,58 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     `;
 
     const mobilePrintCss = `
+      /* ── Règles sans @media print : ce HTML est print-only (iframe + window.print()).
+         Mettre break-inside dans @media print = risque que Safari/Chrome les ignore
+         si transform ou zoom casse la détection du media au moment du rendu.
+         Même correction que Puppeteer : CSS direct, toujours actif. ── */
+
+      html {
+        /* zoom sur html = dezoom global sans stacking context.
+           Contrairement à transform:scale, zoom ne casse pas break-inside:avoid. */
+        zoom: ${s};
+        margin: 0; padding: 0;
+      }
+      html, body { margin: 0; padding: 0; }
       body {
         color: #000; background: #fff;
         font-size: 14px; font-family: Helvetica, Arial, sans-serif;
-        margin: 0; padding: 0;
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
       }
-      table.voucher { display: inline-block; margin: 0; }
+
       .doc-header { display: none !important; }
       table.ticket-page { border-collapse: collapse; }
       table.ticket-page > tbody > tr > td { padding: 1px; vertical-align: top; }
+
+      /* Centrage sans flex (flex casse break-inside sur Safari) */
+      .ticket-page-wrap { display: block; text-align: center; }
+      table.ticket-page { display: inline-table; margin: 0; }
+
+      /* Anti-coupure : break-inside SANS wrapper @media print
+         — identique au fix Puppeteer (emulateMediaType screen) */
+      table.ticket-page tr,
+      .ticket-row {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+      .ticket {
+        display: block !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+      /* Le template PHP génère <table style="display:inline-block">.
+         display:inline-block bloque break-inside — on force display:table. */
+      .ticket > table,
+      .ticket table.voucher {
+        display: table !important;
+        width: 135px;
+      }
+      /* float sort du flux et peut provoquer des coupures */
+      .ticket img { float: none !important; display: inline-block !important; }
+      /* Safari : overflow:hidden coupe aux sauts de page */
+      * { overflow: visible !important; }
+
       @media screen {
         body { padding-bottom: 100px; }
-      }
-      @media print {
-        html, body { margin: 0 !important; padding: 0 !important; }
-        body {
-          transform: scale(${s});
-          transform-origin: top left;
-          width: ${widthComp}%;
-        }
-        /* Centrage sans flex (flex casse break-inside sur Safari) */
-        .ticket-page-wrap { display: block; text-align: center; }
-        table.ticket-page { display: inline-table; margin: 0; }
-        /* Empêche les rangées de tickets d'être coupées — Safari exige les deux propriétés */
-        table.ticket-page tr,
-        .ticket-row {
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-        /* Chaque ticket : break-inside sur un display:block (Safari ignore inline-block) */
-        .ticket {
-          display: block !important;
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-        /* Le template PHP génère <table style="display:inline-block"> comme racine du ticket.
-           display:inline-block bloque break-inside sur Safari — on force display:table. */
-        .ticket > table,
-        .ticket table.voucher {
-          display: table !important;
-          width: 135px;
-        }
-        /* Supprimer float en impression — sort du flux et peut provoquer des coupures */
-        .ticket img { float: none !important; display: inline-block !important; }
-        /* Safari bug : overflow:hidden coupe le contenu lors des sauts de page */
-        * { overflow: visible !important; }
       }
     `;
 
