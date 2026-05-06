@@ -272,8 +272,20 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       }
       /* float sort du flux et peut provoquer des coupures */
       .ticket img { float: none !important; display: inline-block !important; }
-      /* Safari : overflow:hidden coupe aux sauts de page */
-      * { overflow: visible !important; }
+
+      /* Safari page-break bug : overflow:hidden sur les ancêtres coupe le contenu
+         aux sauts de page. On cible UNIQUEMENT les conteneurs de mise en page,
+         PAS les tickets eux-mêmes — leur overflow:hidden est nécessaire pour
+         contenir le triangle décoratif CSS (position:absolute avec grandes bordures). */
+      body,
+      .ticket-page-wrap,
+      table.ticket-page,
+      .ticket-row,
+      .ticket-row > td { overflow: visible !important; }
+
+      /* Rétablir overflow:hidden sur la table racine du ticket.
+         Sans ça, le triangle décoratif (border: 230px) déborde dans les colonnes voisines. */
+      .ticket > table { overflow: hidden !important; }
 
       @media screen {
         body { padding-bottom: 100px; }
