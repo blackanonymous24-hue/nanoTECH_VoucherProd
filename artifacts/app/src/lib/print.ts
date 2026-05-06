@@ -185,38 +185,49 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 }
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
-  const COLS = 4;
-  // Mobile : une seule grande table, les lignes s'enchaînent automatiquement
-  // Desktop : blocs de 32 (4 col × 8 lignes) pour mieux contrôler les sauts de page
-  const PER_PAGE = mobile ? htmlItems.length || 1 : COLS * 8;
 
-  const pageBlocks: string[] = [];
-  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
-    const page = htmlItems.slice(p, p + PER_PAGE);
-    const rows: string[] = [];
-    for (let r = 0; r < page.length; r += COLS) {
-      const cells = page.slice(r, r + COLS)
-        .map(item =>
-          mobile
-            // Chaque ticket enveloppé dans .ticket pour break-inside:avoid Safari
-            ? `<td style="padding:2px;vertical-align:top;"><div class="ticket">${item}</div></td>`
-            : `<td style="padding:2px;vertical-align:top;">${item}</td>`,
-        )
-        .join("");
-      // class="ticket-row" sur les <tr> pour les règles break-inside Safari
-      rows.push(`<tr class="ticket-row">${cells}</tr>`);
-    }
-    pageBlocks.push(`<div class="ticket-page-wrap"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`);
-  }
-
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
   if (mobile) {
-    // ─── CSS mobile Safari ───────────────────────────────────────────────────
-    // @page DOIT être à la racine (hors @media print) — Safari iOS/macOS l'ignore sinon.
-    // transform:scale = seule méthode fiable pour Safari print (zoom CSS ignoré).
-    // width compensation = 100/scale% pour que le contenu ne soit pas tronqué à droite.
     const s = scale / 100;
-    const widthComp = (100 / s).toFixed(2);
 
+    // Solution radicale anti-coupure :
+    // On ne s'appuie PAS sur break-inside:avoid du navigateur (trop peu fiable).
+    // On pré-calcule combien de rangées tiennent sur une page A4 à l'échelle donnée,
+    // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
+    // rien à calculer, chaque bloc est garantiellement complet.
+
+    // 3 colonnes : 3 × 215px = 645px < 794px (A4 portrait) — pas de débordement horizontal
+    const MOBILE_COLS = 3;
+
+    // Hauteur estimée d'un ticket PHP (215px large ≈ 205px haut pour le template standard).
+    // A4 portrait sans marges à 96dpi = 1122px. On prend 88% de la hauteur comme marge de sécurité.
+    const TICKET_H_PX = 205;
+    const PAGE_H_PX   = 1122;
+    const rowsPerPage  = Math.max(3, Math.floor((PAGE_H_PX / s) * 0.88 / TICKET_H_PX));
+    const perPage      = MOBILE_COLS * rowsPerPage;
+
+    // Construction des blocs de page avec page-break-after:always explicite
+    const mobileBlocks: string[] = [];
+    for (let p = 0; p < htmlItems.length; p += perPage) {
+      const chunk = htmlItems.slice(p, p + perPage);
+      const rows: string[] = [];
+      for (let r = 0; r < chunk.length; r += MOBILE_COLS) {
+        const cells = chunk.slice(r, r + MOBILE_COLS)
+          .map(item => `<td style="padding:2px;vertical-align:top;"><div class="ticket">${item}</div></td>`)
+          .join("");
+        rows.push(`<tr class="ticket-row">${cells}</tr>`);
+      }
+      const isLast = p + perPage >= htmlItems.length;
+      // page-break-after:always sur chaque bloc sauf le dernier
+      const breakStyle = isLast ? "" : "page-break-after:always;break-after:page;";
+      mobileBlocks.push(
+        `<div class="ticket-page-wrap" style="${breakStyle}"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`,
+      );
+    }
+
+    // @page DOIT être à la racine, jamais dans @media print (Safari iOS l'ignore sinon).
     const mobilePageCss = `
       @page        { margin: 0; }
       @page :first { margin: 0; }
@@ -224,72 +235,47 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       @page :right { margin: 0; }
     `;
 
+    // CSS sans @media print : ce HTML est print-only (iframe + window.print()),
+    // donc les règles s'appliquent directement sans risque de conflit écran.
+    // zoom sur html = dezoom sans stacking context (transform:scale le casse).
     const mobilePrintCss = `
-      /* ── Règles sans @media print : ce HTML est print-only (iframe + window.print()).
-         Mettre break-inside dans @media print = risque que Safari/Chrome les ignore
-         si transform ou zoom casse la détection du media au moment du rendu.
-         Même correction que Puppeteer : CSS direct, toujours actif. ── */
-
-      html {
-        /* zoom sur html = dezoom global sans stacking context.
-           Contrairement à transform:scale, zoom ne casse pas break-inside:avoid. */
-        zoom: ${s};
-        margin: 0; padding: 0;
-      }
+      html { zoom: ${s}; margin: 0; padding: 0; }
       html, body { margin: 0; padding: 0; }
       body {
         color: #000; background: #fff;
         font-size: 14px; font-family: Helvetica, Arial, sans-serif;
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
       }
-
       .doc-header { display: none !important; }
-      table.ticket-page { border-collapse: collapse; }
+
+      /* Bloc de page : page-break-after forcé inline, mais on renforce ici */
+      .ticket-page-wrap { display: block; text-align: center; }
+      .ticket-page-wrap + .ticket-page-wrap { page-break-before: always; break-before: page; }
+
+      table.ticket-page { display: inline-table; border-collapse: collapse; margin: 0; }
       table.ticket-page > tbody > tr > td { padding: 1px; vertical-align: top; }
 
-      /* Centrage sans flex (flex casse break-inside sur Safari) */
-      .ticket-page-wrap { display: block; text-align: center; }
-      table.ticket-page { display: inline-table; margin: 0; }
-
-      /* Anti-coupure : break-inside SANS wrapper @media print
-         — identique au fix Puppeteer (emulateMediaType screen) */
-      table.ticket-page tr,
-      .ticket-row {
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
-      }
+      /* Sécurité break-inside en plus du page-break-after (double protection) */
+      .ticket-row { break-inside: avoid; page-break-inside: avoid; }
       .ticket {
-        display: block !important;
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
+        display: block;
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
-      /* Le template PHP génère <table style="display:inline-block">.
-         display:inline-block bloque break-inside — on force display:table. */
-      .ticket > table,
-      .ticket table.voucher {
-        display: table !important;
-        width: 135px;
-      }
-      /* float sort du flux et peut provoquer des coupures */
+
+      /* Template PHP : table avec display:inline-block → force display:table */
+      .ticket > table { display: table !important; overflow: hidden !important; }
+
+      /* float casse le flux d'impression */
       .ticket img { float: none !important; display: inline-block !important; }
 
-      /* Safari page-break bug : overflow:hidden sur les ancêtres coupe le contenu
-         aux sauts de page. On cible UNIQUEMENT les conteneurs de mise en page,
-         PAS les tickets eux-mêmes — leur overflow:hidden est nécessaire pour
-         contenir le triangle décoratif CSS (position:absolute avec grandes bordures). */
-      body,
-      .ticket-page-wrap,
-      table.ticket-page,
-      .ticket-row,
-      .ticket-row > td { overflow: visible !important; }
-
-      /* Rétablir overflow:hidden sur la table racine du ticket.
-         Sans ça, le triangle décoratif (border: 230px) déborde dans les colonnes voisines. */
-      .ticket > table { overflow: hidden !important; }
-
-      @media screen {
-        body { padding-bottom: 100px; }
+      /* overflow:visible sur conteneurs pour fix Safari page-break,
+         MAIS overflow:hidden maintenu sur .ticket > table (triangle décoratif) */
+      body, .ticket-page-wrap, table.ticket-page, .ticket-row, .ticket-row > td {
+        overflow: visible !important;
       }
+
+      @media screen { body { padding-bottom: 100px; } }
     `;
 
     return `<!doctype html>
@@ -302,8 +288,26 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     <style>${mobilePrintCss}</style>
     ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
   </head>
-  <body>${pageBlocks.join("")}</body>
+  <body>${mobileBlocks.join("")}</body>
 </html>`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ─── CHEMIN DESKTOP (inchangé) ────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  const COLS = 4;
+  const PER_PAGE = COLS * 8;
+  const pageBlocks: string[] = [];
+  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
+    const page = htmlItems.slice(p, p + PER_PAGE);
+    const rows: string[] = [];
+    for (let r = 0; r < page.length; r += COLS) {
+      const cells = page.slice(r, r + COLS)
+        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
+        .join("");
+      rows.push(`<tr>${cells}</tr>`);
+    }
+    pageBlocks.push(`<div class="ticket-page-wrap"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`);
   }
 
   // ─── CSS desktop (inchangé) ──────────────────────────────────────────────
