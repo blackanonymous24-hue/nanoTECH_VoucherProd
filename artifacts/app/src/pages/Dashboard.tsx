@@ -1202,7 +1202,7 @@ function StatCard({
                 <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
               )
             ) : (
-              <p className="text-xl sm:text-lg lg:text-lg font-bold text-gray-900 truncate leading-none tabular-nums">{value === undefined ? "—" : value.toLocaleString()}</p>
+              <p className="amount-fill font-bold text-gray-900 leading-none" style={{ '--awv': '4.83vw', lineHeight: 1.15, minWidth: 0 } as React.CSSProperties}>{value === undefined ? "—" : value.toLocaleString()}</p>
             )}
           </div>
           {/* Sous-titre — collé en bas */}
