@@ -202,8 +202,8 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // ce qui permet à 4 × 215 = 860px de tenir (ex: zoom 0.85 → 934px disponibles).
     const MOBILE_COLS = 4;
 
-    // Grille fixe 4 × 7 : 28 tickets par bloc de page, indépendamment du zoom.
-    const rowsPerPage = 7;
+    // Grille fixe 4 × 6 : 24 tickets par bloc de page, indépendamment du zoom.
+    const rowsPerPage = 6;
     const perPage     = MOBILE_COLS * rowsPerPage;
 
     // Construction des blocs de page avec page-break-after:always explicite
@@ -241,10 +241,8 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // width:100% !important (écrase l'inline style="width:215px" du template PHP).
     // → 4 × (A4_width / 4) = 4 × ~198px — tient toujours sur n'importe quel navigateur.
     const mobilePrintCss = `
-      html, body { margin: 0 !important; padding: 0 !important; }
-      html { margin-top: 0 !important; }
+      html, body { margin: 0; padding: 0; }
       body {
-        margin-top: 0 !important;
         color: #000; background: #fff;
         font-size: 14px; font-family: Helvetica, Arial, sans-serif;
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
