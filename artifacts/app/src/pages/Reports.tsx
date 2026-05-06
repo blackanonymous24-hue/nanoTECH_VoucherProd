@@ -206,7 +206,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
             Performance de vente
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <SalesMiniCard label="Aujourd'hui"     amount={ss.todayAmount}     count={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" />
             <SalesMiniCard label="Hier"             amount={ss.yesterdayAmount} count={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
@@ -226,7 +226,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
               <span className="text-[10px] font-semibold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">Semaine en cours</span>
             </div>
           </CardHeader>
-          <CardContent className="flex-1 min-h-0 overflow-y-auto">
+          <CardContent className="pt-0 flex-1 min-h-0 overflow-y-auto">
             {data.byProfile.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-4">Aucun voucher généré</p>
             ) : (
@@ -487,7 +487,7 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
           </Badge>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-0">
         {/* Compteurs */}
         <div className="grid grid-cols-3 gap-2 text-center mb-3">
           <div>

@@ -294,7 +294,7 @@ export default function Maintenance() {
             si MikroTik retourne 0 utilisateurs (routeur injoignable), le routeur est ignoré.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="pt-0 space-y-4">
           <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={runPurge}
@@ -412,7 +412,7 @@ export default function Maintenance() {
             d'opération.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="pt-0 space-y-4">
           <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={() => setConfirmScript(true)}
