@@ -207,12 +207,9 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // ce qui permet à 4 × 215 = 860px de tenir (ex: zoom 0.85 → 934px disponibles).
     const MOBILE_COLS = 4;
 
-    // rowsPerPage : 6 (templates personnalisés) ou 9 (template MikHmon intégré).
+    // rowsPerPage : 6 (templates personnalisés) ou 9 (template MikHmon intégré sans sauvegarde).
     // Passé en paramètre depuis buildTicketPrintHtml.
     const perPage = MOBILE_COLS * rowsPerPage;
-    // Template MikHmon intégré (rowsPerPage=9) : ajouter outline pour encadrer
-    // chaque ticket (table.voucher n'a pas de border CSS dans le modèle par défaut).
-    const isMikHmonModel = rowsPerPage === 9;
 
     // Construction des blocs de page avec page-break-after:always explicite
     const mobileBlocks: string[] = [];
@@ -288,14 +285,14 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
         overflow: visible !important;
       }
 
-      ${isMikHmonModel ? `
-      /* Template MikHmon intégré (class="voucher") : la table n'a pas de border → outline
-         pour encadrer chaque ticket sans modifier le layout (outline ne prend pas d'espace). */
-      .ticket { outline: 1px solid #aaa; }
-      /* Forcer box-sizing:border-box sur la table voucher : sans ça, le contenu
-         de 160px + padding interne peut légèrement déborder la cellule parente. */
-      table.voucher { box-sizing: border-box; width: 160px !important; }
-      ` : ""}
+      /* Template MikHmon (class="voucher") : la table n'a pas de border par défaut.
+         On ajoute une bordure directement sur la table — cible uniquement les tickets
+         qui utilisent class="voucher", sans toucher aux templates personnalisés.
+         box-sizing:border-box garantit que la bordure reste dans la largeur déclarée. */
+      table.voucher {
+        border: 1px solid #444 !important;
+        box-sizing: border-box !important;
+      }
 
       @media screen { body { padding-bottom: 100px; } }
     `;
