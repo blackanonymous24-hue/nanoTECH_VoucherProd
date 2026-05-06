@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangle, Coins, Activity, Loader2, Server } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangle, Coins, Activity, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 
@@ -174,19 +174,6 @@ export default function Routers() {
   const { role, token, isSuperAdmin } = useAuth();
   const isManager = role === "manager";
   const [, navigate] = useLocation();
-
-  /* ── IP publique du serveur (admin uniquement) ─── */
-  const { data: serverIpData } = useQuery<{ ip: string | null }>({
-    queryKey: ["admin", "server-ip"],
-    enabled: !!token && (role === "admin" || role === "manager"),
-    staleTime: 10 * 60 * 1000,
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/admin/server-ip`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) return { ip: null };
-      return r.json();
-    },
-  });
-  const serverIp = serverIpData?.ip ?? null;
 
   /* ── Quota & credits (admin only, regular admins see the banner) ─── */
   interface AdminMe {
@@ -385,28 +372,6 @@ export default function Routers() {
           </Card>
         );
       })()}
-
-      {/* Bannière IP serveur — visible uniquement si l'IP a pu être récupérée.
-          Aide l'admin à configurer allowed-address sur MikroTik quand la connexion est refusée. */}
-      {serverIp && (
-        <Card className="mb-4 border border-indigo-200 bg-indigo-50">
-          <CardContent className="py-3 flex flex-wrap items-start gap-3">
-            <Server className="h-5 w-5 text-indigo-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0 text-sm">
-              <p className="font-semibold text-indigo-900">
-                IP publique du serveur :&nbsp;
-                <code className="bg-indigo-100 border border-indigo-300 rounded px-1.5 py-0.5 font-mono text-indigo-800 select-all">
-                  {serverIp}
-                </code>
-              </p>
-              <p className="text-xs text-indigo-700 mt-1">
-                Si un routeur refuse la connexion (erreur ECONNRESET / errno -104), ajoutez cette IP dans
-                MikroTik : <span className="font-mono">/ip/service set api allowed-address={serverIp}</span>
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {isLoading ? (
         <div className="space-y-2">
