@@ -1193,7 +1193,7 @@ function StatCard({
                       <span style={amountTextStyle(amountValue)} className="tabular-nums">
                         {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
                       </span>
-                      <span className="text-[9px] font-bold text-gray-400 shrink-0">{currency || "FCFA"}</span>
+                      <span className="text-[9px] font-bold text-gray-700 shrink-0">{currency || "FCFA"}</span>
                     </p>
                   ) : (
                     <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
