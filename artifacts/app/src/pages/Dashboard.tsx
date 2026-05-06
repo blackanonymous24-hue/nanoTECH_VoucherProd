@@ -850,16 +850,6 @@ export default function Dashboard() {
           href="/sales/daily"
         />
         <StatCard
-          title="Tickets disponibles"
-          value={selectedRouterId ? hotspotUserCount : (data?.totalVouchers ?? 0)}
-          live={!!selectedRouterId}
-          fetching={usersFetching}
-          icon={<Ticket className="h-5 w-5 text-blue-500" />}
-          loading={!!selectedRouterId && !usersKnown}
-          href="/vouchers"
-          className="sm:order-4"
-        />
-        <StatCard
           title="Vente mensuelle"
           label={salesFresh ? formatAmount(sales!.monthlyAmount) : undefined}
           amountValue={salesFresh ? sales!.monthlyAmount : undefined}
@@ -870,10 +860,18 @@ export default function Dashboard() {
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
           loading={!!selectedRouterId && !salesFresh}
           href="/sales/monthly"
-          className="sm:order-3"
         />
-        {/* Raccourcis actions — mobile uniquement */}
-        <div className="col-span-2 lg:hidden" style={{display:"flex", flexDirection:"row", gap:"4px", alignItems:"stretch"}}>
+        <StatCard
+          title="Tickets disponibles"
+          value={selectedRouterId ? hotspotUserCount : (data?.totalVouchers ?? 0)}
+          live={!!selectedRouterId}
+          fetching={usersFetching}
+          icon={<Ticket className="h-5 w-5 text-blue-500" />}
+          loading={!!selectedRouterId && !usersKnown}
+          href="/vouchers"
+        />
+        {/* Raccourcis actions — sm/md uniquement (caché sur lg) */}
+        <div className="col-span-2 lg:hidden sm:order-5" style={{display:"flex", flexDirection:"row", gap:"4px", alignItems:"stretch"}}>
           <button
             type="button"
             style={{flex:1, minWidth:0, textAlign:"left"}}
