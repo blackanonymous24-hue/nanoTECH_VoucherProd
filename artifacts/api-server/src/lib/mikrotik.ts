@@ -379,12 +379,17 @@ export async function testConnection(conn: RouterConnection): Promise<{ success:
       };
     }, 8000);
   } catch (err) {
-    return {
-      success: false,
-      message: err instanceof Error ? err.message : "Erreur de connexion",
-      routerBoard: null,
-      version: null,
-    };
+    // errno -104 = ECONNRESET : le routeur a accepté le TCP mais a coupé immédiatement.
+    // Cause quasi-certaine : l'IP du serveur n'est pas dans la liste "allowed-address"
+    // du service API RouterOS (/ip/service set api allowed-address=...).
+    const errno = (err as { errno?: number }).errno;
+    const rawMsg = err instanceof Error ? err.message : "";
+    const message = (!rawMsg || errno === -104)
+      ? `Connexion refusée par le routeur (ECONNRESET, code ${errno ?? -104}). ` +
+        `L'IP du serveur n'est probablement pas dans la liste "allowed-address" du service API MikroTik. ` +
+        `Sur le routeur : /ip/service set api allowed-address=<IP-du-serveur>`
+      : rawMsg;
+    return { success: false, message, routerBoard: null, version: null };
   }
 }
 

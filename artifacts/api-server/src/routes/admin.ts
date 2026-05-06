@@ -153,6 +153,40 @@ router.post("/login", async (req, res): Promise<void> => {
   res.status(401).json({ error: "Identifiants incorrects" });
 });
 
+/** Cache de l'IP publique du serveur — évite d'appeler ipify à chaque requête. */
+let _cachedServerIp: string | null = null;
+let _cachedServerIpAt = 0;
+const SERVER_IP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * GET /api/admin/server-ip
+ * Retourne l'IP publique sortante du serveur (utile pour configurer allowed-address
+ * sur les services MikroTik RouterOS). Requiert un token admin valide.
+ * Résultat mis en cache 10 min pour éviter les appels répétés à ipify.
+ */
+router.get("/admin/server-ip", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+  try {
+    const now = Date.now();
+    if (_cachedServerIp && now - _cachedServerIpAt < SERVER_IP_TTL_MS) {
+      res.json({ ip: _cachedServerIp });
+      return;
+    }
+    const r = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(5000) });
+    const data = await r.json() as { ip?: string };
+    _cachedServerIp = data.ip ?? null;
+    _cachedServerIpAt = now;
+    res.json({ ip: _cachedServerIp });
+  } catch {
+    res.status(503).json({ error: "Impossible de récupérer l'IP publique du serveur" });
+  }
+});
+
 router.get("/admin/me", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
