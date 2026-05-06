@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
-  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, ShieldCheck, Crown, Database, Cookie, ChevronDown,
+  UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie, ChevronDown,
   Eye, EyeOff, ChevronsUpDown, Check, Save, Loader2, Pencil, FilePlus2,
   PowerOff, RefreshCw, Cpu,
 } from "lucide-react";
@@ -475,6 +475,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       items: [
         { href: "/generate",      label: "Générer un ticket",   icon: Zap },
         { href: "/vouchers",      label: "Mes Tickets",         icon: Ticket },
+        { href: "/ticket-lookup", label: "Vérifier un ticket",  icon: SearchCheck },
         { href: "/sales/report",  label: "Rapport de vente",    icon: Receipt },
       ],
       sub: {
