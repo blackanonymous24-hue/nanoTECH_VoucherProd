@@ -929,11 +929,11 @@ export default function Dashboard() {
           </Card>
         </Link>
         {/* ── Trafic : desktop cols 1-2 row 3, mobile pleine largeur ── */}
-        <div className="col-span-2 sm:order-6 lg:col-start-1 lg:row-start-3 flex flex-col">
+        <div className="col-span-2 sm:order-6 lg:col-start-1 lg:row-start-3 flex flex-col lg:h-[300px]">
           <TrafficMonitorCard routerId={selectedRouterId} enabled={enableSecondaries} />
         </div>
         {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}
-        <div className="col-span-2 sm:order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col">
+        <div className="col-span-2 sm:order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col lg:h-[384px]">
         <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
