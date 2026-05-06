@@ -233,14 +233,11 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       @page :right { margin: 0; }
     `;
 
-    // CSS sans @media print : ce HTML est print-only (iframe + window.print()).
-    //
-    // Approche radicale : on renonce au zoom/transform (non fiables sur Safari iOS print).
-    // La table des tickets occupe 100% de la largeur de page via table-layout:fixed,
-    // avec 4 colonnes à width:25% chacune. Les tickets internes s'adaptent via
-    // width:100% !important (écrase l'inline style="width:215px" du template PHP).
-    // → 4 × (A4_width / 4) = 4 × ~198px — tient toujours sur n'importe quel navigateur.
+    // CSS sans @media print : ce HTML est print-only (iframe + window.print()),
+    // donc les règles s'appliquent directement sans risque de conflit écran.
+    // zoom sur html = dezoom sans stacking context (transform:scale le casse).
     const mobilePrintCss = `
+      html { zoom: ${s}; margin: 0; padding: 0; }
       html, body { margin: 0; padding: 0; }
       body {
         color: #000; background: #fff;
@@ -249,45 +246,39 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       }
       .doc-header { display: none !important; }
 
-      /* Bloc de page — on renforce le page-break-after inline */
-      .ticket-page-wrap { display: block; }
+      /* Bloc de page : page-break-after forcé inline, mais on renforce ici */
+      .ticket-page-wrap { display: block; text-align: center; }
       .ticket-page-wrap + .ticket-page-wrap { page-break-before: always; break-before: page; }
 
-      /* Table 100% page, 4 colonnes égales — aucun débordement possible */
-      table.ticket-page {
-        width: 100% !important;
-        table-layout: fixed !important;
-        border-collapse: collapse;
-        margin: 0;
-      }
-      table.ticket-page > tbody > tr > td {
-        width: 25% !important;
-        padding: 1px;
-        vertical-align: top;
-        overflow: hidden;
-        box-sizing: border-box;
-      }
+      table.ticket-page { display: inline-table; border-collapse: collapse; margin: 0; }
+      table.ticket-page > tbody > tr > td { padding: 1px; vertical-align: top; }
 
-      /* Break-inside (double sécurité en plus des page-break-after explicites) */
+      /* Sécurité break-inside en plus du page-break-after (double protection) */
       .ticket-row { break-inside: avoid; page-break-inside: avoid; }
-      .ticket     { display: block; break-inside: avoid; page-break-inside: avoid; }
+      .ticket {
+        display: block;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
 
-      /* Ticket PHP : width:100% écrase l'inline style="width:215px".
-         position:relative + overflow:hidden = confine le triangle décoratif CSS
-         (border-right:170px solid #DCDCDC position:absolute) dans ses limites. */
+      /* Template PHP : table avec display:inline-block → force display:table.
+         position:relative OBLIGATOIRE : sans lui, overflow:hidden ne clippe pas
+         les enfants position:absolute (le triangle décoratif CSS border-right:170px
+         déborde alors sur la bordure droite du ticket voisin). */
       .ticket > table {
         display: table !important;
-        width: 100% !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
         overflow: hidden !important;
         position: relative !important;
       }
 
-      /* Éléments internes : s'adaptent à la largeur du ticket */
-      .ticket > table * { box-sizing: border-box; max-width: 100%; }
-      .ticket img { float: none !important; display: inline-block !important; max-width: 100% !important; }
+      /* float casse le flux d'impression */
+      .ticket img { float: none !important; display: inline-block !important; }
+
+      /* overflow:visible sur conteneurs pour fix Safari page-break,
+         MAIS overflow:hidden maintenu sur .ticket > table (triangle décoratif) */
+      body, .ticket-page-wrap, table.ticket-page, .ticket-row, .ticket-row > td {
+        overflow: visible !important;
+      }
 
       @media screen { body { padding-bottom: 100px; } }
     `;
