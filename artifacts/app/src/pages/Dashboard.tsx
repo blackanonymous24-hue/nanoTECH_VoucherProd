@@ -1169,7 +1169,7 @@ function StatCard({
       <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6 lg:px-4 lg:py-2.5">
         <div className="flex items-center gap-2 sm:gap-3 lg:gap-2.5">
           <div className={`p-1.5 rounded-xl flex-shrink-0 ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 overflow-hidden">
             <div className="flex items-center gap-1.5">
               <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
               {live && (
@@ -1180,7 +1180,7 @@ function StatCard({
               )}
               {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
             </div>
-            <div className="min-h-[2.75rem] lg:min-h-0 flex flex-col justify-center lg:mt-0.5">
+            <div className="min-h-0 flex flex-col justify-center lg:mt-0.5">
               {loading ? (
                 <>
                   <div className="h-7 w-24 bg-gray-200 rounded animate-pulse mt-1" />
@@ -1189,7 +1189,7 @@ function StatCard({
               ) : label !== undefined ? (
                 <>
                   {amountValue !== undefined ? (
-                    <p className="font-bold text-gray-900 leading-tight tracking-tight flex items-baseline gap-0.5 flex-wrap">
+                    <p className="font-bold text-gray-900 leading-tight tracking-tight flex items-baseline gap-0.5 flex-nowrap overflow-hidden">
                       <span style={amountTextStyle(amountValue)} className="tabular-nums">
                         {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
                       </span>
