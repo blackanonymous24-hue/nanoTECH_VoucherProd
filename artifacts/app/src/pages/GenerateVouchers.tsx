@@ -639,6 +639,13 @@ export default function GenerateVouchers() {
     // de clic, puis on y écrit le HTML une fois prêt.
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
     const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const printScale = (() => {
+      try {
+        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
+        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
+        return isNaN(v) ? 85 : v;
+      } catch { return 85; }
+    })();
     const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
 
     if (preWin) {
@@ -714,13 +721,13 @@ export default function GenerateVouchers() {
       if (preWin) {
         // Navigateur mobile : document.write direct — pas de navigation donc pas
         // de message Safari "The web page did not finish loading"
-        const html = buildTicketPrintHtml(data.html as string[], title);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
         // APK WebView natif ou desktop
-        printTickets(data.html as string[], title);
+        printTickets(data.html as string[], title, printScale);
       }
     } catch (err: unknown) {
       preWin?.close();

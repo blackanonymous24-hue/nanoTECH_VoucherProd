@@ -18,11 +18,10 @@ const PRINT_CSS = `
     body { padding-bottom:100px; }
   }
   @media print {
-    /* zoom 0.75 : ratio exact pour passer de 6 lignes (Safari iPhone) à 8 lignes */
-    body { padding:1mm !important; zoom:0.85; }
-    /* break-inside:avoid force les 8 lignes à rester sur la même page */
-    table.ticket-page { page-break-inside:avoid; break-inside:avoid; margin:0; }
-    tr { page-break-inside:avoid; }
+    body { padding:1mm !important; }
+    table.ticket-page { margin:0; }
+    /* break-inside:avoid sur tr : chaque rangée de 4 tickets ne se coupe pas */
+    tr { page-break-inside:avoid; break-inside:avoid; }
   }
 `;
 
@@ -125,11 +124,11 @@ export function openPrintHtmlWindow(html: string, title: string): void {
  * Construit le HTML complet pour l'impression de tickets (avec autoprint).
  * Exposé pour permettre la pré-ouverture de fenêtre avant tout `await`.
  */
-export function buildTicketPrintHtml(htmlItems: string[], title: string): string {
-  return buildHtml(htmlItems, title, true);
+export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85): string {
+  return buildHtml(htmlItems, title, true, scale);
 }
 
-function buildHtml(htmlItems: string[], title: string, autoprint: boolean): string {
+function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85): string {
   // Groupe les tickets en pages de 4 colonnes × 8 lignes = 32 par page
   const COLS = 4;
   const ROWS = 8;
@@ -156,6 +155,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean): stri
     <title>${title}</title>
     <style>${PRINT_PAGE_CSS}</style>
     <style>${PRINT_CSS}</style>
+    <style>@media print { body { zoom:${scale / 100}; } }</style>
     ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
   </head>
   <body>${pageBlocks.join("")}</body>
@@ -271,8 +271,8 @@ function printWithNativeBridge(html: string, title: string): void {
  * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
  * — Desktop     : utilise un <iframe> invisible.
  */
-export function printTickets(htmlItems: string[], title: string): void {
-  let html = buildHtml(htmlItems, title, false);
+export function printTickets(htmlItems: string[], title: string, scale = 85): void {
+  let html = buildHtml(htmlItems, title, false, scale);
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);
