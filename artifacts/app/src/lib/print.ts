@@ -10,21 +10,22 @@ const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; margin:0; }
   .doc-header { display:none !important; }
-  /* Grille flex — div.ticket-page > div.ticket-row > div.ticket-cell */
-  .ticket-page { display:flex; flex-direction:column; margin-bottom:2px; }
-  .ticket-row  { display:flex; flex-direction:row; flex-wrap:nowrap; }
-  .ticket-cell { padding:2px; flex-shrink:0; vertical-align:top; }
+  /* Grille : div.ticket-page > table.ticket-row (1 table par rangée) */
+  .ticket-page { display:block; margin-bottom:2px; }
+  /* 1 table par rangée = break-inside:avoid fiable sur WebKit/Safari iOS */
+  .ticket-row  { display:table; border-collapse:collapse; margin:0 auto; }
+  .ticket-row td { padding:2px; vertical-align:top; }
   @media screen {
     body { padding-bottom:100px; }
   }
   @media print {
-    /* Flexbox colonne + align-items:center = centrage horizontal en impression */
-    body { padding:3mm 1mm 1mm !important; display:flex; flex-direction:column; align-items:center; }
-    .ticket-page { margin:0; }
-    /* break-inside:avoid sur div.ticket-row : respecté par WebKit/Safari iOS (contrairement à <tr>) */
+    body { padding:3mm 1mm 1mm !important; }
+    .ticket-page { margin:0 auto; }
     .ticket-row {
-      break-inside:avoid; -webkit-column-break-inside:avoid;
+      break-inside:avoid;
       page-break-inside:avoid;
+      -webkit-column-break-inside:avoid;
+      overflow:hidden; /* fallback Safari : un élément overflow:hidden ne peut pas être coupé */
     }
   }
 `;
@@ -144,9 +145,9 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     const rows: string[] = [];
     for (let r = 0; r < page.length; r += COLS) {
       const cells = page.slice(r, r + COLS)
-        .map(item => `<div class="ticket-cell">${item}</div>`)
+        .map(item => `<td>${item}</td>`)
         .join("");
-      rows.push(`<div class="ticket-row">${cells}</div>`);
+      rows.push(`<table class="ticket-row"><tbody><tr>${cells}</tr></tbody></table>`);
     }
     pageBlocks.push(`<div class="ticket-page">${rows.join("")}</div>`);
   }
