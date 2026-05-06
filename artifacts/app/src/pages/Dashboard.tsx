@@ -1126,10 +1126,10 @@ function StatCard({
 }) {
   const inner = (
     <Card className={`h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6">
+      <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6 lg:px-4 lg:py-2.5">
         {/* Icône visible seulement sm+ */}
-        <div className="hidden sm:flex items-center gap-3">
-          <div className="p-2.5 bg-gray-100 rounded-lg flex-shrink-0">{icon}</div>
+        <div className="hidden sm:flex items-center gap-3 lg:gap-2.5">
+          <div className="p-2.5 lg:p-2 bg-gray-100 rounded-lg flex-shrink-0">{icon}</div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
@@ -1141,7 +1141,7 @@ function StatCard({
               )}
               {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
             </div>
-            <div className="min-h-[2.75rem] flex flex-col justify-center">
+            <div className="min-h-[2.75rem] lg:min-h-0 flex flex-col justify-center lg:mt-0.5">
               {loading ? (
                 <>
                   <div className="h-7 w-24 bg-gray-200 rounded animate-pulse mt-1" />
