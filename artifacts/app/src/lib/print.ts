@@ -135,11 +135,12 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
 
 /**
  * Construit le HTML complet pour la génération PDF côté serveur (sans autoprint,
- * sans zoom CSS). L'échelle est gérée par le paramètre natif `scale` de
- * Puppeteer page.pdf() côté backend, ce qui est plus fiable que CSS zoom en PDF.
+ * sans zoom CSS). Utilise le layout desktop : blocs de 32 tickets (4 col × 8 lignes)
+ * avec sauts de page entre chaque bloc — identique à l'impression desktop.
+ * L'échelle est gérée par le paramètre natif `scale` de Puppeteer page.pdf().
  */
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
-  return buildHtml(htmlItems, title, false, 100, true);
+  return buildHtml(htmlItems, title, false, 100, false);
 }
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {

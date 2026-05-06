@@ -634,9 +634,10 @@ export default function GenerateVouchers() {
   };
 
   const handleSavePdf = async (lot: LastLot) => {
+    // Le PDF reproduit le rendu desktop → échelle desktop
     const pdfScale = (() => {
       try {
-        const v = parseInt(localStorage.getItem("vn_print_scale_mobile") ?? "85", 10);
+        const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10);
         return isNaN(v) ? 85 : v;
       } catch { return 85; }
     })();
