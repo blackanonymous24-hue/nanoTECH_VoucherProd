@@ -75,8 +75,8 @@ Veuillez conserver ce ticket jusqu'à l'épuisement du forfait.
 </tr>
 <tr>
 <td style="background:{{color}};color:#666;padding:0px;" valign="top" colspan="2">
-<div style="text-align:left;color:#fff;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
-<b>{{dnsname}}</b><span style="margin-left:4px;"> [{{num}}]</span>
+<div style="display:flex;justify-content:space-between;align-items:center;color:#fff;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
+<b>{{dnsname}}</b><span>[{{num}}]</span>
 </div>
 </td>
 </tr>
