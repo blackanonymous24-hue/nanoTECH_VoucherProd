@@ -7,7 +7,7 @@ const PRINT_CSS = `
   table.ticket-page { border-collapse:collapse; margin-bottom:2px; }
   table.ticket-page td { padding:1px; vertical-align:top; }
   /* margin:0 supprime les en-têtes/pieds de page natifs du navigateur */
-  @page { size:A4 portrait; margin:0; }
+  @page { margin:0; }
   @media screen {
     body { padding-bottom:100px; }
   }
