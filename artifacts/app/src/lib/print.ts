@@ -134,13 +134,67 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
 }
 
 /**
- * Construit le HTML complet pour la génération PDF côté serveur (sans autoprint,
- * sans zoom CSS). Utilise le layout desktop : blocs de 32 tickets (4 col × 8 lignes)
- * avec sauts de page entre chaque bloc — identique à l'impression desktop.
- * L'échelle est gérée par le paramètre natif `scale` de Puppeteer page.pdf().
+ * Construit le HTML dédié au rendu PDF Puppeteer (POST /api/print-pdf).
+ *
+ * Différences par rapport à buildHtml / impression navigateur :
+ * - CSS propre sans @media wrapper (emulateMediaType("print") est actif côté serveur)
+ * - Centrage via margin:0 auto (pas display:inline-table qui casse l'alignement en PDF)
+ * - Saut de page EXPLICITE (break-after:page) entre chaque bloc de 32
+ *   → Puppeteer ne devine plus où couper, résultat garanti propre
+ * - @page margin directement dans le CSS (pas imbriqué dans @media)
+ * - Pas de page blanche initiale (pas de break-before sur le premier bloc)
  */
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
-  return buildHtml(htmlItems, title, false, 100, false);
+  const COLS = 4;
+  const PER_PAGE = COLS * 8; // 32 tickets par page A4
+
+  const blocks: string[] = [];
+  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
+    const slice = htmlItems.slice(p, p + PER_PAGE);
+    const rows: string[] = [];
+    for (let r = 0; r < slice.length; r += COLS) {
+      const cells = slice.slice(r, r + COLS)
+        .map(item => `<td style="padding:1px;vertical-align:top;">${item}</td>`)
+        .join("");
+      rows.push(`<tr>${cells}</tr>`);
+    }
+    const isLast = p + PER_PAGE >= htmlItems.length;
+    // break-after:page sur tous les blocs sauf le dernier
+    const breakStyle = isLast
+      ? ""
+      : " page-break-after:always; break-after:page;";
+    blocks.push(
+      `<div style="display:block;${breakStyle}">` +
+      `<table style="border-collapse:collapse;margin:0 auto;">` +
+      `<tbody>${rows.join("")}</tbody></table></div>`,
+    );
+  }
+
+  const CSS = `
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: #fff; color: #000;
+      font-size: 14px;
+      font-family: Helvetica, Arial, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    @page { margin: 4mm 1mm 1mm; }
+    table { border-collapse: collapse; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+    td > table, td > table * { page-break-inside: avoid; break-inside: avoid; }
+  `;
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>${CSS}</style>
+  </head>
+  <body>${blocks.join("")}</body>
+</html>`;
 }
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
