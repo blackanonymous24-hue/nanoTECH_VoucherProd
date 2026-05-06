@@ -2217,7 +2217,7 @@ export default function Vouchers() {
                     type="button"
                     size="icon"
                     variant="outline"
-                    className="shrink-0"
+                    className="shrink-0 border-blue-400 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
                     onClick={() => void handleRenameUser()}
                     disabled={
                       isSavingRename ||
@@ -2241,8 +2241,8 @@ export default function Vouchers() {
                     variant="outline"
                     className={
                       editingUser?.disabled
-                        ? "shrink-0 border-orange-400 text-orange-600 hover:bg-orange-50 hover:text-orange-800 dark:border-orange-600 dark:hover:bg-orange-950/40"
-                        : "shrink-0 border-green-400 text-green-600 hover:bg-green-50 hover:text-green-800 dark:border-green-600 dark:hover:bg-green-950/40"
+                        ? "shrink-0 border-orange-500 bg-orange-500 text-white hover:bg-orange-600 hover:border-orange-600"
+                        : "shrink-0 border-green-500 bg-green-500 text-white hover:bg-green-600 hover:border-green-600"
                     }
                     disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || !activeRouterId}
                     onClick={() => void handleToggleEditUserDisabled()}
