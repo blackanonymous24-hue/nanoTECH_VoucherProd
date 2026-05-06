@@ -205,6 +205,18 @@ export function getStoredPHP(): string {
 }
 
 /**
+ * Retourne true si le template fourni est le template MikHmon intégré par défaut
+ * (DEFAULT_MIKHMON_PHP) — utilisé pour activer le layout 4×9 et l'encadrement
+ * automatique des tickets sur mobile.
+ * Ne retourne JAMAIS true pour un template importé/enregistré par l'admin, même
+ * si ce template ressemble au modèle MikHmon.
+ */
+export function isDefaultMikHmonPHP(tpl: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+  return norm(tpl) === norm(DEFAULT_MIKHMON_PHP);
+}
+
+/**
  * Charge le template depuis le serveur (source de vérité cross-device).
  * Met à jour le cache localStorage si un template serveur existe.
  * Fallback : localStorage → DEFAULT_MIKHMON_PHP.

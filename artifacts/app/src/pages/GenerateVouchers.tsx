@@ -26,7 +26,7 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchServerTemplate } from "@/pages/TicketTemplate";
+import { fetchServerTemplate, isDefaultMikHmonPHP } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
@@ -693,6 +693,9 @@ export default function GenerateVouchers() {
       return;
     }
     const php = await fetchServerTemplate();
+    // 4×9 uniquement pour le template MikHmon intégré (DEFAULT_MIKHMON_PHP).
+    // Jamais pour un template importé/enregistré, même s'il ressemble au modèle MikHmon.
+    const mobileRowsPerPage = isDefaultMikHmonPHP(php) ? 9 : 6;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
@@ -738,7 +741,7 @@ export default function GenerateVouchers() {
       if (preWin) {
         // Navigateur mobile : document.write direct — pas de navigation donc pas
         // de message Safari "The web page did not finish loading"
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();

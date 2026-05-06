@@ -128,9 +128,14 @@ export function openPrintHtmlWindow(html: string, title: string): void {
 /**
  * Construit le HTML complet pour l'impression de tickets (avec autoprint).
  * Exposé pour permettre la pré-ouverture de fenêtre avant tout `await`.
+ *
+ * @param rowsPerPage  Nombre de lignes par bloc de page (mobile uniquement).
+ *   - 6 (défaut) : templates personnalisés/importés → 4×6 = 24 tickets/page.
+ *   - 9           : template MikHmon intégré         → 4×9 = 36 tickets/page.
+ *   Ne jamais passer 9 pour un template importé ou enregistré par l'admin.
  */
-export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false): string {
-  return buildHtml(htmlItems, title, true, scale, mobile);
+export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false, rowsPerPage = 6): string {
+  return buildHtml(htmlItems, title, true, scale, mobile, rowsPerPage);
 }
 
 /**
@@ -184,7 +189,7 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 </html>`;
 }
 
-function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
+function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false, rowsPerPage = 6): string {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
@@ -202,9 +207,12 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // ce qui permet à 4 × 215 = 860px de tenir (ex: zoom 0.85 → 934px disponibles).
     const MOBILE_COLS = 4;
 
-    // Grille fixe 4 × 6 : 24 tickets par bloc de page, indépendamment du zoom.
-    const rowsPerPage = 6;
-    const perPage     = MOBILE_COLS * rowsPerPage;
+    // rowsPerPage : 6 (templates personnalisés) ou 9 (template MikHmon intégré).
+    // Passé en paramètre depuis buildTicketPrintHtml.
+    const perPage = MOBILE_COLS * rowsPerPage;
+    // Template MikHmon intégré (rowsPerPage=9) : ajouter outline pour encadrer
+    // chaque ticket (table.voucher n'a pas de border CSS dans le modèle par défaut).
+    const isMikHmonModel = rowsPerPage === 9;
 
     // Construction des blocs de page avec page-break-after:always explicite
     const mobileBlocks: string[] = [];
@@ -279,6 +287,15 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       body, .ticket-page-wrap, table.ticket-page, .ticket-row, .ticket-row > td {
         overflow: visible !important;
       }
+
+      ${isMikHmonModel ? `
+      /* Template MikHmon intégré (class="voucher") : la table n'a pas de border → outline
+         pour encadrer chaque ticket sans modifier le layout (outline ne prend pas d'espace). */
+      .ticket { outline: 1px solid #aaa; }
+      /* Forcer box-sizing:border-box sur la table voucher : sans ça, le contenu
+         de 160px + padding interne peut légèrement déborder la cellule parente. */
+      table.voucher { box-sizing: border-box; width: 160px !important; }
+      ` : ""}
 
       @media screen { body { padding-bottom: 100px; } }
     `;
