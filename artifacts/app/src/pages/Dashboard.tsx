@@ -391,7 +391,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
         ) : (
           <div className="flex flex-col flex-1" style={{ minHeight: 0 }}>
             {selectedIface && (
-              <p className="text-center text-xs font-medium text-gray-400 mb-1 lg:mb-0.5 font-mono">Interface {selectedIface}</p>
+              <p className="text-center text-xs font-medium text-gray-400 mb-1 lg:mb-0.5 font-mono lg:hidden">Interface {selectedIface}</p>
             )}
             {/* position:relative wrapper is the recharts trick to fill flex space with height="100%" */}
             <div className="flex-1" style={{ position: "relative", minHeight: 220 }}>
