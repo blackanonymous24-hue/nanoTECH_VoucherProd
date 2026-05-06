@@ -1204,36 +1204,6 @@ function StatCard({
           </div>
         </div>
 
-        {/* Version mobile ultra-compacte (< sm) */}
-        <div className="flex sm:hidden flex-col gap-0.5 justify-center">
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-gray-500 font-medium leading-tight truncate">{title}</span>
-            {live && (
-              <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
-              </span>
-            )}
-            {fetching && <RefreshCw className="h-2 w-2 text-gray-300 animate-spin flex-shrink-0" />}
-          </div>
-          {loading ? (
-            <div className="h-5 w-16 bg-gray-200 rounded animate-pulse mt-0.5" />
-          ) : label !== undefined ? (
-            <>
-              <p className="font-bold text-gray-900 text-lg leading-tight mt-0.5 truncate tabular-nums">
-                {amountValue !== undefined
-                  ? amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })
-                  : (label || "0")}
-                <span className="text-[9px] font-bold text-gray-400 ml-0.5">{currency || "FCFA"}</span>
-              </p>
-              {sub && <p className="text-[9px] text-gray-400 leading-tight truncate">{sub}</p>}
-            </>
-          ) : (
-            <p className="font-bold text-gray-900 text-2xl leading-none mt-0.5 truncate">
-              {value === undefined ? "—" : value.toLocaleString()}
-            </p>
-          )}
-        </div>
       </div>
     </Card>
   );
