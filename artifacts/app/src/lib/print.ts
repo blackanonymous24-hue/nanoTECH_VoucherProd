@@ -18,8 +18,8 @@ const PRINT_CSS = `
     body { padding-bottom:100px; }
   }
   @media print {
-    body { padding:1mm !important; }
-    table.ticket-page { margin:0; }
+    body { padding:1mm !important; text-align:center; }
+    table.ticket-page { margin:0 auto; }
     /* break-inside:avoid sur tr : chaque rangée de 4 tickets ne se coupe pas */
     tr { page-break-inside:avoid; break-inside:avoid; }
   }
