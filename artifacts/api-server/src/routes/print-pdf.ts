@@ -87,19 +87,24 @@ router.post("/print-pdf", async (req, res) => {
 
   const page = await browser.newPage();
   try {
+    // Viewport desktop stable — évite les media queries mobiles dans le template
+    await page.setViewport({ width: 800, height: 1200, deviceScaleFactor: 1 });
+
     await page.emulateMediaType("print");
     await page.setContent(html, { waitUntil: "networkidle0", timeout: 45_000 });
 
-    // scale : 0.1–2.0 (Puppeteer natif, plus fiable que CSS zoom en PDF)
+    // scale : 0.1–2.0 (Puppeteer natif = zoom optique post-rendu, comme le curseur Edge Ctrl+P)
+    // 0.82 ≈ 85% Edge (Edge applique ses propres marges par défaut qui réduisent légèrement l'espace)
     const pdfScale = typeof scale === "number" && scale > 0
       ? Math.min(2, Math.max(0.1, scale / 100))
-      : 0.85;
+      : 0.82;
 
     const pdf = await page.pdf({
-      format: "A4",
+      width: "80mm",
+      height: "auto",
       printBackground: true,
       scale: pdfScale,
-      margin: { top: "0", right: "0", bottom: "0", left: "0" },
+      margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
     });
 
     const safeName = (title ?? "tickets")

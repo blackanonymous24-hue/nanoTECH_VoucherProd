@@ -148,7 +148,7 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
   const items = htmlItems
     .map(item =>
-      `<span style="display:inline-block;vertical-align:top;padding:1px;text-align:left;">${item}</span>`,
+      `<div style="display:block;width:80mm;text-align:left;page-break-inside:avoid;break-inside:avoid;padding:0;margin:0;">${item}</div>`,
     )
     .join("");
 
@@ -158,20 +158,26 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
     <meta charset="utf-8" />
     <title>${title}</title>
     <style>
+      /* Ticket thermique 80mm — rendu identique Edge Ctrl+P 85% */
+      @page {
+        size: 80mm auto;
+        margin: 0;
+      }
+      @page :first { margin: 0; }
+      @page :left  { margin: 0; }
+      @page :right { margin: 0; }
+
       html, body {
-        margin: 0; padding: 0;
-        background: #fff; color: #000;
+        margin: 0;
+        padding: 0;
+        width: 80mm;
+        background: #fff;
+        color: #000;
         font-size: 14px;
         font-family: Helvetica, Arial, sans-serif;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
-        text-align: center;
       }
-      @page { margin: 0; }
-      @page :first { margin: 0; }
-      @page :left  { margin: 0; }
-      @page :right { margin: 0; }
-      span { page-break-inside: avoid; break-inside: avoid; }
     </style>
   </head>
   <body>${items}</body>
