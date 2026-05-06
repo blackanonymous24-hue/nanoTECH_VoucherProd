@@ -747,7 +747,7 @@ export default function GenerateVouchers() {
         preWin.document.close();
       } else {
         // APK WebView natif ou desktop
-        printTickets(data.html as string[], title, printScale);
+        printTickets(data.html as string[], title, printScale, isMikHmonDefault ? 5 : 4);
       }
     } catch (err: unknown) {
       preWin?.close();

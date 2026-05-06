@@ -74,7 +74,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplate } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
@@ -708,7 +708,7 @@ export default function Vouchers() {
       return;
     }
     setPrintingLot(lot.name);
-    const php = await fetchServerTemplate();
+    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
     try {
       const users = await fetchLotUsers(lot);
       if (users.length === 0) {
@@ -748,7 +748,7 @@ export default function Vouchers() {
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       try {
-        printTickets(data.html, printParts.join("-"));
+        printTickets(data.html, printParts.join("-"), 85, isMikHmonDefault ? 5 : 4);
       } catch {
         toast({ title: "Impression bloquée", description: "Autorisez les popups pour ce site puis réessayez.", variant: "destructive" });
       }
@@ -781,7 +781,7 @@ export default function Vouchers() {
       }
     }
     setIsPrinting(true);
-    const php = await fetchServerTemplate();
+    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -870,7 +870,7 @@ export default function Vouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment].filter(Boolean);
 
       try {
-        printTickets(data.html, printParts.join("-"));
+        printTickets(data.html, printParts.join("-"), 85, isMikHmonDefault ? 5 : 4);
       } catch (printErr) {
         // eslint-disable-next-line no-console
         console.error("[print] printTickets threw:", printErr);
