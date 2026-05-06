@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Fragment, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { printReport } from "@/lib/print";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/select";
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
-  User, RefreshCw, Clock, ChevronLeft, ChevronRight, ChevronDown, Search, Banknote, Printer, LogIn,
+  User, RefreshCw, Clock, ChevronLeft, ChevronRight, Search, Banknote, Printer, LogIn,
   PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
 import { foldText } from "@/lib/text";
@@ -140,31 +140,6 @@ function mergeDailyArrearRun(run: DailyArrearsDay[]): GroupedDailyArrearsDay {
   };
 }
 
-function groupConsecutiveDailyArrears(days: DailyArrearsDay[]): GroupedDailyArrearsDay[] {
-  const asc = [...days].filter((d) => d.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
-  if (asc.length === 0) return [];
-  const out: GroupedDailyArrearsDay[] = [];
-  let run: DailyArrearsDay[] = [asc[0]!];
-  for (let i = 1; i < asc.length; i++) {
-    const cur = asc[i]!;
-    const prev = run[run.length - 1]!;
-    if (addDaysIso(prev.date, 1) === cur.date) run.push(cur);
-    else {
-      out.push(mergeDailyArrearRun(run));
-      run = [cur];
-    }
-  }
-  out.push(mergeDailyArrearRun(run));
-  return out;
-}
-
-function portalArrearLabel(d: GroupedDailyArrearsDay): string {
-  const u = d.__underlying;
-  if (u && u.length > 1) {
-    return `Arriéré du ${fmtDayMonthYear(u[0]!.date)} au ${fmtDayMonthYear(u[u.length - 1]!.date)}`;
-  }
-  return `Arriéré du ${fmtDayMonthYear(d.date)}`;
-}
 
 /** Lundi ISO (UTC) de la semaine contenant la date. Aligné sur le suivi admin. */
 function mondayOfDateUtc(iso: string): string {
@@ -179,24 +154,6 @@ function mondayOfDateUtc(iso: string): string {
 function portalArrearWeekRangeLabel(mondayIso: string): string {
   const sun = addDaysIso(mondayIso, 6);
   return `Arriéré de la semaine du ${fmtDayMonthYear(mondayIso)} au ${fmtDayMonthYear(sun)}`;
-}
-
-/** Regroupement consécutif couvrant exactement le lun–dim de `weekMon`. */
-function portalArrearGroupCoversFullWeek(g: GroupedDailyArrearsDay, weekMon: string): boolean {
-  const sun = addDaysIso(weekMon, 6);
-  const raw = g.__underlying ?? [g];
-  const sorted = [...raw].sort((a, b) => a.date.localeCompare(b.date));
-  if (sorted.length === 0) return false;
-  return sorted[0]!.date === weekMon && sorted[sorted.length - 1]!.date === sun;
-}
-
-/** Libellé « Arriéré de la semaine » sur l’intervalle réel des jours avec reliquat. */
-function portalArrearWeekLabelFromGroup(g: GroupedDailyArrearsDay): string {
-  const raw = g.__underlying ?? [g];
-  const sorted = [...raw].sort((a, b) => a.date.localeCompare(b.date));
-  const first = sorted[0]!.date;
-  const last = sorted[sorted.length - 1]!.date;
-  return `Arriéré de la semaine du ${fmtDayMonthYear(first)} au ${fmtDayMonthYear(last)}`;
 }
 
 type PeriodSalesData = {
@@ -1009,9 +966,6 @@ function Dashboard({ token, vendor, onLogout }: {
   const [reportView,  setReportView]  = useState<{ day: string; month: string; year: string } | null>(null);
   const [periodView,  setPeriodView]  = useState<"today" | "yesterday" | "week" | "month" | null>(null);
   const [clockTick, setClockTick] = useState(Date.now());
-  /** Détail des arriérés affiché pour chaque ligne « Arriéré de la semaine du … au … » (avant semaine en cours). */
-  const [openPrevWeekDetail, setOpenPrevWeekDetail] = useState<Record<string, boolean>>({});
-
   const notifiedProfilesRef = useRef<Set<string>>(new Set());
   const periodCacheRef = useRef<Map<string, PeriodSalesData>>(new Map());
 
@@ -1311,92 +1265,34 @@ function Dashboard({ token, vendor, onLogout }: {
 
                         const rows: ReactNode[] = [];
 
+                        // ── Semaines précédentes : 1 seule ligne cumulée par semaine ──
                         prevWeekSorted.forEach((weekMon) => {
-                          const entries = prevByWeek.get(weekMon) ?? [];
-                          const grouped = groupConsecutiveDailyArrears(entries);
-                          const singleGroup = grouped.length === 1;
-
-                          if (singleGroup) {
-                            const d = grouped[0]!;
-                            const lineLabel = portalArrearGroupCoversFullWeek(d, weekMon)
-                              ? portalArrearWeekRangeLabel(weekMon)
-                              : portalArrearWeekLabelFromGroup(d);
-                            const navIso = d.__underlying?.length
-                              ? d.__underlying[d.__underlying.length - 1]!.date
-                              : d.date;
-                            const dateObj = new Date(navIso + "T00:00:00Z");
-                            const dayNum = String(dateObj.getUTCDate());
-                            const monthNum = String(dateObj.getUTCMonth() + 1);
-                            const yearNum = String(dateObj.getUTCFullYear());
-                            rows.push(
-                              <button
-                                key={`prev-full-${weekMon}`}
-                                type="button"
-                                onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
-                                className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer border-b border-orange-100 bg-orange-50/40"
-                              >
-                                <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
-                                  <span className="break-words">{lineLabel}</span>
-                                  <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
-                                </span>
-                                <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
-                                  {fmtFcfa(d.remaining)} FCFA
-                                </span>
-                              </button>,
-                            );
-                            return;
-                          }
-
-                          const isOpen = !!openPrevWeekDetail[weekMon];
+                          const entries = [...(prevByWeek.get(weekMon) ?? [])]
+                            .sort((a, b) => a.date.localeCompare(b.date));
+                          if (entries.length === 0) return;
+                          const merged = mergeDailyArrearRun(entries);
+                          const label = portalArrearWeekRangeLabel(weekMon);
+                          // Navigation → dernier jour de la semaine avec reliquat
+                          const navIso = entries[entries.length - 1]!.date;
+                          const dateObj = new Date(navIso + "T00:00:00Z");
+                          const dayNum = String(dateObj.getUTCDate());
+                          const monthNum = String(dateObj.getUTCMonth() + 1);
+                          const yearNum = String(dateObj.getUTCFullYear());
                           rows.push(
-                            <Fragment key={`prev-week-${weekMon}`}>
-                              <button
-                                type="button"
-                                aria-expanded={isOpen}
-                                onClick={() =>
-                                  setOpenPrevWeekDetail((prev) => ({
-                                    ...prev,
-                                    [weekMon]: !prev[weekMon],
-                                  }))
-                                }
-                                className="w-full px-4 py-2.5 bg-red-50/40 border-b border-orange-100 flex items-center justify-between gap-2 text-left hover:bg-red-50/70 active:bg-red-50 transition-colors"
-                              >
-                                <span className="text-[10px] font-semibold text-red-900 leading-tight flex-1 min-w-0">
-                                  {portalArrearWeekRangeLabel(weekMon)}
-                                </span>
-                                <ChevronDown
-                                  className={`h-4 w-4 text-red-800 flex-shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
-                                  aria-hidden
-                                />
-                              </button>
-                              {isOpen &&
-                                grouped.map((d) => {
-                                  const navIso = d.__underlying?.length
-                                    ? d.__underlying[d.__underlying.length - 1]!.date
-                                    : d.date;
-                                  const dateObj = new Date(navIso + "T00:00:00Z");
-                                  const dayNum = String(dateObj.getUTCDate());
-                                  const monthNum = String(dateObj.getUTCMonth() + 1);
-                                  const yearNum = String(dateObj.getUTCFullYear());
-                                  const pKey = d.__underlying?.map((x) => x.date).join(",") ?? d.date;
-                                  return (
-                                    <button
-                                      key={`prev-${weekMon}-${pKey}`}
-                                      type="button"
-                                      onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
-                                      className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 pl-7 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer border-b border-orange-50"
-                                    >
-                                      <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
-                                        <span className="break-words">{portalArrearLabel(d)}</span>
-                                        <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
-                                      </span>
-                                      <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
-                                        {fmtFcfa(d.remaining)} FCFA
-                                      </span>
-                                    </button>
-                                  );
-                                })}
-                            </Fragment>,
+                            <button
+                              key={`prev-week-${weekMon}`}
+                              type="button"
+                              onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
+                              className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer border-b border-orange-100 bg-orange-50/40"
+                            >
+                              <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
+                                <span className="break-words">{label}</span>
+                                <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
+                              </span>
+                              <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
+                                {fmtFcfa(merged.remaining)} FCFA
+                              </span>
+                            </button>,
                           );
                         });
 
@@ -1416,32 +1312,75 @@ function Dashboard({ token, vendor, onLogout }: {
                           );
                         }
 
-                        groupConsecutiveDailyArrears(currentDays).forEach((d) => {
-                          const navIso = d.__underlying?.length
-                            ? d.__underlying[d.__underlying.length - 1]!.date
-                            : d.date;
-                          const dateObj = new Date(navIso + "T00:00:00Z");
+                        // ── Semaine en cours : max 3 lignes (1 cumulée + 2 récentes) ──
+                        const sortedCurrent = [...currentDays]
+                          .filter((d) => d.remaining > 0)
+                          .sort((a, b) => a.date.localeCompare(b.date));
+
+                        const renderCurrentRow = (d: DailyArrearsDay, key: string, isLast: boolean) => {
+                          const dateObj = new Date(d.date + "T00:00:00Z");
                           const dayNum = String(dateObj.getUTCDate());
                           const monthNum = String(dateObj.getUTCMonth() + 1);
                           const yearNum = String(dateObj.getUTCFullYear());
-                          const pKey = d.__underlying?.map((x) => x.date).join(",") ?? d.date;
-                          rows.push(
+                          return (
                             <button
-                              key={`cur-${pKey}`}
+                              key={key}
                               type="button"
                               onClick={() => setReportView({ day: dayNum, month: monthNum, year: yearNum })}
-                              className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer"
+                              className={`w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer${isLast ? "" : " border-b border-orange-100"}`}
                             >
                               <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
-                                <span className="break-words">{portalArrearLabel(d)}</span>
+                                <span className="break-words">{`Arriéré du ${fmtDayMonthYear(d.date)}`}</span>
                                 <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
                               </span>
                               <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
                                 {fmtFcfa(d.remaining)} FCFA
                               </span>
+                            </button>
+                          );
+                        };
+
+                        if (sortedCurrent.length <= 2) {
+                          // 1 ou 2 jours : affichage individuel direct
+                          sortedCurrent.forEach((d, i) =>
+                            rows.push(renderCurrentRow(d, `cur-${d.date}`, i === sortedCurrent.length - 1)),
+                          );
+                        } else {
+                          // N ≥ 3 : cumuler les (N-2) plus anciens, afficher les 2 plus récents individuellement
+                          const oldGroup = sortedCurrent.slice(0, sortedCurrent.length - 2);
+                          const recentTwo = sortedCurrent.slice(sortedCurrent.length - 2);
+                          const merged = mergeDailyArrearRun(oldGroup);
+                          const firstDate = oldGroup[0]!.date;
+                          const lastDate = oldGroup[oldGroup.length - 1]!.date;
+                          const cumulLabel = firstDate === lastDate
+                            ? `Arriéré du ${fmtDayMonthYear(firstDate)}`
+                            : `Arriéré du ${fmtDayMonthYear(firstDate)} au ${fmtDayMonthYear(lastDate)}`;
+                          // Navigation → dernier jour du groupe cumulé
+                          const navDateObj = new Date(lastDate + "T00:00:00Z");
+                          rows.push(
+                            <button
+                              key={`cur-old-${firstDate}`}
+                              type="button"
+                              onClick={() => setReportView({
+                                day: String(navDateObj.getUTCDate()),
+                                month: String(navDateObj.getUTCMonth() + 1),
+                                year: String(navDateObj.getUTCFullYear()),
+                              })}
+                              className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer border-b border-orange-100"
+                            >
+                              <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
+                                <span className="break-words">{cumulLabel}</span>
+                                <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
+                              </span>
+                              <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
+                                {fmtFcfa(merged.remaining)} FCFA
+                              </span>
                             </button>,
                           );
-                        });
+                          recentTwo.forEach((d, i) =>
+                            rows.push(renderCurrentRow(d, `cur-${d.date}`, i === recentTwo.length - 1)),
+                          );
+                        }
 
                         return rows;
                       })()}
