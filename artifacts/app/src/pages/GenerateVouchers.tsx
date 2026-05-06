@@ -747,7 +747,7 @@ export default function GenerateVouchers() {
         preWin.document.close();
       } else {
         // APK WebView natif ou desktop
-        const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
+        const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
         printTickets(data.html as string[], title, printScale, colsDesktop);
       }
     } catch (err: unknown) {

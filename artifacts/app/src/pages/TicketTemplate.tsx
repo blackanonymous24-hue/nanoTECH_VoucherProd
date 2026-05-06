@@ -399,6 +399,14 @@ export default function TicketTemplate() {
   const [showScaleDialog, setShowScaleDialog] = useState(false);
   const [colsDesktop,  setColsDesktop]  = useState(() => readCols(COLS_DESKTOP_KEY, 4));
 
+  // Ajuste le défaut selon le type de template (MikHmon → 5, autre → 4)
+  // uniquement si l'utilisateur n'a pas de préférence enregistrée
+  useEffect(() => {
+    if (localStorage.getItem(COLS_DESKTOP_KEY) === null) {
+      setColsDesktop(phpCode.includes('class="voucher"') ? 5 : 4);
+    }
+  }, [phpCode]);
+
   // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
