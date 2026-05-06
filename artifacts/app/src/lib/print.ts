@@ -147,12 +147,13 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
   // Pas de grille forcée : chaque ticket est inline-block, ils se placent
   // librement selon leur largeur naturelle. Puppeteer pagine au débordement.
+  // text-align:left sur chaque ticket : réinitialise le centrage du body
+  // pour que les cellules internes du template PHP gardent leur alignement d'origine.
   const items = htmlItems
-    .map(item => `<span style="display:inline-block;vertical-align:top;padding:1px;">${item}</span>`)
+    .map(item => `<span style="display:inline-block;vertical-align:top;padding:1px;text-align:left;">${item}</span>`)
     .join("");
 
   const CSS = `
-    *, *::before, *::after { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0;
       background: #fff; color: #000;
