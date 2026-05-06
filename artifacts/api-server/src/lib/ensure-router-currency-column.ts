@@ -109,3 +109,25 @@ export async function ensureVerificationCodeColumn(): Promise<void> {
     logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.verification_code");
   }
 }
+
+/**
+ * Backfill password_plain = 'root' pour les super admins créés avant l'ajout
+ * de la colonne (le compte initial admin/root n'avait pas de mot de passe en clair stocké).
+ * Idempotent : ne touche que les lignes où password_plain IS NULL.
+ */
+export async function ensureSuperAdminPasswordPlainBackfill(): Promise<void> {
+  try {
+    const result = await db.execute(sql`
+      UPDATE admin_settings
+      SET password_plain = 'root'
+      WHERE is_super_admin = true
+        AND password_plain IS NULL
+    `);
+    const count = (result as unknown as { rowCount: number }).rowCount ?? 0;
+    if (count > 0) {
+      logger.info({ count }, "DB compat: backfill password_plain='root' pour super admin(s) initial");
+    }
+  } catch (err) {
+    logger.error({ err }, "DB compat: backfill password_plain super admin échoué");
+  }
+}
