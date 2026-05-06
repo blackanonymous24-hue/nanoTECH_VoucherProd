@@ -97,18 +97,22 @@ router.post("/print-pdf", async (req, res) => {
     // Attendre chargement complet (images, fonts, QR codes)
     await new Promise((r) => setTimeout(r, 1500));
 
-    // Injecter CSS anti-découpage tickets (s'applique lors de la génération PDF)
+    // Injecter CSS anti-découpage tickets SANS wrapper @media print.
+    // emulateMediaType("screen") force le mode screen même pendant page.pdf(),
+    // donc les règles @media print ne s'appliquent jamais — on injecte sans wrapper.
     await page.addStyleTag({
       content: `
-        @media print {
-          body { -webkit-print-color-adjust: exact; }
-          .ticket, .ticket-item, .row, tr {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-          table { page-break-inside: auto; }
-          tr { page-break-inside: avoid; page-break-after: auto; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .ticket, .ticket-item, .row {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
         }
+        tr {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+          page-break-after: auto;
+        }
+        table { page-break-inside: auto; }
       `,
     });
 
