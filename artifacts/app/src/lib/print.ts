@@ -145,17 +145,11 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
  * - Pas de page blanche initiale (pas de break-before sur le premier bloc)
  */
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
-  const COLS = 4;
-
-  // Une seule table continue — Puppeteer pagine naturellement,
-  // break-inside:avoid empêche de couper une ligne en deux.
-  const rows: string[] = [];
-  for (let r = 0; r < htmlItems.length; r += COLS) {
-    const cells = htmlItems.slice(r, r + COLS)
-      .map(item => `<td style="padding:1px;vertical-align:top;">${item}</td>`)
-      .join("");
-    rows.push(`<tr>${cells}</tr>`);
-  }
+  // Pas de grille forcée : chaque ticket est inline-block, ils se placent
+  // librement selon leur largeur naturelle. Puppeteer pagine au débordement.
+  const items = htmlItems
+    .map(item => `<span style="display:inline-block;vertical-align:top;padding:1px;">${item}</span>`)
+    .join("");
 
   const CSS = `
     *, *::before, *::after { box-sizing: border-box; }
@@ -166,11 +160,10 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
       font-family: Helvetica, Arial, sans-serif;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      text-align: center;
     }
     @page { margin: 4mm 1mm 1mm; }
-    table { border-collapse: collapse; margin: 0 auto; }
-    tr { page-break-inside: avoid; break-inside: avoid; }
-    td > table, td > table * { page-break-inside: avoid; break-inside: avoid; }
+    span { page-break-inside: avoid; break-inside: avoid; }
   `;
 
   return `<!doctype html>
@@ -180,9 +173,7 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
     <title>${title}</title>
     <style>${CSS}</style>
   </head>
-  <body>
-    <table><tbody>${rows.join("")}</tbody></table>
-  </body>
+  <body>${items}</body>
 </html>`;
 }
 
