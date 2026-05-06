@@ -1166,10 +1166,10 @@ function StatCard({
 }) {
   const inner = (
     <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6 lg:px-4 lg:py-2.5">
+      <div className="flex-1 flex flex-col justify-start sm:justify-center px-2.5 pt-1.5 pb-1 sm:p-6 lg:px-4 lg:py-2.5">
         <div className="flex items-center gap-2 sm:gap-3 lg:gap-2.5">
           <div className={`p-1.5 rounded-xl flex-shrink-0 ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
-          <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
+          <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-start sm:justify-center">
             <div className="flex items-center gap-1.5">
               <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
               {live && (
