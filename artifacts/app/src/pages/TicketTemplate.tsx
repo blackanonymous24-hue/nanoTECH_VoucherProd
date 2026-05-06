@@ -534,9 +534,12 @@ export default function TicketTemplate() {
               <span className="hidden sm:inline">Définir par défaut</span>
             </Button>
           </>
-          <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Échelle d'impression">
-            <Sliders className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Échelle impression</span>
+          <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50 h-auto py-1" onClick={() => setShowScaleDialog(true)} title="Échelle d'impression">
+            <Sliders className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline leading-tight text-left">
+              <span className="block text-[11px]">🖥 {scaleDesktop}%</span>
+              <span className="block text-[11px]">📱 {scaleMobile}%</span>
+            </span>
           </Button>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
