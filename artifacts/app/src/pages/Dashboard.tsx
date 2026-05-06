@@ -827,7 +827,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_1fr] gap-1 sm:gap-4 mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1 sm:gap-4 mb-3">
         <StatCard
           title="Clients actifs"
           value={selectedRouterId ? activeSessions : 0}
@@ -898,36 +898,6 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* ── Raccourcis desktop : Ajouter un client (col 1) — lg seulement ── */}
-        <button
-          type="button"
-          className="hidden lg:flex h-full text-left w-full"
-          onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
-        >
-          <Card className="h-full w-full flex flex-col cursor-pointer hover:shadow-md transition-shadow">
-            <div className="flex-1 flex items-center gap-2.5 lg:px-4 lg:py-2.5">
-              <div className="p-2 bg-emerald-100 rounded-lg flex-shrink-0">
-                <UserPlus className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-bold text-gray-900 text-sm">Ajouter un client</p>
-              </div>
-            </div>
-          </Card>
-        </button>
-        {/* ── Raccourcis desktop : Générer un ticket (col 2) — lg seulement ── */}
-        <Link href="/generate" className="hidden lg:flex h-full w-full">
-          <Card className="h-full w-full flex flex-col cursor-pointer hover:shadow-md transition-shadow">
-            <div className="flex-1 flex items-center gap-2.5 lg:px-4 lg:py-2.5">
-              <div className="p-2 bg-amber-100 rounded-lg flex-shrink-0">
-                <Zap className="h-5 w-5 text-amber-500" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-bold text-gray-900 text-sm">Générer un ticket</p>
-              </div>
-            </div>
-          </Card>
-        </Link>
         {/* ── Trafic : desktop cols 3-4 row-span-2, mobile pleine largeur ── */}
         <div className="col-span-2 sm:order-6 lg:order-none lg:row-span-2 flex flex-col">
           <TrafficMonitorCard routerId={selectedRouterId} enabled={enableSecondaries} />
