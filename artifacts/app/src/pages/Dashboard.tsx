@@ -755,7 +755,7 @@ export default function Dashboard() {
 
   return (
     <div className="relative">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 lg:mb-1">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
         </div>
@@ -771,7 +771,7 @@ export default function Dashboard() {
 
       {/* Router hardware/software info bar */}
       {selectedRouterId && (
-        <div className="mb-6">
+        <div className="mb-6 lg:mb-2">
           {infoLoading ? (
             <div className="flex flex-wrap items-center gap-2">
               <Skeleton className="h-6 w-36 rounded-full" />
