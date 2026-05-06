@@ -740,13 +740,15 @@ export default function GenerateVouchers() {
       if (preWin) {
         // Navigateur mobile : document.write direct — pas de navigation donc pas
         // de message Safari "The web page did not finish loading"
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
+        const colsMobile = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_mobile") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, 4, colsMobile);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
         // APK WebView natif ou desktop
-        printTickets(data.html as string[], title, printScale, isMikHmon ? 5 : 4);
+        const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
+        printTickets(data.html as string[], title, printScale, colsDesktop);
       }
     } catch (err: unknown) {
       preWin?.close();
