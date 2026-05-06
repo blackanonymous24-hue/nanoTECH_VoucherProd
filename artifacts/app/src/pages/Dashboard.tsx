@@ -879,7 +879,7 @@ export default function Dashboard() {
           href="/vouchers"
         />
         {/* Raccourcis actions — sm/md uniquement (caché sur lg) */}
-        <div className="col-span-2 lg:hidden sm:order-5 flex flex-row gap-1 items-stretch h-[4.75rem]">
+        <div className="col-span-2 lg:hidden order-5 flex flex-row gap-1 items-stretch h-[4.75rem]">
           <button
             type="button"
             style={{flex:1, minWidth:0, textAlign:"left"}}
