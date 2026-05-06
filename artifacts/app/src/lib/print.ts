@@ -10,28 +10,19 @@ const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; margin:0; }
   .doc-header { display:none !important; }
-  /* Grille block/inline-block — seule combinaison respectée par Safari iOS pour break-inside */
-  .ticket-page { display:block; text-align:center; }
-  /* white-space:nowrap garde les 4 tickets sur la même ligne */
-  .ticket-row  { display:block; white-space:nowrap; font-size:0; }
-  .ticket-cell { display:inline-block; vertical-align:top; padding:2px; font-size:initial; }
+  /* Grille 4 colonnes — chaque .ticket-page = 1 page imprimée (32 tickets max) */
+  table.ticket-page { border-collapse:collapse; margin-bottom:2px; }
+  /* > tbody > tr > td : cible uniquement les td directs du wrapper, pas les td internes du ticket */
+  table.ticket-page > tbody > tr > td { padding:1px; vertical-align:top; }
   @media screen {
     body { padding-bottom:100px; }
   }
   @media print {
-    body { padding:3mm 1mm 1mm !important; }
-    .ticket-page { margin:0; text-align:center; }
-    /* break-inside:avoid sur un <div display:block> = fiable dans WebKit/Safari iOS */
-    .ticket-row {
-      break-inside:avoid;
-      -webkit-column-break-inside:avoid;
-      page-break-inside:avoid;
-    }
-    /* Empêche aussi le découpage d'un ticket individuel */
-    .ticket-cell, .ticket-cell > table {
-      break-inside:avoid;
-      page-break-inside:avoid;
-    }
+    /* Flexbox colonne + align-items:center = centrage horizontal des blocs en impression */
+    body { padding:3mm 1mm 1mm !important; display:flex; flex-direction:column; align-items:center; }
+    table.ticket-page { margin:0; }
+    /* break-inside:avoid sur tr : chaque rangée de 4 tickets ne se coupe pas */
+    tr { page-break-inside:avoid; break-inside:avoid; }
   }
 `;
 
@@ -150,11 +141,11 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     const rows: string[] = [];
     for (let r = 0; r < page.length; r += COLS) {
       const cells = page.slice(r, r + COLS)
-        .map(item => `<div class="ticket-cell">${item}</div>`)
+        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
         .join("");
-      rows.push(`<div class="ticket-row">${cells}</div>`);
+      rows.push(`<tr>${cells}</tr>`);
     }
-    pageBlocks.push(`<div class="ticket-page">${rows.join("")}</div>`);
+    pageBlocks.push(`<table class="ticket-page"><tbody>${rows.join("")}</tbody></table>`);
   }
 
   return `<!doctype html>
