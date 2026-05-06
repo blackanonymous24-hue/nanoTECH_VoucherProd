@@ -25,7 +25,7 @@ const TEMPLATE_KEY = "voucher-ticket-template";
 //             {{qrcode}} {{num}}
 // {{codeblock}} est pré-calculé selon le mode (Voucher ou Compte) avant rendu.
 export const DEFAULT_TEMPLATE = `<!--mks-mulai-->
-<table style="border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;overflow:hidden;position:relative;padding:1px;font-family:Arial,sans-serif;vertical-align:top;background:linear-gradient(135deg,#f8f9ff 0%,#ffffff 55%,#f0f4ff 100%);-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+<table style="border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;overflow:hidden;position:relative;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
 <tbody>
 <tr>
 <td style="background:{{color}};color:#676;padding:0px;" valign="top" colspan="2">

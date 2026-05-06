@@ -259,18 +259,13 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
           display: block !important;
           break-inside: avoid !important;
           page-break-inside: avoid !important;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
         }
         /* Le template PHP génère <table style="display:inline-block"> comme racine du ticket.
-           display:inline-block bloque break-inside sur Safari — on force display:table.
-           print-color-adjust:exact préserve le dégradé de fond à l'impression. */
+           display:inline-block bloque break-inside sur Safari — on force display:table. */
         .ticket > table,
         .ticket table.voucher {
           display: table !important;
           width: 135px;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
         }
         /* Supprimer float en impression — sort du flux et peut provoquer des coupures */
         .ticket img { float: none !important; display: inline-block !important; }
