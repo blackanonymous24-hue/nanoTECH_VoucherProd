@@ -618,7 +618,7 @@ export default function TicketTemplate() {
           </div>
           <DialogFooter>
             <DialogClose asChild>
-              <Button size="sm" className="gap-1.5"><Save className="h-3.5 w-3.5" />Fermer</Button>
+              <Button size="sm" className="gap-1.5"><Save className="h-3.5 w-3.5" />Enregistrer</Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>
