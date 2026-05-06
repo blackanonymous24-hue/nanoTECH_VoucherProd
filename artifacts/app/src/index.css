@@ -247,6 +247,18 @@
     text-overflow: ellipsis;
   }
 
+  /* Montant adaptatif : remplit l'espace, réduit seulement si risque débordement */
+  .amount-fill {
+    font-size: clamp(8px, var(--awv, 5vw), 20px);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  @media (min-width: 1024px) {
+    .amount-fill {
+      font-size: clamp(8px, var(--awv, 5vw), 22px);
+    }
+  }
+
   .fit-price {
     white-space: nowrap;
     overflow: hidden;

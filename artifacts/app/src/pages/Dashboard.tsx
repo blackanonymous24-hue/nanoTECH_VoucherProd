@@ -164,11 +164,11 @@ function formatAmount(amount: number): string {
 function amountTextStyle(amount: number, currency = "FCFA"): React.CSSProperties {
   const amountStr = amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
   const len = `${amountStr} ${currency}`.length;
-  // Zone texte mobile ≈ 29vw (50vw carte - icône - padding - gap).
-  // Caractère bold ≈ 0.6em → taille max sans débordement = 29vw / (len × 0.6) = (48.3/len)vw.
-  // Plafonné à 20px pour ne pas trop grossir sur grands écrans.
+  // Zone texte mobile ≈ 29vw, desktop ≈ 19vw (1/4 viewport - padding - icône).
+  // Caractère bold ≈ 0.6em → vw max = 29vw/(len×0.6) = (48.3/len)vw.
+  // La classe .amount-fill applique clamp(8px, var(--awv), 20px) mobile et 22px desktop via @media.
   const vwSize = (48.3 / len).toFixed(1);
-  return { fontSize: `clamp(8px, ${vwSize}vw, 20px)`, lineHeight: 1.15, minWidth: 0 };
+  return { '--awv': `${vwSize}vw`, lineHeight: 1.15, minWidth: 0 } as React.CSSProperties;
 }
 
 /**
@@ -1193,7 +1193,7 @@ function StatCard({
             ) : label !== undefined ? (
               amountValue !== undefined ? (
                 <p
-                  className="font-bold text-gray-900 whitespace-nowrap leading-tight tracking-tight"
+                  className="amount-fill font-bold text-gray-900 leading-tight tracking-tight"
                   style={amountTextStyle(amountValue, currency || "FCFA")}
                 >
                   {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
