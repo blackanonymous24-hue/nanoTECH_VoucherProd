@@ -48,6 +48,16 @@ function invalidateProfileListCache(ownerAdminId: number | null, routerId: numbe
   profileListInFlight.delete(scope);
 }
 
+/** Profile names that are internal to RouterOS / MikHmon and must never be shown or imported. */
+const SYSTEM_PROFILE_NAMES = new Set(["trial", "default-trial"]);
+
+/** Returns true if the user is a regular voucher user (not a system/demo account). */
+function isRealUser(u: { username: string; profile: string }): boolean {
+  const uname = u.username.toLowerCase();
+  const prof  = (u.profile ?? "").toLowerCase();
+  return uname !== "default" && uname !== "default-trial" && !SYSTEM_PROFILE_NAMES.has(prof);
+}
+
 async function fetchProfilesWithCache(ownerAdminId: number | null, routerId: number, conn: RouterConnection) {
   const scope = routerCacheScope(ownerAdminId, routerId);
   const inFlight = profileListInFlight.get(scope);
@@ -55,8 +65,9 @@ async function fetchProfilesWithCache(ownerAdminId: number | null, routerId: num
 
   const task = listProfiles(conn)
     .then((profiles) => {
-      setProfileCache(scope, profiles);
-      return profiles;
+      const filtered = profiles.filter((p) => !SYSTEM_PROFILE_NAMES.has(p.name.toLowerCase()));
+      setProfileCache(scope, filtered);
+      return filtered;
     })
     .finally(() => {
       profileListInFlight.delete(scope);
@@ -971,7 +982,7 @@ async function getCachedUsers(
   const scope = routerCacheScope(router.ownerAdminId, router.id);
   const cached = userCache.get(scope);
   if (!opts.force && cached && Date.now() < cached.expiresAt) return cached.users;
-  const users = await listHotspotUsers(conn, 60_000);
+  const users = (await listHotspotUsers(conn, 60_000)).filter(isRealUser);
   userCache.set(scope, { users, expiresAt: Date.now() + USER_CACHE_TTL });
   return users;
 }
