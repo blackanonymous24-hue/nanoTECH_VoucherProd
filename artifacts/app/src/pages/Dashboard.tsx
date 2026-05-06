@@ -872,31 +872,33 @@ export default function Dashboard() {
           href="/sales/monthly"
           className="sm:order-3"
         />
-        {/* Raccourcis actions — mobile uniquement */}
-        <button
-          type="button"
-          className="block lg:hidden w-full h-full text-left"
-          onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
-        >
-          <Card className="min-h-[52px] flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <div className="flex-1 flex items-center gap-2 p-2.5">
-              <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
-                <UserPlus className="h-5 w-5 text-emerald-600" />
+        {/* Raccourcis actions — mobile uniquement — col-span-2 pour occuper toute la largeur */}
+        <div className="col-span-2 lg:hidden grid grid-cols-2 gap-1 sm:gap-4">
+          <button
+            type="button"
+            className="w-full h-full text-left"
+            onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
+          >
+            <Card className="min-h-[52px] flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+              <div className="flex-1 flex items-center gap-2 p-2.5">
+                <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
+                  <UserPlus className="h-5 w-5 text-emerald-600" />
+                </div>
+                <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
               </div>
-              <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
-            </div>
-          </Card>
-        </button>
-        <Link href="/generate" className="block lg:hidden">
-          <Card className="min-h-[52px] flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
-            <div className="flex-1 flex items-center gap-2 p-2.5">
-              <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
-                <Zap className="h-5 w-5 text-amber-500" />
+            </Card>
+          </button>
+          <Link href="/generate" className="block">
+            <Card className="min-h-[52px] flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+              <div className="flex-1 flex items-center gap-2 p-2.5">
+                <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
+                  <Zap className="h-5 w-5 text-amber-500" />
+                </div>
+                <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
               </div>
-              <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
-            </div>
-          </Card>
-        </Link>
+            </Card>
+          </Link>
+        </div>
       </div>
 
       <div className="traffic-logs-layout flex flex-col gap-4 items-stretch">
