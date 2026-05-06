@@ -973,7 +973,7 @@ function TemplateDialog({ admin, onClose }: {
   return (
     <>
       <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileCode className="h-5 w-5 text-violet-600" />
@@ -986,27 +986,27 @@ function TemplateDialog({ admin, onClose }: {
           </DialogHeader>
 
           {/* ── Barre d'outils ── */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50" title="Réinitialiser">
+          <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto">
+            <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50 shrink-0" title="Réinitialiser">
               <RotateCcw className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Réinitialiser</span>
+              Réinitialiser
             </Button>
-            <Button variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5" title="Coller modèle Mikhmon">
+            <Button variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5 shrink-0" title="Coller modèle Mikhmon">
               <FileCode className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Coller modèle Mikhmon</span>
+              Coller modèle Mikhmon
             </Button>
-            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5" title="Importer .php">
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5 shrink-0" title="Importer .php">
               <Upload className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Importer .php</span>
+              Importer .php
             </Button>
             <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
-            <Button variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50" title="Définir comme modèle de base">
+            <Button variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50 shrink-0" title="Définir comme modèle de base">
               <BookMarked className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Définir par défaut</span>
+              Définir par défaut
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowScaleDialog(true)} className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50 h-auto py-1" title="Échelle d'impression">
+            <Button variant="outline" size="sm" onClick={() => setShowScaleDialog(true)} className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50 h-auto py-1 shrink-0" title="Échelle d'impression">
               <Sliders className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden sm:inline leading-tight text-left">
+              <span className="leading-tight text-left">
                 <span className="block text-[11px]">🖥 {scaleDesktop}%</span>
                 <span className="block text-[11px]">📱 {scaleMobile}%</span>
               </span>
@@ -1021,7 +1021,7 @@ function TemplateDialog({ admin, onClose }: {
           ) : (
             <textarea
               className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              rows={16}
+              rows={10}
               value={templateCode}
               onChange={(e) => setTemplateCode(e.target.value)}
               placeholder="Collez ici le template PHP Mikhmon v3…"
