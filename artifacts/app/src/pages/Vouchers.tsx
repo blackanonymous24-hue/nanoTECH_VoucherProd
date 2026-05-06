@@ -75,7 +75,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
-import { printTickets, buildTicketPrintHtml, tryOpenVoucherPrintPage } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -701,37 +701,7 @@ export default function Vouchers() {
   const handlePrintLot = async (lot: LotSummary) => {
     const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
 
-    // Pré-ouvrir la fenêtre AVANT tout await (popup blocker mobile sinon)
-    const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
-    })();
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
-    if (preWin) {
-      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chargement…</title>
-<style>
-  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
-    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
-  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#2563eb;
-    border-radius:50%;animation:spin 0.9s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
-</style></head>
-<body><div class="spinner"></div>
-<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
-</body></html>`);
-      preWin.document.close();
-    }
-
     if (await tryOpenVoucherPrintPage(lot.name, hotspotName)) {
-      preWin?.close();
       toast({
         title: "Impression Mikhmon",
         description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
@@ -740,18 +710,16 @@ export default function Vouchers() {
     }
     setPrintingLot(lot.name);
     try {
-      // Parallélisation : template + users en simultané (économise ~300–800 ms)
+      // Parallélisation : template + users en simultané
       const [{ template: php, isDefault: isMikHmonDefault }, users] = await Promise.all([
         fetchServerTemplateWithMeta(),
         fetchLotUsers(lot),
       ]);
       if (users.length === 0) {
-        preWin?.close();
         toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
         return;
       }
       const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-      const mobileRowsPerPage = isMikHmon ? 9 : 6;
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const vouchers = users.map((user, idx) => {
         const profile = profilesList.find((p) => p.name === user.profile);
@@ -774,35 +742,21 @@ export default function Vouchers() {
         body: JSON.stringify({ php, vouchers }),
       });
       if (!resp.ok) {
-        preWin?.close();
         const err = await resp.json().catch(() => ({})) as { error?: string };
         toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" });
         return;
       }
       const data = await resp.json() as { html: string[] };
       if (!data.html?.length) {
-        preWin?.close();
         toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
         return;
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
-      if (preWin) {
-        const colsMobile = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_mobile") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
-        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage, 4, colsMobile);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-      } else {
-        const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
-        try {
-          printTickets(data.html, title, printScale, colsDesktop);
-        } catch {
-          toast({ title: "Impression bloquée", description: "Autorisez les popups pour ce site puis réessayez.", variant: "destructive" });
-        }
-      }
+      const printScale = (() => { try { const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10); return isNaN(v) ? 85 : v; } catch { return 85; } })();
+      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
+      printTickets(data.html, title, printScale, colsDesktop);
     } catch (err) {
-      preWin?.close();
       toast({ title: "Erreur impression", description: String(err), variant: "destructive" });
     } finally {
       setPrintingLot(null);
@@ -821,39 +775,9 @@ export default function Vouchers() {
     const hotspotName = (activeRouter as any)?.hotspotName || activeRouter?.name || "";
     const uniqueLots = new Set(usersForPrint.map((u) => (u.comment ?? "").trim()).filter(Boolean));
 
-    // Pré-ouvrir la fenêtre AVANT tout await (popup blocker mobile sinon)
-    const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
-    })();
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
-    if (preWin) {
-      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chargement…</title>
-<style>
-  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
-    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
-  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#2563eb;
-    border-radius:50%;animation:spin 0.9s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
-</style></head>
-<body><div class="spinner"></div>
-<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
-</body></html>`);
-      preWin.document.close();
-    }
-
     if (uniqueLots.size === 1) {
       const [lotId] = [...uniqueLots];
       if (lotId && await tryOpenVoucherPrintPage(lotId, hotspotName)) {
-        preWin?.close();
         toast({
           title: "Impression Mikhmon",
           description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
@@ -864,7 +788,6 @@ export default function Vouchers() {
     setIsPrinting(true);
     const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
     const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-    const mobileRowsPerPage = isMikHmon ? 9 : 6;
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -889,7 +812,6 @@ export default function Vouchers() {
           body: JSON.stringify({ php, vouchers }),
         });
       } catch (netErr) {
-        preWin?.close();
         // eslint-disable-next-line no-console
         console.error("[print] network error:", netErr);
         toast({
@@ -904,7 +826,6 @@ export default function Vouchers() {
       const rawText = await resp.text();
       let data: { html?: string[]; error?: string } = {};
       try { data = rawText ? JSON.parse(rawText) : {}; } catch {
-        preWin?.close();
         // eslint-disable-next-line no-console
         console.error("[print] non-JSON response:", resp.status, rawText.slice(0, 300));
         toast({
@@ -916,7 +837,6 @@ export default function Vouchers() {
       }
 
       if (!resp.ok || data.error) {
-        preWin?.close();
         const msg = data.error ?? `HTTP ${resp.status}`;
         // eslint-disable-next-line no-console
         console.error("[print] server error:", msg);
@@ -929,7 +849,6 @@ export default function Vouchers() {
       }
 
       if (!Array.isArray(data.html) || data.html.length === 0) {
-        preWin?.close();
         toast({
           title: "Aucun ticket généré",
           description: "Le modèle PHP n'a rien retourné. Vérifiez votre template.",
@@ -955,27 +874,9 @@ export default function Vouchers() {
       const printComment = firstUser?.comment ?? "";
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment].filter(Boolean);
       const title = printParts.join("-");
-
-      if (preWin) {
-        const colsMobile = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_mobile") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, 4, colsMobile);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-      } else {
-        const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
-        try {
-          printTickets(data.html as string[], title, printScale, colsDesktop);
-        } catch (printErr) {
-          // eslint-disable-next-line no-console
-          console.error("[print] printTickets threw:", printErr);
-          toast({
-            title: "Impression bloquée",
-            description: "Si une fenêtre popup a été bloquée, autorisez-la pour ce site puis réessayez.",
-            variant: "destructive",
-          });
-        }
-      }
+      const printScale = (() => { try { const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10); return isNaN(v) ? 85 : v; } catch { return 85; } })();
+      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
+      printTickets(data.html as string[], title, printScale, colsDesktop);
     } finally {
       setIsPrinting(false);
     }
