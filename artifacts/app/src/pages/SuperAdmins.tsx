@@ -1235,6 +1235,10 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
         </DialogHeader>
         <div className="space-y-3">
           <div>
+            <Label>Nom affiché</Label>
+            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="optionnel" />
+          </div>
+          <div>
             <Label>Identifiant</Label>
             <Input
               autoComplete="off"
@@ -1242,10 +1246,6 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
               onChange={(e) => { setLogin(e.target.value); setLoginError(""); }}
             />
             {loginError && <p className="text-xs text-red-500 mt-1">{loginError}</p>}
-          </div>
-          <div>
-            <Label>Nom affiché</Label>
-            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </div>
           <div>
             <Label>Mot de passe</Label>
