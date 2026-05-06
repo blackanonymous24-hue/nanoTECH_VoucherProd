@@ -1,20 +1,23 @@
+/* @page DOIT être au niveau racine — imbriqué dans @media print = CSS invalide ignoré par Safari */
+const PRINT_PAGE_CSS = `
+  @page         { margin:0; }
+  @page :first  { margin:0; }
+  @page :left   { margin:0; }
+  @page :right  { margin:0; }
+`;
+
 const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; margin:0; }
-  #num { float:right; display:inline-block; }
   .doc-header { display:none !important; }
   /* Grille 4 colonnes — chaque .ticket-page = 1 page imprimée (32 tickets max) */
   table.ticket-page { border-collapse:collapse; margin-bottom:2px; }
-  table.ticket-page td { padding:1px; vertical-align:top; }
+  /* > tbody > tr > td : cible uniquement les td directs du wrapper, pas les td internes du ticket */
+  table.ticket-page > tbody > tr > td { padding:1px; vertical-align:top; }
   @media screen {
     body { padding-bottom:100px; }
   }
   @media print {
-    /* Supprime en-têtes/pieds de page Safari/Chrome — doit être dans @media print */
-    @page { margin:0; }
-    @page :first { margin:0; }
-    @page :left  { margin:0; }
-    @page :right { margin:0; }
     /* zoom 0.75 : ratio exact pour passer de 6 lignes (Safari iPhone) à 8 lignes */
     body { padding:1mm !important; zoom:0.75; }
     /* break-inside:avoid force les 8 lignes à rester sur la même page */
@@ -152,6 +155,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean): stri
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${title}</title>
+    <style>${PRINT_PAGE_CSS}</style>
     <style>${PRINT_CSS}</style>
     ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
   </head>
