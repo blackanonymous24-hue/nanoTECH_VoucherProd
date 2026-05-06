@@ -12,8 +12,10 @@ const PRINT_CSS = `
     body { padding-bottom:100px; }
   }
   @media print {
-    body { padding:2mm !important; }
-    table.ticket-page { page-break-after:always; break-after:page; margin:0; }
+    /* zoom 0.75 : ratio exact pour passer de 6 lignes (Safari iPhone) à 8 lignes */
+    body { padding:1mm !important; zoom:0.75; }
+    /* break-inside:avoid force les 8 lignes à rester sur la même page */
+    table.ticket-page { page-break-after:always; break-after:page; page-break-inside:avoid; break-inside:avoid; margin:0; }
     table.ticket-page:last-child { page-break-after:auto; break-after:auto; }
     tr { page-break-inside:avoid; }
   }
