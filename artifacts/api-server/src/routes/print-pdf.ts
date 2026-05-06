@@ -69,7 +69,7 @@ router.post("/print-pdf", async (req, res) => {
     return;
   }
 
-  const { html, title } = req.body as { html?: string; title?: string };
+  const { html, title, scale } = req.body as { html?: string; title?: string; scale?: number };
   if (!html || typeof html !== "string") {
     res.status(400).json({ error: "html requis (chaîne HTML complète)" });
     return;
@@ -90,9 +90,15 @@ router.post("/print-pdf", async (req, res) => {
     await page.emulateMediaType("print");
     await page.setContent(html, { waitUntil: "networkidle0", timeout: 45_000 });
 
+    // scale : 0.1–2.0 (Puppeteer natif, plus fiable que CSS zoom en PDF)
+    const pdfScale = typeof scale === "number" && scale > 0
+      ? Math.min(2, Math.max(0.1, scale / 100))
+      : 0.85;
+
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
+      scale: pdfScale,
       margin: { top: "0", right: "0", bottom: "0", left: "0" },
     });
 

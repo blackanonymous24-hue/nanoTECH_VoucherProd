@@ -686,7 +686,7 @@ export default function GenerateVouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       const title = printParts.join("-");
 
-      const html = buildTicketHtmlForPdf(renderData.html as string[], title, pdfScale);
+      const html = buildTicketHtmlForPdf(renderData.html as string[], title);
       const token = localStorage.getItem("vouchernet_admin_token") ?? "";
       const pdfResp = await fetch(`${BASE}/api/print-pdf`, {
         method: "POST",
@@ -694,7 +694,7 @@ export default function GenerateVouchers() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
-        body: JSON.stringify({ html, title }),
+        body: JSON.stringify({ html, title, scale: pdfScale }),
       });
 
       if (!pdfResp.ok) {
