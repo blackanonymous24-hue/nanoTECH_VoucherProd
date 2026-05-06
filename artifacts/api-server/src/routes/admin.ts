@@ -183,6 +183,7 @@ router.get("/admin/me", async (req, res): Promise<void> => {
     extraRouterSlots: adminRow.extraRouterSlots,
     routerCount,
     routerLimit: baseSlots + adminRow.extraRouterSlots,
+    passwordPlain: adminRow.passwordPlain ?? null,
   });
 });
 

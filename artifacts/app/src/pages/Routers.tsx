@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -78,6 +78,18 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (!open) return;
+    void fetch(`${BASE}/api/admin/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) setForm({ login: data.login ?? "", password: data.passwordPlain ?? "" });
+      })
+      .catch(() => {});
+  }, [open, token]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -112,7 +124,6 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
         return;
       }
       toast({ title: "Identifiants mis à jour" });
-      setForm({ login: "", password: "" });
       onClose();
     } catch {
       setError("Erreur de communication avec le serveur");
@@ -125,14 +136,14 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Changer les identifiants admin</DialogTitle>
+          <DialogTitle>Mes identifiants admin</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
           <div>
-            <Label>Nouvel identifiant</Label>
+            <Label>Login</Label>
             <Input
               className="mt-1"
-              placeholder="Laisser vide pour conserver"
+              placeholder="Identifiant de connexion"
               value={form.login}
               onChange={(e) => setForm({ ...form, login: e.target.value })}
             />
@@ -141,7 +152,7 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
             <Label>Mot de passe</Label>
             <PasswordInput
               className="mt-1"
-              placeholder="Laisser vide pour conserver"
+              placeholder="••••••••"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
             />
