@@ -2187,7 +2187,7 @@ export default function Vouchers() {
               <DialogTitle>{"Modifier l'utilisateur"}</DialogTitle>
             </DialogHeader>
             <div className="flex items-center gap-1.5 pt-1">
-              {/* Fermer — reste à gauche */}
+              {/* Fermer — extrême gauche */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -2204,102 +2204,109 @@ export default function Vouchers() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Fermer</TooltipContent>
               </Tooltip>
-              {/* Actions — groupe à droite */}
-              <div className="ml-auto flex items-center gap-1.5">
+
+              {/* Séparateur visuel */}
+              <div className="h-5 w-px bg-border shrink-0 mx-1" />
+
+              {/* Save + Disable — gauche après séparateur */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="default"
+                    className="shrink-0"
+                    onClick={() => void handleRenameUser()}
+                    disabled={
+                      isSavingRename ||
+                      isTogglingEditUserDisabled ||
+                      !editUsername.trim() ||
+                      !editPassword.trim() ||
+                      !editProfile.trim()
+                    }
+                    aria-label="Enregistrer"
+                  >
+                    {isSavingRename ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Enregistrer</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className={
+                      editingUser?.disabled
+                        ? "shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-800 dark:hover:bg-orange-950/40"
+                        : "shrink-0 text-green-600 hover:bg-green-50 hover:text-green-800 dark:hover:bg-green-950/40"
+                    }
+                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || !activeRouterId}
+                    onClick={() => void handleToggleEditUserDisabled()}
+                    aria-label={editingUser?.disabled ? "Activer" : "Désactiver"}
+                  >
+                    {isTogglingEditUserDisabled ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : editingUser?.disabled ? (
+                      <PowerOff className="h-4 w-4" />
+                    ) : (
+                      <Power className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{editingUser?.disabled ? "Activer" : "Désactiver"}</TooltipContent>
+              </Tooltip>
+
+              {/* Spacer — pousse Trash + Prolonger à l'extrême droite */}
+              <div className="flex-1" />
+
+              {/* Trash + Prolonger — extrême droite */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
+                    onClick={() => {
+                      if (!editingUser) return;
+                      const u = editingUser;
+                      setEditingUser(null);
+                      setConfirmDeleteEditUser(u);
+                    }}
+                    aria-label="Supprimer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Supprimer</TooltipContent>
+              </Tooltip>
+              {!profileIsUnlimited(editingUser?.profile) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      size="icon"
-                      variant="default"
-                      className="shrink-0"
-                      onClick={() => void handleRenameUser()}
-                      disabled={
-                        isSavingRename ||
-                        isTogglingEditUserDisabled ||
-                        !editUsername.trim() ||
-                        !editPassword.trim() ||
-                        !editProfile.trim()
-                      }
-                      aria-label="Enregistrer"
-                    >
-                      {isSavingRename ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Enregistrer</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      size="icon"
+                      size="sm"
                       variant="outline"
-                      className={
-                        editingUser?.disabled
-                          ? "shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-800 dark:hover:bg-orange-950/40"
-                          : "shrink-0 text-green-600 hover:bg-green-50 hover:text-green-800 dark:hover:bg-green-950/40"
-                      }
-                      disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || !activeRouterId}
-                      onClick={() => void handleToggleEditUserDisabled()}
-                      aria-label={editingUser?.disabled ? "Activer" : "Désactiver"}
-                    >
-                      {isTogglingEditUserDisabled ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : editingUser?.disabled ? (
-                        <PowerOff className="h-4 w-4" />
-                      ) : (
-                        <Power className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">{editingUser?.disabled ? "Activer" : "Désactiver"}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      className="shrink-0 gap-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
                       disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
                       onClick={() => {
                         if (!editingUser) return;
                         const u = editingUser;
                         setEditingUser(null);
-                        setConfirmDeleteEditUser(u);
+                        openExtendUser(u);
                       }}
-                      aria-label="Supprimer"
+                      aria-label="Prolonger"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <CalendarPlus className="h-4 w-4" />
+                      Prolonger
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Supprimer</TooltipContent>
+                  <TooltipContent side="bottom">Prolonger</TooltipContent>
                 </Tooltip>
-                {!profileIsUnlimited(editingUser?.profile) && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0 gap-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
-                        disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
-                        onClick={() => {
-                          if (!editingUser) return;
-                          const u = editingUser;
-                          setEditingUser(null);
-                          openExtendUser(u);
-                        }}
-                        aria-label="Prolonger"
-                      >
-                        <CalendarPlus className="h-4 w-4" />
-                        Prolonger
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">Prolonger</TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
+              )}
             </div>
           </div>
           <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto px-6 py-4">
