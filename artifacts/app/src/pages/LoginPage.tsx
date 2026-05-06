@@ -103,12 +103,12 @@ export default function LoginPage({ mode }: LoginPageProps) {
       const connectedName: string | null =
         data.role === "manager"       ? (data.manager?.name ?? null) :
         data.role === "collaborateur" ? (data.collaborateur?.name ?? null) :
-        data.role === "admin"         ? (data.displayName ?? data.login ?? null) :
+        data.role === "admin"         ? (data.admin?.displayName ?? data.admin?.login ?? null) :
         null;
       const connectedUsername: string | null =
         data.role === "manager"       ? (data.manager?.username ?? null) :
         data.role === "collaborateur" ? (data.collaborateur?.username ?? null) :
-        data.role === "admin"         ? (data.login ?? null) :
+        data.role === "admin"         ? (data.admin?.login ?? null) :
         null;
       login(
         data.token,
