@@ -1180,7 +1180,7 @@ function StatCard({
               )}
               {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
             </div>
-            <div className="min-h-[2.75rem] lg:min-h-0 flex flex-col justify-center lg:mt-0.5">
+            <div className="flex flex-col justify-center lg:mt-0.5">
               {loading ? (
                 <>
                   <div className="h-7 w-24 bg-gray-200 rounded animate-pulse mt-1" />
