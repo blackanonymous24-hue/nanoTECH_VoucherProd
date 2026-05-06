@@ -1659,15 +1659,17 @@ export default function Vouchers() {
                               <Pencil className="h-3 w-3" />
                               <span>Modifier</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openExtendUser(selUser)}
-                              disabled={isExtending}
-                              className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
-                            >
-                              <CalendarPlus className="h-3 w-3" />
-                              <span>Prolonger</span>
-                            </button>
+                            {!isUnlimitedProfile(selUser.profile) && (
+                              <button
+                                type="button"
+                                onClick={() => openExtendUser(selUser)}
+                                disabled={isExtending}
+                                className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                              >
+                                <CalendarPlus className="h-3 w-3" />
+                                <span>Prolonger</span>
+                              </button>
+                            )}
                           </>
                         );
                       })()}
@@ -2252,28 +2254,30 @@ export default function Vouchers() {
                   </TooltipTrigger>
                   <TooltipContent side="bottom">Supprimer</TooltipContent>
                 </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0 gap-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
-                      disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
-                      onClick={() => {
-                        if (!editingUser) return;
-                        const u = editingUser;
-                        setEditingUser(null);
-                        openExtendUser(u);
-                      }}
-                      aria-label="Prolonger"
-                    >
-                      <CalendarPlus className="h-4 w-4" />
-                      Prolonger
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Prolonger</TooltipContent>
-                </Tooltip>
+                {!isUnlimitedProfile(editingUser?.profile) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 gap-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
+                        disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
+                        onClick={() => {
+                          if (!editingUser) return;
+                          const u = editingUser;
+                          setEditingUser(null);
+                          openExtendUser(u);
+                        }}
+                        aria-label="Prolonger"
+                      >
+                        <CalendarPlus className="h-4 w-4" />
+                        Prolonger
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Prolonger</TooltipContent>
+                  </Tooltip>
+                )}
               </div>
             </div>
           </div>
@@ -2880,13 +2884,15 @@ function UserRow({
             <Pencil className="h-3.5 w-3.5" />
             Modifier utilisateur
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(e) => { e.stopPropagation(); onExtend(); }}
-            className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-600"
-          >
-            <CalendarPlus className="h-3.5 w-3.5" />
-            Prolonger
-          </DropdownMenuItem>
+          {!isUnlimitedProfile(user.profile) && (
+            <DropdownMenuItem
+              onClick={(e) => { e.stopPropagation(); onExtend(); }}
+              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-600"
+            >
+              <CalendarPlus className="h-3.5 w-3.5" />
+              Prolonger
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
