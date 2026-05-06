@@ -16,6 +16,13 @@ Monorepo pnpm avec les packages suivants :
 - `lib/api-client-react` — Hooks React Query générés par Orval
 - `lib/api-zod` — Schémas Zod générés (validation)
 
+## Génération PDF
+- `POST /api/print-pdf { html, title }` — Rendu Puppeteer (Chromium NixOS) → PDF A4 téléchargeable
+- Chromium installé via `pkgs.chromium` (NixOS, v138) ; fallback `@sparticuz/chromium-min` si absent
+- Browser singleton réutilisé entre requêtes, `page.emulateMediaType("print")` pour appliquer le CSS @media print
+- Frontend : bouton "Enregistrer PDF" (vert) dans la barre d'actions du dernier lot, à côté de "Imprimer"
+- `buildTicketHtmlForPdf(items, title, scale)` dans `print.ts` — layout mobile (table unique, sans autoprint)
+
 ## Fonctionnalités
 - **Tableau de bord** — Stats globales (vouchers total/imprimés, routeurs)
 - **Routeurs** — CRUD MikroTik RouterOS, test de connexion via API port 8728

@@ -9,6 +9,7 @@ import adminRouter from "./admin.js";
 import superAdminRouter from "./super-admin.js";
 import managersRouter from "./managers.js";
 import collaborateursRouter from "./collaborateurs.js";
+import printPdfRouter from "./print-pdf.js";
 
 export const router = Router();
 
@@ -26,3 +27,4 @@ router.use(adminRouter);
 router.use(superAdminRouter);
 router.use(managersRouter);
 router.use(collaborateursRouter);
+router.use(printPdfRouter);

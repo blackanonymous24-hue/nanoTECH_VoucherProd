@@ -133,6 +133,14 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
   return buildHtml(htmlItems, title, true, scale, mobile);
 }
 
+/**
+ * Construit le HTML complet pour la génération PDF côté serveur (sans autoprint).
+ * Utilise le layout mobile (une seule table, 4 colonnes, toutes lignes enchaînées).
+ */
+export function buildTicketHtmlForPdf(htmlItems: string[], title: string, scale = 85): string {
+  return buildHtml(htmlItems, title, false, scale, true);
+}
+
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
   const COLS = 4;
   // Mobile : une seule grande table, les lignes s'enchaînent automatiquement
