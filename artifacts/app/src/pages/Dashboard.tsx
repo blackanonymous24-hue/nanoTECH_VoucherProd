@@ -870,6 +870,34 @@ export default function Dashboard() {
           loading={!!selectedRouterId && !usersKnown}
           href="/vouchers"
         />
+        {/* Raccourcis actions — sm/md uniquement (caché sur lg) */}
+        <div className="col-span-2 lg:hidden sm:order-5 flex flex-row gap-1 items-stretch">
+          <button
+            type="button"
+            style={{flex:1, minWidth:0, textAlign:"left"}}
+            onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
+          >
+            <Card className="min-h-[52px] h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+              <div className="flex-1 flex items-center gap-2 p-2.5">
+                <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
+                  <UserPlus className="h-5 w-5 text-emerald-600" />
+                </div>
+                <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Ajouter un client</p>
+              </div>
+            </Card>
+          </button>
+          <Link href="/generate" style={{flex:1, minWidth:0, display:"block"}}>
+            <Card className="min-h-[52px] h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+              <div className="flex-1 flex items-center gap-2 p-2.5">
+                <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
+                  <Zap className="h-5 w-5 text-amber-500" />
+                </div>
+                <p className="text-[13px] font-bold text-gray-700 whitespace-nowrap leading-none">Générer un ticket</p>
+              </div>
+            </Card>
+          </Link>
+        </div>
+
         {/* ── Raccourcis desktop : Ajouter un client (col 1) — lg seulement ── */}
         <button
           type="button"
