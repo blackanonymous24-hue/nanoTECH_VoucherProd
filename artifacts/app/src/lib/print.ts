@@ -129,15 +129,15 @@ export function openPrintHtmlWindow(html: string, title: string): void {
  * Construit le HTML complet pour l'impression de tickets (avec autoprint).
  * Exposé pour permettre la pré-ouverture de fenêtre avant tout `await`.
  */
-export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85): string {
-  return buildHtml(htmlItems, title, true, scale);
+export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false): string {
+  return buildHtml(htmlItems, title, true, scale, mobile);
 }
 
-function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85): string {
-  // Groupe les tickets en pages de 4 colonnes × 8 lignes = 32 par page
+function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
   const COLS = 4;
-  const ROWS = 8;
-  const PER_PAGE = COLS * ROWS;
+  // Mobile : une seule grande table, les lignes s'enchaînent automatiquement
+  // Desktop : blocs de 32 (4 col × 8 lignes) pour mieux contrôler les sauts de page
+  const PER_PAGE = mobile ? htmlItems.length || 1 : COLS * 8;
 
   const pageBlocks: string[] = [];
   for (let p = 0; p < htmlItems.length; p += PER_PAGE) {

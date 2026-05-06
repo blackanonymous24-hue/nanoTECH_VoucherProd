@@ -721,7 +721,7 @@ export default function GenerateVouchers() {
       if (preWin) {
         // Navigateur mobile : document.write direct — pas de navigation donc pas
         // de message Safari "The web page did not finish loading"
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
