@@ -164,9 +164,9 @@ function formatAmount(amount: number): string {
 function amountTextStyle(amount: number): React.CSSProperties {
   const amountStr = amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
   const len = amountStr.length;
-  // Shrink from 22px down to 10px based on number length only.
-  const size = Math.max(10, 22 - (len - 4) * 1.4);
-  return { fontSize: `${size}px`, lineHeight: 1.15 };
+  // Shrink aggressively from 20px (4 chars) down to 8px (13+ chars).
+  const size = Math.max(8, 20 - (len - 4) * 1.8);
+  return { fontSize: `${size}px`, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 }
 
 /**
