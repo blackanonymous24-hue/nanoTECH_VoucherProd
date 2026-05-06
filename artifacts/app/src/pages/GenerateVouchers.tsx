@@ -23,11 +23,11 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import {
-  Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff, FileDown,
+  Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchServerTemplate } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildTicketHtmlForPdf } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -294,7 +294,6 @@ export default function GenerateVouchers() {
   const [lastLot, setLastLot] = useState<LastLot | null>(null);
   const [loadingLastLot, setLoadingLastLot] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [isSavingPdf, setIsSavingPdf] = useState(false);
   const [copiedLot, setCopiedLot] = useState(false);
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -630,90 +629,6 @@ export default function GenerateVouchers() {
       }
       setProgress(null);
       setGenPaused(false);
-    }
-  };
-
-  const handleSavePdf = async (lot: LastLot) => {
-    // Le PDF reproduit le rendu desktop → échelle desktop
-    const pdfScale = (() => {
-      try {
-        const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
-    })();
-    const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
-    const php = await fetchServerTemplate();
-    const PRICE_COLORS: Record<string, string> = {
-      "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
-      "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
-    };
-    const vouchers = lot.vouchers.map((v, idx) => ({
-      hotspotname: hotspotName,
-      dnsname: (selectedRouter as any)?.contact ?? "",
-      username: v.username,
-      password: v.password,
-      price: String(v.price ?? ""),
-      currency: "FCFA",
-      validity: v.validity ?? "",
-      timelimit: "",
-      datalimit: "",
-      num: idx + 1,
-      color: PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD",
-    }));
-
-    setIsSavingPdf(true);
-    try {
-      const renderResp = await fetch(`${BASE}/api/render-tickets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ php, vouchers }),
-      });
-      const renderData = await renderResp.json();
-      if (renderData.error) throw new Error(renderData.error);
-
-      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const toFileValidity = (v: string) => {
-        const s = v.trim();
-        const mk = s.match(/^(\d+)(h|d|m|w)$/i);
-        if (mk) {
-          const map: Record<string, string> = { h: "Heure", d: "Jour", m: "Minute", w: "Semaine" };
-          return mk[1] + (map[mk[2].toLowerCase()] ?? mk[2].toUpperCase());
-        }
-        return s.replace(/[\s-]+/g, "");
-      };
-      const rawValidity = lot.validity || lot.vouchers[0]?.validity || "";
-      const compactValidity = toFileValidity(rawValidity);
-      const profileSlug = lot.profileName.trim().split(/\s+/)[0] ?? lot.profileName;
-      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
-      const title = printParts.join("-");
-
-      const html = buildTicketHtmlForPdf(renderData.html as string[], title);
-      const token = localStorage.getItem("vouchernet_admin_token") ?? "";
-      const pdfResp = await fetch(`${BASE}/api/print-pdf`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
-        body: JSON.stringify({ html, title, scale: pdfScale }),
-      });
-
-      if (!pdfResp.ok) {
-        const errData = await pdfResp.json().catch(() => ({ error: "Erreur serveur" }));
-        throw new Error(errData.error ?? "Erreur génération PDF");
-      }
-
-      const blob = await pdfResp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${title}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err: unknown) {
-      toast({ title: "Erreur PDF", description: String(err), variant: "destructive" });
-    } finally {
-      setIsSavingPdf(false);
     }
   };
 
@@ -1337,31 +1252,18 @@ export default function GenerateVouchers() {
                 </div>
               </div>
 
-              {/* Dernier lot — barre d’actions : ne pas rétablir l’ancien bouton « copier tout » ni retirer export / suppression ; garder ce jeu de boutons. */}
-              {/* ── Boutons Imprimer + Enregistrer PDF ── */}
+              {/* Dernier lot — barre d’actions */}
               <div className="px-3 py-2 border-b border-gray-100 flex gap-1.5">
                 <Button
                   size="sm"
                   className="flex-1 gap-1.5 h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white"
                   onClick={() => handlePrint(lastLot)}
-                  disabled={isPrinting || isSavingPdf}
+                  disabled={isPrinting}
                 >
                   {isPrinting
                     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     : <Printer className="h-3.5 w-3.5" />}
                   {isPrinting ? "Impression…" : "Imprimer"}
-                </Button>
-                <Button
-                  size="sm"
-                  className="flex-1 gap-1.5 h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={() => void handleSavePdf(lastLot)}
-                  disabled={isPrinting || isSavingPdf}
-                  title="Enregistrer en PDF"
-                >
-                  {isSavingPdf
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <FileDown className="h-3.5 w-3.5" />}
-                  {isSavingPdf ? "PDF en cours…" : "Enregistrer PDF"}
                 </Button>
                 <Button
                   size="sm"
