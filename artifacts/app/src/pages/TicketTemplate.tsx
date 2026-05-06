@@ -596,16 +596,16 @@ export default function TicketTemplate() {
                 <span className="font-medium text-gray-700">🖥 Desktop / Laptop</span>
                 <div className="flex items-center gap-1">
                   <input
-                    type="number" min={50} max={150} step={5}
+                    type="number" min={50} max={100} step={5}
                     value={scaleDesktop}
-                    onChange={(e) => { const v = Math.min(150, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
+                    onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
                     className="w-16 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
                   />
                   <span className="text-xs text-gray-500">%</span>
                 </div>
               </div>
               <Slider
-                min={50} max={150} step={5}
+                min={50} max={100} step={5}
                 value={[scaleDesktop]}
                 onValueChange={([v]) => { setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
               />
@@ -616,16 +616,16 @@ export default function TicketTemplate() {
                 <span className="font-medium text-gray-700">📱 Mobile / Tablette</span>
                 <div className="flex items-center gap-1">
                   <input
-                    type="number" min={50} max={150} step={5}
+                    type="number" min={50} max={100} step={5}
                     value={scaleMobile}
-                    onChange={(e) => { const v = Math.min(150, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
+                    onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
                     className="w-16 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
                   />
                   <span className="text-xs text-gray-500">%</span>
                 </div>
               </div>
               <Slider
-                min={50} max={150} step={5}
+                min={50} max={100} step={5}
                 value={[scaleMobile]}
                 onValueChange={([v]) => { setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
               />

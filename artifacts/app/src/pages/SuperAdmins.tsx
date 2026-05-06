@@ -905,8 +905,10 @@ function TemplateDialog({ admin, onClose }: {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showScaleDialog, setShowScaleDialog] = useState(false);
-  const [scaleDesktop, setScaleDesktop] = useState(() => readScale(SCALE_DESKTOP_KEY, 85));
-  const [scaleMobile,  setScaleMobile]  = useState(() => readScale(SCALE_MOBILE_KEY,  85));
+  const deskKey = `${SCALE_DESKTOP_KEY}_admin_${admin.id}`;
+  const mobKey  = `${SCALE_MOBILE_KEY}_admin_${admin.id}`;
+  const [scaleDesktop, setScaleDesktop] = useState(() => readScale(deskKey, 85));
+  const [scaleMobile,  setScaleMobile]  = useState(() => readScale(mobKey,  85));
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1056,18 +1058,18 @@ function TemplateDialog({ admin, onClose }: {
                 <span className="font-medium text-gray-700">🖥 Desktop / Laptop</span>
                 <div className="flex items-center gap-1">
                   <input
-                    type="number" min={50} max={150} step={5}
+                    type="number" min={50} max={100} step={5}
                     value={scaleDesktop}
-                    onChange={(e) => { const v = Math.min(150, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
+                    onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); saveScale(deskKey, v); }}
                     className="w-16 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
                   />
                   <span className="text-xs text-gray-500">%</span>
                 </div>
               </div>
               <Slider
-                min={50} max={150} step={5}
+                min={50} max={100} step={5}
                 value={[scaleDesktop]}
-                onValueChange={([v]) => { setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
+                onValueChange={([v]) => { setScaleDesktop(v); saveScale(deskKey, v); }}
               />
               <p className="text-xs text-gray-400">Correspond au zoom d'impression du navigateur web sur ordinateur.</p>
             </div>
@@ -1076,18 +1078,18 @@ function TemplateDialog({ admin, onClose }: {
                 <span className="font-medium text-gray-700">📱 Mobile / Tablette</span>
                 <div className="flex items-center gap-1">
                   <input
-                    type="number" min={50} max={150} step={5}
+                    type="number" min={50} max={100} step={5}
                     value={scaleMobile}
-                    onChange={(e) => { const v = Math.min(150, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
+                    onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); saveScale(mobKey, v); }}
                     className="w-16 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
                   />
                   <span className="text-xs text-gray-500">%</span>
                 </div>
               </div>
               <Slider
-                min={50} max={150} step={5}
+                min={50} max={100} step={5}
                 value={[scaleMobile]}
-                onValueChange={([v]) => { setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
+                onValueChange={([v]) => { setScaleMobile(v); saveScale(mobKey, v); }}
               />
               <p className="text-xs text-gray-400">Correspond au zoom d'impression sur iPhone / Android.</p>
             </div>
