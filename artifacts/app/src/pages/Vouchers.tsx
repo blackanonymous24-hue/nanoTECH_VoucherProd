@@ -2144,7 +2144,7 @@ export default function Vouchers() {
                   {alreadyExpired && (
                     <div className="flex items-start gap-2 rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-xs text-orange-700">
                       <RotateCcw className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                      <span>Forfait expiré — le compte sera <strong>réinitialisé</strong> (compteurs remis à zéro, session coupée) avant d'appliquer la nouvelle date.</span>
+                      <span>Forfait expiré — le compte sera <strong>réinitialisé</strong> avant d'appliquer la nouvelle date.</span>
                     </div>
                   )}
                 </>
