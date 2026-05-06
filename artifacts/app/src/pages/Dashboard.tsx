@@ -875,13 +875,13 @@ export default function Dashboard() {
           href="/vouchers"
         />
         {/* Raccourcis actions — sm/md uniquement (caché sur lg) */}
-        <div className="col-span-2 lg:hidden sm:order-5 flex flex-row gap-1 items-stretch">
+        <div className="col-span-2 lg:hidden sm:order-5 flex flex-row gap-1 items-stretch h-[4.75rem]">
           <button
             type="button"
             style={{flex:1, minWidth:0, textAlign:"left"}}
             onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
           >
-            <Card className="min-h-[52px] h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+            <Card className="h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
               <div className="flex-1 flex items-center gap-2 p-2.5">
                 <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
                   <UserPlus className="h-5 w-5 text-emerald-600" />
@@ -891,7 +891,7 @@ export default function Dashboard() {
             </Card>
           </button>
           <Link href="/generate" style={{flex:1, minWidth:0, display:"block"}}>
-            <Card className="min-h-[52px] h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+            <Card className="h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
               <div className="flex-1 flex items-center gap-2 p-2.5">
                 <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
                   <Zap className="h-5 w-5 text-amber-500" />
