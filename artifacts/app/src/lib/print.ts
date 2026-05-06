@@ -1,9 +1,9 @@
 /* @page DOIT être au niveau racine — imbriqué dans @media print = CSS invalide ignoré par Safari */
 const PRINT_PAGE_CSS = `
-  @page         { margin:0; }
-  @page :first  { margin:0; }
-  @page :left   { margin:0; }
-  @page :right  { margin:0; }
+  @page         { margin:4mm 0 0 0; }
+  @page :first  { margin:4mm 0 0 0; }
+  @page :left   { margin:4mm 0 0 0; }
+  @page :right  { margin:4mm 0 0 0; }
 `;
 
 const PRINT_CSS = `
