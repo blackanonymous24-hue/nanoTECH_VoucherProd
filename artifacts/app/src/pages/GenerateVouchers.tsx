@@ -693,9 +693,8 @@ export default function GenerateVouchers() {
       return;
     }
     const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
-    // 4×9 uniquement quand aucun template n'est enregistré nulle part (DB ni localStorage)
-    // et que DEFAULT_MIKHMON_PHP est utilisé. Dès qu'un template est enregistré → 4×6.
-    const mobileRowsPerPage = isMikHmonDefault ? 9 : 6;
+    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+    const mobileRowsPerPage = isMikHmon ? 9 : 6;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
@@ -747,7 +746,7 @@ export default function GenerateVouchers() {
         preWin.document.close();
       } else {
         // APK WebView natif ou desktop
-        printTickets(data.html as string[], title, printScale, isMikHmonDefault ? 5 : 4);
+        printTickets(data.html as string[], title, printScale, isMikHmon ? 5 : 4);
       }
     } catch (err: unknown) {
       preWin?.close();

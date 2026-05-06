@@ -709,6 +709,7 @@ export default function Vouchers() {
     }
     setPrintingLot(lot.name);
     const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
+    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
     try {
       const users = await fetchLotUsers(lot);
       if (users.length === 0) {
@@ -748,7 +749,7 @@ export default function Vouchers() {
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       try {
-        printTickets(data.html, printParts.join("-"), 85, isMikHmonDefault ? 5 : 4);
+        printTickets(data.html, printParts.join("-"), 85, isMikHmon ? 5 : 4);
       } catch {
         toast({ title: "Impression bloquée", description: "Autorisez les popups pour ce site puis réessayez.", variant: "destructive" });
       }
@@ -782,6 +783,7 @@ export default function Vouchers() {
     }
     setIsPrinting(true);
     const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
+    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -870,7 +872,7 @@ export default function Vouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment].filter(Boolean);
 
       try {
-        printTickets(data.html, printParts.join("-"), 85, isMikHmonDefault ? 5 : 4);
+        printTickets(data.html, printParts.join("-"), 85, isMikHmon ? 5 : 4);
       } catch (printErr) {
         // eslint-disable-next-line no-console
         console.error("[print] printTickets threw:", printErr);
