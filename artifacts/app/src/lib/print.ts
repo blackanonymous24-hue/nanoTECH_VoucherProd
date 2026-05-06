@@ -136,12 +136,46 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
 /**
  * Construit le HTML pour la génération PDF Puppeteer.
  *
- * Puppeteer embarque Chromium — même moteur que le navigateur desktop.
- * On réutilise donc exactement le même HTML que l'impression desktop (buildHtml),
- * sans autoprint et avec scale=100 (l'échelle est gérée par page.pdf({ scale })).
+ * Correctifs spécifiques PDF (distincts de l'impression navigateur) :
+ * - Pas de blocs de 32 ni de 4 colonnes forcées : tickets inline-block,
+ *   flux libre, Puppeteer pagine selon ce qui tient à l'échelle choisie.
+ * - @page { margin:0 } : marges gérées par le lecteur PDF.
+ * - Pas de zoom CSS : l'échelle est gérée par page.pdf({ scale }).
+ * - text-align:left sur chaque ticket : évite que text-align:center du body
+ *   cascade dans les cellules du template PHP et provoque des retours à la ligne.
+ * - Pas de règle * { box-sizing } : n'interfère pas avec les largeurs du template.
  */
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
-  return buildHtml(htmlItems, title, false, 100, false);
+  const items = htmlItems
+    .map(item =>
+      `<span style="display:inline-block;vertical-align:top;padding:1px;text-align:left;">${item}</span>`,
+    )
+    .join("");
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      html, body {
+        margin: 0; padding: 0;
+        background: #fff; color: #000;
+        font-size: 14px;
+        font-family: Helvetica, Arial, sans-serif;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        text-align: center;
+      }
+      @page { margin: 0; }
+      @page :first { margin: 0; }
+      @page :left  { margin: 0; }
+      @page :right { margin: 0; }
+      span { page-break-inside: avoid; break-inside: avoid; }
+    </style>
+  </head>
+  <body>${items}</body>
+</html>`;
 }
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
