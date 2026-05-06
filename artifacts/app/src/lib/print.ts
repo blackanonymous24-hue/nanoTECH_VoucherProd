@@ -261,8 +261,15 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
         page-break-inside: avoid;
       }
 
-      /* Template PHP : table avec display:inline-block → force display:table */
-      .ticket > table { display: table !important; overflow: hidden !important; }
+      /* Template PHP : table avec display:inline-block → force display:table.
+         position:relative OBLIGATOIRE : sans lui, overflow:hidden ne clippe pas
+         les enfants position:absolute (le triangle décoratif CSS border-right:170px
+         déborde alors sur la bordure droite du ticket voisin). */
+      .ticket > table {
+        display: table !important;
+        overflow: hidden !important;
+        position: relative !important;
+      }
 
       /* float casse le flux d'impression */
       .ticket img { float: none !important; display: inline-block !important; }
