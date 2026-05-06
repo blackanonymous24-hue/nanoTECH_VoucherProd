@@ -10,20 +10,26 @@ const PRINT_CSS = `
   body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   table.voucher { display:inline-block; margin:0; }
   .doc-header { display:none !important; }
-  /* Grille flex — div.ticket-page > div.ticket-row > div.ticket-cell */
-  .ticket-page { display:flex; flex-direction:column; margin-bottom:2px; }
-  .ticket-row  { display:flex; flex-direction:row; flex-wrap:nowrap; }
-  .ticket-cell { padding:2px; flex-shrink:0; vertical-align:top; }
+  /* Grille block/inline-block — seule combinaison respectée par Safari iOS pour break-inside */
+  .ticket-page { display:block; text-align:center; }
+  /* white-space:nowrap garde les 4 tickets sur la même ligne */
+  .ticket-row  { display:block; white-space:nowrap; font-size:0; }
+  .ticket-cell { display:inline-block; vertical-align:top; padding:2px; font-size:initial; }
   @media screen {
     body { padding-bottom:100px; }
   }
   @media print {
-    /* Flexbox colonne + align-items:center = centrage horizontal en impression */
-    body { padding:3mm 1mm 1mm !important; display:flex; flex-direction:column; align-items:center; }
-    .ticket-page { margin:0; }
-    /* break-inside:avoid sur div.ticket-row : respecté par WebKit/Safari iOS (contrairement à <tr>) */
+    body { padding:3mm 1mm 1mm !important; }
+    .ticket-page { margin:0; text-align:center; }
+    /* break-inside:avoid sur un <div display:block> = fiable dans WebKit/Safari iOS */
     .ticket-row {
-      break-inside:avoid; -webkit-column-break-inside:avoid;
+      break-inside:avoid;
+      -webkit-column-break-inside:avoid;
+      page-break-inside:avoid;
+    }
+    /* Empêche aussi le découpage d'un ticket individuel */
+    .ticket-cell, .ticket-cell > table {
+      break-inside:avoid;
       page-break-inside:avoid;
     }
   }
