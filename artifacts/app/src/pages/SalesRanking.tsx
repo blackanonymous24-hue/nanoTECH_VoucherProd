@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Link } from "wouter";
-import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer } from "lucide-react";
+import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer, BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -424,10 +424,13 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
           <Card className="mb-4">
             <CardContent className="pt-4 pb-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Users className="h-4 w-4 text-gray-400" />
-                  <span>{sorted.length} vendeur{sorted.length !== 1 ? "s" : ""}</span>
-                </div>
+                <Link
+                href="/reports"
+                className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+              >
+                <BarChart3 className="h-4 w-4" />
+                <span>Voir la performance de vente</span>
+              </Link>
                 <div className="text-right">
                   <span className="text-xl font-bold text-gray-900">{total.toLocaleString()}</span>
                   <span className="text-sm text-gray-500 ml-1">tickets vendus</span>
