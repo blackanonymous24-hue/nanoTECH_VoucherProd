@@ -196,13 +196,89 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     const rows: string[] = [];
     for (let r = 0; r < page.length; r += COLS) {
       const cells = page.slice(r, r + COLS)
-        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
+        .map(item =>
+          mobile
+            // Chaque ticket enveloppé dans .ticket pour break-inside:avoid Safari
+            ? `<td style="padding:2px;vertical-align:top;"><div class="ticket">${item}</div></td>`
+            : `<td style="padding:2px;vertical-align:top;">${item}</td>`,
+        )
         .join("");
-      rows.push(`<tr>${cells}</tr>`);
+      // class="ticket-row" sur les <tr> pour les règles break-inside Safari
+      rows.push(`<tr class="ticket-row">${cells}</tr>`);
     }
     pageBlocks.push(`<div class="ticket-page-wrap"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`);
   }
 
+  if (mobile) {
+    // ─── CSS mobile Safari ───────────────────────────────────────────────────
+    // @page DOIT être à la racine (hors @media print) — Safari iOS/macOS l'ignore sinon.
+    // transform:scale = seule méthode fiable pour Safari print (zoom CSS ignoré).
+    // width compensation = 100/scale% pour que le contenu ne soit pas tronqué à droite.
+    const s = scale / 100;
+    const widthComp = (100 / s).toFixed(2);
+
+    const mobilePageCss = `
+      @page        { margin: 0; }
+      @page :first { margin: 0; }
+      @page :left  { margin: 0; }
+      @page :right { margin: 0; }
+    `;
+
+    const mobilePrintCss = `
+      body {
+        color: #000; background: #fff;
+        font-size: 14px; font-family: Helvetica, Arial, sans-serif;
+        margin: 0; padding: 0;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      table.voucher { display: inline-block; margin: 0; }
+      .doc-header { display: none !important; }
+      table.ticket-page { border-collapse: collapse; }
+      table.ticket-page > tbody > tr > td { padding: 1px; vertical-align: top; }
+      @media screen {
+        body { padding-bottom: 100px; }
+      }
+      @media print {
+        html, body { margin: 0 !important; padding: 0 !important; }
+        body {
+          transform: scale(${s});
+          transform-origin: top left;
+          width: ${widthComp}%;
+        }
+        /* Empêche les rangées de tickets d'être coupées — Safari exige les deux propriétés */
+        table.ticket-page tr,
+        .ticket-row {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+        /* Chaque ticket individuel intact */
+        .ticket {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+        /* Safari bug : overflow:hidden coupe le contenu lors des sauts de page */
+        * { overflow: visible !important; }
+        /* Centrage sans flex (flex casse break-inside sur Safari) */
+        .ticket-page-wrap { display: block; text-align: center; }
+        table.ticket-page { display: inline-table; margin: 0; }
+      }
+    `;
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>${title}</title>
+    <style>${mobilePageCss}</style>
+    <style>${mobilePrintCss}</style>
+    ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
+  </head>
+  <body>${pageBlocks.join("")}</body>
+</html>`;
+  }
+
+  // ─── CSS desktop (inchangé) ──────────────────────────────────────────────
   return `<!doctype html>
 <html>
   <head>
