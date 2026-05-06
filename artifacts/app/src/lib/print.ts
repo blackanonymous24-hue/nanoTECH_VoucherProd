@@ -162,7 +162,7 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
       print-color-adjust: exact;
       text-align: center;
     }
-    @page { margin: 4mm 1mm 1mm; }
+    @page { margin: 0; }
     span { page-break-inside: avoid; break-inside: avoid; }
   `;
 
