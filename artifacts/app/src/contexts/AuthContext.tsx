@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { abortAllApiRequests } from "@/lib/installAuthFetch";
 import { getListRoutersQueryKey } from "@workspace/api-client-react";
@@ -93,6 +93,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isSuperAdmin,    setIsSuperAdmin]    = useState<boolean>(() => readKey(SUPER_ADMIN_KEY) === "1");
   const [connectedName,   setConnectedName]   = useState<string | null>(() => readKey(CONNECTED_NAME_KEY));
   const [connectedUsername, setConnectedUsername] = useState<string | null>(() => readKey(CONNECTED_USER_KEY));
+
+  // Backfill connectedName/connectedUsername for sessions created before these
+  // keys were introduced (user already logged in, page refresh).
+  useEffect(() => {
+    const t = readKey(TOKEN_KEY);
+    const r = readKey(ROLE_KEY) as UserRole | null;
+    if (!t || !r || (readKey(CONNECTED_NAME_KEY) && readKey(CONNECTED_USER_KEY))) return;
+
+    const remember = !!localStorage.getItem(TOKEN_KEY);
+    const headers = { Authorization: `Bearer ${t}` };
+
+    if (r === "admin") {
+      fetch("/api/admin/me", { headers })
+        .then((res) => res.ok ? res.json() : null)
+        .then((data) => {
+          if (!data) return;
+          const name     = data.displayName || data.login || null;
+          const username = data.login || null;
+          if (name)     { writeKey(CONNECTED_NAME_KEY, name, remember);     setConnectedName(name); }
+          if (username) { writeKey(CONNECTED_USER_KEY, username, remember); setConnectedUsername(username); }
+        })
+        .catch(() => {});
+    } else if (r === "manager") {
+      fetch("/api/managers/me", { headers })
+        .then((res) => res.ok ? res.json() : null)
+        .then((data) => {
+          if (!data) return;
+          const name     = data.name     || null;
+          const username = data.username || null;
+          if (name)     { writeKey(CONNECTED_NAME_KEY, name, remember);     setConnectedName(name); }
+          if (username) { writeKey(CONNECTED_USER_KEY, username, remember); setConnectedUsername(username); }
+        })
+        .catch(() => {});
+    } else if (r === "collaborateur") {
+      fetch("/api/collaborateurs/me", { headers })
+        .then((res) => res.ok ? res.json() : null)
+        .then((data) => {
+          if (!data) return;
+          const name     = data.name     || null;
+          const username = data.username || null;
+          if (name)     { writeKey(CONNECTED_NAME_KEY, name, remember);     setConnectedName(name); }
+          if (username) { writeKey(CONNECTED_USER_KEY, username, remember); setConnectedUsername(username); }
+        })
+        .catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const login = (
     t: string,

@@ -42,6 +42,16 @@ async function getRouterIds(collaborateurId: number): Promise<number[]> {
   return rows.map((r) => r.routerId);
 }
 
+/* ── GET /collaborateurs/me — collaborateur connecté lit ses propres infos ── */
+router.get("/collaborateurs/me", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyToken(auth.slice(7)) : null;
+  if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const [collab] = await db.select().from(collaborateursTable).where(eq(collaborateursTable.id, claims.collaborateurId));
+  if (!collab) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
+  res.json({ id: collab.id, name: collab.name, username: collab.username });
+});
+
 router.get("/collaborateurs", async (req, res): Promise<void> => {
   const scope = getAdminScope(req, res);
   if (!scope) return;

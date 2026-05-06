@@ -35,6 +35,16 @@ function safeManager(m: typeof managersTable.$inferSelect) {
   return rest;
 }
 
+/* ── GET /managers/me — gérant connecté lit ses propres infos ── */
+router.get("/managers/me", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyToken(auth.slice(7)) : null;
+  if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const [mgr] = await db.select().from(managersTable).where(eq(managersTable.id, claims.managerId));
+  if (!mgr) { res.status(404).json({ error: "Gérant introuvable" }); return; }
+  res.json({ id: mgr.id, name: mgr.name, username: mgr.username });
+});
+
 router.get("/managers", async (req, res): Promise<void> => {
   const scope = getAdminScope(req, res);
   if (!scope) return;
