@@ -146,28 +146,15 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
  */
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
   const COLS = 4;
-  const PER_PAGE = COLS * 8; // 32 tickets par page A4
 
-  const blocks: string[] = [];
-  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
-    const slice = htmlItems.slice(p, p + PER_PAGE);
-    const rows: string[] = [];
-    for (let r = 0; r < slice.length; r += COLS) {
-      const cells = slice.slice(r, r + COLS)
-        .map(item => `<td style="padding:1px;vertical-align:top;">${item}</td>`)
-        .join("");
-      rows.push(`<tr>${cells}</tr>`);
-    }
-    const isLast = p + PER_PAGE >= htmlItems.length;
-    // break-after:page sur tous les blocs sauf le dernier
-    const breakStyle = isLast
-      ? ""
-      : " page-break-after:always; break-after:page;";
-    blocks.push(
-      `<div style="display:block;${breakStyle}">` +
-      `<table style="border-collapse:collapse;margin:0 auto;">` +
-      `<tbody>${rows.join("")}</tbody></table></div>`,
-    );
+  // Une seule table continue — Puppeteer pagine naturellement,
+  // break-inside:avoid empêche de couper une ligne en deux.
+  const rows: string[] = [];
+  for (let r = 0; r < htmlItems.length; r += COLS) {
+    const cells = htmlItems.slice(r, r + COLS)
+      .map(item => `<td style="padding:1px;vertical-align:top;">${item}</td>`)
+      .join("");
+    rows.push(`<tr>${cells}</tr>`);
   }
 
   const CSS = `
@@ -181,7 +168,7 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
       print-color-adjust: exact;
     }
     @page { margin: 4mm 1mm 1mm; }
-    table { border-collapse: collapse; }
+    table { border-collapse: collapse; margin: 0 auto; }
     tr { page-break-inside: avoid; break-inside: avoid; }
     td > table, td > table * { page-break-inside: avoid; break-inside: avoid; }
   `;
@@ -193,7 +180,9 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
     <title>${title}</title>
     <style>${CSS}</style>
   </head>
-  <body>${blocks.join("")}</body>
+  <body>
+    <table><tbody>${rows.join("")}</tbody></table>
+  </body>
 </html>`;
 }
 
