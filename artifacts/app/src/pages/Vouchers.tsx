@@ -2144,7 +2144,7 @@ export default function Vouchers() {
             })()}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Durée à ajouter</Label>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <Input
                   type="number"
                   min="1"
@@ -2152,14 +2152,14 @@ export default function Vouchers() {
                   value={extendAmount}
                   onChange={(e) => setExtendAmount(e.target.value)}
                   disabled={isExtending}
-                  className="flex-1 font-mono text-center text-base"
+                  className="flex-1 h-9 font-mono text-center text-base"
                   onKeyDown={(e) => { if (e.key === "Enter") void handleExtend(); }}
                 />
                 <select
                   value={extendUnit}
                   onChange={(e) => setExtendUnit(e.target.value as "Heure" | "Jour" | "Mois")}
                   disabled={isExtending}
-                  className="flex h-9 w-28 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-9 w-28 rounded-md border border-input bg-background px-3 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="Heure">Heure(s)</option>
                   <option value="Jour">Jour(s)</option>
