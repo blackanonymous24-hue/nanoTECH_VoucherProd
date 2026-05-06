@@ -589,15 +589,7 @@ export default function TicketTemplate() {
         </div>
       </div>
 
-      <Dialog open={showScaleDialog} onOpenChange={(open) => {
-        if (!open) {
-          setScaleDesktop(readScale(SCALE_DESKTOP_KEY, 85));
-          setScaleMobile(readScale(SCALE_MOBILE_KEY, 85));
-          setColsDesktop(readCols(COLS_DESKTOP_KEY, 4));
-          setColsMobile(readCols(COLS_MOBILE_KEY, 4));
-        }
-        setShowScaleDialog(open);
-      }}>
+      <Dialog open={showScaleDialog} onOpenChange={setShowScaleDialog}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -616,7 +608,7 @@ export default function TicketTemplate() {
                     <input
                       type="number" min={50} max={100} step={5}
                       value={scaleDesktop}
-                      onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); }}
+                      onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
                       className="w-14 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
                     />
                     <span className="text-xs text-gray-500">%</span>
@@ -625,7 +617,7 @@ export default function TicketTemplate() {
                 <Slider
                   min={50} max={100} step={5}
                   value={[scaleDesktop]}
-                  onValueChange={([v]) => { setScaleDesktop(v); }}
+                  onValueChange={([v]) => { setScaleDesktop(v); saveScale(SCALE_DESKTOP_KEY, v); }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -634,7 +626,7 @@ export default function TicketTemplate() {
                   {[2, 3, 4, 5, 6].map((n) => (
                     <button
                       key={n} type="button"
-                      onClick={() => { setColsDesktop(n); }}
+                      onClick={() => { setColsDesktop(n); saveCols(COLS_DESKTOP_KEY, n); }}
                       className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsDesktop === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
                     >{n}</button>
                   ))}
@@ -654,7 +646,7 @@ export default function TicketTemplate() {
                     <input
                       type="number" min={50} max={100} step={5}
                       value={scaleMobile}
-                      onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); }}
+                      onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
                       className="w-14 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
                     />
                     <span className="text-xs text-gray-500">%</span>
@@ -663,7 +655,7 @@ export default function TicketTemplate() {
                 <Slider
                   min={50} max={100} step={5}
                   value={[scaleMobile]}
-                  onValueChange={([v]) => { setScaleMobile(v); }}
+                  onValueChange={([v]) => { setScaleMobile(v); saveScale(SCALE_MOBILE_KEY, v); }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -672,7 +664,7 @@ export default function TicketTemplate() {
                   {[2, 3, 4, 5, 6].map((n) => (
                     <button
                       key={n} type="button"
-                      onClick={() => { setColsMobile(n); }}
+                      onClick={() => { setColsMobile(n); saveCols(COLS_MOBILE_KEY, n); }}
                       className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsMobile === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
                     >{n}</button>
                   ))}
@@ -681,13 +673,9 @@ export default function TicketTemplate() {
             </div>
           </div>
           <DialogFooter>
-            <Button size="sm" className="gap-1.5" onClick={() => {
-              saveScale(SCALE_DESKTOP_KEY, scaleDesktop);
-              saveScale(SCALE_MOBILE_KEY, scaleMobile);
-              saveCols(COLS_DESKTOP_KEY, colsDesktop);
-              saveCols(COLS_MOBILE_KEY, colsMobile);
-              setShowScaleDialog(false);
-            }}><Save className="h-3.5 w-3.5" />Enregistrer</Button>
+            <DialogClose asChild>
+              <Button size="sm" className="gap-1.5"><Save className="h-3.5 w-3.5" />Fermer</Button>
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>
