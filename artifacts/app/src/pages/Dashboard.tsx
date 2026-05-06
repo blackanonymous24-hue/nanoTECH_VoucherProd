@@ -834,6 +834,7 @@ export default function Dashboard() {
           live={!!selectedRouterId}
           fetching={sessionsFetching}
           icon={<Wifi className="h-5 w-5 text-purple-500" />}
+          iconBg="bg-purple-100"
           loading={!!selectedRouterId && !sessionsKnown}
           href="/sessions"
         />
@@ -846,6 +847,7 @@ export default function Dashboard() {
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
+          iconBg="bg-orange-100"
           loading={!!selectedRouterId && !salesFresh}
           href="/sales/daily"
         />
@@ -858,6 +860,7 @@ export default function Dashboard() {
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
+          iconBg="bg-green-100"
           loading={!!selectedRouterId && !salesFresh}
           href="/sales/monthly"
         />
@@ -867,6 +870,7 @@ export default function Dashboard() {
           live={!!selectedRouterId}
           fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
+          iconBg="bg-blue-100"
           loading={!!selectedRouterId && !usersKnown}
           href="/vouchers"
         />
@@ -1139,6 +1143,7 @@ function StatCard({
   currency,
   sub,
   icon,
+  iconBg,
   loading,
   live,
   fetching,
@@ -1152,6 +1157,7 @@ function StatCard({
   currency?: string;
   sub?: string;
   icon: React.ReactNode;
+  iconBg?: string;
   loading: boolean;
   live?: boolean;
   fetching?: boolean;
@@ -1162,7 +1168,7 @@ function StatCard({
     <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
       <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6 lg:px-4 lg:py-2.5">
         <div className="flex items-center gap-2 sm:gap-3 lg:gap-2.5">
-          <div className="p-2.5 lg:p-2 bg-gray-100 rounded-lg flex-shrink-0">{icon}</div>
+          <div className={`p-1.5 rounded-xl flex-shrink-0 ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
