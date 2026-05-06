@@ -712,12 +712,14 @@ export default function GenerateVouchers() {
       const title = printParts.join("-");
 
       if (preWin) {
-        // Navigateur mobile : écriture dans la fenêtre pré-ouverte
+        // Navigateur mobile : blob URL → le refresh relance automatiquement l'impression
+        // (document.write sur about:blank ne survit pas au refresh)
         const html = buildTicketPrintHtml(data.html as string[], title);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-        try { preWin.document.title = title; } catch (_) { /* cross-origin guard */ }
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const blobUrl = URL.createObjectURL(blob);
+        preWin.location.href = blobUrl;
+        // Révoquer après 30 min (libère la mémoire, le refresh ne fonctionnera plus après)
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 30 * 60 * 1000);
       } else {
         // APK WebView natif ou desktop
         printTickets(data.html as string[], title);
