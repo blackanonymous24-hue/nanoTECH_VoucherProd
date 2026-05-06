@@ -136,35 +136,41 @@ export function buildTicketPrintHtml(htmlItems: string[], title: string, scale =
 /**
  * Construit le HTML dédié au rendu PDF Puppeteer (POST /api/print-pdf).
  *
- * Différences par rapport à buildHtml / impression navigateur :
- * - CSS propre sans @media wrapper (emulateMediaType("print") est actif côté serveur)
- * - Centrage via margin:0 auto (pas display:inline-table qui casse l'alignement en PDF)
- * - Saut de page EXPLICITE (break-after:page) entre chaque bloc de 32
- *   → Puppeteer ne devine plus où couper, résultat garanti propre
- * - @page margin directement dans le CSS (pas imbriqué dans @media)
- * - Pas de page blanche initiale (pas de break-before sur le premier bloc)
+ * Identique au rendu desktop (buildHtml mobile=false) :
+ * - Même PRINT_CSS avec ses règles @media print (actives via emulateMediaType("print"))
+ * - Même structure HTML : blocs de 32, table.ticket-page, 4 colonnes
+ * - Même centrage : .ticket-page-wrap text-align:center + table display:inline-table
+ *
+ * Seules différences justifiées :
+ * - @page { margin:0 } au lieu de 4mm (marges gérées par le lecteur PDF)
+ * - Pas de zoom CSS body (l'échelle est gérée par Puppeteer page.pdf({ scale }))
+ * - Pas de script window.print()
  */
 export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
-  // Pas de grille forcée : chaque ticket est inline-block, ils se placent
-  // librement selon leur largeur naturelle. Puppeteer pagine au débordement.
-  // text-align:left sur chaque ticket : réinitialise le centrage du body
-  // pour que les cellules internes du template PHP gardent leur alignement d'origine.
-  const items = htmlItems
-    .map(item => `<span style="display:inline-block;vertical-align:top;padding:1px;text-align:left;">${item}</span>`)
-    .join("");
+  const COLS = 4;
+  const PER_PAGE = COLS * 8; // 32 tickets par bloc, identique au desktop
 
-  const CSS = `
-    html, body {
-      margin: 0; padding: 0;
-      background: #fff; color: #000;
-      font-size: 14px;
-      font-family: Helvetica, Arial, sans-serif;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-      text-align: center;
+  const pageBlocks: string[] = [];
+  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
+    const page = htmlItems.slice(p, p + PER_PAGE);
+    const rows: string[] = [];
+    for (let r = 0; r < page.length; r += COLS) {
+      const cells = page.slice(r, r + COLS)
+        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
+        .join("");
+      rows.push(`<tr>${cells}</tr>`);
     }
-    @page { margin: 0; }
-    span { page-break-inside: avoid; break-inside: avoid; }
+    pageBlocks.push(
+      `<div class="ticket-page-wrap"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`,
+    );
+  }
+
+  // @page margin:0 (pas de 4mm — l'utilisateur contrôle via le lecteur PDF)
+  const PDF_PAGE_CSS = `
+    @page        { margin:0; }
+    @page :first { margin:0; }
+    @page :left  { margin:0; }
+    @page :right { margin:0; }
   `;
 
   return `<!doctype html>
@@ -172,9 +178,10 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
   <head>
     <meta charset="utf-8" />
     <title>${title}</title>
-    <style>${CSS}</style>
+    <style>${PDF_PAGE_CSS}</style>
+    <style>${PRINT_CSS}</style>
   </head>
-  <body>${items}</body>
+  <body>${pageBlocks.join("")}</body>
 </html>`;
 }
 
