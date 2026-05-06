@@ -1028,7 +1028,10 @@ export default function Vouchers() {
           const err = await resetRes.json() as { error?: string };
           throw new Error(err.error ?? `HTTP ${resetRes.status}`);
         }
-        toast({ title: "Compte réinitialisé", description: user.username });
+        toast({
+          title: "Réinitialisation réussie",
+          description: `Le compte "${user.username}" a été remis à zéro. Il peut se reconnecter normalement.`,
+        });
       } else {
         // Pas de date ou forfait encore actif → prolonger depuis la date existante (ou maintenant si aucune)
         const n = parseInt(extendAmount, 10);
@@ -1047,11 +1050,18 @@ export default function Vouchers() {
           const err = await patchRes.json() as { error?: string };
           throw new Error(err.error ?? `HTTP ${patchRes.status}`);
         }
-        toast({ title: "Forfait prolongé", description: `${user.username} — expire : ${newComment}` });
+        toast({
+          title: "Forfait prolongé avec succès",
+          description: `"${user.username}" — nouvelle expiration : ${newComment}`,
+        });
       }
       void Promise.all([refetchUsers(), refetchLots()]);
     } catch (err) {
-      toast({ title: isExpired ? "Erreur réinitialisation" : "Erreur prolongation", description: String(err), variant: "destructive" });
+      toast({
+        title: isExpired ? "Échec de la réinitialisation" : "Échec de la prolongation",
+        description: String(err),
+        variant: "destructive",
+      });
     } finally {
       setIsExtending(false);
     }
