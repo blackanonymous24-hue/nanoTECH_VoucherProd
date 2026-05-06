@@ -1166,50 +1166,50 @@ function StatCard({
 }) {
   const inner = (
     <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6 lg:px-4 lg:py-2.5">
-        <div className="flex items-center gap-2 sm:gap-3 lg:gap-2.5">
-          <div className={`p-1.5 rounded-xl flex-shrink-0 ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
-              {live && (
-                <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
-                </span>
-              )}
-              {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
-            </div>
-            <div className="min-h-[2.75rem] lg:min-h-0 flex flex-col justify-center lg:mt-0.5">
-              {loading ? (
-                <>
-                  <div className="h-7 w-24 bg-gray-200 rounded animate-pulse mt-1" />
-                  <div className="h-3 w-16 bg-gray-100 rounded animate-pulse mt-1.5" />
-                </>
-              ) : label !== undefined ? (
-                <>
-                  {amountValue !== undefined ? (
-                    <p
-                      className="font-bold text-gray-900 whitespace-nowrap leading-tight tracking-tight"
-                      style={amountTextStyle(amountValue, currency || "FCFA")}
-                    >
-                      {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
-                    </p>
-                  ) : (
-                    <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
-                  )}
-                  {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
-                </>
+      <div className="flex-1 flex p-2.5 sm:p-6 lg:px-4 lg:py-2.5 gap-2 sm:gap-3 lg:gap-2.5">
+        {/* Icône — alignée avec le titre */}
+        <div className={`p-1.5 rounded-xl flex-shrink-0 self-start ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
+        {/* Colonne texte : titre en haut, montant centré, sous-titre en bas */}
+        <div className="min-w-0 flex-1 flex flex-col">
+          {/* Titre */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
+            {live && (
+              <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+              </span>
+            )}
+            {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
+          </div>
+          {/* Montant / valeur — centré verticalement */}
+          <div className="flex-1 flex items-center min-h-0">
+            {loading ? (
+              <div className="h-6 w-24 bg-gray-200 rounded animate-pulse" />
+            ) : label !== undefined ? (
+              amountValue !== undefined ? (
+                <p
+                  className="font-bold text-gray-900 whitespace-nowrap leading-tight tracking-tight"
+                  style={amountTextStyle(amountValue, currency || "FCFA")}
+                >
+                  {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
+                </p>
               ) : (
-                <>
-                  <p className="text-xl sm:text-lg lg:text-lg font-bold text-gray-900 truncate leading-none tabular-nums">{value === undefined ? "—" : value.toLocaleString()}</p>
-                  {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
-                </>
-              )}
-            </div>
+                <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
+              )
+            ) : (
+              <p className="text-xl sm:text-lg lg:text-lg font-bold text-gray-900 truncate leading-none tabular-nums">{value === undefined ? "—" : value.toLocaleString()}</p>
+            )}
+          </div>
+          {/* Sous-titre — collé en bas */}
+          <div className="flex-shrink-0 min-h-[0.875rem]">
+            {loading ? (
+              <div className="h-3 w-16 bg-gray-100 rounded animate-pulse" />
+            ) : (
+              sub && <p className="text-xs text-gray-400 truncate">{sub}</p>
+            )}
           </div>
         </div>
-
       </div>
     </Card>
   );
