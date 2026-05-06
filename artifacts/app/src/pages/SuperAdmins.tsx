@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Sliders,
+  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Sliders, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -575,6 +575,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const [formTarget, setFormTarget] = useState<RouterRow | "create" | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showCopyVendors, setShowCopyVendors] = useState(false);
+  const [showCopyRouter, setShowCopyRouter] = useState(false);
 
   const { data: routers = [], isLoading } = useQuery<RouterRow[]>({
     queryKey: qk,
@@ -652,8 +653,11 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
             <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => setShowCopyVendors(true)}>
               <Users className="h-3.5 w-3.5" /> Copier vendeurs
             </Button>
+            <Button size="sm" variant="outline" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowCopyRouter(true)}>
+              <Copy className="h-3.5 w-3.5" /> Copier routeur
+            </Button>
             <Button size="sm" className="gap-1.5" onClick={() => setFormTarget("create")}>
-              <Plus className="h-3.5 w-3.5" /> Ajouter un routeur
+              <Plus className="h-3.5 w-3.5" /> Ajouter
             </Button>
           </div>
         </div>
@@ -717,8 +721,165 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
             onClose={() => setShowCopyVendors(false)}
           />
         )}
+
+        {showCopyRouter && (
+          <CopyRouterDialog
+            targetAdmin={admin}
+            existingRouterIds={routers.map((r) => r.id)}
+            onClose={() => setShowCopyRouter(false)}
+            onCopy={(r) => {
+              setShowCopyRouter(false);
+              createM.mutate({
+                name: r.name,
+                hotspotName: r.hotspotName ?? undefined,
+                contact: r.contact ?? undefined,
+                address: `${r.host}:${r.port}`,
+                username: r.username,
+                password: r.password,
+              });
+            }}
+          />
+        )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/* ══════════════════════════════════════════════════════
+   CopyRouterDialog — sélectionner un routeur existant pour le dupliquer
+   ══════════════════════════════════════════════════════ */
+interface AllRouterRow extends RouterRow {
+  ownerLogin: string | null;
+  ownerDisplayName: string | null;
+}
+
+function CopyRouterDialog({
+  targetAdmin,
+  existingRouterIds,
+  onClose,
+  onCopy,
+}: {
+  targetAdmin: AdminRow;
+  existingRouterIds: number[];
+  onClose: () => void;
+  onCopy: (r: AllRouterRow) => void;
+}) {
+  const { token } = useAuth();
+  const headers = { Authorization: `Bearer ${token}` };
+  const [search, setSearch] = useState("");
+
+  const { data: allRouters = [], isLoading } = useQuery<AllRouterRow[]>({
+    queryKey: ["super", "all-routers"],
+    enabled: !!token,
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/super/all-routers`, { headers });
+      if (!r.ok) throw new Error("Impossible de charger les routeurs");
+      return r.json();
+    },
+  });
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return allRouters.filter((r) => {
+      if (r.ownerAdminId === targetAdmin.id) return false; // déjà propriétaire
+      if (!q) return true;
+      return (
+        r.name.toLowerCase().includes(q) ||
+        r.host.toLowerCase().includes(q) ||
+        (r.ownerLogin ?? "").toLowerCase().includes(q) ||
+        (r.ownerDisplayName ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [allRouters, search, targetAdmin.id]);
+
+  // Grouper par admin propriétaire
+  const grouped = useMemo(() => {
+    const map = new Map<string, AllRouterRow[]>();
+    for (const r of filtered) {
+      const label = r.ownerDisplayName || r.ownerLogin || `Admin #${r.ownerAdminId ?? "?"}`;
+      if (!map.has(label)) map.set(label, []);
+      map.get(label)!.push(r);
+    }
+    return [...map.entries()];
+  }, [filtered]);
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Copy className="h-4 w-4 text-purple-600" />
+            Copier un routeur vers {targetAdmin.displayName || targetAdmin.login}
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            Sélectionnez un routeur existant. Ses paramètres de connexion seront dupliqués.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+          <Input
+            placeholder="Rechercher nom, IP, admin…"
+            className="pl-8 h-8 text-sm"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        <div className="max-h-72 overflow-y-auto space-y-3 pr-1">
+          {isLoading && (
+            <div className="space-y-2">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          )}
+          {!isLoading && grouped.length === 0 && (
+            <p className="py-8 text-center text-sm text-gray-400">Aucun routeur disponible.</p>
+          )}
+          {grouped.map(([ownerLabel, rows]) => (
+            <div key={ownerLabel}>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1 px-1">{ownerLabel}</p>
+              <div className="space-y-1">
+                {rows.map((r) => {
+                  const alreadyCopied = existingRouterIds.includes(r.id);
+                  return (
+                    <button
+                      key={r.id}
+                      disabled={alreadyCopied}
+                      onClick={() => onCopy(r)}
+                      className={[
+                        "w-full flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                        alreadyCopied
+                          ? "opacity-40 cursor-not-allowed border-gray-100 bg-gray-50"
+                          : "border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-200 cursor-pointer",
+                      ].join(" ")}
+                    >
+                      <div className="p-1.5 rounded-md bg-purple-50 shrink-0">
+                        <RouterIcon className="h-3.5 w-3.5 text-purple-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{r.name}</p>
+                        <p className="text-xs text-gray-400 font-mono truncate">{r.host}:{r.port} · {r.username}</p>
+                      </div>
+                      {alreadyCopied && (
+                        <span className="text-[10px] text-gray-400 shrink-0">déjà présent</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

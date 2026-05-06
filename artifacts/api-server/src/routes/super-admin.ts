@@ -491,6 +491,35 @@ router.delete("/super/admins/:id/routers/:routerId", async (req, res): Promise<v
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/super/all-routers — list every router in the system with its owner info.
+// Used by super-admin to pick a router to copy into another admin's account.
+// ---------------------------------------------------------------------------
+router.get("/super/all-routers", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+
+  const rows = await db
+    .select({
+      id: routersTable.id,
+      name: routersTable.name,
+      hotspotName: routersTable.hotspotName,
+      contact: routersTable.contact,
+      currency: routersTable.currency,
+      host: routersTable.host,
+      port: routersTable.port,
+      username: routersTable.username,
+      password: routersTable.password,
+      isActive: routersTable.isActive,
+      ownerAdminId: routersTable.ownerAdminId,
+      ownerLogin: adminSettingsTable.login,
+      ownerDisplayName: adminSettingsTable.displayName,
+    })
+    .from(routersTable)
+    .leftJoin(adminSettingsTable, eq(adminSettingsTable.id, routersTable.ownerAdminId))
+    .orderBy(adminSettingsTable.id, routersTable.name);
+
+  res.json(rows);
+});
+
 // POST /api/super/admins/:id/routers — create a router for a target admin.
 // Body: { name, host, port?, username, password, hotspotName?, contact?, isActive? }
 // ---------------------------------------------------------------------------
