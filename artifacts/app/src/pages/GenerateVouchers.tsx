@@ -639,8 +639,9 @@ export default function GenerateVouchers() {
     // de clic, puis on y écrit le HTML une fois prêt.
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
     const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    // Desktop et mobile utilisent le même flux nouvel-onglet (même rendu, même CSS)
-    const useNewWindow = !isNativeWV;
+    // Mobile web : nouvel onglet pré-ouvert avant tout await (popup sinon bloqué)
+    // Desktop : impression via iframe silencieux (printTickets)
+    const useMobileWindow = !isNativeWV && isMobileDevice;
     const printScale = (() => {
       try {
         const key = isMobileDevice ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
@@ -648,7 +649,7 @@ export default function GenerateVouchers() {
         return isNaN(v) ? 85 : v;
       } catch { return 85; }
     })();
-    const preWin: Window | null = useNewWindow ? window.open("", "_blank") : null;
+    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
 
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
