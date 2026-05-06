@@ -200,6 +200,7 @@ export default function Vouchers() {
   const [extendAmount, setExtendAmount] = useState("1");
   const [extendUnit, setExtendUnit] = useState<"Heure" | "Jour" | "Mois">("Mois");
   const [isExtending, setIsExtending] = useState(false);
+  const [editUserNow, setEditUserNow] = useState(Date.now());
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
@@ -399,6 +400,13 @@ export default function Vouchers() {
       _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], users: allUsersData, usersTs: Date.now() };
     }
   }, [allUsersData, activeRouterId, isDefaultFilter]);
+
+  useEffect(() => {
+    if (!editingUser) return;
+    setEditUserNow(Date.now());
+    const id = setInterval(() => setEditUserNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [editingUser]);
 
   const isLoading = view === "lots" ? lotsLoading : usersLoading;
   const refetch = () => { void refetchLots(); void refetchUsers(); };
@@ -916,7 +924,7 @@ export default function Vouchers() {
     setEditProfile(user.profile);
     setEditBypassMac(user.macAddress ?? "");
     setEditBypassComment("");
-    setLinkBypass(!!user.macAddress);
+    setLinkBypass(false);
   };
 
   const handleRenameUser = async () => {
@@ -2199,7 +2207,8 @@ export default function Vouchers() {
             <DialogHeader className="space-y-1.5 text-left">
               <DialogTitle>{"Modifier l'utilisateur"}</DialogTitle>
             </DialogHeader>
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <div className="flex items-center gap-1.5 pt-1">
+              {/* Fermer — reste à gauche */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -2216,116 +2225,118 @@ export default function Vouchers() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Fermer</TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="default"
-                    className="shrink-0"
-                    onClick={() => void handleRenameUser()}
-                    disabled={
-                      isSavingRename ||
-                      isTogglingEditUserDisabled ||
-                      !editUsername.trim() ||
-                      !editPassword.trim() ||
-                      !editProfile.trim() ||
-                      (linkBypass && !editBypassMac.trim() && !editBypassComment.trim())
-                    }
-                    aria-label="Enregistrer"
-                  >
-                    {isSavingRename ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Enregistrer</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className={
-                      editingUser?.disabled
-                        ? "shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-800 dark:hover:bg-orange-950/40"
-                        : "shrink-0 text-green-600 hover:bg-green-50 hover:text-green-800 dark:hover:bg-green-950/40"
-                    }
-                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || !activeRouterId}
-                    onClick={() => void handleToggleEditUserDisabled()}
-                    aria-label={editingUser?.disabled ? "Activer" : "Désactiver"}
-                  >
-                    {isTogglingEditUserDisabled ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : editingUser?.disabled ? (
-                      <PowerOff className="h-4 w-4" />
-                    ) : (
-                      <Power className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{editingUser?.disabled ? "Activer" : "Désactiver"}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
-                    onClick={() => {
-                      if (!editingUser) return;
-                      const u = editingUser;
-                      setEditingUser(null);
-                      setConfirmDeleteEditUser(u);
-                    }}
-                    aria-label="Supprimer"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Supprimer</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-700 dark:hover:bg-orange-950/40"
-                    disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser}
-                    onClick={() => {
-                      if (!editingUser) return;
-                      void handleResetUser(editingUser);
-                    }}
-                    aria-label="Réinitialiser"
-                  >
-                    {isResetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Réinitialiser</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="shrink-0 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
-                    disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser}
-                    onClick={() => {
-                      if (!editingUser) return;
-                      const u = editingUser;
-                      setEditingUser(null);
-                      openExtendUser(u);
-                    }}
-                    aria-label="Prolonger"
-                  >
-                    <CalendarPlus className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Prolonger</TooltipContent>
-              </Tooltip>
+              {/* Actions — groupe à droite */}
+              <div className="ml-auto flex items-center gap-1.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="default"
+                      className="shrink-0"
+                      onClick={() => void handleRenameUser()}
+                      disabled={
+                        isSavingRename ||
+                        isTogglingEditUserDisabled ||
+                        !editUsername.trim() ||
+                        !editPassword.trim() ||
+                        !editProfile.trim()
+                      }
+                      aria-label="Enregistrer"
+                    >
+                      {isSavingRename ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Enregistrer</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className={
+                        editingUser?.disabled
+                          ? "shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-800 dark:hover:bg-orange-950/40"
+                          : "shrink-0 text-green-600 hover:bg-green-50 hover:text-green-800 dark:hover:bg-green-950/40"
+                      }
+                      disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || !activeRouterId}
+                      onClick={() => void handleToggleEditUserDisabled()}
+                      aria-label={editingUser?.disabled ? "Activer" : "Désactiver"}
+                    >
+                      {isTogglingEditUserDisabled ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : editingUser?.disabled ? (
+                        <PowerOff className="h-4 w-4" />
+                      ) : (
+                        <Power className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{editingUser?.disabled ? "Activer" : "Désactiver"}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
+                      onClick={() => {
+                        if (!editingUser) return;
+                        const u = editingUser;
+                        setEditingUser(null);
+                        setConfirmDeleteEditUser(u);
+                      }}
+                      aria-label="Supprimer"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Supprimer</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="shrink-0 text-orange-600 hover:bg-orange-50 hover:text-orange-700 dark:hover:bg-orange-950/40"
+                      disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser}
+                      onClick={() => {
+                        if (!editingUser) return;
+                        void handleResetUser(editingUser);
+                      }}
+                      aria-label="Réinitialiser"
+                    >
+                      {isResetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Réinitialiser</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="shrink-0 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
+                      disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser}
+                      onClick={() => {
+                        if (!editingUser) return;
+                        const u = editingUser;
+                        setEditingUser(null);
+                        openExtendUser(u);
+                      }}
+                      aria-label="Prolonger"
+                    >
+                      <CalendarPlus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Prolonger</TooltipContent>
+                </Tooltip>
+              </div>
             </div>
           </div>
           <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto px-6 py-4">
@@ -2379,60 +2390,32 @@ export default function Vouchers() {
                 {editingUser?.comment || "—"}
               </div>
             </div>
-            <div className="flex items-center gap-2 pt-0.5">
-              <input
-                id="link-bypass"
-                type="checkbox"
-                className="h-4 w-4 rounded border-input"
-                checked={linkBypass}
-                onChange={(e) => setLinkBypass(e.target.checked)}
-                disabled={isSavingRename || isTogglingEditUserDisabled}
-              />
-              <Label htmlFor="link-bypass" className="text-sm font-normal text-muted-foreground">
-                Lier un bypass MAC automatique
-              </Label>
-            </div>
-            {linkBypass && (
-              <div className="space-y-3 border-t pt-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-bypass-comment" className="text-xs text-muted-foreground">Recherche bypass (commentaire)</Label>
-                  <Input
-                    id="edit-bypass-comment"
-                    list="bypass-comment-options"
-                    value={editBypassComment}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setEditBypassComment(value);
-                      const match = bypassBindings.find((b) => (b.comment ?? "").toLowerCase() === value.trim().toLowerCase());
-                      if (match?.macAddress) setEditBypassMac(match.macAddress);
-                    }}
-                    placeholder="Filtrer par commentaire du bypass…"
-                    disabled={isSavingRename || isTogglingEditUserDisabled}
-                  />
-                  <datalist id="bypass-comment-options">
-                    {bypassBindings
-                      .filter((b) => !!b.comment && !!b.macAddress)
-                      .slice(0, 200)
-                      .map((b) => (
-                        <option key={b.id} value={b.comment}>
-                          {b.macAddress}
-                        </option>
-                      ))}
-                  </datalist>
+            {(() => {
+              const comment = editingUser?.comment;
+              const isLotTag = comment && /^(vc|up)[-_]/i.test(comment.trim());
+              if (isLotTag) {
+                return (
+                  <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs font-medium text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400">
+                    Ticket pas encore vendu
+                  </div>
+                );
+              }
+              const expDate = parseExpirationDate(comment);
+              if (!expDate) return null;
+              const msLeft = expDate.getTime() - editUserNow;
+              if (msLeft <= 0) {
+                return (
+                  <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400">
+                    Ce forfait est expiré&nbsp;!!!
+                  </div>
+                );
+              }
+              return (
+                <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-400">
+                  Ce forfait expire dans&nbsp;<span className="font-mono font-semibold">{formatCountdown(msLeft)}</span>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-bypass-mac" className="text-xs text-muted-foreground">Adresse MAC du bypass</Label>
-                  <Input
-                    id="edit-bypass-mac"
-                    value={editBypassMac}
-                    onChange={(e) => setEditBypassMac(e.target.value)}
-                    placeholder="AA:BB:CC:DD:EE:FF"
-                    className="font-mono"
-                    disabled={isSavingRename || isTogglingEditUserDisabled}
-                  />
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </DialogContent>
       </Dialog>
@@ -2793,6 +2776,16 @@ function isExpired(comment: string | null | undefined): boolean {
   const d = parseExpirationDate(comment);
   if (!d) return false;
   return d.getTime() < Date.now();
+}
+
+function formatCountdown(msLeft: number): string {
+  const s = Math.max(0, Math.floor(msLeft / 1000));
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  const hms = `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  return days > 0 ? `${days}j ${hms}` : hms;
 }
 
 function isUnlimitedProfile(profile: string | null | undefined): boolean {
