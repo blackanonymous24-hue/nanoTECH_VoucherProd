@@ -23,11 +23,16 @@ Monorepo pnpm avec les packages suivants :
 - Frontend : bouton "Enregistrer PDF" (vert) dans la barre d'actions du dernier lot, à côté de "Imprimer"
 - `buildTicketHtmlForPdf(items, title, scale)` dans `print.ts` — layout mobile (table unique, sans autoprint)
 
-## Tableau de bord — LAYOUT VERROUILLÉ (ne pas modifier)
-- StatCard : icône centrée (`self-center`), titre en haut, montant centré (`flex-1 flex items-center`), sous-titre en bas
-- Montant adaptatif : classe `.amount-fill` + `--awv` CSS var (`clamp(8px, Xvw, 20px)` mobile / 22px desktop)
-- Ordre mobile (CSS `order-N`) : Clients(0) Vendu(0) | Tickets(3) Vente(4) | Raccourcis(5) | Trafic(6) | Logs(7)
-- Desktop (lg) : grid 4 cols × 3 rows fixés, Traffic `lg:h-[300px]`, Log `lg:h-[384px]` + `lg:overflow-hidden`
+## Tableau de bord — LAYOUT VERROUILLÉ MOBILE + DESKTOP (ne pas modifier)
+### Mobile
+- Ordre (CSS `order-N`) : Clients(0) Vendu(0) | Tickets(3) Vente(4) | Raccourcis(5) | Trafic(6) | Logs(7)
+- StatCard `h-[4.75rem]` fixe, raccourcis même hauteur
+- Icônes `self-center`, titre haut, montant centré, sous-titre bas
+- Montant adaptatif `.amount-fill` + `--awv` CSS var `clamp(8px, Xvw, 20px)`
+- Entiers alignés sur référence "20 100 FCFA" (`--awv: 4.83vw`)
+### Desktop (lg)
+- Grid 4 cols × 3 rows, Traffic `lg:h-[300px]`, Log `lg:h-[384px]` + `lg:overflow-hidden`
+- Montant cap 22px via `@media (min-width: 1024px)` dans `.amount-fill`
 
 ## Fonctionnalités
 - **Tableau de bord** — Stats globales (vouchers total/imprimés, routeurs)
