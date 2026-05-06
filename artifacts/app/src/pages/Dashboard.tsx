@@ -161,12 +161,12 @@ function formatAmount(amount: number): string {
   return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " FCFA";
 }
 
-function amountTextStyle(amount: number): React.CSSProperties {
+function amountTextStyle(amount: number, currency = "FCFA"): React.CSSProperties {
   const amountStr = amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
-  const len = amountStr.length;
-  // Shrink aggressively from 20px (4 chars) down to 8px (13+ chars).
-  const size = Math.max(8, 20 - (len - 4) * 1.8);
-  return { fontSize: `${size}px`, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+  const len = `${amountStr} ${currency}`.length;
+  // Shrink aggressively from 24px down to 8px to always show full text.
+  const size = Math.max(8, 24 - (len - 8) * 1.15);
+  return { fontSize: `${size}px`, lineHeight: 1.15 };
 }
 
 /**
@@ -1166,11 +1166,11 @@ function StatCard({
 }) {
   const inner = (
     <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <div className="flex-1 flex flex-col justify-center px-2.5 pt-1.5 pb-1 sm:p-6 lg:px-4 lg:py-2.5">
-        <div className="flex items-stretch sm:items-center gap-2 sm:gap-3 lg:gap-2.5 h-full sm:h-auto">
-          <div className="p-2.5 lg:p-2 bg-gray-100 rounded-lg flex-shrink-0 flex items-center">{icon}</div>
-          <div className="min-w-0 flex-1 overflow-hidden flex flex-col">
-            <div className="flex items-center gap-1.5 flex-shrink-0">
+      <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6 lg:px-4 lg:py-2.5">
+        <div className="flex items-center gap-2 sm:gap-3 lg:gap-2.5">
+          <div className={`p-1.5 rounded-xl flex-shrink-0 ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
               <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
               {live && (
                 <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
@@ -1180,7 +1180,7 @@ function StatCard({
               )}
               {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
             </div>
-            <div className="flex-1 flex items-center sm:block lg:mt-0.5">
+            <div className="min-h-[2.75rem] lg:min-h-0 flex flex-col justify-center lg:mt-0.5">
               {loading ? (
                 <>
                   <div className="h-7 w-24 bg-gray-200 rounded animate-pulse mt-1" />
@@ -1189,11 +1189,11 @@ function StatCard({
               ) : label !== undefined ? (
                 <>
                   {amountValue !== undefined ? (
-                    <p className="font-bold text-gray-900 leading-tight tracking-tight flex items-baseline gap-0.5 flex-nowrap overflow-hidden">
-                      <span style={amountTextStyle(amountValue)} className="tabular-nums">
-                        {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
-                      </span>
-                      <span className="text-[9px] font-bold text-gray-700 shrink-0">{currency || "FCFA"}</span>
+                    <p
+                      className="font-bold text-gray-900 whitespace-nowrap leading-tight tracking-tight"
+                      style={amountTextStyle(amountValue, currency || "FCFA")}
+                    >
+                      {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
                     </p>
                   ) : (
                     <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
