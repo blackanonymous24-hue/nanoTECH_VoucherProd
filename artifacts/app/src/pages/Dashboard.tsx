@@ -934,7 +934,7 @@ export default function Dashboard() {
         </div>
         {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}
         <div className="col-span-2 sm:order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col lg:h-[384px]">
-        <Card className="flex-1 min-w-0 lg:flex lg:flex-col">
+        <Card className="flex-1 min-w-0 lg:h-full">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
@@ -953,7 +953,7 @@ export default function Dashboard() {
           </div>
         </CardHeader>
 
-        <CardContent className="p-0 lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
+        <CardContent className="p-0">
           {!selectedRouterId ? (
             <div className="py-14 text-center">
               <Wifi className="h-8 w-8 text-gray-200 mx-auto mb-2" />
@@ -975,7 +975,7 @@ export default function Dashboard() {
           ) : (
             <div
               ref={listRef}
-              className="max-h-[320px] overflow-auto lg:max-h-none lg:flex-1 lg:min-h-0"
+              className="max-h-[320px] overflow-auto"
             >
               <table className="w-full table-fixed text-xs">
                 <colgroup>
