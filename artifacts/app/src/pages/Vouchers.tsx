@@ -2305,6 +2305,27 @@ export default function Vouchers() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Réinitialiser</TooltipContent>
               </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="shrink-0 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
+                    disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser}
+                    onClick={() => {
+                      if (!editingUser) return;
+                      const u = editingUser;
+                      setEditingUser(null);
+                      openExtendUser(u);
+                    }}
+                    aria-label="Prolonger"
+                  >
+                    <CalendarPlus className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Prolonger</TooltipContent>
+              </Tooltip>
             </div>
           </div>
           <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto px-6 py-4">
