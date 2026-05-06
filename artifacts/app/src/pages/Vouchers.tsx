@@ -2319,9 +2319,9 @@ export default function Vouchers() {
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      size="icon"
+                      size="sm"
                       variant="outline"
-                      className="shrink-0 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
+                      className="shrink-0 gap-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
                       disabled={isSavingRename || isTogglingEditUserDisabled || isResetting || !editingUser}
                       onClick={() => {
                         if (!editingUser) return;
@@ -2332,6 +2332,7 @@ export default function Vouchers() {
                       aria-label="Prolonger"
                     >
                       <CalendarPlus className="h-4 w-4" />
+                      Prolonger
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">Prolonger</TooltipContent>
@@ -2396,12 +2397,18 @@ export default function Vouchers() {
               if (isLotTag) {
                 return (
                   <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs font-medium text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400">
-                    Ticket pas encore vendu
+                    Ce ticket n'a pas encore été vendu
                   </div>
                 );
               }
               const expDate = parseExpirationDate(comment);
-              if (!expDate) return null;
+              if (!expDate) {
+                return (
+                  <div className="flex items-center gap-2 rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    Cet utilisateur est sur un forfait illimité
+                  </div>
+                );
+              }
               const msLeft = expDate.getTime() - editUserNow;
               if (msLeft <= 0) {
                 return (
