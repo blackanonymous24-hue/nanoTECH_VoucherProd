@@ -278,6 +278,9 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
         position: relative !important;
       }
 
+      /* Numéro de ticket MikHmon — forcé à droite même en mobile */
+      span#num { float:right !important; margin-left:4px !important; clear:none !important; }
+
       /* float casse le flux d'impression */
       .ticket img { float: none !important; display: inline-block !important; }
 
