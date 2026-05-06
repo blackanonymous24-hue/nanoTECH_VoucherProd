@@ -872,14 +872,14 @@ export default function Dashboard() {
           href="/sales/monthly"
           className="sm:order-3"
         />
-        {/* Raccourcis actions — mobile uniquement — col-span-2 pour occuper toute la largeur */}
-        <div className="col-span-2 lg:hidden grid grid-cols-2 gap-1 sm:gap-4">
+        {/* Raccourcis actions — mobile uniquement */}
+        <div className="col-span-2 lg:hidden" style={{display:"flex", flexDirection:"row", gap:"4px", alignItems:"stretch"}}>
           <button
             type="button"
-            className="w-full h-full text-left"
+            style={{flex:1, minWidth:0, textAlign:"left"}}
             onClick={() => window.dispatchEvent(new CustomEvent("open-add-client-dialog"))}
           >
-            <Card className="min-h-[52px] flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+            <Card className="min-h-[52px] h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
               <div className="flex-1 flex items-center gap-2 p-2.5">
                 <div className="p-1.5 bg-emerald-100 rounded-xl flex-shrink-0">
                   <UserPlus className="h-5 w-5 text-emerald-600" />
@@ -888,8 +888,8 @@ export default function Dashboard() {
               </div>
             </Card>
           </button>
-          <Link href="/generate" className="block">
-            <Card className="min-h-[52px] flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
+          <Link href="/generate" style={{flex:1, minWidth:0, display:"block"}}>
+            <Card className="min-h-[52px] h-full flex flex-col cursor-pointer hover:shadow-md transition-shadow active:scale-95">
               <div className="flex-1 flex items-center gap-2 p-2.5">
                 <div className="p-1.5 bg-amber-100 rounded-xl flex-shrink-0">
                   <Zap className="h-5 w-5 text-amber-500" />
