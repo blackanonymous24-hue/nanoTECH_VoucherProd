@@ -87,29 +87,41 @@ router.post("/print-pdf", async (req, res) => {
 
   const page = await browser.newPage();
   try {
-    // Viewport desktop stable — évite les media queries mobiles dans le template
-    await page.setViewport({ width: 800, height: 1200, deviceScaleFactor: 1 });
+    await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
 
-    await page.emulateMediaType("print");
+    // Mode screen : rendu identique au navigateur desktop (Edge)
+    await page.emulateMediaType("screen");
+
     await page.setContent(html, { waitUntil: "networkidle0", timeout: 45_000 });
 
-    // scale : 0.1–2.0 (Puppeteer natif = zoom optique post-rendu, comme le curseur Edge Ctrl+P)
-    // 0.82 ≈ 85% Edge (Edge applique ses propres marges par défaut qui réduisent légèrement l'espace)
+    // Attendre chargement complet (images, fonts, QR codes)
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // Injecter CSS anti-découpage tickets (s'applique lors de la génération PDF)
+    await page.addStyleTag({
+      content: `
+        @media print {
+          body { -webkit-print-color-adjust: exact; }
+          .ticket, .ticket-item, .row, tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          table { page-break-inside: auto; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+        }
+      `,
+    });
+
     const pdfScale = typeof scale === "number" && scale > 0
       ? Math.min(2, Math.max(0.1, scale / 100))
-      : 0.82;
-
-    // Puppeteer ne supporte pas height:"auto" — on mesure la hauteur réelle du contenu
-    const contentHeightPx = await page.evaluate(() => document.documentElement.scrollHeight);
-    // Conversion px → mm (96 dpi CSS standard : 1px = 25.4/96 mm)
-    const contentHeightMm = Math.ceil((contentHeightPx * 25.4) / 96);
+      : 0.85;
 
     const pdf = await page.pdf({
-      width: "80mm",
-      height: `${contentHeightMm}mm`,
+      format: "A4",
       printBackground: true,
       scale: pdfScale,
-      margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
+      preferCSSPageSize: true,
+      margin: { top: "10mm", right: "5mm", bottom: "10mm", left: "5mm" },
     });
 
     const safeName = (title ?? "tickets")
