@@ -868,7 +868,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       {/* ── Footer ── */}
       <div className="px-3 py-3 flex-shrink-0">
         <div className="flex items-start justify-between gap-2">
-          {/* Gauche : badge rôle (cliquable sauf super admin) + nom */}
+          {/* Gauche : badge = nom de l'utilisateur coloré selon son rôle */}
           <div className="flex flex-col gap-1 min-w-0">
             {isSuperAdmin ? (
               <span className="text-[9px] font-bold uppercase tracking-wide text-orange-400 bg-orange-500/15 px-2 py-0.5 rounded-full ring-1 ring-orange-400/40 self-start cursor-default">
@@ -879,21 +879,18 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 onClick={openCredsDialog}
                 title="Modifier mes identifiants"
                 className={[
-                  "text-[9px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ring-1 self-start transition-opacity hover:opacity-80 active:opacity-60",
-                  isManager
-                    ? "text-emerald-400/80 bg-emerald-400/10 ring-emerald-400/20"
-                    : "text-blue-400/70 bg-blue-400/10 ring-blue-400/20",
+                  "text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 self-start transition-opacity hover:opacity-80 active:opacity-60 text-left break-words max-w-[140px]",
+                  isCollaborateur
+                    ? "text-purple-400/90 bg-purple-400/10 ring-purple-400/25"
+                    : isManager
+                    ? "text-emerald-400/90 bg-emerald-400/10 ring-emerald-400/25"
+                    : "text-blue-400/90 bg-blue-400/10 ring-blue-400/25",
                 ].join(" ")}
               >
-                {isManager ? "Gérant de zone" : isCollaborateur ? "Collaborateur" : "Admin"}
+                {connectedName
+                  || (isManager ? "Gérant de zone" : isCollaborateur ? "Collaborateur" : "Admin")}
               </button>
             ) : null}
-            {/* Nom de l'utilisateur connecté */}
-            {connectedName && (
-              <span className="text-[11px] text-gray-400 leading-tight break-words">
-                {connectedName}
-              </span>
-            )}
           </div>
 
           {/* Droite : Déconnexion */}
