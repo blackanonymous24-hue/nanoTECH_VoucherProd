@@ -202,8 +202,8 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // ce qui permet à 4 × 215 = 860px de tenir (ex: zoom 0.85 → 934px disponibles).
     const MOBILE_COLS = 4;
 
-    // Grille fixe 4 × 7 : 28 tickets par bloc de page, indépendamment du zoom.
-    const rowsPerPage = 7;
+    // Grille fixe 4 × 6 : 24 tickets par bloc de page, indépendamment du zoom.
+    const rowsPerPage = 6;
     const perPage     = MOBILE_COLS * rowsPerPage;
 
     // Construction des blocs de page avec page-break-after:always explicite
