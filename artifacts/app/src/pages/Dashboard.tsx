@@ -933,7 +933,7 @@ export default function Dashboard() {
           <TrafficMonitorCard routerId={selectedRouterId} enabled={enableSecondaries} />
         </div>
         {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}
-        <div className="col-span-2 sm:order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col lg:max-h-[260px]">
+        <div className="col-span-2 sm:order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col lg:max-h-[344px]">
         <Card className="flex-1 min-w-0">
         <CardHeader className="pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
