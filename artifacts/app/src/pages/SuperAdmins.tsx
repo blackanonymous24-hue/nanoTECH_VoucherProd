@@ -550,6 +550,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
 
   const [formTarget, setFormTarget] = useState<RouterRow | "create" | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [showCopyVendors, setShowCopyVendors] = useState(false);
 
   const { data: routers = [], isLoading } = useQuery<RouterRow[]>({
     queryKey: qk,
@@ -621,11 +622,16 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
-          <span className="text-sm text-gray-500">{isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}</span>
-          <Button size="sm" className="gap-1.5" onClick={() => setFormTarget("create")}>
-            <Plus className="h-3.5 w-3.5" /> Ajouter un routeur
-          </Button>
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0 gap-2">
+          <span className="text-sm text-gray-500 shrink-0">{isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}</span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => setShowCopyVendors(true)}>
+              <Users className="h-3.5 w-3.5" /> Copier vendeurs
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => setFormTarget("create")}>
+              <Plus className="h-3.5 w-3.5" /> Ajouter un routeur
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 px-5 py-3 space-y-2">
@@ -677,6 +683,14 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               if (formTarget === "create") createM.mutate(p);
               else editM.mutate({ id: formTarget.id, ...p });
             }}
+          />
+        )}
+
+        {showCopyVendors && (
+          <CopyVendorsDialog
+            admin={admin}
+            adminRouters={routers}
+            onClose={() => setShowCopyVendors(false)}
           />
         )}
       </SheetContent>
@@ -736,6 +750,135 @@ function RouterFormDialog({
           >
             {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {isEdit ? "Enregistrer" : "Ajouter"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ════════════════════ CopyVendorsDialog ════════════════════ */
+
+type SlimRouter = { id: number; name: string; host: string; port: number };
+
+function CopyVendorsDialog({
+  admin, adminRouters, onClose,
+}: {
+  admin: AdminRow;
+  adminRouters: RouterRow[];
+  onClose: () => void;
+}) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+
+  const [fromRouterId, setFromRouterId] = useState<string>("");
+  const [toRouterId,   setToRouterId]   = useState<string>("");
+  const [copying, setCopying] = useState(false);
+
+  // Charger les routeurs du super-admin (source)
+  const { data: ownRouters = [], isLoading: loadingOwn } = useQuery<SlimRouter[]>({
+    queryKey: ["super", "own-routers"],
+    enabled: !!token,
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/super/own-routers`, { headers });
+      if (!r.ok) throw new Error("Chargement impossible");
+      return r.json();
+    },
+  });
+
+  const canSubmit = !!fromRouterId && !!toRouterId && !copying;
+
+  const handleCopy = async () => {
+    if (!canSubmit) return;
+    setCopying(true);
+    try {
+      const r = await fetch(`${BASE}/api/super/copy-vendors`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          fromRouterId: Number(fromRouterId),
+          toRouterId: Number(toRouterId),
+          targetAdminId: admin.id,
+        }),
+      });
+      const data = await r.json() as { copied?: number; skipped?: number; error?: string };
+      if (!r.ok) throw new Error(data.error ?? "Opération échouée");
+      toast({
+        title: "Vendeurs copiés",
+        description: `${data.copied} vendeur${(data.copied ?? 0) !== 1 ? "s" : ""} copié${(data.copied ?? 0) !== 1 ? "s" : ""}${(data.skipped ?? 0) > 0 ? ` · ${data.skipped} ignoré${(data.skipped ?? 0) !== 1 ? "s" : ""} (username déjà existant)` : ""}`,
+      });
+      onClose();
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof Error ? e.message : "Opération échouée", variant: "destructive" });
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-emerald-600" />
+            Copier les vendeurs
+          </DialogTitle>
+          <DialogDescription>
+            Attribuer les vendeurs d'un de vos routeurs comme base pour un routeur de <strong>{admin.displayName || admin.login}</strong>.
+            Les vendeurs dont l'identifiant existe déjà sur le routeur cible sont ignorés.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          {/* Source — routeur du super-admin */}
+          <div className="space-y-1.5">
+            <Label>Vendeurs du routeur</Label>
+            <Select value={fromRouterId} onValueChange={setFromRouterId} disabled={loadingOwn}>
+              <SelectTrigger>
+                <SelectValue placeholder={loadingOwn ? "Chargement…" : ownRouters.length === 0 ? "Aucun routeur disponible" : "Choisir un routeur source"} />
+              </SelectTrigger>
+              <SelectContent>
+                {ownRouters.map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)}>
+                    {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">Vos routeurs (super-admin) — source des vendeurs</p>
+          </div>
+
+          {/* Cible — routeur de l'admin */}
+          <div className="space-y-1.5">
+            <Label>Vers routeur</Label>
+            <Select value={toRouterId} onValueChange={setToRouterId} disabled={adminRouters.length === 0}>
+              <SelectTrigger>
+                <SelectValue placeholder={adminRouters.length === 0 ? "Aucun routeur pour cet admin" : "Choisir un routeur cible"} />
+              </SelectTrigger>
+              <SelectContent>
+                {adminRouters.map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)}>
+                    {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">Routeurs de {admin.displayName || admin.login} — destination</p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={copying}>Annuler</Button>
+          <Button
+            disabled={!canSubmit}
+            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+            onClick={() => void handleCopy()}
+          >
+            {copying
+              ? <><Loader2 className="h-4 w-4 animate-spin" />Copie…</>
+              : <><Users className="h-4 w-4" />Copier les vendeurs</>
+            }
           </Button>
         </DialogFooter>
       </DialogContent>

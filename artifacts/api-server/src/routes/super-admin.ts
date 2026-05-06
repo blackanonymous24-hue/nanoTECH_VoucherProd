@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, sql, and, ne } from "drizzle-orm";
-import { db, adminSettingsTable, routersTable } from "@workspace/db";
+import { db, adminSettingsTable, routersTable, vendorsTable } from "@workspace/db";
 import { hashPassword } from "../lib/admin-auth.js";
 import { DEFAULT_TICKET_TEMPLATE } from "../lib/default-template.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
@@ -617,6 +617,95 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
     .where(eq(routersTable.ownerAdminId, id));
 
   res.json(publicAdminShape(updated, Number(routerCount)));
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/super/own-routers — routeurs appartenant au super-admin lui-même
+// (ownerAdminId = superAdminId). Utilisé pour le sélecteur "Vendeurs du routeur".
+// ---------------------------------------------------------------------------
+router.get("/super/own-routers", async (req, res): Promise<void> => {
+  const scope = requireSuperAdminScope(req, res);
+  if (!scope) return;
+
+  const rows = await db
+    .select({ id: routersTable.id, name: routersTable.name, host: routersTable.host, port: routersTable.port })
+    .from(routersTable)
+    .where(eq(routersTable.ownerAdminId, scope.adminId))
+    .orderBy(routersTable.name);
+  res.json(rows);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/super/copy-vendors
+// Body: { fromRouterId: number, toRouterId: number, targetAdminId: number }
+// Copie les vendeurs du routeur source (appartenant au super-admin) vers le
+// routeur cible (appartenant à l'admin cible). Les vendeurs dont le username
+// existe déjà sur le routeur cible sont ignorés (pas de doublon).
+// Réponse: { copied: number, skipped: number }
+// ---------------------------------------------------------------------------
+router.post("/super/copy-vendors", async (req, res): Promise<void> => {
+  const scope = requireSuperAdminScope(req, res);
+  if (!scope) return;
+
+  const { fromRouterId, toRouterId, targetAdminId } = (req.body ?? {}) as {
+    fromRouterId?: unknown; toRouterId?: unknown; targetAdminId?: unknown;
+  };
+
+  const fromId = parseInt(String(fromRouterId), 10);
+  const toId   = parseInt(String(toRouterId), 10);
+  const toAdminId = parseInt(String(targetAdminId), 10);
+
+  if (!fromId || isNaN(fromId) || !toId || isNaN(toId) || !toAdminId || isNaN(toAdminId)) {
+    res.status(400).json({ error: "fromRouterId, toRouterId et targetAdminId sont requis" });
+    return;
+  }
+
+  // Vérifier que le routeur source appartient au super-admin
+  const [srcRouter] = await db.select({ id: routersTable.id })
+    .from(routersTable)
+    .where(and(eq(routersTable.id, fromId), eq(routersTable.ownerAdminId, scope.adminId)));
+  if (!srcRouter) {
+    res.status(403).json({ error: "Routeur source introuvable ou n'appartient pas au super-admin" });
+    return;
+  }
+
+  // Vérifier que le routeur cible appartient à l'admin cible
+  const [dstRouter] = await db.select({ id: routersTable.id })
+    .from(routersTable)
+    .where(and(eq(routersTable.id, toId), eq(routersTable.ownerAdminId, toAdminId)));
+  if (!dstRouter) {
+    res.status(403).json({ error: "Routeur cible introuvable ou n'appartient pas à cet admin" });
+    return;
+  }
+
+  // Vendeurs source
+  const srcVendors = await db.select().from(vendorsTable).where(eq(vendorsTable.routerId, fromId));
+  if (srcVendors.length === 0) {
+    res.json({ copied: 0, skipped: 0 });
+    return;
+  }
+
+  // Usernames déjà présents sur le routeur cible (pour éviter les doublons)
+  const dstVendors = await db
+    .select({ username: vendorsTable.username })
+    .from(vendorsTable)
+    .where(eq(vendorsTable.routerId, toId));
+  const existingUsernames = new Set(dstVendors.map((v) => v.username).filter(Boolean));
+
+  const toInsert = srcVendors.filter((v) => !v.username || !existingUsernames.has(v.username));
+  const skipped  = srcVendors.length - toInsert.length;
+
+  if (toInsert.length > 0) {
+    await db.insert(vendorsTable).values(
+      toInsert.map(({ id: _id, createdAt: _c, updatedAt: _u, ...rest }) => ({
+        ...rest,
+        routerId: toId,
+        ownerAdminId: toAdminId,
+      })),
+    );
+  }
+
+  res.json({ copied: toInsert.length, skipped });
 });
 
 export default router;
