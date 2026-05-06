@@ -34,7 +34,6 @@ const VendorPayments = lazy(() => import("@/pages/VendorPayments"));
 const DailyPayments  = lazy(() => import("@/pages/DailyPayments"));
 const StockAlerts = lazy(() => import("@/pages/StockAlerts"));
 const Maintenance = lazy(() => import("@/pages/Maintenance"));
-const TicketLookup = lazy(() => import("@/pages/TicketLookup"));
 const SuperAdmins = lazy(() => import("@/pages/SuperAdmins"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -204,7 +203,6 @@ function AppRoutes() {
               <Route path="/collaborateurs" component={role === "admin" ? Collaborateurs : Dashboard} />
               <Route path="/stock-alerts" component={StockAlerts} />
               <Route path="/maintenance" component={role === "admin" ? Maintenance : Dashboard} />
-              <Route path="/ticket-lookup" component={TicketLookup} />
               <Route path="/super/admins" component={isSuperAdmin ? SuperAdmins : Dashboard} />
               <Route component={NotFound} />
             </Switch>
