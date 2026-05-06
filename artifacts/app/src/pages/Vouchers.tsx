@@ -1351,11 +1351,11 @@ export default function Vouchers() {
               ) : (
               <><Card className="mb-4">
                 <CardContent className="py-3">
-                  <div className="space-y-1.5 md:space-y-0 md:flex md:flex-nowrap md:items-center md:gap-1 md:overflow-hidden">
+                  <div className="space-y-1.5">
 
-                    {/* Ligne 1 mobile : recherche + ↻ */}
-                    <div className="flex items-center gap-2 md:contents">
-                      <div className="relative flex-1 min-w-0 md:flex-none md:w-[21%]">
+                    {/* Ligne 1 : recherche + ↻ */}
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1 min-w-0">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                         <Input
                           className="pl-8 h-8 text-xs"
@@ -1364,11 +1364,11 @@ export default function Vouchers() {
                           onChange={(e) => handleSearchChange(e.target.value)}
                         />
                       </div>
-                      <span className="flex-shrink-0 text-[11px] text-gray-400 md:w-[7%] md:text-right">↻ 30s</span>
+                      <span className="flex-shrink-0 text-[11px] text-gray-400">↻ 30s</span>
                     </div>
 
-                    {/* Ligne 2 mobile : 4 filtres sur la même ligne */}
-                    <div className="flex gap-1 md:contents">
+                    {/* Ligne 2 : 4 filtres sur la même ligne */}
+                    <div className="flex gap-1">
                       {/* Combobox — Forfait */}
                       <Popover open={profilePopoverOpen} onOpenChange={setProfilePopoverOpen}>
                         <PopoverTrigger asChild>
@@ -1376,7 +1376,7 @@ export default function Vouchers() {
                             variant="outline"
                             role="combobox"
                             aria-expanded={profilePopoverOpen}
-                            className="flex-1 min-w-0 md:flex-none md:w-[14%] justify-between font-normal text-[11px] h-8 px-1.5"
+                            className="flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5"
                           >
                             <span className="truncate">
                               {filterProfile === "all"
@@ -1412,7 +1412,7 @@ export default function Vouchers() {
                             variant="outline"
                             role="combobox"
                             aria-expanded={commentPopoverOpen}
-                            className="flex-1 min-w-0 md:flex-none md:w-[17%] justify-between font-normal text-[11px] h-8 px-1.5"
+                            className="flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5"
                           >
                             <span className="font-mono text-[11px] truncate">
                               {filterComment === "all"
@@ -1456,7 +1456,7 @@ export default function Vouchers() {
                             variant="outline"
                             role="combobox"
                             aria-expanded={vendorPopoverOpen}
-                            className={`flex-1 min-w-0 md:flex-none md:w-[15%] justify-between font-normal text-[11px] h-8 px-1.5 ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                            className={`flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5 ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
                             <span className="truncate">
                               {filterVendor === "all"
@@ -1500,7 +1500,7 @@ export default function Vouchers() {
                             variant="outline"
                             role="combobox"
                             aria-expanded={statusPopoverOpen}
-                            className={`flex-1 min-w-0 md:flex-none md:w-[13%] justify-between font-normal text-[11px] h-8 px-1.5 ${filterStatus !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
+                            className={`flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5 ${filterStatus !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
                             <span className="truncate">
                               {filterStatus === "all"
