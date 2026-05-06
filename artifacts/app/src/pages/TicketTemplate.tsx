@@ -75,8 +75,8 @@ Veuillez conserver ce ticket jusqu'à l'épuisement du forfait.
 </tr>
 <tr>
 <td style="background:{{color}};color:#666;padding:0px;" valign="top" colspan="2">
-<div style="display:flex;justify-content:space-between;align-items:center;color:#fff;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
-<b>{{dnsname}}</b><span>[{{num}}]</span>
+<div style="display:table;width:100%;color:#fff;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
+<b style="display:table-cell;text-align:left;">{{dnsname}}</b><span style="display:table-cell;text-align:right;white-space:nowrap;">[{{num}}]</span>
 </div>
 </td>
 </tr>
@@ -314,7 +314,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export const DEFAULT_MIKHMON_PHP = `<table class="voucher" style=" width: 160px;">
   <tbody>
     <tr>
-      <td style="text-align: left; font-size: 14px; font-weight:bold; border-bottom: 1px black solid;"><?= $hotspotname; ?><span id="num"><?= " [$num]"; ?></span></td>
+      <td style="font-size: 14px; font-weight:bold; border-bottom: 1px black solid; overflow:hidden;"><span id="num" style="float:right;margin-left:4px;"><?= " [$num]"; ?></span><?= $hotspotname; ?></td>
     </tr>
     <tr>
       <td>

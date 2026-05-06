@@ -27,6 +27,8 @@ const PRINT_CSS = `
     /* Empêche chaque ticket individuel d'être coupé */
     table.ticket-page td > table,
     table.ticket-page td > table * { page-break-inside:avoid; break-inside:avoid; }
+    /* Numéro de ticket MikHmon — float fiable en print desktop (flex ne l'est pas) */
+    span#num { float:right !important; margin-left:4px !important; clear:none !important; }
   }
 `;
 

@@ -7,7 +7,7 @@
 export const DEFAULT_TICKET_TEMPLATE = `<table class="voucher" style=" width: 160px;">
   <tbody>
     <tr>
-      <td style="text-align: left; font-size: 14px; font-weight:bold; border-bottom: 1px black solid;"><?= $hotspotname; ?><span id="num"><?= " [$num]"; ?></span></td>
+      <td style="font-size: 14px; font-weight:bold; border-bottom: 1px black solid; overflow:hidden;"><span id="num" style="float:right;margin-left:4px;"><?= " [$num]"; ?></span><?= $hotspotname; ?></td>
     </tr>
     <tr>
       <td>

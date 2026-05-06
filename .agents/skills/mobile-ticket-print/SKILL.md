@@ -110,13 +110,33 @@ SET ticket_template = REPLACE(
 WHERE ticket_template NOT LIKE '%display:inline-block;width:215px;overflow:hidden%';
 ```
 
-### 7. Numéro de ticket aligné à droite dans le footer
+### 7. Numéro de ticket aligné à droite — template PHP MikHmon (`<span id="num">`)
+
+**NE PAS utiliser `display:flex` — non fiable en impression desktop (Chrome/Edge).**  
+Solution : `float:right` sur `#num` + `overflow:hidden` sur le `<td>` parent.  
+Le `<span id="num">` doit être placé **avant** `$hotspotname` dans le HTML pour que float:right fonctionne.
+
 ```html
-<!-- Remplacer text-align:left par flex + space-between -->
-<div style="display:flex;justify-content:space-between;align-items:center;
-            color:#fff;font-size:8px;font-weight:bold;margin:0;padding:2.5px;">
-  <b><?= $dnsname; ?></b>
-  <span><?= "[$num]"; ?></span>
+<!-- Template PHP MikHmon — TD header avec num flottant à droite -->
+<td style="font-size:14px;font-weight:bold;border-bottom:1px black solid;overflow:hidden;">
+  <span id="num" style="float:right;margin-left:4px;"><?= " [$num]"; ?></span>
+  <?= $hotspotname; ?>
+</td>
+```
+
+CSS de secours dans `PRINT_CSS` (couvre tous les templates existants en DB) :
+```css
+@media print {
+  span#num { float:right !important; margin-left:4px !important; clear:none !important; }
+}
+```
+
+**Template HTML personnalisé (`{{num}}`) — footer coloré :**  
+Utiliser `display:table` + `display:table-cell` au lieu de `display:flex` :
+```html
+<div style="display:table;width:100%;color:#fff;font-size:6px;font-weight:bold;margin:0px;padding:2.5px;">
+  <b style="display:table-cell;text-align:left;">{{dnsname}}</b>
+  <span style="display:table-cell;text-align:right;white-space:nowrap;">[{{num}}]</span>
 </div>
 ```
 
