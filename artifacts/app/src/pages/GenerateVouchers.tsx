@@ -641,8 +641,23 @@ export default function GenerateVouchers() {
     const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
 
-    // preWin reste about:blank — aucune écriture intermédiaire pour éviter
-    // le message Safari "The web page did not finish loading"
+    if (preWin) {
+      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chargement…</title>
+<style>
+  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
+    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
+  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#2563eb;
+    border-radius:50%;animation:spin 0.9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
+</style></head>
+<body><div class="spinner"></div>
+<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
+</body></html>`);
+      preWin.document.close();
+    }
 
     const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
     if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) {
@@ -697,14 +712,12 @@ export default function GenerateVouchers() {
       const title = printParts.join("-");
 
       if (preWin) {
-        // Navigateur mobile : blob URL → le refresh relance automatiquement l'impression
-        // (document.write sur about:blank ne survit pas au refresh)
+        // Navigateur mobile : document.write direct — pas de navigation donc pas
+        // de message Safari "The web page did not finish loading"
         const html = buildTicketPrintHtml(data.html as string[], title);
-        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-        const blobUrl = URL.createObjectURL(blob);
-        preWin.location.href = blobUrl;
-        // Révoquer après 30 min (libère la mémoire, le refresh ne fonctionnera plus après)
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 30 * 60 * 1000);
+        preWin.document.open();
+        preWin.document.write(html);
+        preWin.document.close();
       } else {
         // APK WebView natif ou desktop
         printTickets(data.html as string[], title);
