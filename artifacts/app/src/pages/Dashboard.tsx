@@ -910,7 +910,6 @@ export default function Dashboard() {
                 <UserPlus className="h-5 w-5 text-emerald-600" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs text-gray-500 font-medium">Action</p>
                 <p className="font-bold text-gray-900 text-sm">Ajouter un client</p>
               </div>
             </div>
@@ -924,7 +923,6 @@ export default function Dashboard() {
                 <Zap className="h-5 w-5 text-amber-500" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs text-gray-500 font-medium">Action</p>
                 <p className="font-bold text-gray-900 text-sm">Générer un ticket</p>
               </div>
             </div>
