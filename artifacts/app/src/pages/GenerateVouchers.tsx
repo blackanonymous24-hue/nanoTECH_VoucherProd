@@ -520,39 +520,54 @@ export default function GenerateVouchers() {
       lockAcquired = true;
 
       while (done < total) {
-        const qtyBatch = Math.min(BATCH_SIZE, total - done);
         let batchOk = false;
+        // Compteur d'échecs consécutifs "routeur inaccessible" :
+        // on tolère 1 erreur passagère sans afficher le message ni bloquer.
+        let unreachableStreak = 0;
         while (!batchOk) {
+          // Recalculer qtyBatch à chaque tentative (y compris après une
+          // récupération qui a mis à jour `done`) pour ne jamais dépasser `total`.
+          const qtyBatch = Math.min(BATCH_SIZE, total - done);
+          if (qtyBatch <= 0) { batchOk = true; break; }
           try {
             const generated = await generateMutation.mutateAsync({
-          // Cast to any — the server accepts extra fields (charType, userLength,
-          // timelimit, datalimit) not yet reflected in the generated OpenAPI types.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          data: {
-            routerId: selectedRouterId,
-            profile,
+              // Cast to any — the server accepts extra fields (charType, userLength,
+              // timelimit, datalimit) not yet reflected in the generated OpenAPI types.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              data: {
+                routerId: selectedRouterId,
+                profile,
                 qty: qtyBatch,
-            prefix: prefix || null,
-            comment: effectiveComment || null,
-            vendorId: vendorId ? parseInt(vendorId, 10) : null,
-            passwordMode,
-            charType,
-            userLength: parseInt(userLength, 10),
-            timelimit: timelimit || undefined,
-            datalimit: dlBytes,
+                prefix: prefix || null,
+                comment: effectiveComment || null,
+                vendorId: vendorId ? parseInt(vendorId, 10) : null,
+                passwordMode,
+                charType,
+                userLength: parseInt(userLength, 10),
+                timelimit: timelimit || undefined,
+                datalimit: dlBytes,
                 profilePrice,
                 profileValidity,
-          } as any,
-        });
+              } as any,
+            });
             allVouchers.push(...generated);
-            done += generated.length;
+            done = Math.min(allVouchers.length, total); // jamais dépasser total
             setProgress({ done, total });
             batchOk = true;
+            unreachableStreak = 0;
           } catch (err) {
             if (isRouterUnreachable(err)) {
-              setGenPaused(true);
+              unreachableStreak++;
               generateMutation.reset();
+              if (unreachableStreak === 1) {
+                // 1er échec passager : retry silencieux après 3 s, sans afficher le message.
+                await new Promise<void>((r) => setTimeout(r, 3000));
+                continue;
+              }
+              // 2ème échec consécutif → routeur vraiment hors-ligne.
+              setGenPaused(true);
               await waitForRouter(selectedRouterId, BASE);
+              unreachableStreak = 0;
               try {
                 if (effectiveComment) {
                   const onRouter = await fetchLotUsers(selectedRouterId, effectiveComment, BASE);
@@ -576,13 +591,15 @@ export default function GenerateVouchers() {
                         soldAt: null,
                       } as unknown as Voucher));
                     allVouchers.push(...missing);
-                    done = allVouchers.length;
-        setProgress({ done, total });
+                    done = Math.min(allVouchers.length, total);
+                    setProgress({ done, total });
                   }
                 }
               } catch {
                 // keep retrying current batch
               }
+              // Si la récupération nous a amenés à `total`, pas besoin de générer plus.
+              if (done >= total) batchOk = true;
               setGenPaused(false);
             } else {
               throw err;
