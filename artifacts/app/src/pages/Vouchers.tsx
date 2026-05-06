@@ -410,7 +410,7 @@ export default function Vouchers() {
   const isLoading = view === "lots" ? lotsLoading : usersLoading;
   const refetch = () => { void refetchLots(); void refetchUsers(); };
 
-  const { data: profilesList = [] } = useListRouterProfiles(activeRouterId ?? 0, {
+  const { data: profilesList = [], isLoading: isProfilesLoading } = useListRouterProfiles(activeRouterId ?? 0, {
     query: { queryKey: getListRouterProfilesQueryKey(activeRouterId ?? 0), enabled: !!activeRouterId, staleTime: 120_000 },
   });
   useProfileAutoResync(activeRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
@@ -439,9 +439,11 @@ export default function Vouchers() {
   const profileIsUnlimited = (profileName: string | null | undefined): boolean => {
     if (!profileName) return false;
     const known = profileHasValidity.get(profileName);
-    // Si le profil est connu et n'a pas de validity → illimité
+    // Profil connu : utiliser la validity réelle
     if (known !== undefined) return !known;
-    // Profil inconnu (non chargé) → fallback sur le nom
+    // Profil inconnu et encore en chargement → cacher Prolonger pour éviter le flash
+    if (isProfilesLoading) return true;
+    // Profil inconnu après chargement → fallback sur le nom
     return isUnlimitedProfile(profileName);
   };
   const userIsExpired = (u: HotspotUser): boolean => {
