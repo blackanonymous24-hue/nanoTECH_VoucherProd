@@ -6,12 +6,15 @@ const PRINT_CSS = `
   /* Grille 4 colonnes — chaque .ticket-page = 1 page imprimée (32 tickets max) */
   table.ticket-page { border-collapse:collapse; margin-bottom:2px; }
   table.ticket-page td { padding:1px; vertical-align:top; }
-  /* margin:0 supprime les en-têtes/pieds de page natifs du navigateur */
-  @page { margin:0; }
   @media screen {
     body { padding-bottom:100px; }
   }
   @media print {
+    /* Supprime en-têtes/pieds de page Safari/Chrome — doit être dans @media print */
+    @page { margin:0; }
+    @page :first { margin:0; }
+    @page :left  { margin:0; }
+    @page :right { margin:0; }
     /* zoom 0.75 : ratio exact pour passer de 6 lignes (Safari iPhone) à 8 lignes */
     body { padding:1mm !important; zoom:0.75; }
     /* break-inside:avoid force les 8 lignes à rester sur la même page */
@@ -150,7 +153,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean): stri
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${title}</title>
     <style>${PRINT_CSS}</style>
-    ${autoprint ? `<script>window.onload=function(){window.focus();window.print();}<\/script>` : ""}
+    ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
   </head>
   <body>${pageBlocks.join("")}</body>
 </html>`;
