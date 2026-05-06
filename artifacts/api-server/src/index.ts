@@ -1,7 +1,7 @@
 import "source-map-support/register.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
-import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureTicketTemplateColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureCollaborateurPasswordPlainColumn } from "./lib/ensure-router-currency-column.js";
+import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureTicketTemplateColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn } from "./lib/ensure-router-currency-column.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
@@ -47,6 +47,7 @@ async function start() {
   await ensureVendorPasswordPlainColumn();
   await ensureManagerPasswordPlainColumn();
   await ensureCollaborateurPasswordPlainColumn();
+  await ensureVerificationCodeColumn();
 
   startRealtimeVendorSync();
   setOnVendorSyncComplete(invalidateVendorPortalCache);

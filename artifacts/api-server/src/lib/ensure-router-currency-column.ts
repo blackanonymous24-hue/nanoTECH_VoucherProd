@@ -100,3 +100,12 @@ export async function ensureCollaborateurPasswordPlainColumn(): Promise<void> {
     logger.error({ err }, "DB compat: impossible d'ajouter collaborateurs.password_plain");
   }
 }
+
+export async function ensureVerificationCodeColumn(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS verification_code text`);
+    logger.info("DB compat: colonne admin_settings.verification_code vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.verification_code");
+  }
+}

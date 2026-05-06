@@ -116,6 +116,43 @@ router.post("/collaborateurs", async (req, res): Promise<void> => {
   res.status(201).json({ ...safeCollab(collab), routerIds });
 });
 
+/* ── PUT /collaborateurs/me/credentials — collaborateur change login et/ou mot de passe ── */
+router.put("/collaborateurs/me/credentials", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const payload = verifyToken(auth.slice(7));
+  if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const { login, password } = req.body as { login?: string; password?: string };
+  if (!login?.trim() && !password) {
+    res.status(400).json({ error: "Aucune modification fournie" }); return;
+  }
+
+  const [collab] = await db.select().from(collaborateursTable).where(eq(collaborateursTable.id, payload.collaborateurId));
+  if (!collab) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
+
+  const updates: Record<string, unknown> = {};
+
+  if (login?.trim()) {
+    const loginTrimmed = login.trim();
+    if (loginTrimmed.length < 3) { res.status(400).json({ error: "Login trop court (min 3 caractères)" }); return; }
+    const [existing] = await db.select({ id: collaborateursTable.id }).from(collaborateursTable).where(eq(collaborateursTable.username, loginTrimmed));
+    if (existing && existing.id !== collab.id) {
+      res.status(409).json({ error: "Ce login est déjà utilisé" }); return;
+    }
+    updates.username = loginTrimmed;
+  }
+
+  if (password) {
+    if (password.length < 4) { res.status(400).json({ error: "Mot de passe trop court (min 4 caractères)" }); return; }
+    updates.passwordHash = await hashPassword(password);
+    updates.passwordPlain = password;
+  }
+
+  const [updated] = await db.update(collaborateursTable).set(updates).where(eq(collaborateursTable.id, collab.id)).returning();
+  res.json(safeCollab(updated));
+});
+
 router.put("/collaborateurs/me/password", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }

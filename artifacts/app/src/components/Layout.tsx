@@ -95,7 +95,7 @@ function makeClientBatchId(mode: "vc" | "up"): string {
 function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mobileDrawer?: boolean }) {
   const [location] = useLocation();
   const { routerIdentity, selectedRouterId } = useRouterContext();
-  const { logout, role, token, isSuperAdmin, connectedName } = useAuth();
+  const { logout, role, token, isSuperAdmin, connectedName, connectedUsername, updateConnectedInfo } = useAuth();
   const appNavigate = useAppNavigate();
 
   const { toast } = useToast();
@@ -223,6 +223,16 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const [pwdError, setPwdError]   = useState("");
   const [pwdSuccess, setPwdSuccess] = useState(false);
   const [pwdLoading, setPwdLoading] = useState(false);
+
+  /* ── Credentials change dialog (admin / manager / collaborateur) ── */
+  const [showCreds,    setShowCreds]    = useState(false);
+  const [credLogin,    setCredLogin]    = useState("");
+  const [credPassword, setCredPassword] = useState("");
+  const [credCodeStep, setCredCodeStep] = useState(false);
+  const [credCode,     setCredCode]     = useState("");
+  const [credLoading,  setCredLoading]  = useState(false);
+  const [credError,    setCredError]    = useState("");
+  const [credSuccess,  setCredSuccess]  = useState(false);
 
   /* ── Add hotspot user dialog state (admin + manager) ── */
   const [showAddUser, setShowAddUser]           = useState(false);
@@ -426,6 +436,73 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       setPwdError("Erreur réseau. Réessayez.");
     } finally {
       setPwdLoading(false);
+    }
+  }
+
+  function openCredsDialog() {
+    setCredLogin(connectedUsername ?? "");
+    setCredPassword("");
+    setCredCodeStep(false);
+    setCredCode("");
+    setCredError("");
+    setCredSuccess(false);
+    setShowCreds(true);
+  }
+
+  function handleCredsContinue() {
+    setCredError("");
+    if (!credLogin.trim() && !credPassword) {
+      setCredError("Modifiez au moins un champ."); return;
+    }
+    if (credLogin.trim() && credLogin.trim().length < 3) {
+      setCredError("Login trop court (min 3 caractères)."); return;
+    }
+    if (credPassword && credPassword.length < 4) {
+      setCredError("Mot de passe trop court (min 4 caractères)."); return;
+    }
+    setCredCodeStep(true);
+  }
+
+  async function handleCredsSubmit() {
+    setCredError("");
+    if (!credCode.trim()) { setCredError("Code de vérification requis."); return; }
+    setCredLoading(true);
+    try {
+      const vr = await fetch(`${BASE}/api/verify-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: credCode.trim() }),
+      });
+      const vdata = await vr.json() as { valid: boolean };
+      if (!vdata.valid) { setCredError("Code incorrect."); setCredLoading(false); return; }
+
+      const endpoint = isAdmin
+        ? `${BASE}/api/admin/credentials`
+        : isManager
+        ? `${BASE}/api/managers/me/credentials`
+        : `${BASE}/api/collaborateurs/me/credentials`;
+
+      const body: { login?: string; password?: string } = {};
+      if (credLogin.trim() && credLogin.trim() !== (connectedUsername ?? "")) body.login = credLogin.trim();
+      if (credPassword) body.password = credPassword;
+
+      if (!body.login && !body.password) { setCredError("Aucune modification détectée."); setCredLoading(false); return; }
+
+      const ur = await fetch(endpoint, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(body),
+      });
+      if (!ur.ok) {
+        const d = await ur.json() as { error?: string };
+        setCredError(d.error ?? "Erreur lors de la mise à jour"); setCredLoading(false); return;
+      }
+      if (body.login) updateConnectedInfo({ username: body.login });
+      setCredSuccess(true);
+    } catch {
+      setCredError("Erreur réseau. Réessayez.");
+    } finally {
+      setCredLoading(false);
     }
   }
 
@@ -791,25 +868,25 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       {/* ── Footer ── */}
       <div className="px-3 py-3 flex-shrink-0">
         <div className="flex items-start justify-between gap-2">
-          {/* Gauche : badge rôle + nom de l'utilisateur */}
+          {/* Gauche : badge rôle (cliquable sauf super admin) + nom */}
           <div className="flex flex-col gap-1 min-w-0">
-            {/* Badge rôle */}
             {isSuperAdmin ? (
-              <span className="text-[9px] font-bold uppercase tracking-wide text-orange-400 bg-orange-500/15 px-2 py-0.5 rounded-full ring-1 ring-orange-400/40 self-start">
+              <span className="text-[9px] font-bold uppercase tracking-wide text-orange-400 bg-orange-500/15 px-2 py-0.5 rounded-full ring-1 ring-orange-400/40 self-start cursor-default">
                 Super Admin
               </span>
-            ) : isManager ? (
-              <span className="text-[9px] font-semibold uppercase tracking-wide text-emerald-400/80 bg-emerald-400/10 px-2 py-0.5 rounded-full ring-1 ring-emerald-400/20 self-start">
-                Gérant de zone
-              </span>
-            ) : isCollaborateur ? (
-              <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20 self-start">
-                Collaborateur
-              </span>
-            ) : isAdmin ? (
-              <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-400/70 bg-blue-400/10 px-2 py-0.5 rounded-full ring-1 ring-blue-400/20 self-start">
-                Admin
-              </span>
+            ) : (isAdmin || isManager || isCollaborateur) ? (
+              <button
+                onClick={openCredsDialog}
+                title="Modifier mes identifiants"
+                className={[
+                  "text-[9px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ring-1 self-start transition-opacity hover:opacity-80 active:opacity-60",
+                  isManager
+                    ? "text-emerald-400/80 bg-emerald-400/10 ring-emerald-400/20"
+                    : "text-blue-400/70 bg-blue-400/10 ring-blue-400/20",
+                ].join(" ")}
+              >
+                {isManager ? "Gérant de zone" : isCollaborateur ? "Collaborateur" : "Admin"}
+              </button>
             ) : null}
             {/* Nom de l'utilisateur connecté */}
             {connectedName && (
@@ -819,20 +896,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             )}
           </div>
 
-          {/* Droite : actions (flex-shrink-0 pour ne jamais être compressées) */}
+          {/* Droite : Déconnexion */}
           <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-            {/* Modifier mot de passe — managers et collaborateurs */}
-            {(isManager || isCollaborateur) && (
-              <button
-                onClick={openPwdDialog}
-                className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-amber-300 transition-colors px-2 py-1 rounded-lg hover:bg-amber-500/10 whitespace-nowrap"
-                title="Modifier mon mot de passe"
-              >
-                <KeyRound className="h-3.5 w-3.5" />
-                <span>Mot de passe</span>
-              </button>
-            )}
-            {/* Déconnexion */}
             <button
               onClick={handleLogout}
               className="flex items-center gap-1 text-[11px] font-medium text-red-400/80 hover:text-red-300 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
@@ -844,6 +909,93 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           </div>
         </div>
       </div>
+
+      {/* ── Credentials change dialog (admin / manager / collaborateur) ── */}
+      <Dialog open={showCreds} onOpenChange={(v) => { if (!v && !credLoading) setShowCreds(false); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-blue-500" />
+              Modifier mes identifiants
+            </DialogTitle>
+          </DialogHeader>
+
+          {credSuccess ? (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              </div>
+              <p className="text-sm font-medium text-emerald-700">Identifiants mis à jour !</p>
+              <Button className="mt-2" onClick={() => setShowCreds(false)}>Fermer</Button>
+            </div>
+          ) : credCodeStep ? (
+            <>
+              <div className="space-y-3 py-2">
+                <p className="text-xs text-gray-500">Saisissez le code de vérification pour confirmer les modifications.</p>
+                <div className="space-y-1">
+                  <Label className="text-xs">Code de vérification</Label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={credCode}
+                    onChange={(e) => setCredCode(e.target.value)}
+                    placeholder="••••"
+                    className="w-full h-9 text-sm border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring tracking-widest text-center"
+                    autoComplete="one-time-code"
+                    onKeyDown={(e) => e.key === "Enter" && void handleCredsSubmit()}
+                    autoFocus
+                  />
+                </div>
+                {credError && (
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{credError}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCredCodeStep(false)} disabled={credLoading}>
+                  Retour
+                </Button>
+                <Button onClick={() => void handleCredsSubmit()} disabled={credLoading}>
+                  {credLoading ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Vérification…</> : "Valider"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="space-y-3 py-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Login</Label>
+                  <input
+                    type="text"
+                    value={credLogin}
+                    onChange={(e) => setCredLogin(e.target.value)}
+                    placeholder="Login"
+                    className="w-full h-9 text-sm border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    autoComplete="username"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Nouveau mot de passe <span className="text-gray-400">(laisser vide pour ne pas changer)</span></Label>
+                  <PasswordInput
+                    value={credPassword}
+                    onChange={(e) => setCredPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="h-9 text-sm"
+                    autoComplete="new-password"
+                    onKeyDown={(e) => e.key === "Enter" && handleCredsContinue()}
+                  />
+                </div>
+                {credError && (
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{credError}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowCreds(false)}>Annuler</Button>
+                <Button onClick={handleCredsContinue}>Continuer</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Password change dialog (manager only) ── */}
       <Dialog open={showPwd} onOpenChange={(v) => { if (!v) setShowPwd(false); }}>

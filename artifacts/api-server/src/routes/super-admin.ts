@@ -88,7 +88,7 @@ router.get("/super/admins", async (req, res): Promise<void> => {
 router.post("/super/admins", async (req, res): Promise<void> => {
   if (!requireSuperAdminScope(req, res)) return;
 
-  const { login, password, displayName, forfaitMonths, forfaitTest24h, forfaitUnlimited, credits } = req.body as {
+  const { login, password, displayName, forfaitMonths, forfaitTest24h, forfaitUnlimited, credits, isSuperAdmin: makeSuper, verificationCode } = req.body as {
     login?: string;
     password?: string;
     displayName?: string;
@@ -96,6 +96,8 @@ router.post("/super/admins", async (req, res): Promise<void> => {
     forfaitTest24h?: boolean;
     forfaitUnlimited?: boolean;
     credits?: number;
+    isSuperAdmin?: boolean;
+    verificationCode?: string;
   };
 
   const loginTrimmed = login?.trim() ?? "";
@@ -147,7 +149,8 @@ router.post("/super/admins", async (req, res): Promise<void> => {
       passwordHash,
       passwordPlain: password,
       displayName: displayName?.trim() || null,
-      isSuperAdmin: false,
+      isSuperAdmin: makeSuper === true,
+      verificationCode: verificationCode?.trim() || null,
       isActive: true,
       forfaitStartedAt,
       forfaitEndsAt,

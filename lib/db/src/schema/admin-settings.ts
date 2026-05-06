@@ -20,6 +20,7 @@ export const adminSettingsTable = pgTable("admin_settings", {
   // cross-device (mobile, APK, desktop). null = utiliser le template par défaut.
   ticketTemplate: text("ticket_template"),
   passwordPlain: text("password_plain"),
+  verificationCode: text("verification_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

@@ -97,6 +97,43 @@ router.post("/managers", async (req, res): Promise<void> => {
   res.status(201).json(safeManager(manager));
 });
 
+/* ── PUT /managers/me/credentials — gérant change son login et/ou mot de passe ── */
+router.put("/managers/me/credentials", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const payload = verifyToken(auth.slice(7));
+  if (!payload) { res.status(401).json({ error: "Token invalide ou expiré" }); return; }
+
+  const { login, password } = req.body as { login?: string; password?: string };
+  if (!login?.trim() && !password) {
+    res.status(400).json({ error: "Aucune modification fournie" }); return;
+  }
+
+  const [manager] = await db.select().from(managersTable).where(eq(managersTable.id, payload.managerId));
+  if (!manager) { res.status(404).json({ error: "Gérant introuvable" }); return; }
+
+  const updates: Record<string, unknown> = {};
+
+  if (login?.trim()) {
+    const loginTrimmed = login.trim();
+    if (loginTrimmed.length < 3) { res.status(400).json({ error: "Login trop court (min 3 caractères)" }); return; }
+    const [existing] = await db.select({ id: managersTable.id }).from(managersTable).where(eq(managersTable.username, loginTrimmed));
+    if (existing && existing.id !== manager.id) {
+      res.status(409).json({ error: "Ce login est déjà utilisé" }); return;
+    }
+    updates.username = loginTrimmed;
+  }
+
+  if (password) {
+    if (password.length < 4) { res.status(400).json({ error: "Mot de passe trop court (min 4 caractères)" }); return; }
+    updates.passwordHash = await hashPassword(password);
+    updates.passwordPlain = password;
+  }
+
+  const [updated] = await db.update(managersTable).set(updates).where(eq(managersTable.id, manager.id)).returning();
+  res.json(safeManager(updated));
+});
+
 /* ── PUT /managers/me/password — gérant change son propre mot de passe ── */
 /* IMPORTANT: must be declared BEFORE /managers/:id to avoid route conflict  */
 router.put("/managers/me/password", async (req, res): Promise<void> => {

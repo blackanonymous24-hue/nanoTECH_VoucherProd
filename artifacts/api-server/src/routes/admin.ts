@@ -153,6 +153,22 @@ router.post("/login", async (req, res): Promise<void> => {
   res.status(401).json({ error: "Identifiants incorrects" });
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/verify-code { code } — Valide un code de vérification.
+// Code "4155" accepté par défaut. Sinon, comparé au verificationCode de chaque super admin.
+// ---------------------------------------------------------------------------
+router.post("/verify-code", async (req, res): Promise<void> => {
+  const { code } = req.body as { code?: string };
+  if (!code?.trim()) { res.status(400).json({ valid: false, error: "Code requis" }); return; }
+  if (code.trim() === "4155") { res.json({ valid: true }); return; }
+  const superAdmins = await db
+    .select({ verificationCode: adminSettingsTable.verificationCode })
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.isSuperAdmin, true));
+  const valid = superAdmins.some((a) => a.verificationCode && a.verificationCode === code.trim());
+  res.json({ valid });
+});
+
 router.get("/admin/me", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;

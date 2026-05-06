@@ -108,6 +108,8 @@ export default function SuperAdmins() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createKey, setCreateKey] = useState(0);
+  const [createSuperOpen, setCreateSuperOpen] = useState(false);
+  const [createSuperKey, setCreateSuperKey] = useState(0);
   const [editing, setEditing] = useState<AdminRow | null>(null);
   const [forfaitTarget, setForfaitTarget] = useState<{ admin: AdminRow; mode: "set" | "extend" } | null>(null);
   const [creditsTarget, setCreditsTarget] = useState<AdminRow | null>(null);
@@ -150,6 +152,16 @@ export default function SuperAdmins() {
       return r.json();
     },
     onSuccess: () => { setCreateOpen(false); refresh(); toast({ title: "Administrateur créé" }); },
+    onError: handleErr,
+  });
+
+  const createSuperM = useMutation({
+    mutationFn: async (v: { login: string; password: string; displayName?: string; verificationCode?: string }) => {
+      const r = await fetch(`${BASE}/api/super/admins`, { method: "POST", headers, body: JSON.stringify({ ...v, isSuperAdmin: true }) });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Création impossible");
+      return r.json();
+    },
+    onSuccess: () => { setCreateSuperOpen(false); refresh(); toast({ title: "Super administrateur créé" }); },
     onError: handleErr,
   });
 
@@ -288,8 +300,16 @@ export default function SuperAdmins() {
             <UserCog className="h-4 w-4" />
             <span className="hidden sm:inline">Mon compte</span>
           </Button>
+          <Button
+            onClick={() => { setCreateSuperKey((k) => k + 1); setCreateSuperOpen(true); }}
+            className="gap-2 bg-orange-500 hover:bg-orange-600 text-white"
+          >
+            <ShieldCheck className="h-4 w-4" />
+            <span className="hidden sm:inline">Nouveau super admin</span>
+            <span className="sm:hidden">Super admin</span>
+          </Button>
           <Button onClick={() => { setCreateKey((k) => k + 1); setCreateOpen(true); }} className="gap-2">
-            <Plus className="h-4 w-4" /> Nouvel administrateur
+            <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Nouvel</span> admin
           </Button>
         </div>
       </div>
@@ -476,6 +496,9 @@ export default function SuperAdmins() {
           </div>
         )}
       </div>
+
+      {/* Create super admin dialog */}
+      <CreateSuperAdminDialog key={createSuperKey} open={createSuperOpen} onClose={() => setCreateSuperOpen(false)} onSubmit={(v) => createSuperM.mutate(v)} pending={createSuperM.isPending} />
 
       {/* Create dialog */}
       <CreateDialog key={createKey} open={createOpen} onClose={() => setCreateOpen(false)} onSubmit={(v) => createM.mutate(v)} pending={createM.isPending} />
@@ -888,6 +911,76 @@ function CopyVendorsDialog({
 }
 
 /* ════════════════════ Dialogs ════════════════════ */
+
+/* ════════════════════ CreateSuperAdminDialog ════════════════════ */
+
+function CreateSuperAdminDialog({ open, onClose, onSubmit, pending }: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (v: { login: string; password: string; displayName?: string; verificationCode?: string }) => void;
+  pending: boolean;
+}) {
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+
+  const reset = () => { setLogin(""); setPassword(""); setDisplayName(""); setVerificationCode(""); };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { reset(); onClose(); } }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-orange-500" />
+            Nouveau super administrateur
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Nom d'affichage</Label>
+            <Input autoComplete="off" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="optionnel" />
+          </div>
+          <div>
+            <Label>Identifiant</Label>
+            <Input autoComplete="off" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="ex. superadmin2" />
+          </div>
+          <div>
+            <Label>Mot de passe</Label>
+            <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min. 4 caractères" />
+          </div>
+          <div>
+            <Label>Code de vérification <span className="text-xs text-gray-400 font-normal">(défaut : 4155)</span></Label>
+            <Input
+              autoComplete="off"
+              inputMode="numeric"
+              value={verificationCode}
+              onChange={(e) => setVerificationCode(e.target.value)}
+              placeholder="Code requis pour modifier les identifiants"
+            />
+            <p className="text-xs text-gray-400 mt-1">Laissez vide pour utiliser le code par défaut 4155.</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { reset(); onClose(); }}>Annuler</Button>
+          <Button
+            disabled={pending || !login.trim() || password.length < 4}
+            className="bg-orange-500 hover:bg-orange-600 text-white"
+            onClick={() => onSubmit({
+              login: login.trim(),
+              password,
+              displayName: displayName.trim() || undefined,
+              verificationCode: verificationCode.trim() || undefined,
+            })}
+          >
+            {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Créer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function CreateDialog({ open, onClose, onSubmit, pending }: {
   open: boolean;
