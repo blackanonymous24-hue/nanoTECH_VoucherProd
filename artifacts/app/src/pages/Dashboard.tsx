@@ -1161,8 +1161,7 @@ function StatCard({
   const inner = (
     <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
       <div className="flex-1 flex flex-col justify-center p-2.5 sm:p-6 lg:px-4 lg:py-2.5">
-        {/* Icône visible seulement sm+ */}
-        <div className="hidden sm:flex items-center gap-3 lg:gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-3 lg:gap-2.5">
           <div className="p-2.5 lg:p-2 bg-gray-100 rounded-lg flex-shrink-0">{icon}</div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
