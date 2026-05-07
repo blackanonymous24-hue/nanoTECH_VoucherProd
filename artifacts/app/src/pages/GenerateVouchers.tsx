@@ -9,6 +9,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -296,6 +301,7 @@ export default function GenerateVouchers() {
   const [isPrinting, setIsPrinting] = useState(false);
   const [copiedLot, setCopiedLot] = useState(false);
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
+  const [confirmDeleteLastLot, setConfirmDeleteLastLot] = useState<LastLot | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [genPaused, setGenPaused] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
@@ -766,10 +772,7 @@ export default function GenerateVouchers() {
 
   const handleDeleteLastLot = async (lot: LastLot) => {
     if (!lot.routerId || !lot.comment) return;
-    const confirmed = window.confirm(
-      `Supprimer ce lot sur MikroTik ?\n\nLot: ${lot.comment}\nRouteur: ${lot.routerName || lot.routerId}\n\nCette action est irréversible.`,
-    );
-    if (!confirmed) return;
+    setConfirmDeleteLastLot(null);
     setIsDeletingLastLot(true);
     try {
       const resp = await fetch(
@@ -1300,7 +1303,7 @@ export default function GenerateVouchers() {
                   size="sm"
                   variant="outline"
                   className="gap-1 h-8 px-2.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                  onClick={() => void handleDeleteLastLot(lastLot)}
+                  onClick={() => setConfirmDeleteLastLot(lastLot)}
                   title="Supprimer ce lot"
                   disabled={isDeletingLastLot}
                 >
@@ -1346,6 +1349,34 @@ export default function GenerateVouchers() {
 
       {/* ── Print section — uses global @media print CSS ── */}
       <div id="voucher-print-section" style={{ display: "none" }} />
+
+      {/* Confirmation suppression dernier lot */}
+      <AlertDialog
+        open={!!confirmDeleteLastLot}
+        onOpenChange={(o) => { if (!o && !isDeletingLastLot) setConfirmDeleteLastLot(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer le lot ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le lot <strong className="font-mono">{confirmDeleteLastLot?.comment}</strong> et tous ses
+              vouchers seront définitivement supprimés de MikroTik. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingLastLot}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => confirmDeleteLastLot && void handleDeleteLastLot(confirmDeleteLastLot)}
+              disabled={isDeletingLastLot}
+            >
+              {isDeletingLastLot
+                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression...</span>
+                : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
