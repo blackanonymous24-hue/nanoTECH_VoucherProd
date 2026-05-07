@@ -122,6 +122,11 @@ export function installAuthFetch(): void {
     if (token && !existingHeaders.has("Authorization")) {
       existingHeaders.set("Authorization", `Bearer ${token}`);
     }
+    // Impersonation super-admin → tenant emprunté
+    const impersonateId = (window as { __vouchernetImpersonateAdminId?: number | null }).__vouchernetImpersonateAdminId;
+    if (impersonateId && !existingHeaders.has("X-Impersonate-Admin")) {
+      existingHeaders.set("X-Impersonate-Admin", String(impersonateId));
+    }
     const nextInit: RequestInit = { ...(init ?? {}), headers: existingHeaders, signal: ctrl.signal };
 
     try {

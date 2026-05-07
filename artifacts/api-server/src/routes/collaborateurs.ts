@@ -16,15 +16,23 @@ function requireAdmin(req: import("express").Request, res: import("express").Res
 }
 
 /**
- * Returns the admin scope (adminId + isSuperAdmin) when the request carries
- * a valid admin token, or null on unauthorized.
+ * Returns the admin scope (adminId + isSuperAdmin + isImpersonating) when the
+ * request carries a valid admin token, or null on unauthorized.
+ * Supports super-admin impersonation via X-Impersonate-Admin header.
  */
-function getAdminScope(req: import("express").Request, res: import("express").Response): { adminId: number; isSuperAdmin: boolean } | null {
+function getAdminScope(req: import("express").Request, res: import("express").Response): { adminId: number; isSuperAdmin: boolean; isImpersonating?: boolean } | null {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) {
     res.status(401).json({ error: "Accès réservé à l'administrateur" });
     return null;
+  }
+  if (claims.isSuperAdmin) {
+    const header = req.headers["x-impersonate-admin"];
+    const targetId = typeof header === "string" ? parseInt(header, 10) : NaN;
+    if (!isNaN(targetId) && targetId > 0 && targetId !== claims.adminId) {
+      return { adminId: targetId, isSuperAdmin: true, isImpersonating: true };
+    }
   }
   return claims;
 }
@@ -55,8 +63,9 @@ router.get("/collaborateurs/me", async (req, res): Promise<void> => {
 router.get("/collaborateurs", async (req, res): Promise<void> => {
   const scope = getAdminScope(req, res);
   if (!scope) return;
-  // Tenant filter: regular admin only sees their own collaborateurs.
-  const collabs = scope.isSuperAdmin
+  // Tenant filter: regular admin (or impersonating super-admin) sees only
+  // their own collaborateurs; non-impersonating super admin sees everyone.
+  const collabs = (scope.isSuperAdmin && !scope.isImpersonating)
     ? await db.select().from(collaborateursTable).orderBy(collaborateursTable.name)
     : await db.select().from(collaborateursTable)
         .where(eq(collaborateursTable.ownerAdminId, scope.adminId))
@@ -90,8 +99,8 @@ router.post("/collaborateurs", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Au moins un routeur doit être assigné" }); return;
   }
 
-  // Verify all assigned routers belong to this admin (super admin bypasses).
-  if (!scope.isSuperAdmin) {
+  // Verify all assigned routers belong to this admin (non-impersonating super bypasses).
+  if (!scope.isSuperAdmin || scope.isImpersonating) {
     const owned = await db.select({ id: routersTable.id })
       .from(routersTable)
       .where(and(
@@ -191,11 +200,11 @@ router.put("/collaborateurs/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  // Tenant ownership check (regular admins only — super sees all).
+  // Tenant ownership check (non-impersonating super admin bypasses).
   const [target] = await db.select({ ownerAdminId: collaborateursTable.ownerAdminId })
     .from(collaborateursTable).where(eq(collaborateursTable.id, id));
   if (!target) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
-  if (!scope.isSuperAdmin && target.ownerAdminId !== scope.adminId) {
+  if ((!scope.isSuperAdmin || scope.isImpersonating) && target.ownerAdminId !== scope.adminId) {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 
@@ -216,7 +225,7 @@ router.put("/collaborateurs/:id", async (req, res): Promise<void> => {
   }
 
   // If routerIds are provided, verify each belongs to the caller's tenant.
-  if (Array.isArray(routerIds) && routerIds.length > 0 && !scope.isSuperAdmin) {
+  if (Array.isArray(routerIds) && routerIds.length > 0 && (!scope.isSuperAdmin || scope.isImpersonating)) {
     const owned = await db.select({ id: routersTable.id })
       .from(routersTable)
       .where(and(
@@ -259,11 +268,11 @@ router.delete("/collaborateurs/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  // Tenant ownership check (regular admins only — super sees all).
+  // Tenant ownership check (non-impersonating super admin bypasses).
   const [target] = await db.select({ ownerAdminId: collaborateursTable.ownerAdminId })
     .from(collaborateursTable).where(eq(collaborateursTable.id, id));
   if (!target) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
-  if (!scope.isSuperAdmin && target.ownerAdminId !== scope.adminId) {
+  if ((!scope.isSuperAdmin || scope.isImpersonating) && target.ownerAdminId !== scope.adminId) {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 

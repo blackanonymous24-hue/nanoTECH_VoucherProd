@@ -16,16 +16,23 @@ function requireAdmin(req: import("express").Request, res: import("express").Res
 }
 
 /**
- * Returns the admin scope (adminId + isSuperAdmin) when the request carries
- * a valid admin token, or null on unauthorized. Used by routes that need
- * to scope to a specific tenant (multi-tenancy).
+ * Returns the admin scope (adminId + isSuperAdmin + isImpersonating) when the
+ * request carries a valid admin token, or null on unauthorized.
+ * Supports super-admin impersonation via X-Impersonate-Admin header.
  */
-function getAdminScope(req: import("express").Request, res: import("express").Response): { adminId: number; isSuperAdmin: boolean } | null {
+function getAdminScope(req: import("express").Request, res: import("express").Response): { adminId: number; isSuperAdmin: boolean; isImpersonating?: boolean } | null {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) {
     res.status(401).json({ error: "Accès réservé à l'administrateur" });
     return null;
+  }
+  if (claims.isSuperAdmin) {
+    const header = req.headers["x-impersonate-admin"];
+    const targetId = typeof header === "string" ? parseInt(header, 10) : NaN;
+    if (!isNaN(targetId) && targetId > 0 && targetId !== claims.adminId) {
+      return { adminId: targetId, isSuperAdmin: true, isImpersonating: true };
+    }
   }
   return claims;
 }
@@ -48,9 +55,9 @@ router.get("/managers/me", async (req, res): Promise<void> => {
 router.get("/managers", async (req, res): Promise<void> => {
   const scope = getAdminScope(req, res);
   if (!scope) return;
-  // Tenant filter: regular admin sees only their own managers; super admin
-  // sees everyone for management purposes.
-  const managers = scope.isSuperAdmin
+  // Tenant filter: regular admin (or impersonating super-admin) sees only
+  // their own managers; non-impersonating super admin sees everyone.
+  const managers = (scope.isSuperAdmin && !scope.isImpersonating)
     ? await db.select().from(managersTable).orderBy(managersTable.name)
     : await db.select().from(managersTable)
         .where(eq(managersTable.ownerAdminId, scope.adminId))
@@ -71,8 +78,8 @@ router.post("/managers", async (req, res): Promise<void> => {
   }
 
   // If a routerId is supplied, make sure it belongs to the requester
-  // (super admin bypasses this check).
-  if (routerId != null && !scope.isSuperAdmin) {
+  // (non-impersonating super admin bypasses this check).
+  if (routerId != null && (!scope.isSuperAdmin || scope.isImpersonating)) {
     const [r] = await db.select({ owner: routersTable.ownerAdminId })
       .from(routersTable).where(eq(routersTable.id, routerId));
     if (!r) { res.status(400).json({ error: "Routeur invalide" }); return; }
@@ -175,11 +182,11 @@ router.put("/managers/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  // Tenant ownership check (regular admins only — super sees all).
+  // Tenant ownership check (non-impersonating super admin bypasses).
   const [target] = await db.select({ ownerAdminId: managersTable.ownerAdminId })
     .from(managersTable).where(eq(managersTable.id, id));
   if (!target) { res.status(404).json({ error: "Gérant introuvable" }); return; }
-  if (!scope.isSuperAdmin && target.ownerAdminId !== scope.adminId) {
+  if ((!scope.isSuperAdmin || scope.isImpersonating) && target.ownerAdminId !== scope.adminId) {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 
@@ -200,7 +207,7 @@ router.put("/managers/:id", async (req, res): Promise<void> => {
     const [r] = await db.select({ ownerAdminId: routersTable.ownerAdminId })
       .from(routersTable).where(eq(routersTable.id, routerId));
     if (!r) { res.status(400).json({ error: "Routeur introuvable" }); return; }
-    if (!scope.isSuperAdmin && r.ownerAdminId !== scope.adminId) {
+    if ((!scope.isSuperAdmin || scope.isImpersonating) && r.ownerAdminId !== scope.adminId) {
       res.status(403).json({ error: "Routeur d'un autre tenant" }); return;
     }
   }
@@ -228,11 +235,11 @@ router.delete("/managers/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  // Tenant ownership check (regular admins only — super sees all).
+  // Tenant ownership check (non-impersonating super admin bypasses).
   const [target] = await db.select({ ownerAdminId: managersTable.ownerAdminId })
     .from(managersTable).where(eq(managersTable.id, id));
   if (!target) { res.status(404).json({ error: "Gérant introuvable" }); return; }
-  if (!scope.isSuperAdmin && target.ownerAdminId !== scope.adminId) {
+  if ((!scope.isSuperAdmin || scope.isImpersonating) && target.ownerAdminId !== scope.adminId) {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 

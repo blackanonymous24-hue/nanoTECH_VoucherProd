@@ -12,16 +12,23 @@ import { invalidateVendorPortalCache } from "./vendor-portal.js";
 import { carryOverByVendorBeforeWeek } from "../lib/vendor-carryover.js";
 
 /**
- * Returns the admin scope (adminId + isSuperAdmin) when the request carries
- * a valid admin token, or null when there's no admin token.
- *
- * Several /vendors endpoints serve both admin and vendor-portal callers;
- * routes that strictly require admin should reject when this returns null.
+ * Returns the admin scope (adminId + isSuperAdmin + isImpersonating) when the
+ * request carries a valid admin token, or null when there's no admin token.
+ * Supports super-admin impersonation via X-Impersonate-Admin header.
  */
-function getAdminScopeOptional(req: import("express").Request): { adminId: number; isSuperAdmin: boolean } | null {
+function getAdminScopeOptional(req: import("express").Request): { adminId: number; isSuperAdmin: boolean; isImpersonating?: boolean } | null {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) return null;
-  return verifyAdminTokenFull(auth.slice(7));
+  const claims = verifyAdminTokenFull(auth.slice(7));
+  if (!claims) return null;
+  if (claims.isSuperAdmin) {
+    const header = req.headers["x-impersonate-admin"];
+    const targetId = typeof header === "string" ? parseInt(header, 10) : NaN;
+    if (!isNaN(targetId) && targetId > 0 && targetId !== claims.adminId) {
+      return { adminId: targetId, isSuperAdmin: true, isImpersonating: true };
+    }
+  }
+  return claims;
 }
 
 const router = Router();
@@ -82,7 +89,7 @@ router.get("/vendors", async (req, res): Promise<void> => {
   const scope = getAdminScopeOptional(req);
   const conds: ReturnType<typeof eq>[] = [];
   if (routerId) conds.push(eq(vendorsTable.routerId, routerId));
-  if (scope && !scope.isSuperAdmin) conds.push(eq(vendorsTable.ownerAdminId, scope.adminId));
+  if (scope && (!scope.isSuperAdmin || scope.isImpersonating)) conds.push(eq(vendorsTable.ownerAdminId, scope.adminId));
   const where = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
   const vendors = await db.select().from(vendorsTable).where(where).orderBy(vendorsTable.name);
   res.json(vendors.map(safeVendor));
@@ -110,8 +117,8 @@ router.post("/vendors", async (req, res): Promise<void> => {
   }
 
   // Tenant ownership: if a routerId is supplied, make sure it belongs to
-  // this admin. Super admin can target any router.
-  if (routerId != null && !scope.isSuperAdmin) {
+  // this admin. Non-impersonating super admin can target any router.
+  if (routerId != null && (!scope.isSuperAdmin || scope.isImpersonating)) {
     const [r] = await db.select({ owner: routersTable.ownerAdminId })
       .from(routersTable).where(eq(routersTable.id, routerId));
     if (!r) { res.status(400).json({ error: "Routeur invalide" }); return; }
@@ -215,8 +222,8 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   // Fetch current vendor early (needed for username fallback)
   const [current] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
   if (!current) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
-  // Tenant ownership check (regular admins only — super sees all).
-  if (!scope.isSuperAdmin && current.ownerAdminId !== scope.adminId) {
+  // Tenant ownership check (non-impersonating super admin bypasses).
+  if ((!scope.isSuperAdmin || scope.isImpersonating) && current.ownerAdminId !== scope.adminId) {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 
@@ -353,11 +360,11 @@ router.delete("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  // Tenant ownership check (regular admins only — super sees all).
+  // Tenant ownership check (non-impersonating super admin bypasses).
   const [target] = await db.select({ ownerAdminId: vendorsTable.ownerAdminId })
     .from(vendorsTable).where(eq(vendorsTable.id, id));
   if (!target) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
-  if (!scope.isSuperAdmin && target.ownerAdminId !== scope.adminId) {
+  if ((!scope.isSuperAdmin || scope.isImpersonating) && target.ownerAdminId !== scope.adminId) {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 

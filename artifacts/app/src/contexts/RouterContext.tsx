@@ -4,7 +4,7 @@ import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 
-export type BorrowedRouter = { id: number; name: string };
+export type BorrowedRouter = { id: number; name: string; ownerAdminId: number };
 
 interface RouterContextValue {
   selectedRouterId: number | null;
@@ -92,7 +92,13 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   // Déclaré AVANT l'effet d'alignement pour éviter la temporal dead zone
   const [borrowedRouter, setBorrowedRouter] = useState<BorrowedRouter | null>(null);
   const borrowedRouterRef = useRef<BorrowedRouter | null>(null);
-  useEffect(() => { borrowedRouterRef.current = borrowedRouter; }, [borrowedRouter]);
+  useEffect(() => {
+    borrowedRouterRef.current = borrowedRouter;
+    // Expose le ownerAdminId pour que installAuthFetch puisse injecter
+    // le header X-Impersonate-Admin sur tous les appels API.
+    (window as { __vouchernetImpersonateAdminId?: number | null }).__vouchernetImpersonateAdminId =
+      borrowedRouter?.ownerAdminId ?? null;
+  }, [borrowedRouter]);
 
   // Quand la liste des routeurs autorisés est connue : aligner la sélection.
   // - liste vide → effacer l'ID SAUF si c'est un routeur emprunté

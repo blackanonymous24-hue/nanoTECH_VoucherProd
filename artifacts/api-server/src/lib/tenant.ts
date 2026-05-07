@@ -3,14 +3,34 @@ import { verifyAdminTokenFull } from "./admin-auth.js";
 
 /**
  * Tenant scope derived from an admin Bearer token.
- * - `adminId`     : id of the authenticated admin (for ownerAdminId filtering)
- * - `isSuperAdmin`: rôle plateforme ; le périmètre des données (tous tenants vs
+ * - `adminId`        : id of the authenticated admin (for ownerAdminId filtering)
+ * - `isSuperAdmin`   : rôle plateforme ; le périmètre des données (tous tenants vs
  *   un seul) dépend de chaque route (ex. liste routeurs = propriétaire JWT ;
  *   console super = endpoints `/api/super/...`).
+ * - `isImpersonating`: vrai quand le super-admin agit au nom d'un autre tenant via
+ *   le header X-Impersonate-Admin. Dans ce cas `adminId` est l'id du tenant cible
+ *   et les requêtes doivent appliquer les mêmes filtres qu'un admin ordinaire.
  */
 export interface AdminScope {
   adminId: number;
   isSuperAdmin: boolean;
+  isImpersonating?: boolean;
+}
+
+/**
+ * Résout l'impersonation super-admin → tenant cible.
+ * Si le header X-Impersonate-Admin est présent et valide, `adminId` est remplacé
+ * par l'id cible et `isImpersonating` est levé pour que les routes appliquent
+ * les filtres tenant normaux.
+ */
+export function applyImpersonation(req: Request, claims: { adminId: number; isSuperAdmin: boolean }): AdminScope {
+  if (!claims.isSuperAdmin) return { ...claims };
+  const header = req.headers["x-impersonate-admin"];
+  const targetId = typeof header === "string" ? parseInt(header, 10) : NaN;
+  if (!isNaN(targetId) && targetId > 0 && targetId !== claims.adminId) {
+    return { adminId: targetId, isSuperAdmin: true, isImpersonating: true };
+  }
+  return { ...claims };
 }
 
 /**
@@ -18,9 +38,7 @@ export interface AdminScope {
  * return null. Use this at the top of any admin-only route that needs to
  * scope queries by tenant.
  *
- * The companion `verifyAdminToken(token): boolean` is preserved for the many
- * legacy routes that just need a yes/no auth check; new code should prefer
- * this helper to avoid two separate token decodes.
+ * Supports super-admin impersonation via X-Impersonate-Admin header.
  */
 export function requireAdminScope(req: Request, res: Response): AdminScope | null {
   const auth = req.headers.authorization;
@@ -30,7 +48,7 @@ export function requireAdminScope(req: Request, res: Response): AdminScope | nul
     res.status(401).json({ error: "Non authentifié" });
     return null;
   }
-  return claims;
+  return applyImpersonation(req, claims);
 }
 
 /**
@@ -38,11 +56,16 @@ export function requireAdminScope(req: Request, res: Response): AdminScope | nul
  * Used to gate the /api/super/** endpoints.
  */
 export function requireSuperAdminScope(req: Request, res: Response): AdminScope | null {
-  const scope = requireAdminScope(req, res);
-  if (!scope) return null;
-  if (!scope.isSuperAdmin) {
+  const auth = req.headers.authorization;
+  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+  const claims = token ? verifyAdminTokenFull(token) : null;
+  if (!claims) {
+    res.status(401).json({ error: "Non authentifié" });
+    return null;
+  }
+  if (!claims.isSuperAdmin) {
     res.status(403).json({ error: "Réservé au super administrateur" });
     return null;
   }
-  return scope;
+  return applyImpersonation(req, claims);
 }
