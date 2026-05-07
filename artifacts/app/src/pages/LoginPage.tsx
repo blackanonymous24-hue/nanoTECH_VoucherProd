@@ -79,59 +79,72 @@ export default function LoginPage({ mode }: LoginPageProps) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    try {
-      const res = await fetch(`${BASE}/api/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login: form.login.trim(), password: form.password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "Identifiants incorrects");
-        return;
-      }
 
-      if (isAdmin && data.role === "vendor") {
-        setError("Ce compte est un compte vendeur. Veuillez utiliser l'espace Vendeurs/Revendeurs.");
-        return;
-      }
-      if (!isAdmin && (data.role === "admin" || data.role === "manager" || data.role === "collaborateur")) {
-        setError("Ce compte est un compte administrateur. Veuillez utiliser l'espace Administrateurs/Gérant de zone.");
-        return;
-      }
+    const MAX_ATTEMPTS = 6;
+    const RETRY_DELAY_MS = 1500;
 
-      const connectedName: string | null =
-        data.role === "manager"       ? (data.manager?.name ?? null) :
-        data.role === "collaborateur" ? (data.collaborateur?.name ?? null) :
-        data.role === "admin"         ? (data.admin?.displayName ?? data.admin?.login ?? null) :
-        null;
-      const connectedUsername: string | null =
-        data.role === "manager"       ? (data.manager?.username ?? null) :
-        data.role === "collaborateur" ? (data.collaborateur?.username ?? null) :
-        data.role === "admin"         ? (data.admin?.login ?? null) :
-        null;
-      login(
-        data.token,
-        data.role,
-        data.vendor ?? undefined,
-        data.manager?.routerId ?? null,
-        data.collaborateur?.routerIds ?? undefined,
-        remember,
-        data.isSuperAdmin === true,
-        connectedName,
-        connectedUsername,
-      );
-      if (data.role === "vendor") {
-        navigate("/vendor-portal");
-      } else if (data.role === "manager" || data.role === "collaborateur") {
-        navigate("/");
-      } else {
-        navigate("/routers");
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await fetch(`${BASE}/api/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login: form.login.trim(), password: form.password }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error ?? "Identifiants incorrects");
+          setLoading(false);
+          return;
+        }
+
+        if (isAdmin && data.role === "vendor") {
+          setError("Ce compte est un compte vendeur. Veuillez utiliser l'espace Vendeurs/Revendeurs.");
+          setLoading(false);
+          return;
+        }
+        if (!isAdmin && (data.role === "admin" || data.role === "manager" || data.role === "collaborateur")) {
+          setError("Ce compte est un compte administrateur. Veuillez utiliser l'espace Administrateurs/Gérant de zone.");
+          setLoading(false);
+          return;
+        }
+
+        const connectedName: string | null =
+          data.role === "manager"       ? (data.manager?.name ?? null) :
+          data.role === "collaborateur" ? (data.collaborateur?.name ?? null) :
+          data.role === "admin"         ? (data.admin?.displayName ?? data.admin?.login ?? null) :
+          null;
+        const connectedUsername: string | null =
+          data.role === "manager"       ? (data.manager?.username ?? null) :
+          data.role === "collaborateur" ? (data.collaborateur?.username ?? null) :
+          data.role === "admin"         ? (data.admin?.login ?? null) :
+          null;
+        login(
+          data.token,
+          data.role,
+          data.vendor ?? undefined,
+          data.manager?.routerId ?? null,
+          data.collaborateur?.routerIds ?? undefined,
+          remember,
+          data.isSuperAdmin === true,
+          connectedName,
+          connectedUsername,
+        );
+        if (data.role === "vendor") {
+          navigate("/vendor-portal");
+        } else if (data.role === "manager" || data.role === "collaborateur") {
+          navigate("/");
+        } else {
+          navigate("/routers");
+        }
+        return;
+      } catch {
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+        /* Tous les essais épuisés — on remet le bouton sans message d'erreur */
+        setLoading(false);
       }
-    } catch {
-      setError("Impossible de contacter le serveur");
-    } finally {
-      setLoading(false);
     }
   };
 
