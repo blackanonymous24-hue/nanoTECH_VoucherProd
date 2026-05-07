@@ -120,19 +120,19 @@ function computeAutoPrefix(validity: string | null | undefined, ticketLetter: st
   const sl = validity.trim().toLowerCase();
   let code = "";
   if (sl === "30d" || sl === "31d") code = "1M";
-  else if (sl === "2w" || sl === "14d") code = "2s";
-  else if (sl === "1w" || sl === "7d") code = "1s";
+  else if (sl === "2w" || sl === "14d") code = "2S";
+  else if (sl === "1w" || sl === "7d") code = "1S";
   else {
     const m = sl.match(/^(\d+)([a-z]+)$/);
     if (!m) return "";
     const [, num, unit] = m;
-    if (unit === "h") code = `${num}h`;
-    else if (unit === "d") code = `${num}j`;
-    else if (unit === "w") code = `${num}s`;
+    if (unit === "h") code = `${num}H`;
+    else if (unit === "d") code = `${num}J`;
+    else if (unit === "w") code = `${num}S`;
     else if (unit === "m") code = `${num}M`;
     else return "";
   }
-  return code + (ticketLetter?.trim() || "");
+  return code + (ticketLetter?.trim().toUpperCase() || "");
 }
 
 type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";

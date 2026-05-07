@@ -270,11 +270,11 @@ export function PersonForm({
                 <Label htmlFor="pf-ticket-letter">Lettre</Label>
                 <Input
                   id="pf-ticket-letter"
-                  className="mt-1 font-mono w-24 uppercase"
-                  placeholder="ex: k"
+                  className="mt-1 font-mono w-24"
+                  placeholder="ex: K"
                   maxLength={3}
                   value={ticketLetter}
-                  onChange={(e) => setTicketLetter(e.target.value.toLowerCase())}
+                  onChange={(e) => setTicketLetter(e.target.value)}
                 />
               </div>
             )}
