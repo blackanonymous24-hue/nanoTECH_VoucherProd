@@ -418,7 +418,18 @@ router.use("/routers/:id", async (req, res, next) => {
   const id = parseInt(raw, 10);
   if (Number.isNaN(id)) { next(); return; } // let the handler report a clean 400
 
-  if (scope.kind === "super" || scope.kind === "admin") {
+  // Super-admin peut accéder à n'importe quel routeur sans restriction de tenant.
+  if (scope.kind === "super") {
+    const [r] = await db
+      .select({ owner: routersTable.ownerAdminId })
+      .from(routersTable)
+      .where(eq(routersTable.id, id));
+    if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+    next();
+    return;
+  }
+
+  if (scope.kind === "admin") {
     const [r] = await db
       .select({ owner: routersTable.ownerAdminId })
       .from(routersTable)
