@@ -438,9 +438,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     if (!pwdNew) {
       setPwdError("Le mot de passe est requis."); return;
     }
-    if (pwdNew.length < 4) {
-      setPwdError("Le mot de passe doit comporter au moins 4 caractères."); return;
-    }
     setPwdLoading(true);
     const pwdEndpoint = isCollaborateur
       ? `${BASE}/api/collaborateurs/me/password`
@@ -482,11 +479,11 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     if (!credLogin.trim() && !credPassword) {
       setCredError("Modifiez au moins un champ."); return;
     }
-    if (credLogin.trim() && credLogin.trim().length < 3) {
-      setCredError("Login trop court (min 3 caractères)."); return;
+    if (credLogin.trim() && credLogin.trim().length < 1) {
+      setCredError("Login requis."); return;
     }
-    if (credPassword && credPassword.length < 4) {
-      setCredError("Mot de passe trop court (min 4 caractères)."); return;
+    if (credPassword && credPassword.length < 1) {
+      setCredError("Mot de passe requis."); return;
     }
     setCredCodeStep(true);
   }

@@ -106,12 +106,12 @@ router.post("/super/admins", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Login et mot de passe requis" });
     return;
   }
-  if (loginTrimmed.length < 2) {
-    res.status(400).json({ error: "Login trop court (min 2 caractères)" });
+  if (loginTrimmed.length < 1) {
+    res.status(400).json({ error: "Login requis" });
     return;
   }
-  if (password.length < 4) {
-    res.status(400).json({ error: "Mot de passe trop court (min 4 caractères)" });
+  if (password.length < 1) {
+    res.status(400).json({ error: "Mot de passe requis" });
     return;
   }
 
@@ -186,15 +186,15 @@ router.patch("/super/admins/:id", async (req, res): Promise<void> => {
   if (typeof isActive === "boolean") patch.isActive = isActive;
   if (login !== undefined) {
     const loginTrimmed = login.trim();
-    if (loginTrimmed.length < 2) {
-      res.status(400).json({ error: "Login trop court (min 2 caractères)" });
+    if (loginTrimmed.length < 1) {
+      res.status(400).json({ error: "Login requis" });
       return;
     }
     patch.login = loginTrimmed;
   }
   if (password !== undefined) {
-    if (password.length < 4) {
-      res.status(400).json({ error: "Mot de passe trop court (min 4 caractères)" });
+    if (password.length < 1) {
+      res.status(400).json({ error: "Mot de passe requis" });
       return;
     }
     patch.passwordHash = await hashPassword(password);

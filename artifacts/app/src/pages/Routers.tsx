@@ -98,14 +98,6 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
       setError("Renseignez au moins un champ à modifier");
       return;
     }
-    if (form.login.trim() && form.login.trim().length < 3) {
-      setError("Login trop court (min 3 caractères)");
-      return;
-    }
-    if (form.password && form.password.length < 4) {
-      setError("Mot de passe trop court (min 4 caractères)");
-      return;
-    }
     setLoading(true);
     try {
       const payload: { login?: string; password?: string } = {};

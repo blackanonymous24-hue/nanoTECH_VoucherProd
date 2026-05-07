@@ -393,12 +393,11 @@ export default function SuperAdmins() {
                               </button>
                             )}
 
-                            {a.credentialPreview && (
-                              <p className="text-[11px] text-amber-700 mt-0.5">
-                                Nouveaux identifiants:{" "}
-                                {a.credentialPreview.login ? `login=${a.credentialPreview.login}` : ""}{" "}
-                                {a.credentialPreview.password ? `| mdp=${a.credentialPreview.password}` : ""}
-                              </p>
+                            {a.credentialPreview && (Date.now() - new Date(a.credentialPreview.updatedAt).getTime()) < 86_400_000 && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-orange-100 text-orange-700 border border-orange-300 rounded-full px-2 py-0.5 mt-0.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-pulse inline-block" />
+                                Identifiants modifiés
+                              </span>
                             )}
                           </div>
                         </div>
@@ -1200,7 +1199,7 @@ function CreateSuperAdminDialog({ open, onClose, onSubmit, pending }: {
           </div>
           <div>
             <Label>Mot de passe</Label>
-            <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min. 4 caractères" />
+            <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mot de passe" />
           </div>
           <div>
             <Label>Code de vérification <span className="text-xs text-gray-400 font-normal">(défaut : 4155)</span></Label>
@@ -1217,7 +1216,7 @@ function CreateSuperAdminDialog({ open, onClose, onSubmit, pending }: {
         <DialogFooter>
           <Button variant="outline" onClick={() => { reset(); onClose(); }}>Annuler</Button>
           <Button
-            disabled={pending || !login.trim() || password.length < 4}
+            disabled={pending || !login.trim() || !password}
             className="bg-orange-500 hover:bg-orange-600 text-white"
             onClick={() => onSubmit({
               login: login.trim(),
@@ -1265,7 +1264,7 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
           </div>
           <div>
             <Label>Mot de passe</Label>
-            <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="min. 4 caractères" />
+            <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mot de passe" />
           </div>
           <div>
             <Label>Forfait initial (mois)</Label>
@@ -1287,7 +1286,7 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
         <DialogFooter>
           <Button variant="outline" onClick={() => { reset(); onClose(); }}>Annuler</Button>
           <Button
-            disabled={pending || !login.trim() || password.length < 4}
+            disabled={pending || !login.trim() || !password}
             onClick={() => onSubmit({
               login: login.trim(),
               password,
@@ -1359,11 +1358,10 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
             disabled={pending}
             onClick={() => {
               const loginTrimmed = login.trim();
-              if (loginTrimmed.length < 2) { setLoginError("Identifiant trop court (min 2 caractères)"); return; }
               const payload: { login?: string; displayName?: string | null; password?: string; isActive?: boolean } = {};
               if (loginTrimmed !== admin.login) payload.login = loginTrimmed;
               if (displayName !== (admin.displayName ?? "")) payload.displayName = displayName.trim() || null;
-              if (password !== originalPassword && password.length >= 4) payload.password = password;
+              if (password !== originalPassword && password.length >= 1) payload.password = password;
               if (!admin.isSuperAdmin && isActive !== admin.isActive) payload.isActive = isActive;
               onSubmit(payload);
             }}
@@ -1730,8 +1728,8 @@ function AccountDialog({ open, onClose, onSubmit, pending, currentAdmin }: {
 
   const reset = () => { setLogin(""); setPassword(""); };
 
-  const loginInvalid = login.trim().length > 0 && login.trim().length < 2;
-  const passwordInvalid = password.length > 0 && password.length < 4;
+  const loginInvalid = false;
+  const passwordInvalid = false;
   const nothingToChange = login.trim().length === 0 && password.length === 0;
 
   const canSubmit = !pending && !nothingToChange && !loginInvalid && !passwordInvalid;
@@ -1759,9 +1757,6 @@ function AccountDialog({ open, onClose, onSubmit, pending, currentAdmin }: {
               value={login}
               onChange={(e) => setLogin(e.target.value)}
             />
-            {loginInvalid && (
-              <p className="mt-1 text-xs text-red-600">Min. 2 caractères</p>
-            )}
           </div>
           <div>
             <Label htmlFor="acc-password">Mot de passe</Label>
@@ -1772,9 +1767,6 @@ function AccountDialog({ open, onClose, onSubmit, pending, currentAdmin }: {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            {passwordInvalid && (
-              <p className="mt-1 text-xs text-red-600">Min. 4 caractères</p>
-            )}
           </div>
         </div>
         <DialogFooter>

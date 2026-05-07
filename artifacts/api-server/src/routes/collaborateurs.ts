@@ -92,8 +92,8 @@ router.post("/collaborateurs", async (req, res): Promise<void> => {
   };
   if (!name?.trim()) { res.status(400).json({ error: "Le nom est requis" }); return; }
   if (!username?.trim()) { res.status(400).json({ error: "Le nom d'utilisateur est requis" }); return; }
-  if (!password || password.length < 4) {
-    res.status(400).json({ error: "Mot de passe requis (4 caractères minimum)" }); return;
+  if (!password || password.length < 1) {
+    res.status(400).json({ error: "Mot de passe requis" }); return;
   }
   if (!Array.isArray(routerIds) || routerIds.length === 0) {
     res.status(400).json({ error: "Au moins un routeur doit être assigné" }); return;
@@ -154,7 +154,7 @@ router.put("/collaborateurs/me/credentials", async (req, res): Promise<void> => 
 
   if (login?.trim()) {
     const loginTrimmed = login.trim();
-    if (loginTrimmed.length < 3) { res.status(400).json({ error: "Login trop court (min 3 caractères)" }); return; }
+    if (loginTrimmed.length < 1) { res.status(400).json({ error: "Login requis" }); return; }
     const [existing] = await db.select({ id: collaborateursTable.id }).from(collaborateursTable).where(eq(collaborateursTable.username, loginTrimmed));
     if (existing && existing.id !== collab.id) {
       res.status(409).json({ error: "Ce login est déjà utilisé" }); return;
@@ -163,7 +163,7 @@ router.put("/collaborateurs/me/credentials", async (req, res): Promise<void> => 
   }
 
   if (password) {
-    if (password.length < 4) { res.status(400).json({ error: "Mot de passe trop court (min 4 caractères)" }); return; }
+    if (password.length < 1) { res.status(400).json({ error: "Mot de passe requis" }); return; }
     updates.passwordHash = await hashPassword(password);
     updates.passwordPlain = password;
   }
@@ -182,8 +182,8 @@ router.put("/collaborateurs/me/password", async (req, res): Promise<void> => {
   if (!newPassword) {
     res.status(400).json({ error: "Champs requis manquants" }); return;
   }
-  if (newPassword.length < 4) {
-    res.status(400).json({ error: "Le nouveau mot de passe doit comporter au moins 4 caractères" }); return;
+  if (newPassword.length < 1) {
+    res.status(400).json({ error: "Le nouveau mot de passe est requis" }); return;
   }
 
   const [collab] = await db.select().from(collaborateursTable).where(eq(collaborateursTable.id, payload.collaborateurId));
@@ -242,7 +242,7 @@ router.put("/collaborateurs/:id", async (req, res): Promise<void> => {
   if (username !== undefined) updates.username = username.trim();
   if (isActive !== undefined) updates.isActive = isActive;
   if (password && password.trim()) {
-    if (password.length < 4) { res.status(400).json({ error: "Mot de passe trop court (4 car. minimum)" }); return; }
+    if (password.length < 1) { res.status(400).json({ error: "Mot de passe requis" }); return; }
     updates.passwordHash = await hashPassword(password);
     updates.passwordPlain = password;
   }

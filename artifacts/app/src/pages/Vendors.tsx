@@ -183,7 +183,6 @@ export function PersonForm({
             <div>
               <Label htmlFor="pf-password">
                 Mot de passe
-                {!isEdit && <span className="text-gray-400 text-xs ml-1">(min. 4 caractères)</span>}
               </Label>
               <PasswordInput
                 id="pf-password"

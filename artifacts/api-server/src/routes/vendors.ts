@@ -150,8 +150,8 @@ router.post("/vendors", async (req, res): Promise<void> => {
 
   let passwordHash: string | null = null;
   if (password && password.trim()) {
-    if (password.length < 4) {
-      res.status(400).json({ error: "Le mot de passe doit comporter au moins 4 caractères" });
+    if (password.length < 1) {
+      res.status(400).json({ error: "Le mot de passe est requis" });
       return;
     }
     passwordHash = await hashPassword(password);
@@ -256,8 +256,8 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (commissionRate !== undefined) updates.commissionRate = Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0)));
 
   if (password !== undefined && password.trim()) {
-    if (password.length < 4) {
-      res.status(400).json({ error: "Le mot de passe doit comporter au moins 4 caractères" });
+    if (password.length < 1) {
+      res.status(400).json({ error: "Le mot de passe est requis" });
       return;
     }
     updates.passwordHash = await hashPassword(password);
