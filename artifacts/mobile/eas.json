@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 14.0.0",
-    "appVersionSource": "local"
+    "appVersionSource": "local",
+    "requireCommit": false
   },
   "build": {
     "preview": {
@@ -10,7 +11,8 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "env": {
-        "EXPO_MONOREPO_ROOT": "../../"
+        "EXPO_MONOREPO_ROOT": "../../",
+        "NODE_ENV": "development"
       }
     },
     "production": {
@@ -18,7 +20,8 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_MONOREPO_ROOT": "../../"
+        "EXPO_MONOREPO_ROOT": "../../",
+        "NODE_ENV": "development"
       }
     }
   }
