@@ -633,12 +633,14 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent flex-shrink-0" />
 
       {/* ── Router selector ── */}
+      {!isRoutersPage && (
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
         <p className="px-1 mb-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
           Routeur actif
         </p>
         <RouterSelector />
       </div>
+      )}
 
       {/* ── Nav ── */}
       <nav
@@ -1389,6 +1391,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const isMobile = useIsMobile();
+  const [location] = useLocation();
+  const isRoutersPage = location.startsWith("/routers");
   usePrefetchRouterProfiles();
 
   return (
@@ -1427,8 +1431,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span className="font-bold text-white truncate text-sm leading-none">nanoTECH Vouchers Bills</span>
               </div>
             </div>
-            {/* Row 2: router selector — masqué quand le menu est ouvert (il est déjà visible dedans) */}
-            {!mobileOpen && <RouterSelector compact className="w-full" />}
+            {/* Row 2: router selector — masqué quand le menu est ouvert ou sur la page Routeurs */}
+            {!mobileOpen && !isRoutersPage && <RouterSelector compact className="w-full" />}
           </header>
         )}
 
