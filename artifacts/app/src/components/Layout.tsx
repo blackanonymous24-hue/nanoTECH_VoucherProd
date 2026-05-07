@@ -493,7 +493,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 
   async function handleCredsSubmit() {
     setCredError("");
-    if (!credCode.trim()) { setCredError("Code de vérification requis."); return; }
+    if (!credCode.trim()) { setCredError("Ancien mot de passe requis."); return; }
     setCredLoading(true);
     try {
       const vr = await fetch(`${BASE}/api/verify-code`, {
@@ -956,17 +956,16 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           ) : credCodeStep ? (
             <>
               <div className="space-y-3 py-2">
-                <p className="text-xs text-gray-500">Saisissez le code de vérification pour confirmer les modifications.</p>
+                <p className="text-xs text-gray-500">Saisissez votre ancien mot de passe pour confirmer les modifications.</p>
                 <div className="space-y-1">
-                  <Label className="text-xs">Code de vérification</Label>
+                  <Label className="text-xs">Ancien mot de passe</Label>
                   <input
-                    type="text"
-                    inputMode="numeric"
+                    type="password"
                     value={credCode}
                     onChange={(e) => setCredCode(e.target.value)}
-                    placeholder="••••"
-                    className="w-full h-9 text-sm border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring tracking-widest text-center"
-                    autoComplete="one-time-code"
+                    placeholder="••••••••"
+                    className="w-full h-9 text-sm border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    autoComplete="current-password"
                     onKeyDown={(e) => e.key === "Enter" && void handleCredsSubmit()}
                     autoFocus
                   />
