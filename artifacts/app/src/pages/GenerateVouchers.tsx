@@ -132,7 +132,7 @@ function computeAutoPrefix(validity: string | null | undefined, ticketLetter: st
     else if (unit === "m") code = `${num}M`;
     else return "";
   }
-  return code + (ticketLetter?.trim().toUpperCase() || "");
+  return (code + (ticketLetter?.trim() || "")).toLowerCase();
 }
 
 type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
