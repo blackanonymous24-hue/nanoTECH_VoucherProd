@@ -142,7 +142,8 @@ export default function LoginPage({ mode }: LoginPageProps) {
           await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
           continue;
         }
-        /* Tous les essais épuisés — on remet le bouton sans message d'erreur */
+        /* Tous les essais épuisés — affiche un message discret */
+        setError("Serveur indisponible, veuillez réessayer.");
         setLoading(false);
       }
     }
