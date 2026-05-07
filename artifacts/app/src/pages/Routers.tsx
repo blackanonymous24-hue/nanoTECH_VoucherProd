@@ -296,14 +296,9 @@ export default function Routers() {
       });
       const data = await res.json() as { success: boolean };
       setTestResults((prev) => ({ ...prev, [id]: { success: data.success, message: data.success ? "En ligne" : "Hors ligne" } }));
-      toast({
-        title: data.success ? "En ligne" : "Hors ligne",
-        variant: data.success ? "default" : "destructive",
-      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur de connexion";
       setTestResults((prev) => ({ ...prev, [id]: { success: false, message } }));
-      toast({ title: "Hors ligne", description: message, variant: "destructive" });
     } finally {
       setPingingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
     }
