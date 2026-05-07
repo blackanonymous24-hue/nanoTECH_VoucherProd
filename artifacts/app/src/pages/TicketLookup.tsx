@@ -80,9 +80,6 @@ export default function TicketLookup() {
           <h1 className="text-lg font-bold text-gray-900 dark:text-white leading-tight">
             Vérifier un ticket
           </h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Données locales (rapport de ventes + bons) · scripts 90 j · stock non vendu · sans appel routeur à la recherche
-          </p>
         </div>
       </div>
 

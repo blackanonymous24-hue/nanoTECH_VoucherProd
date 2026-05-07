@@ -287,10 +287,16 @@ router.get("/routers", async (req, res): Promise<void> => {
     })
     .from(routersTable);
 
-  // Super-admin et admin : uniquement les routeurs dont ils sont propriétaires (`owner_admin_id`
-  // = leur id JWT). Pour lister les routeurs d’un **autre** admin (console super), utiliser
-  // GET /api/super/admins/:id/routers.
-  if (scope.kind === "super" || scope.kind === "admin") {
+
+
+
+  // Super-admin : voit TOUS les routeurs sans filtre tenant.
+  if (scope.kind === "super") {
+    res.json(await baseSelect.orderBy(routersTable.name));
+    return;
+  }
+  // Admin normal : uniquement ses propres routeurs.
+  if (scope.kind === "admin") {
     res.json(await baseSelect.where(eq(routersTable.ownerAdminId, scope.adminId)).orderBy(routersTable.name));
     return;
   }

@@ -367,10 +367,6 @@ export default function SellingReport() {
               )}
             </div>
           </div>
-          <CardDescription className="text-[11px] text-gray-600 leading-snug pt-1 max-w-3xl">
-            Données synchronisées depuis MikroTik toutes les <strong className="font-medium text-gray-800">15 secondes</strong>
-            {" "}et conservées en base locale. La colonne « Sync routeur » indique si le script est encore présent sur MikroTik.
-          </CardDescription>
         </CardHeader>
 
         <CardContent className="pt-4 space-y-3">
