@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Sliders, Copy,
+  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Sliders, Copy, Wifi,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -673,32 +674,43 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
             <div className="py-10 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
           )}
           {routers.map((r) => (
-            <div key={r.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 hover:bg-gray-50 transition-colors">
-              <div className="p-2 rounded-lg bg-blue-50 shrink-0">
-                <RouterIcon className="h-4 w-4 text-blue-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-gray-900 truncate">{r.name}</p>
-                <p className="text-xs text-gray-500 font-mono truncate">{r.host}:{r.port} · {r.username}</p>
-                {r.hotspotName && <p className="text-xs text-gray-400 truncate">{r.hotspotName}</p>}
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <Button size="icon" variant="ghost" title="Modifier" onClick={() => setFormTarget(r)}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="icon" variant="ghost"
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  title="Supprimer"
-                  disabled={deletingId !== null}
-                  onClick={() => void deleteRouter(r)}
-                >
-                  {deletingId === r.id
-                    ? <Loader2 className="h-4 w-4 animate-spin text-red-600" />
-                    : <Trash2 className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
+            <Card key={r.id}>
+              <CardContent className="py-3 px-3 sm:py-3 sm:px-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="p-1.5 rounded-md flex-shrink-0 bg-blue-50">
+                      <Wifi className="h-4 w-4 text-blue-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-gray-900 truncate">{r.name}</p>
+                      <p className="text-[11px] text-gray-500 leading-tight truncate">{r.host}:{r.port}</p>
+                      {r.hotspotName && <p className="text-xs text-gray-400 truncate">{r.hotspotName}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="icon" variant="ghost"
+                      className="h-7 w-7 rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-slate-200"
+                      title="Modifier"
+                      onClick={() => setFormTarget(r)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="icon" variant="ghost"
+                      className="h-7 w-7 rounded-full text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-100"
+                      title="Supprimer"
+                      disabled={deletingId !== null}
+                      onClick={() => void deleteRouter(r)}
+                    >
+                      {deletingId === r.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Trash2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
 
