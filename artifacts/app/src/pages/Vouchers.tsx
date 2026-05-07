@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import {
   useListRouterUsers,
   useListRouterProfiles,
@@ -274,6 +275,7 @@ export default function Vouchers() {
 
   const lots: LotSummary[] = lotsData?.lots ?? [];
   const totalUsers = lotsData?.total ?? 0;
+  useRefetchOnEmpty(lots, lotsLoading, () => void refetchLots(), (d) => !!activeRouterId && (!d || d.length === 0));
   const { data: vendorsAlias = [] } = useQuery<VendorAliasRow[]>({
     queryKey: ["vendors-aliases", activeRouterId],
     enabled: !!activeRouterId,

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -106,7 +107,7 @@ export default function Collaborateurs() {
 
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
-  const { data: collabs = [], isLoading } = useQuery<Collaborateur[]>({
+  const { data: collabs = [], isLoading, refetch } = useQuery<Collaborateur[]>({
     queryKey: ["collaborateurs"],
     queryFn: async ({ signal }) => {
       const r = await fetch(`${BASE}/api/collaborateurs`, { headers, signal });
@@ -114,6 +115,8 @@ export default function Collaborateurs() {
       return r.json();
     },
   });
+
+  useRefetchOnEmpty(collabs, isLoading, () => void refetch(), (d) => !d || d.length === 0);
 
   const { data: routers = [] } = useQuery<RouterInfo[]>({
     queryKey: ["routers-list"],

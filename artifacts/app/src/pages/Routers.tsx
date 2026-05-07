@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   useListRouters,
@@ -174,6 +175,7 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
 export default function Routers() {
   const { data: routers = [], isLoading, isError, error, refetch, isFetching } = useListRouters();
+  useRefetchOnEmpty(routers, isLoading, () => void refetch(), (d) => !d || d.length === 0);
   const createMutation = useCreateRouter();
   const deleteMutation = useDeleteRouter();
   const updateMutation = useUpdateRouter();

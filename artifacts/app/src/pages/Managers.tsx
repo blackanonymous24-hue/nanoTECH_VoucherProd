@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -56,7 +57,7 @@ export default function Managers() {
 
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
-  const { data: managers = [], isLoading } = useQuery<Manager[]>({
+  const { data: managers = [], isLoading, refetch } = useQuery<Manager[]>({
     queryKey: ["managers"],
     queryFn: async ({ signal }) => {
       const r = await fetch(`${BASE}/api/managers`, { headers, signal });
@@ -64,6 +65,8 @@ export default function Managers() {
       return r.json();
     },
   });
+
+  useRefetchOnEmpty(managers, isLoading, () => void refetch(), (d) => !d || d.length === 0);
 
   const { data: routers = [] } = useQuery<RouterInfo[]>({
     queryKey: ["routers-list"],

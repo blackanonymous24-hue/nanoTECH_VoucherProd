@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -341,6 +342,8 @@ export default function Vendors() {
     },
     staleTime: 30_000,
   });
+
+  useRefetchOnEmpty(vendors, isLoading, () => void refetchVendors(), (d) => !d || d.length === 0);
 
   const { data: summaries = [] } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), staleTime: 60_000 } });
   const summaryMap = useMemo(
