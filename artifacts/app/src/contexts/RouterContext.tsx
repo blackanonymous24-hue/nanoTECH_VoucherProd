@@ -85,10 +85,25 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, [isManagerLocked, managerRouterId]);
 
+  const [pingTrigger, setPingTrigger] = useState(0);
+  const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
+  const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
+  const [isPingFailed, setIsPingFailed] = useState(false);
+  // Déclaré AVANT l'effet d'alignement pour éviter la temporal dead zone
+  const [borrowedRouter, setBorrowedRouter] = useState<BorrowedRouter | null>(null);
+  const borrowedRouterRef = useRef<BorrowedRouter | null>(null);
+  useEffect(() => { borrowedRouterRef.current = borrowedRouter; }, [borrowedRouter]);
+
   // Quand la liste des routeurs autorisés est connue : aligner la sélection.
   // - liste vide → effacer l'ID SAUF si c'est un routeur emprunté
   //   (super-admin connecté au routeur d'un autre tenant).
   // - sélection absente de la liste → premier routeur autorisé.
+  //
+  // IMPORTANT : on utilise `borrowedRouter` (state) plutôt que
+  // `borrowedRouterRef.current` pour éviter une race condition : le ref
+  // est mis à jour dans un useEffect (un render plus tard), donc si
+  // setSelectedRouterId et setBorrowedRouter sont appelés dans le même
+  // cycle, le ref vaut encore null quand cet effet s'exécute.
   useEffect(() => {
     if (!isAuthenticated) return;
     if (isManagerLocked) return;
@@ -97,7 +112,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     if (routers.length === 0) {
       // Ne pas effacer si le routeur sélectionné est un routeur emprunté
       const isBorrowed = selectedRouterId !== null
-        && borrowedRouterRef.current?.id === selectedRouterId;
+        && borrowedRouter?.id === selectedRouterId;
       if (selectedRouterId !== null && !isBorrowed) {
         setSelectedRouterIdState(null);
         try {
@@ -110,22 +125,13 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
 
     const isBorrowed = selectedRouterId !== null
-      && borrowedRouterRef.current?.id === selectedRouterId;
+      && borrowedRouter?.id === selectedRouterId;
     if (!isBorrowed && (selectedRouterId === null || !routers.some((r) => r.id === selectedRouterId))) {
       const firstId = routers[0].id;
       setSelectedRouterIdState(firstId);
       localStorage.setItem(STORAGE_KEY, String(firstId));
     }
-  }, [isAuthenticated, isManagerLocked, routersFetched, routers, selectedRouterId]);
-
-  const [pingTrigger, setPingTrigger] = useState(0);
-  const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
-  const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
-  const [isPingFailed, setIsPingFailed] = useState(false);
-  const [borrowedRouter, setBorrowedRouter] = useState<BorrowedRouter | null>(null);
-  // Ref to read borrowedRouter inside effects without adding it to their deps
-  const borrowedRouterRef = useRef<BorrowedRouter | null>(null);
-  useEffect(() => { borrowedRouterRef.current = borrowedRouter; }, [borrowedRouter]);
+  }, [isAuthenticated, isManagerLocked, routersFetched, routers, selectedRouterId, borrowedRouter]);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
