@@ -3,6 +3,13 @@ const path = require("path");
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, "../..");
 
+// expo-router needs EXPO_ROUTER_APP_ROOT to be a static string at bundle time.
+// In monorepo EAS builds, Expo CLI may not set it automatically — force it here
+// using the absolute path so Metro's require.context() always resolves correctly.
+if (!process.env.EXPO_ROUTER_APP_ROOT) {
+  process.env.EXPO_ROUTER_APP_ROOT = path.join(projectRoot, "app");
+}
+
 // Require expo explicitly from the mobile package's own node_modules.
 // In deployment the CWD may differ from __dirname, so we use an absolute
 // path to avoid "cannot find expo/package.json" resolution failures.
