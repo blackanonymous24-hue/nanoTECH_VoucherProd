@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Sliders, Copy, Wifi,
+  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Sliders, Copy, Wifi, Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -577,6 +577,22 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showCopyVendors, setShowCopyVendors] = useState(false);
   const [showCopyRouter, setShowCopyRouter] = useState(false);
+  const [pingingIds, setPingingIds] = useState<Set<number>>(new Set());
+  const [pingResults, setPingResults] = useState<Record<number, boolean>>({});
+
+  const handlePing = async (r: RouterRow) => {
+    if (pingingIds.has(r.id)) return;
+    setPingingIds((s) => new Set(s).add(r.id));
+    try {
+      const res = await fetch(`${BASE}/api/routers/${r.id}/test`, { headers });
+      const data = await res.json() as { success: boolean };
+      setPingResults((prev) => ({ ...prev, [r.id]: data.success }));
+    } catch {
+      setPingResults((prev) => ({ ...prev, [r.id]: false }));
+    } finally {
+      setPingingIds((s) => { const n = new Set(s); n.delete(r.id); return n; });
+    }
+  };
 
   const { data: routers = [], isLoading } = useQuery<RouterRow[]>({
     queryKey: qk,
@@ -669,57 +685,92 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
           </div>
 
           {/* Liste scrollable */}
-          <div className="overflow-y-auto px-5 py-3 space-y-2">
+          <div className="overflow-y-auto px-4 py-3 space-y-2.5">
             {isLoading && (
-              <div className="space-y-2 py-2">
-                <Skeleton className="h-16 w-full" />
-                <Skeleton className="h-16 w-full" />
+              <div className="space-y-2.5 py-2">
+                <Skeleton className="h-[62px] w-full rounded-2xl" />
+                <Skeleton className="h-[62px] w-full rounded-2xl" />
+                <Skeleton className="h-[62px] w-full rounded-2xl" />
               </div>
             )}
             {!isLoading && routers.length === 0 && (
-              <div className="py-10 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
+              <div className="py-12 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
             )}
-            {routers.map((r) => (
-              <Card key={r.id}>
-                <CardContent className="py-3 px-3 sm:py-3 sm:px-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <div className="p-1.5 rounded-md flex-shrink-0 bg-blue-50">
-                        <Wifi className="h-4 w-4 text-blue-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-sm text-gray-900 truncate">{r.name}</p>
-                        <p className="text-[11px] text-gray-500 leading-tight truncate">{r.host}:{r.port}</p>
-                        {r.hotspotName && <p className="text-xs text-gray-400 truncate">{r.hotspotName}</p>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        size="icon" variant="ghost"
-                        className="h-7 w-7 rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-slate-200"
-                        title="Modifier"
-                        onClick={() => setFormTarget(r)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <div className="ml-1 pl-2 border-l border-gray-200">
-                        <Button
-                          size="icon" variant="ghost"
-                          className="h-7 w-7 rounded-full text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-100"
-                          title="Supprimer"
-                          disabled={deletingId !== null}
-                          onClick={() => void deleteRouter(r)}
-                        >
-                          {deletingId === r.id
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <Trash2 className="h-3.5 w-3.5" />}
-                        </Button>
-                      </div>
-                    </div>
+            {routers.map((r) => {
+              const pingOk = pingResults[r.id];
+              const hasPing = r.id in pingResults;
+              const isPinging = pingingIds.has(r.id);
+              return (
+                <div
+                  key={r.id}
+                  className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 hover:shadow-md transition-shadow"
+                >
+                  {/* Icône */}
+                  <div className="p-2 rounded-xl bg-blue-50 shrink-0">
+                    <Wifi className="h-5 w-5 text-blue-500" />
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+
+                  {/* Infos */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-bold text-sm text-gray-900 truncate uppercase tracking-wide">{r.name}</p>
+                      {hasPing && (
+                        <span className={`inline-flex items-center rounded-full px-1.5 h-4 text-[10px] font-semibold border shrink-0 ${
+                          pingOk
+                            ? "text-emerald-600 border-emerald-200 bg-emerald-50"
+                            : "text-red-500 border-red-200 bg-red-50"
+                        }`}>
+                          {pingOk ? "En ligne" : "Hors ligne"}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-400 leading-tight truncate font-mono mt-0.5">
+                      {r.host}:{r.port}
+                    </p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Ping */}
+                    <Button
+                      size="icon" variant="ghost"
+                      className="h-8 w-8 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200"
+                      title="Tester la connexion"
+                      disabled={isPinging}
+                      onClick={() => void handlePing(r)}
+                    >
+                      {isPinging
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Activity className="h-3.5 w-3.5" />}
+                    </Button>
+
+                    {/* Modifier */}
+                    <Button
+                      size="icon" variant="ghost"
+                      className="h-8 w-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 border border-slate-200"
+                      title="Modifier"
+                      onClick={() => setFormTarget(r)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+
+                    {/* Séparateur + Supprimer */}
+                    <div className="h-6 w-px bg-gray-200 mx-0.5" />
+                    <Button
+                      size="icon" variant="ghost"
+                      className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50 border border-red-200"
+                      title="Supprimer"
+                      disabled={deletingId !== null}
+                      onClick={() => void deleteRouter(r)}
+                    >
+                      {deletingId === r.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Trash2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>
