@@ -146,11 +146,20 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     console.log(`Setting EXPO_PUBLIC_REPL_ID=${expoPublicReplId}`);
   }
 
+  // Use the local expo binary directly so deployment environments always
+  // pick up the correct copy from artifacts/mobile/node_modules/.bin/expo
+  // instead of resolving through pnpm exec (which may find the wrong bin).
+  const expoBin = path.join(projectRoot, "node_modules/.bin/expo");
+  const expoEnv = {
+    ...env,
+    // Ensure Node module resolution starts from the mobile package's own
+    // node_modules so expo/metro-config and friends are always found locally.
+    NODE_PATH: path.join(projectRoot, "node_modules"),
+  };
+
   metroProcess = spawn(
-    "pnpm",
+    expoBin,
     [
-      "exec",
-      "expo",
       "start",
       "--no-dev",
       "--minify",
@@ -160,7 +169,7 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
       cwd: projectRoot,
-      env,
+      env: expoEnv,
     },
   );
 

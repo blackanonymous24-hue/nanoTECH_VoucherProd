@@ -1,8 +1,14 @@
-const { getDefaultConfig } = require("expo/metro-config");
 const path = require("path");
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, "../..");
+
+// Require expo explicitly from the mobile package's own node_modules.
+// In deployment the CWD may differ from __dirname, so we use an absolute
+// path to avoid "cannot find expo/package.json" resolution failures.
+const { getDefaultConfig } = require(
+  path.join(projectRoot, "node_modules/expo/metro-config")
+);
 
 const config = getDefaultConfig(projectRoot);
 
