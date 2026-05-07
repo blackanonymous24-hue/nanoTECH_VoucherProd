@@ -946,7 +946,7 @@ export default function Vouchers() {
       const rawValidity = profilesList.find((p) => p.name === printProfile)?.validity ?? "";
       const compactValidity = toFileValidity(rawValidity);
       const printComment = firstUser?.comment ?? "";
-      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, printComment].filter(Boolean);
+      const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
       const mobileRowsPerPage = isMikHmon ? 9 : 6;
       const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
