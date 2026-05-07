@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { usePrefetchRouterProfiles } from "@/hooks/use-prefetch-router-profiles";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
@@ -1354,6 +1355,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const isMobile = useIsMobile();
+  usePrefetchRouterProfiles();
 
   return (
     <div className="flex h-svh bg-gray-100 dark:bg-gray-950 overflow-hidden">
