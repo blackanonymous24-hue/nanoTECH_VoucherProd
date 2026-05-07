@@ -37,8 +37,16 @@ import { PasswordInput } from "@/components/ui/password-input";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function RouterSelector({ className, compact }: { className?: string; compact?: boolean }) {
-  const { selectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked } = useRouterContext();
+  const { selectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked, borrowedRouter } = useRouterContext();
   const { selectWithPing, pingingId } = useSelectRouterWithPing();
+
+  // Liste effective : routeurs propres + routeur emprunté s'il est actif
+  const effectiveRouters = [
+    ...routers,
+    ...(borrowedRouter && !routers.some((r) => r.id === borrowedRouter.id)
+      ? [borrowedRouter]
+      : []),
+  ];
 
   return (
     <div className={cn("flex items-center gap-2 min-w-0", className)}>
@@ -48,7 +56,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
           <span className="truncate">{selectedRouter?.name ?? "Routeur assigné"}</span>
           <span className="ml-0.5 text-[9px] text-amber-400 font-medium flex-shrink-0">🔒</span>
         </div>
-      ) : routersLoading && routers.length === 0 ? (
+      ) : routersLoading && effectiveRouters.length === 0 ? (
         <div className="h-8 w-32 bg-white/5 rounded-md animate-pulse flex-1" />
       ) : (
         <Select
@@ -57,7 +65,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
             const id = v ? parseInt(v, 10) : null;
             if (id) void selectWithPing(id, { navigateTo: false });
           }}
-          disabled={routers.length === 0 || pingingId !== null}
+          disabled={effectiveRouters.length === 0 || pingingId !== null}
         >
           <SelectTrigger className={cn(
             "h-8 text-xs bg-white/5 border-white/10 text-gray-200 hover:bg-white/10 focus:ring-0 focus:ring-offset-0 disabled:opacity-40 transition-colors min-w-0",
@@ -69,6 +77,18 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
             {routers.map((r) => (
               <SelectItem key={r.id} value={String(r.id)} className="text-xs focus:bg-white/10 focus:text-white">{r.name}</SelectItem>
             ))}
+            {borrowedRouter && !routers.some((r) => r.id === borrowedRouter.id) && (
+              <SelectItem
+                key={`borrowed-${borrowedRouter.id}`}
+                value={String(borrowedRouter.id)}
+                className="text-xs focus:bg-white/10 focus:text-white"
+              >
+                <span className="flex items-center gap-1">
+                  <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wide">↗</span>
+                  {borrowedRouter.name}
+                </span>
+              </SelectItem>
+            )}
           </SelectContent>
         </Select>
       )}

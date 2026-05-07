@@ -290,13 +290,9 @@ router.get("/routers", async (req, res): Promise<void> => {
 
 
 
-  // Super-admin : voit TOUS les routeurs sans filtre tenant.
-  if (scope.kind === "super") {
-    res.json(await baseSelect.orderBy(routersTable.name));
-    return;
-  }
-  // Admin normal : uniquement ses propres routeurs.
-  if (scope.kind === "admin") {
+  // Super-admin et admin normal : uniquement leurs propres routeurs.
+  // Le super-admin accède aux routeurs des autres via /api/super/admins/:id/routers.
+  if (scope.kind === "super" || scope.kind === "admin") {
     res.json(await baseSelect.where(eq(routersTable.ownerAdminId, scope.adminId)).orderBy(routersTable.name));
     return;
   }

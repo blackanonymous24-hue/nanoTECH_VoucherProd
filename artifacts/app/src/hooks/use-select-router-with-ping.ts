@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { useRouterContext } from "@/contexts/RouterContext";
+import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -11,16 +11,23 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
  * sélectionner. Chaque échec affiche un toast 3 s. Après 2 échecs, le
  * routeur est quand même sélectionné mais `isPingFailed` est levé pour que
  * le tableau de bord affiche la page d'erreur.
+ *
+ * `opts.routerData` — données minimales du routeur (id + name) à stocker
+ *   comme "routeur emprunté" quand le super-admin se connecte au routeur
+ *   d'un autre tenant depuis la page Administrateurs.
  */
 export function useSelectRouterWithPing() {
-  const { setSelectedRouterId, setIsPingFailed } = useRouterContext();
+  const { setSelectedRouterId, setIsPingFailed, setBorrowedRouter } = useRouterContext();
   const { token } = useAuth();
   const [, navigate] = useLocation();
   const [pingingId, setPingingId] = useState<number | null>(null);
   const activeRef = useRef(false);
 
   const selectWithPing = useCallback(
-    async (id: number, opts?: { navigateTo?: string | false }) => {
+    async (
+      id: number,
+      opts?: { navigateTo?: string | false; routerData?: BorrowedRouter | null },
+    ) => {
       if (activeRef.current) return;
       activeRef.current = true;
       setPingingId(id);
@@ -60,12 +67,18 @@ export function useSelectRouterWithPing() {
         setIsPingFailed(true);
       }
 
+      // Stocker le routeur comme "emprunté" uniquement si des données sont
+      // fournies (cas super-admin → routeur d'un autre tenant).
+      if (opts?.routerData !== undefined) {
+        setBorrowedRouter(opts.routerData);
+      }
+
       const dest = opts?.navigateTo;
       if (dest !== false) {
         navigate(dest ?? "/");
       }
     },
-    [token, setSelectedRouterId, setIsPingFailed, navigate],
+    [token, setSelectedRouterId, setIsPingFailed, setBorrowedRouter, navigate],
   );
 
   return { selectWithPing, pingingId };

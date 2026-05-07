@@ -4,6 +4,8 @@ import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 
+export type BorrowedRouter = { id: number; name: string };
+
 interface RouterContextValue {
   selectedRouterId: number | null;
   setSelectedRouterId: (id: number | null) => void;
@@ -18,6 +20,9 @@ interface RouterContextValue {
   isRouterLocked: boolean;
   isPingFailed: boolean;
   setIsPingFailed: (v: boolean) => void;
+  /** Routeur d'un autre tenant connecté temporairement par le super-admin */
+  borrowedRouter: BorrowedRouter | null;
+  setBorrowedRouter: (r: BorrowedRouter | null) => void;
 }
 
 const RouterContext = createContext<RouterContextValue>({
@@ -34,6 +39,8 @@ const RouterContext = createContext<RouterContextValue>({
   isRouterLocked: false,
   isPingFailed: false,
   setIsPingFailed: () => {},
+  borrowedRouter: null,
+  setBorrowedRouter: () => {},
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
@@ -79,8 +86,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   }, [isManagerLocked, managerRouterId]);
 
   // Quand la liste des routeurs autorisés est connue : aligner la sélection.
-  // - liste vide → effacer l'ID (sinon un ancien localStorage / cache peut viser
-  //   un routeur d'un autre compte → 403 sur toutes les pages).
+  // - liste vide → effacer l'ID SAUF si c'est un routeur emprunté
+  //   (super-admin connecté au routeur d'un autre tenant).
   // - sélection absente de la liste → premier routeur autorisé.
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -88,7 +95,10 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     if (!routersFetched) return;
 
     if (routers.length === 0) {
-      if (selectedRouterId !== null) {
+      // Ne pas effacer si le routeur sélectionné est un routeur emprunté
+      const isBorrowed = selectedRouterId !== null
+        && borrowedRouterRef.current?.id === selectedRouterId;
+      if (selectedRouterId !== null && !isBorrowed) {
         setSelectedRouterIdState(null);
         try {
           localStorage.removeItem(STORAGE_KEY);
@@ -99,7 +109,9 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (selectedRouterId === null || !routers.some((r) => r.id === selectedRouterId)) {
+    const isBorrowed = selectedRouterId !== null
+      && borrowedRouterRef.current?.id === selectedRouterId;
+    if (!isBorrowed && (selectedRouterId === null || !routers.some((r) => r.id === selectedRouterId))) {
       const firstId = routers[0].id;
       setSelectedRouterIdState(firstId);
       localStorage.setItem(STORAGE_KEY, String(firstId));
@@ -110,6 +122,10 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
   const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
   const [isPingFailed, setIsPingFailed] = useState(false);
+  const [borrowedRouter, setBorrowedRouter] = useState<BorrowedRouter | null>(null);
+  // Ref to read borrowedRouter inside effects without adding it to their deps
+  const borrowedRouterRef = useRef<BorrowedRouter | null>(null);
+  useEffect(() => { borrowedRouterRef.current = borrowedRouter; }, [borrowedRouter]);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
@@ -117,14 +133,22 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     setIsPingFailed(false); // reset on every router change
     if (id === null) {
       localStorage.removeItem(STORAGE_KEY);
+      setBorrowedRouter(null);
       setRouterOnline(null);
       setRouterIdentity(null);
     } else {
-      localStorage.setItem(STORAGE_KEY, String(id));
+      // Seul les routeurs propres à l'utilisateur sont persistés en localStorage.
+      // Un routeur "emprunté" (super-admin sur tenant étranger) n'est pas sauvegardé.
+      const isOwnRouter = allRouters.some((r) => r.id === id);
+      if (isOwnRouter) {
+        localStorage.setItem(STORAGE_KEY, String(id));
+        setBorrowedRouter(null); // sélection d'un routeur propre → efface le routeur emprunté
+      }
       setRouterOnline(null);
       // Pre-seed identity from DB data so the sidebar is never empty while
       // the MikroTik /info call is in-flight. The real identity replaces it.
-      const dbRouter = allRouters.find((r) => r.id === id);
+      const dbRouter = allRouters.find((r) => r.id === id)
+        ?? (borrowedRouterRef.current?.id === id ? borrowedRouterRef.current : null);
       setRouterIdentity(dbRouter?.name ?? null);
       setPingTrigger((n) => n + 1);
     }
@@ -168,7 +192,13 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, [allRouters, selectedRouterId]);
 
-  const selectedRouter = routers.find((r) => r.id === selectedRouterId);
+  // selectedRouter : cherche d'abord dans les routeurs propres, puis dans borrowedRouter
+  const selectedRouter: Router | undefined =
+    routers.find((r) => r.id === selectedRouterId)
+    ?? (borrowedRouter?.id === selectedRouterId
+      ? (borrowedRouter as unknown as Router)
+      : undefined);
+
   // isFirstLoad: true only while the very first fetch is in-flight (no cached data yet)
   const isFirstLoad = routersQueryLoading && freshRouters == null;
 
@@ -187,6 +217,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       isRouterLocked,
       isPingFailed,
       setIsPingFailed,
+      borrowedRouter,
+      setBorrowedRouter,
     }}>
       {children}
     </RouterContext.Provider>
