@@ -91,16 +91,62 @@ function fmt(d: string | null): string {
   return new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function forfaitStatus(a: AdminRow): { label: string; tone: "success" | "danger" | "warning" | "neutral" } {
+function forfaitStatus(a: AdminRow, now = Date.now()): { label: string; tone: "success" | "danger" | "warning" | "neutral" } {
   if (a.isSuperAdmin) return { label: "Illimité", tone: "success" };
   if (a.forfaitStartedAt && !a.forfaitEndsAt) return { label: "Illimité", tone: "success" };
   if (!a.forfaitEndsAt) return { label: "Aucun forfait", tone: "danger" };
   const end = new Date(a.forfaitEndsAt).getTime();
-  const now = Date.now();
   if (end < now) return { label: "Expiré", tone: "danger" };
   const days = Math.ceil((end - now) / 86_400_000);
   if (days <= 7) return { label: `${days} j restant${days > 1 ? "s" : ""}`, tone: "warning" };
   return { label: `${days} jours`, tone: "success" };
+}
+
+const SIX_DAYS_MS = 6 * 24 * 60 * 60 * 1000;
+
+function formatForfaitCountdown(msLeft: number): string {
+  const s = Math.max(0, Math.floor(msLeft / 1000));
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  const hms = `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  return days > 0 ? `${days}j ${hms}` : hms;
+}
+
+function ForfaitBadge({ admin }: { admin: AdminRow }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  const endMs = admin.forfaitEndsAt ? new Date(admin.forfaitEndsAt).getTime() : null;
+  const msLeft = endMs != null ? endMs - now : null;
+  const isCountdown = msLeft != null && msLeft > 0 && msLeft < SIX_DAYS_MS;
+
+  useEffect(() => {
+    if (!isCountdown) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [isCountdown]);
+
+  const status = forfaitStatus(admin, now);
+  const label = isCountdown && msLeft != null ? formatForfaitCountdown(msLeft) : status.label;
+  const tone = isCountdown ? "warning" : status.tone;
+
+  const toneClass =
+    tone === "success" ? "bg-emerald-100 text-emerald-700" :
+    tone === "warning" ? "bg-amber-100 text-amber-700" :
+    tone === "danger"  ? "bg-red-100 text-red-700" :
+    "bg-gray-100 text-gray-700";
+
+  return (
+    <div className="space-y-1">
+      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium tabular-nums ${toneClass}`}>
+        {label}
+      </span>
+      {!admin.isSuperAdmin && admin.forfaitEndsAt && (
+        <p className="text-xs text-gray-500">Fin : {fmt(admin.forfaitEndsAt)}</p>
+      )}
+    </div>
+  );
 }
 
 export default function SuperAdmins() {
@@ -361,15 +407,9 @@ export default function SuperAdmins() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredAdmins.map((a) => {
-                  const status = forfaitStatus(a);
                   const limit = 5 + a.extraRouterSlots;
                   const isExpired = !a.isSuperAdmin && !!a.forfaitEndsAt && new Date(a.forfaitEndsAt).getTime() < Date.now();
                   const isExpiredAndInactive = isExpired && !a.isActive;
-                  const toneClass =
-                    status.tone === "success" ? "bg-emerald-100 text-emerald-700" :
-                    status.tone === "warning" ? "bg-amber-100 text-amber-700" :
-                    status.tone === "danger"  ? "bg-red-100 text-red-700" :
-                    "bg-gray-100 text-gray-700";
                   return (
                     <tr key={a.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -415,14 +455,7 @@ export default function SuperAdmins() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="space-y-1">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${toneClass}`}>
-                            {status.label}
-                          </span>
-                          {!a.isSuperAdmin && a.forfaitEndsAt && (
-                            <p className="text-xs text-gray-500">Fin : {fmt(a.forfaitEndsAt)}</p>
-                          )}
-                        </div>
+                        <ForfaitBadge admin={a} />
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {a.isSuperAdmin ? <span className="text-gray-400">∞</span> : a.credits}
