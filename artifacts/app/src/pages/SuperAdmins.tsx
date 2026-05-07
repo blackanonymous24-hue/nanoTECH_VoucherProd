@@ -726,9 +726,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                         </span>
                       )}
                     </div>
-                    <p className="text-[10px] text-gray-400 leading-tight truncate font-mono">
-                      {r.host}:{r.port}
-                    </p>
+                    <p className="text-[10px] text-gray-400 leading-tight truncate font-mono">{r.host}:{r.port}</p>
                   </div>
 
                   {/* Actions */}
