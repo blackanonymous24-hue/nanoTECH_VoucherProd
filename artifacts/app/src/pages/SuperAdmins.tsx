@@ -636,124 +636,133 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const pending = createM.isPending || editM.isPending;
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-y-auto">
-        <SheetHeader className="px-5 py-4 border-b shrink-0">
-          <SheetTitle className="flex items-center gap-2 text-base">
-            <ServerCog className="h-4 w-4 text-blue-600" />
-            Routeurs — {admin.displayName || admin.login}
-          </SheetTitle>
-          <SheetDescription>
-            {routers.length} routeur{routers.length !== 1 ? "s" : ""} · Limite {5 + admin.extraRouterSlots}
-          </SheetDescription>
-        </SheetHeader>
+    <>
+      <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent className="max-w-2xl w-full flex flex-col gap-0 p-0 max-h-[85vh] overflow-hidden">
+          {/* En-tête */}
+          <DialogHeader className="px-5 py-4 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ServerCog className="h-4 w-4 text-blue-600" />
+              Routeurs — {admin.displayName || admin.login}
+            </DialogTitle>
+            <DialogDescription>
+              {routers.length} routeur{routers.length !== 1 ? "s" : ""} · Limite {5 + admin.extraRouterSlots}
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0 gap-2">
-          <span className="text-sm text-gray-500 shrink-0">{isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}</span>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => setShowCopyVendors(true)}>
-              <Users className="h-3.5 w-3.5" /> Copier vendeurs
-            </Button>
-            <Button size="sm" variant="outline" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowCopyRouter(true)}>
-              <Copy className="h-3.5 w-3.5" /> Copier routeur
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => setFormTarget("create")}>
-              <Plus className="h-3.5 w-3.5" /> Ajouter
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex-1 px-5 py-3 space-y-2">
-          {isLoading && (
-            <div className="space-y-2 py-2">
-              <Skeleton className="h-16 w-full" />
-              <Skeleton className="h-16 w-full" />
+          {/* Barre d'actions */}
+          <div className="flex items-center justify-between px-5 py-3 border-b shrink-0 gap-2 flex-wrap">
+            <span className="text-sm text-gray-500 shrink-0">
+              {isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}
+            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => setShowCopyVendors(true)}>
+                <Users className="h-3.5 w-3.5" /> Copier vendeurs
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowCopyRouter(true)}>
+                <Copy className="h-3.5 w-3.5" /> Copier routeur
+              </Button>
+              <Button size="sm" className="gap-1.5" onClick={() => setFormTarget("create")}>
+                <Plus className="h-3.5 w-3.5" /> Ajouter
+              </Button>
             </div>
-          )}
-          {!isLoading && routers.length === 0 && (
-            <div className="py-10 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
-          )}
-          {routers.map((r) => (
-            <Card key={r.id}>
-              <CardContent className="py-3 px-3 sm:py-3 sm:px-4">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className="p-1.5 rounded-md flex-shrink-0 bg-blue-50">
-                      <Wifi className="h-4 w-4 text-blue-500" />
+          </div>
+
+          {/* Liste scrollable */}
+          <div className="overflow-y-auto px-5 py-3 space-y-2">
+            {isLoading && (
+              <div className="space-y-2 py-2">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            )}
+            {!isLoading && routers.length === 0 && (
+              <div className="py-10 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
+            )}
+            {routers.map((r) => (
+              <Card key={r.id}>
+                <CardContent className="py-3 px-3 sm:py-3 sm:px-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="p-1.5 rounded-md flex-shrink-0 bg-blue-50">
+                        <Wifi className="h-4 w-4 text-blue-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm text-gray-900 truncate">{r.name}</p>
+                        <p className="text-[11px] text-gray-500 leading-tight truncate">{r.host}:{r.port}</p>
+                        {r.hotspotName && <p className="text-xs text-gray-400 truncate">{r.hotspotName}</p>}
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-sm text-gray-900 truncate">{r.name}</p>
-                      <p className="text-[11px] text-gray-500 leading-tight truncate">{r.host}:{r.port}</p>
-                      {r.hotspotName && <p className="text-xs text-gray-400 truncate">{r.hotspotName}</p>}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        size="icon" variant="ghost"
+                        className="h-7 w-7 rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-slate-200"
+                        title="Modifier"
+                        onClick={() => setFormTarget(r)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <div className="ml-1 pl-2 border-l border-gray-200">
+                        <Button
+                          size="icon" variant="ghost"
+                          className="h-7 w-7 rounded-full text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-100"
+                          title="Supprimer"
+                          disabled={deletingId !== null}
+                          onClick={() => void deleteRouter(r)}
+                        >
+                          {deletingId === r.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Trash2 className="h-3.5 w-3.5" />}
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      size="icon" variant="ghost"
-                      className="h-7 w-7 rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-slate-200"
-                      title="Modifier"
-                      onClick={() => setFormTarget(r)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="icon" variant="ghost"
-                      className="h-7 w-7 rounded-full text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-100"
-                      title="Supprimer"
-                      disabled={deletingId !== null}
-                      onClick={() => void deleteRouter(r)}
-                    >
-                      {deletingId === r.id
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Trash2 className="h-3.5 w-3.5" />}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
-        {formTarget !== null && (
-          <RouterFormDialog
-            router={formTarget === "create" ? null : formTarget}
-            onClose={() => setFormTarget(null)}
-            pending={pending}
-            onSubmit={(p) => {
-              if (formTarget === "create") createM.mutate(p);
-              else editM.mutate({ id: formTarget.id, ...p });
-            }}
-          />
-        )}
+      {formTarget !== null && (
+        <RouterFormDialog
+          router={formTarget === "create" ? null : formTarget}
+          onClose={() => setFormTarget(null)}
+          pending={pending}
+          onSubmit={(p) => {
+            if (formTarget === "create") createM.mutate(p);
+            else editM.mutate({ id: formTarget.id, ...p });
+          }}
+        />
+      )}
 
-        {showCopyVendors && (
-          <CopyVendorsDialog
-            admin={admin}
-            adminRouters={routers}
-            onClose={() => setShowCopyVendors(false)}
-          />
-        )}
+      {showCopyVendors && (
+        <CopyVendorsDialog
+          admin={admin}
+          adminRouters={routers}
+          onClose={() => setShowCopyVendors(false)}
+        />
+      )}
 
-        {showCopyRouter && (
-          <CopyRouterDialog
-            targetAdmin={admin}
-            existingRouterIds={routers.map((r) => r.id)}
-            onClose={() => setShowCopyRouter(false)}
-            onCopy={(r) => {
-              setShowCopyRouter(false);
-              createM.mutate({
-                name: r.name,
-                hotspotName: r.hotspotName ?? undefined,
-                contact: r.contact ?? undefined,
-                address: `${r.host}:${r.port}`,
-                username: r.username,
-                password: r.password,
-              });
-            }}
-          />
-        )}
-      </SheetContent>
-    </Sheet>
+      {showCopyRouter && (
+        <CopyRouterDialog
+          targetAdmin={admin}
+          existingRouterIds={routers.map((r) => r.id)}
+          onClose={() => setShowCopyRouter(false)}
+          onCopy={(r) => {
+            setShowCopyRouter(false);
+            createM.mutate({
+              name: r.name,
+              hotspotName: r.hotspotName ?? undefined,
+              contact: r.contact ?? undefined,
+              address: `${r.host}:${r.port}`,
+              username: r.username,
+              password: r.password,
+            });
+          }}
+        />
+      )}
+    </>
   );
 }
 
