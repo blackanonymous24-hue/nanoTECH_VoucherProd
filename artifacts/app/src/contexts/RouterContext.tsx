@@ -44,6 +44,7 @@ const RouterContext = createContext<RouterContextValue>({
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
+const BORROWED_ROUTER_KEY = "vouchernet_borrowed_router";
 
 export function RouterProvider({ children }: { children: ReactNode }) {
   const { managerRouterId, role, collaborateurRouterIds, isAuthenticated } = useAuth();
@@ -89,8 +90,20 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
   const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
   const [isPingFailed, setIsPingFailed] = useState(false);
-  // Déclaré AVANT l'effet d'alignement pour éviter la temporal dead zone
-  const [borrowedRouter, setBorrowedRouter] = useState<BorrowedRouter | null>(null);
+  // Déclaré AVANT l'effet d'alignement pour éviter la temporal dead zone.
+  // Initialisé depuis localStorage pour survivre aux refreshs de page.
+  const [borrowedRouter, setBorrowedRouter] = useState<BorrowedRouter | null>(() => {
+    try {
+      const stored = localStorage.getItem(BORROWED_ROUTER_KEY);
+      const parsed = stored ? (JSON.parse(stored) as BorrowedRouter) : null;
+      // Initialisation synchrone avant le premier fetch React Query
+      (window as { __vouchernetImpersonateAdminId?: number | null }).__vouchernetImpersonateAdminId =
+        parsed?.ownerAdminId ?? null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  });
   const borrowedRouterRef = useRef<BorrowedRouter | null>(null);
   useEffect(() => {
     borrowedRouterRef.current = borrowedRouter;
@@ -98,6 +111,14 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     // le header X-Impersonate-Admin sur tous les appels API.
     (window as { __vouchernetImpersonateAdminId?: number | null }).__vouchernetImpersonateAdminId =
       borrowedRouter?.ownerAdminId ?? null;
+    // Persiste le routeur emprunté pour survivre aux refreshs de page.
+    try {
+      if (borrowedRouter) {
+        localStorage.setItem(BORROWED_ROUTER_KEY, JSON.stringify(borrowedRouter));
+      } else {
+        localStorage.removeItem(BORROWED_ROUTER_KEY);
+      }
+    } catch { /* noop */ }
   }, [borrowedRouter]);
 
   // Quand la liste des routeurs autorisés est connue : aligner la sélection.
@@ -149,11 +170,11 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       setRouterOnline(null);
       setRouterIdentity(null);
     } else {
-      // Seul les routeurs propres à l'utilisateur sont persistés en localStorage.
-      // Un routeur "emprunté" (super-admin sur tenant étranger) n'est pas sauvegardé.
+      // Toujours persister l'ID sélectionné (y compris les routeurs empruntés)
+      // pour que le refresh de page restaure la même session.
+      localStorage.setItem(STORAGE_KEY, String(id));
       const isOwnRouter = allRouters.some((r) => r.id === id);
       if (isOwnRouter) {
-        localStorage.setItem(STORAGE_KEY, String(id));
         setBorrowedRouter(null); // sélection d'un routeur propre → efface le routeur emprunté
       }
       setRouterOnline(null);
