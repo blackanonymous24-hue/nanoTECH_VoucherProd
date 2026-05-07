@@ -469,16 +469,23 @@ export default function Routers() {
                       className="flex items-center gap-1 flex-shrink-0 justify-end"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 rounded-full text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-100"
-                        onClick={(e) => { e.stopPropagation(); void handleTest(r.id); }}
-                        disabled={pingingIds.has(r.id)}
-                        title="Ping"
-                      >
-                        <Activity className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="relative">
+                        {pingingIds.has(r.id) && (
+                          <span className="absolute inset-0 rounded-full animate-ping bg-blue-300 opacity-60 pointer-events-none" />
+                        )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 rounded-full text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-100 relative"
+                          onClick={(e) => { e.stopPropagation(); void handleTest(r.id); }}
+                          disabled={pingingIds.has(r.id)}
+                          title="Ping"
+                        >
+                          {pingingIds.has(r.id)
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Activity className="h-3.5 w-3.5" />}
+                        </Button>
+                      </div>
                       <Button
                         size="icon"
                         variant="ghost"

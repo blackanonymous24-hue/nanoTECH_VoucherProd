@@ -732,17 +732,22 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                   {/* Actions */}
                   <div className="flex items-center gap-1 shrink-0">
                     {/* Ping */}
-                    <Button
-                      size="icon" variant="ghost"
-                      className="h-7 w-7 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200"
-                      title="Tester la connexion"
-                      disabled={isPinging}
-                      onClick={() => void handlePing(r)}
-                    >
-                      {isPinging
-                        ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : <Activity className="h-3 w-3" />}
-                    </Button>
+                    <div className="relative">
+                      {isPinging && (
+                        <span className="absolute inset-0 rounded-full animate-ping bg-blue-300 opacity-60 pointer-events-none" />
+                      )}
+                      <Button
+                        size="icon" variant="ghost"
+                        className="h-7 w-7 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200 relative"
+                        title="Tester la connexion"
+                        disabled={isPinging}
+                        onClick={() => void handlePing(r)}
+                      >
+                        {isPinging
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <Activity className="h-3 w-3" />}
+                      </Button>
+                    </div>
 
                     {/* Modifier */}
                     <Button
