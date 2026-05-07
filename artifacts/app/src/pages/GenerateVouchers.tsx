@@ -997,7 +997,7 @@ export default function GenerateVouchers() {
                   />
                 </div>
                 <div>
-                  <div className="flex items-center gap-1.5 mb-0.5">
+                  <div className="flex items-center gap-1.5">
                     <input
                       id="prefix-auto-check"
                       type="checkbox"
@@ -1006,7 +1006,7 @@ export default function GenerateVouchers() {
                       onChange={(e) => setPrefixAuto(e.target.checked)}
                     />
                     <Label htmlFor="prefix-auto-check" className="text-xs cursor-pointer">
-                      PRÉFIXE <span className="text-gray-400">{prefixAuto ? "(auto)" : "(opt.)"}</span>
+                      Préfixe <span className="text-gray-400">{prefixAuto ? "(auto)" : "(opt.)"}</span>
                     </Label>
                   </div>
                   <Input
