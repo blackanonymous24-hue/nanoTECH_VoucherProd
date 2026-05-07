@@ -35,15 +35,14 @@ const FULL_RELOAD_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
  * after a failed full-load so we don't hammer an unresponsive router every
  * 20s tick (each failed full-load can hold a 120s timeout slot per vendor).
  *
- * Backoff is exponential: starts at FULL_LOAD_BACKOFF_MIN_MS, doubles after
- * each consecutive failure, capped at FULL_LOAD_BACKOFF_MAX_MS. This way a
- * router that recovers quickly (reboot/network flap) gets re-tried within
- * ~1 min, while a chronically unreachable router is only retried every 10 min.
+ * Backoff cycling: 1 min → 2 min → 4 min → 1 min → 2 min → 4 min → …
+ * The cycle repeats indefinitely so the max wait is always 4 minutes.
+ * A successful load resets the streak so the next failure restarts at 1 min.
  */
 const lastFullLoadAttemptAt = new Map<number, number>();
 const fullLoadFailStreak     = new Map<number, number>();
-const FULL_LOAD_BACKOFF_MIN_MS =      60 * 1000; // 1  min  (after 1 failure)
-const FULL_LOAD_BACKOFF_MAX_MS = 10 * 60 * 1000; // 10 min  (after many)
+const FULL_LOAD_BACKOFF_MIN_MS = 60 * 1000; // 1 min base (step 0 of cycle)
+const FULL_LOAD_BACKOFF_STEPS  = 3;         // cycle length: 1 min, 2 min, 4 min
 /**
  * Throttle for incremental syncs (per router). Prevents N vendors on the same
  * router from each issuing the same incremental query within the same tick.
@@ -129,15 +128,15 @@ export async function syncScriptCache(
       let entries: Awaited<ReturnType<typeof fetchScriptSales>>;
 
     if (needsFullLoad) {
-      // Back off after consecutive failures (exponential, capped at 10 min).
-      // Successful loads reset the streak so the next failure starts again at 1 min.
+      // Back off after consecutive failures using a cycling schedule:
+      // 1 min → 2 min → 4 min → 1 min → 2 min → 4 min → …
+      // The cycle repeats so the maximum wait is never more than 4 minutes,
+      // meaning a router that comes back online is detected within 4 minutes.
       const failStreak  = fullLoadFailStreak.get(routerId) ?? 0;
       const lastAttempt = lastFullLoadAttemptAt.get(routerId) ?? 0;
       if (failStreak > 0 && lastAttempt > 0) {
-        const backoff = Math.min(
-          FULL_LOAD_BACKOFF_MIN_MS * 2 ** (failStreak - 1),
-          FULL_LOAD_BACKOFF_MAX_MS,
-        );
+        const cycleStep = (failStreak - 1) % FULL_LOAD_BACKOFF_STEPS; // 0, 1, 2, 0, 1, 2…
+        const backoff   = FULL_LOAD_BACKOFF_MIN_MS * 2 ** cycleStep;  // 1, 2, 4, 1, 2, 4 min
         if (Date.now() - lastAttempt < backoff) {
           return 0; // skip silently; will retry after backoff
         }
