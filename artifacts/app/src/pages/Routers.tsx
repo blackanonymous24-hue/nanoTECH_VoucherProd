@@ -291,17 +291,19 @@ export default function Routers() {
   const handleTest = async (id: number) => {
     setPingingIds((prev) => new Set(prev).add(id));
     try {
-      const result = await testMutation.mutateAsync({ id });
-      setTestResults((prev) => ({ ...prev, [id]: result }));
+      const res = await fetch(`${BASE}/api/routers/${id}/ping?force=1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json() as { success: boolean };
+      setTestResults((prev) => ({ ...prev, [id]: { success: data.success, message: data.success ? "En ligne" : "Hors ligne" } }));
       toast({
-        title: result.success ? "Connexion réussie" : "Connexion échouée",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
+        title: data.success ? "En ligne" : "Hors ligne",
+        variant: data.success ? "default" : "destructive",
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur de connexion";
       setTestResults((prev) => ({ ...prev, [id]: { success: false, message } }));
-      toast({ title: "Connexion échouée", description: message, variant: "destructive" });
+      toast({ title: "Hors ligne", description: message, variant: "destructive" });
     } finally {
       setPingingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
     }

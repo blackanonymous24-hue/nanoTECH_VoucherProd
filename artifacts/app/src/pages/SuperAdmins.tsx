@@ -584,7 +584,9 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     if (pingingIds.has(r.id)) return;
     setPingingIds((s) => new Set(s).add(r.id));
     try {
-      const res = await fetch(`${BASE}/api/routers/${r.id}/test`, { headers });
+      const res = await fetch(`${BASE}/api/routers/${r.id}/ping?force=1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json() as { success: boolean };
       setPingResults((prev) => ({ ...prev, [r.id]: data.success }));
     } catch {
@@ -654,47 +656,47 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   return (
     <>
       <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-        <DialogContent className="max-w-2xl w-full flex flex-col gap-0 p-0 max-h-[85vh] overflow-hidden">
+        <DialogContent className="max-w-2xl w-[calc(100vw-2rem)] flex flex-col gap-0 p-0 max-h-[88vh] overflow-hidden">
           {/* En-tête */}
-          <DialogHeader className="px-5 py-4 border-b shrink-0">
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <ServerCog className="h-4 w-4 text-blue-600" />
-              Routeurs — {admin.displayName || admin.login}
+          <DialogHeader className="px-4 py-3 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-sm sm:text-base">
+              <ServerCog className="h-4 w-4 text-blue-600 shrink-0" />
+              <span className="truncate">Routeurs — {admin.displayName || admin.login}</span>
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-xs">
               {routers.length} routeur{routers.length !== 1 ? "s" : ""} · Limite {5 + admin.extraRouterSlots}
             </DialogDescription>
           </DialogHeader>
 
           {/* Barre d'actions */}
-          <div className="flex items-center justify-between px-5 py-3 border-b shrink-0 gap-2 flex-wrap">
-            <span className="text-sm text-gray-500 shrink-0">
+          <div className="flex items-center justify-between px-3 py-2 border-b shrink-0 gap-2 flex-wrap">
+            <span className="text-xs text-gray-500 shrink-0">
               {isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}
             </span>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => setShowCopyVendors(true)}>
-                <Users className="h-3.5 w-3.5" /> Copier vendeurs
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => setShowCopyVendors(true)}>
+                <Users className="h-3 w-3" /> <span className="hidden xs:inline">Copier</span> vendeurs
               </Button>
-              <Button size="sm" variant="outline" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowCopyRouter(true)}>
-                <Copy className="h-3.5 w-3.5" /> Copier routeur
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowCopyRouter(true)}>
+                <Copy className="h-3 w-3" /> <span className="hidden xs:inline">Copier</span> routeur
               </Button>
-              <Button size="sm" className="gap-1.5" onClick={() => setFormTarget("create")}>
-                <Plus className="h-3.5 w-3.5" /> Ajouter
+              <Button size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => setFormTarget("create")}>
+                <Plus className="h-3 w-3" /> Ajouter
               </Button>
             </div>
           </div>
 
           {/* Liste scrollable */}
-          <div className="overflow-y-auto px-4 py-3 space-y-2.5">
+          <div className="overflow-y-auto px-3 py-2 space-y-1.5">
             {isLoading && (
-              <div className="space-y-2.5 py-2">
-                <Skeleton className="h-[62px] w-full rounded-2xl" />
-                <Skeleton className="h-[62px] w-full rounded-2xl" />
-                <Skeleton className="h-[62px] w-full rounded-2xl" />
+              <div className="space-y-1.5 py-1">
+                <Skeleton className="h-14 w-full rounded-xl" />
+                <Skeleton className="h-14 w-full rounded-xl" />
+                <Skeleton className="h-14 w-full rounded-xl" />
               </div>
             )}
             {!isLoading && routers.length === 0 && (
-              <div className="py-12 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
+              <div className="py-10 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
             )}
             {routers.map((r) => {
               const pingOk = pingResults[r.id];
@@ -703,19 +705,19 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               return (
                 <div
                   key={r.id}
-                  className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 hover:shadow-md transition-shadow"
+                  className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2 hover:shadow-md transition-shadow"
                 >
                   {/* Icône */}
-                  <div className="p-2 rounded-xl bg-blue-50 shrink-0">
-                    <Wifi className="h-5 w-5 text-blue-500" />
+                  <div className="p-1.5 rounded-lg bg-blue-50 shrink-0">
+                    <Wifi className="h-4 w-4 text-blue-500" />
                   </div>
 
                   {/* Infos */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="font-bold text-sm text-gray-900 truncate uppercase tracking-wide">{r.name}</p>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <p className="font-bold text-xs text-gray-900 truncate uppercase tracking-wide">{r.name}</p>
                       {hasPing && (
-                        <span className={`inline-flex items-center rounded-full px-1.5 h-4 text-[10px] font-semibold border shrink-0 ${
+                        <span className={`inline-flex items-center rounded-full px-1 h-3.5 text-[9px] font-semibold border shrink-0 ${
                           pingOk
                             ? "text-emerald-600 border-emerald-200 bg-emerald-50"
                             : "text-red-500 border-red-200 bg-red-50"
@@ -724,48 +726,48 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-gray-400 leading-tight truncate font-mono mt-0.5">
+                    <p className="text-[10px] text-gray-400 leading-tight truncate font-mono">
                       {r.host}:{r.port}
                     </p>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     {/* Ping */}
                     <Button
                       size="icon" variant="ghost"
-                      className="h-8 w-8 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200"
+                      className="h-7 w-7 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200"
                       title="Tester la connexion"
                       disabled={isPinging}
                       onClick={() => void handlePing(r)}
                     >
                       {isPinging
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Activity className="h-3.5 w-3.5" />}
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Activity className="h-3 w-3" />}
                     </Button>
 
                     {/* Modifier */}
                     <Button
                       size="icon" variant="ghost"
-                      className="h-8 w-8 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 border border-slate-200"
+                      className="h-7 w-7 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 border border-slate-200"
                       title="Modifier"
                       onClick={() => setFormTarget(r)}
                     >
-                      <Pencil className="h-3.5 w-3.5" />
+                      <Pencil className="h-3 w-3" />
                     </Button>
 
                     {/* Séparateur + Supprimer */}
-                    <div className="h-6 w-px bg-gray-200 mx-0.5" />
+                    <div className="h-5 w-px bg-gray-200" />
                     <Button
                       size="icon" variant="ghost"
-                      className="h-8 w-8 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50 border border-red-200"
+                      className="h-7 w-7 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50 border border-red-200"
                       title="Supprimer"
                       disabled={deletingId !== null}
                       onClick={() => void deleteRouter(r)}
                     >
                       {deletingId === r.id
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Trash2 className="h-3.5 w-3.5" />}
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Trash2 className="h-3 w-3" />}
                     </Button>
                   </div>
                 </div>
