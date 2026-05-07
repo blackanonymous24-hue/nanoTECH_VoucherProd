@@ -584,11 +584,12 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     if (pingingIds.has(r.id)) return;
     setPingingIds((s) => new Set(s).add(r.id));
     try {
-      const res = await fetch(`${BASE}/api/routers/${r.id}/ping?force=1`, {
+      const res = await fetch(`${BASE}/api/super/admins/${admin.id}/routers/${r.id}/ping`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) { setPingResults((prev) => ({ ...prev, [r.id]: false })); return; }
       const data = await res.json() as { success: boolean };
-      setPingResults((prev) => ({ ...prev, [r.id]: data.success }));
+      setPingResults((prev) => ({ ...prev, [r.id]: data.success === true }));
     } catch {
       setPingResults((prev) => ({ ...prev, [r.id]: false }));
     } finally {

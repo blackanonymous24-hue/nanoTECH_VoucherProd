@@ -5,6 +5,7 @@ import { hashPassword } from "../lib/admin-auth.js";
 import { DEFAULT_TICKET_TEMPLATE } from "../lib/default-template.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
 import { getAdminCredentialPreview } from "../lib/admin-credential-preview.js";
+import { pingRouter } from "../lib/mikrotik.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -488,6 +489,23 @@ router.delete("/super/admins/:id/routers/:routerId", async (req, res): Promise<v
   if (!deleted) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   res.sendStatus(204);
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/super/admins/:id/routers/:routerId/ping — TCP ping d'un routeur
+// sans passer par le middleware tenant (super-admin peut ping n'importe quel routeur).
+// ---------------------------------------------------------------------------
+router.get("/super/admins/:id/routers/:routerId/ping", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+
+  const routerId = parseInt(req.params.routerId, 10);
+  if (isNaN(routerId)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  const online = await pingRouter({ host: r.host, port: r.port, username: r.username, password: r.password });
+  res.json({ success: online });
 });
 
 // ---------------------------------------------------------------------------
