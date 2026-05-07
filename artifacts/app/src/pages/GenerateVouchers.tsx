@@ -313,7 +313,9 @@ export default function GenerateVouchers() {
   const [profile, setProfile] = useState<string>("");
   const [qty, setQty] = useState("1");
   const [prefix, setPrefix] = useState("");
-  const [prefixAuto, setPrefixAuto] = useState(false);
+  const [prefixAuto, setPrefixAuto] = useState<boolean>(() => {
+    try { return localStorage.getItem("vn_prefix_auto") === "1"; } catch { return false; }
+  });
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
   const [charType, setCharType] = useState<CharType>("mix");
   const [userLength, setUserLength] = useState("5");
@@ -508,6 +510,10 @@ export default function GenerateVouchers() {
       ? `-${selectedVendor.name.toUpperCase()}`
       : "";
   const effectiveComment = comment + vendorSuffix;
+
+  useEffect(() => {
+    try { localStorage.setItem("vn_prefix_auto", prefixAuto ? "1" : "0"); } catch { /* noop */ }
+  }, [prefixAuto]);
 
   useEffect(() => {
     if (!prefixAuto) return;
