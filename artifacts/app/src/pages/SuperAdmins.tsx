@@ -690,7 +690,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
           </div>
 
           {/* Liste scrollable */}
-          <div className="overflow-y-auto px-3 py-2 space-y-1.5">
+          <div className="overflow-y-auto px-3 py-2 space-y-1.5" style={{ scrollbarGutter: "stable" }}>
             {isLoading && (
               <div className="space-y-1.5 py-1">
                 <Skeleton className="h-14 w-full rounded-xl" />
