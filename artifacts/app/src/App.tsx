@@ -99,11 +99,8 @@ function AppRoutes() {
   }, [location]);
 
   useEffect(() => {
-    if (prevLocationRef.current !== location) {
-      void qc.cancelQueries();
-      prevLocationRef.current = location;
-    }
-  }, [location, qc]);
+    prevLocationRef.current = location;
+  }, [location]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
