@@ -464,11 +464,6 @@ export default function Routers() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1">
                           <span className="font-semibold text-sm text-gray-900">{r.name}</span>
-                          {connectingId === r.id && (
-                            <Badge className="h-5 px-1.5 bg-amber-100 text-amber-700 border-amber-300 gap-1 flex-shrink-0">
-                              <Loader2 className="h-2.5 w-2.5 animate-spin" /> Connexion…
-                            </Badge>
-                          )}
                           {isSelected && connectingId !== r.id && (
                             <Badge className="h-5 px-1.5 bg-blue-100 text-blue-700 border-blue-300 gap-1 flex-shrink-0">
                               <CheckCircle2 className="h-2.5 w-2.5" /> Actif

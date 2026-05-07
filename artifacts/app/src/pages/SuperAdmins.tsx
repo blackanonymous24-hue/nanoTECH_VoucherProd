@@ -714,7 +714,9 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                 >
                   {/* Icône */}
                   <div className="p-1.5 rounded-lg bg-blue-50 shrink-0">
-                    <Wifi className="h-4 w-4 text-blue-500" />
+                    {isConnecting
+                      ? <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                      : <Wifi className="h-4 w-4 text-blue-500" />}
                   </div>
 
                   {/* Infos */}
@@ -736,14 +738,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
 
                   {/* Actions */}
                   <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {/* Connexion en cours */}
-                    {isConnecting && (
-                      <span className="text-[9px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 flex items-center gap-0.5 shrink-0">
-                        <Loader2 className="h-2.5 w-2.5 animate-spin" /> Connexion…
-                      </span>
-                    )}
-
-                    {/* Ping */}
+                      {/* Ping */}
                     {!isConnecting && (
                       <div className="relative">
                         {isPinging && (
