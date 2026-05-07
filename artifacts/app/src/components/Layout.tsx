@@ -122,7 +122,7 @@ function makeClientBatchId(mode: "vc" | "up"): string {
 
 function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mobileDrawer?: boolean }) {
   const [location] = useLocation();
-  const { routerIdentity, selectedRouterId } = useRouterContext();
+  const { routerIdentity, selectedRouterId, routers, routersLoading, borrowedRouter } = useRouterContext();
   const { logout, role, token, isSuperAdmin, connectedName, connectedUsername, updateConnectedInfo } = useAuth();
   const appNavigate = useAppNavigate();
 
@@ -200,6 +200,15 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     : false;
   const isVouchersPage = location.startsWith("/vouchers");
   const isVisible = usePageVisibility();
+
+  /* ── Masquage du menu quand on est sur la page Routeurs ou sans routeur ── */
+  const isRoutersPage = location.startsWith("/routers");
+  const effectiveRouterCount = routers.length + (borrowedRouter ? 1 : 0);
+  const hasNoRouters = !routersLoading && effectiveRouterCount === 0;
+  // Pour les admins/super-admins uniquement : masquer tout le menu sauf "Routeurs"
+  // quand on est sur la page Routeurs OU quand aucun routeur n'est encore configuré.
+  // Managers et collaborateurs voient toujours leur menu (ils sont liés à un routeur).
+  const hideOtherMenuItems = !isManager && !isCollaborateur && (isRoutersPage || hasNoRouters);
 
   const isNavActive = (href: string) => {
     // Keep vendor-related pages independent in sidebar highlighting.
@@ -641,8 +650,35 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         )}
       >
 
-        {/* ── Notification stock faible — always visible ── */}
-        {(() => {
+        {/* ── Mode routeurs masqué : seul "Routeurs" visible ── */}
+        {hideOtherMenuItems && (
+          <div className="mb-1">
+            <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">Réseau</p>
+            <div className="space-y-0.5">
+              <Link
+                href="/routers"
+                onClick={(e) => handleTabClick("/routers", e)}
+                className={cn(
+                  "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                  isNavActive("/routers")
+                    ? "bg-blue-500/15 text-blue-300 shadow-[inset_2px_0_0_#60a5fa]"
+                    : "text-gray-400 hover:bg-white/[0.06] hover:text-gray-100",
+                )}
+              >
+                <Router className={cn("h-4 w-4 flex-shrink-0", isNavActive("/routers") ? "text-blue-400" : "text-gray-500")} />
+                <span className="flex-1 truncate">Routeurs</span>
+              </Link>
+              {hasNoRouters && (
+                <p className="px-2.5 pt-2 pb-1 text-[11px] text-gray-600 italic leading-snug">
+                  Configurez un routeur pour accéder au menu complet.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Notification stock faible ── */}
+        {!hideOtherMenuItems && (() => {
           const hasAlerts = lowStockCount > 0;
           return (
             <div className="mb-3">
@@ -688,7 +724,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           );
         })()}
 
-        {navGroups.map((group, gi) => (
+        {!hideOtherMenuItems && navGroups.map((group, gi) => (
             /* ── Groupe normal ── */
             <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
               <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
@@ -795,6 +831,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         ))}
 
         {/* ── Outils + Système (collapsibles) ── */}
+        {!hideOtherMenuItems && (
         <div className="mt-3 mb-1">
           <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">Outils</p>
           <div className="space-y-0.5">
@@ -884,6 +921,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 
           </div>
         </div>
+        )}
 
       </nav>
 
