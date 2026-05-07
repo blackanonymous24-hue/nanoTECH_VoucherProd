@@ -49,6 +49,7 @@ export type PersonFormData = {
   commentSuffix2: string;
   commissionRate: number;
   isDemo: boolean;
+  ticketLetter: string;
 };
 
 export function PersonForm({
@@ -73,6 +74,7 @@ export function PersonForm({
     commentSuffix2: string | null;
     commissionRate: number | null;
     isDemo: boolean | null;
+    ticketLetter: string | null;
   }>;
   onSubmit: (data: PersonFormData) => void;
   onCancel: () => void;
@@ -94,6 +96,8 @@ export function PersonForm({
   const [suffixTouched, setSuffixTouched] = useState(!!initial?.commentSuffix);
   const [commissionRate, setCommissionRate] = useState(String(initial?.commissionRate ?? 0));
   const [isDemo, setIsDemo] = useState(initial?.isDemo ?? false);
+  const [hasTicketLetter, setHasTicketLetter] = useState(!!initial?.ticketLetter);
+  const [ticketLetter, setTicketLetter] = useState(initial?.ticketLetter ?? "");
 
   const handleNameChange = (v: string) => {
     const upper = forManager ? v : v.toUpperCase();
@@ -105,7 +109,7 @@ export function PersonForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, phone, email, username, password, commentSuffix, commentSuffix2, commissionRate: Math.min(100, Math.max(0, parseInt(commissionRate || "0", 10) || 0)), isDemo });
+        onSubmit({ name, phone, email, username, password, commentSuffix, commentSuffix2, commissionRate: Math.min(100, Math.max(0, parseInt(commissionRate || "0", 10) || 0)), isDemo, ticketLetter: hasTicketLetter ? ticketLetter.trim() : "" });
       }}
       className="flex flex-col gap-0"
     >
@@ -246,6 +250,39 @@ export function PersonForm({
 
         {!forManager && (
           <div className="pt-2 border-t">
+            <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+              <input
+                id="pf-has-ticket-letter"
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-blue-500 cursor-pointer"
+                checked={hasTicketLetter}
+                onChange={(e) => setHasTicketLetter(e.target.checked)}
+              />
+              <label htmlFor="pf-has-ticket-letter" className="cursor-pointer select-none flex-1">
+                <span className="text-sm font-medium text-blue-800">Lettre d'identification de ticket</span>
+                <p className="text-xs text-blue-600 mt-0.5">
+                  Ajoutée automatiquement au préfixe lors de la génération (ex: 1j<strong>k</strong>)
+                </p>
+              </label>
+            </div>
+            {hasTicketLetter && (
+              <div className="mt-2">
+                <Label htmlFor="pf-ticket-letter">Lettre</Label>
+                <Input
+                  id="pf-ticket-letter"
+                  className="mt-1 font-mono w-24 uppercase"
+                  placeholder="ex: k"
+                  maxLength={3}
+                  value={ticketLetter}
+                  onChange={(e) => setTicketLetter(e.target.value.toLowerCase())}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {!forManager && (
+          <div className="pt-2 border-t">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Identifiants de lot <span className="font-normal normal-case text-gray-400">(optionnels)</span>
             </p>
@@ -370,6 +407,7 @@ export default function Vendors() {
           ...(data.commentSuffix2 ? { commentSuffix2: data.commentSuffix2 } : {}),
           commissionRate: data.commissionRate,
           isDemo: data.isDemo,
+          ticketLetter: data.ticketLetter || null,
         } as any,
       });
       invalidate();
@@ -400,6 +438,7 @@ export default function Vendors() {
           commentSuffix2: data.commentSuffix2 || null,
           commissionRate: data.commissionRate,
           isDemo: data.isDemo,
+          ticketLetter: data.ticketLetter || null,
         } as any,
       });
       invalidate();
@@ -737,6 +776,7 @@ export default function Vendors() {
                 commentSuffix2: (editVendor as any).commentSuffix2 ?? null,
                 commissionRate: (editVendor as any).commissionRate ?? 0,
                 isDemo: (editVendor as any).isDemo ?? false,
+                ticketLetter: (editVendor as any).ticketLetter ?? null,
               }}
               onSubmit={handleEdit}
               onCancel={() => { setEditVendor(null); setEditError(""); }}

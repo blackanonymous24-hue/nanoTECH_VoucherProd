@@ -17,6 +17,7 @@ export const vendorsTable = pgTable("vendors", {
   passwordPlain: text("password_plain"),
   commentSuffix: text("comment_suffix"),
   commentSuffix2: text("comment_suffix2"),
+  ticketLetter: text("ticket_letter"),
   commissionRate: integer("commission_rate").notNull().default(0), // % of sales as remuneration (0-100)
   isDemo: boolean("is_demo").notNull().default(false),             // demo vendor: excluded from reports & billing
   isActive: boolean("is_active").notNull().default(true),

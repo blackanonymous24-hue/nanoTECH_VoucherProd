@@ -101,6 +101,15 @@ export async function ensureCollaborateurPasswordPlainColumn(): Promise<void> {
   }
 }
 
+export async function ensureVendorTicketLetterColumn(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE vendors ADD COLUMN IF NOT EXISTS ticket_letter text`);
+    logger.info("DB compat: colonne vendors.ticket_letter vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter vendors.ticket_letter");
+  }
+}
+
 export async function ensureVerificationCodeColumn(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS verification_code text`);

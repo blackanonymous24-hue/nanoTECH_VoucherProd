@@ -110,6 +110,31 @@ function validityCode(validity: string | null | undefined): string {
   return m[1] + (map[m[2].toLowerCase()] ?? m[2].toUpperCase());
 }
 
+/**
+ * Calcule le préfixe automatique à partir de la validité du profil.
+ * Conventions : h=heure, j=jour, s=semaine, M=mois.
+ * Cas stricts : 7d/1w→1s, 14d/2w→2s, 30d/31d→1M.
+ */
+function computeAutoPrefix(validity: string | null | undefined, ticketLetter: string | null | undefined): string {
+  if (!validity) return "";
+  const sl = validity.trim().toLowerCase();
+  let code = "";
+  if (sl === "30d" || sl === "31d") code = "1M";
+  else if (sl === "2w" || sl === "14d") code = "2s";
+  else if (sl === "1w" || sl === "7d") code = "1s";
+  else {
+    const m = sl.match(/^(\d+)([a-z]+)$/);
+    if (!m) return "";
+    const [, num, unit] = m;
+    if (unit === "h") code = `${num}h`;
+    else if (unit === "d") code = `${num}j`;
+    else if (unit === "w") code = `${num}s`;
+    else if (unit === "m") code = `${num}M`;
+    else return "";
+  }
+  return code + (ticketLetter?.trim() || "");
+}
+
 type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
 
 const CHAR_TYPE_DESCS: Record<CharType, string> = {
@@ -288,6 +313,7 @@ export default function GenerateVouchers() {
   const [profile, setProfile] = useState<string>("");
   const [qty, setQty] = useState("1");
   const [prefix, setPrefix] = useState("");
+  const [prefixAuto, setPrefixAuto] = useState(false);
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
   const [charType, setCharType] = useState<CharType>("mix");
   const [userLength, setUserLength] = useState("5");
@@ -328,7 +354,7 @@ export default function GenerateVouchers() {
   }, [charType, passwordMode]);
 
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null }[]>({
+  const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null; ticketLetter?: string | null }[]>({
     queryKey: ["vendors", selectedRouterId],
     queryFn: async ({ signal }) => {
       const url = selectedRouterId
@@ -482,6 +508,11 @@ export default function GenerateVouchers() {
       ? `-${selectedVendor.name.toUpperCase()}`
       : "";
   const effectiveComment = comment + vendorSuffix;
+
+  useEffect(() => {
+    if (!prefixAuto) return;
+    setPrefix(computeAutoPrefix(selectedProfile?.validity, selectedVendor?.ticketLetter));
+  }, [prefixAuto, selectedProfile?.validity, selectedVendor?.ticketLetter]);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -966,12 +997,24 @@ export default function GenerateVouchers() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Préfixe <span className="text-gray-400">(opt.)</span></Label>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <input
+                      id="prefix-auto-check"
+                      type="checkbox"
+                      className="h-3 w-3 accent-blue-600 cursor-pointer"
+                      checked={prefixAuto}
+                      onChange={(e) => setPrefixAuto(e.target.checked)}
+                    />
+                    <Label htmlFor="prefix-auto-check" className="text-xs cursor-pointer">
+                      PRÉFIXE <span className="text-gray-400">{prefixAuto ? "(auto)" : "(opt.)"}</span>
+                    </Label>
+                  </div>
                   <Input
                     className="mt-0.5 h-8 text-xs"
-                    placeholder="ex: vip-"
+                    placeholder={prefixAuto ? "" : "ex: 1j-"}
                     value={prefix}
-                    onChange={(e) => setPrefix(e.target.value)}
+                    onChange={(e) => { if (!prefixAuto) setPrefix(e.target.value); }}
+                    readOnly={prefixAuto}
                   />
                 </div>
               </div>

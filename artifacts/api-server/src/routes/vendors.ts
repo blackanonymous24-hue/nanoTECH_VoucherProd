@@ -98,7 +98,7 @@ router.get("/vendors", async (req, res): Promise<void> => {
 router.post("/vendors", async (req, res): Promise<void> => {
   const scope = getAdminScopeOptional(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
-  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2, commissionRate, isDemo } = req.body as {
+  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2, commissionRate, isDemo, ticketLetter } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -109,6 +109,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
     commentSuffix2?: string;
     commissionRate?: number;
     isDemo?: boolean;
+    ticketLetter?: string;
   };
 
   if (!name || name.trim() === "") {
@@ -170,6 +171,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
       passwordPlain: (password && password.trim()) ? password : null,
       commentSuffix: commentSuffix?.trim() || null,
       commentSuffix2: commentSuffix2?.trim() || null,
+      ticketLetter: ticketLetter?.trim() || null,
       commissionRate: Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0))),
       isDemo: isDemo === true,
     })
@@ -206,7 +208,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, phone, email, username, password, isActive, isDemo, commentSuffix, commentSuffix2, commissionRate } = req.body as {
+  const { name, phone, email, username, password, isActive, isDemo, commentSuffix, commentSuffix2, commissionRate, ticketLetter } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -217,6 +219,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     commentSuffix?: string;
     commentSuffix2?: string;
     commissionRate?: number;
+    ticketLetter?: string;
   };
 
   // Fetch current vendor early (needed for username fallback)
@@ -253,6 +256,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (isDemo !== undefined) updates.isDemo = isDemo === true;
   if (commentSuffix !== undefined) updates.commentSuffix = commentSuffix?.trim() || null;
   if (commentSuffix2 !== undefined) updates.commentSuffix2 = commentSuffix2?.trim() || null;
+  if (ticketLetter !== undefined) updates.ticketLetter = ticketLetter?.trim() || null;
   if (commissionRate !== undefined) updates.commissionRate = Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0)));
 
   if (password !== undefined && password.trim()) {
