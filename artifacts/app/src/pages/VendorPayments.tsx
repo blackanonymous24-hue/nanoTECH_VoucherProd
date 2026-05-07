@@ -139,11 +139,12 @@ type ConsolidatableArrearEntry = DailyArrearEntry & { __underlying?: DailyArrear
 function consolidateArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
   // Always return ascending (oldest first, most recent last)
   const asc = [...entries].sort((a, b) => a.date.localeCompare(b.date));
-  if (asc.length <= 3) return asc;
-  const older = asc.slice(0, asc.length - 2); // all but the 2 most recent
-  const recent = asc.slice(asc.length - 2);   // 2 most recent, ascending
+  // Regroupe seulement si 5 éléments ou plus ; les 3 plus récents restent individuels
+  if (asc.length < 5) return asc;
+  const older = asc.slice(0, asc.length - 3); // tout sauf les 3 plus récents
+  const recent = asc.slice(asc.length - 3);   // les 3 plus récents, individuels
   const merged: ConsolidatableArrearEntry = {
-    date: older[older.length - 1].date, // most recent of the merged (older) days
+    date: older[older.length - 1].date, // date la plus récente du groupe
     salesAmount: older.reduce((s, e) => s + e.salesAmount, 0),
     paidAmount:  older.reduce((s, e) => s + e.paidAmount,  0),
     remaining:   older.reduce((s, e) => s + e.remaining,   0),
@@ -849,7 +850,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
       {vendorIds.map((vid) => {
         const entries = arrears[vid] ?? [];
         const displayEntries = consolidateArrears(entries);
-        const isConsolidated = entries.length >= 3;
+        const isConsolidated = entries.length >= 5;
         const vendorName = vendorInfo[vid]?.name ?? `Vendeur ${vid}`;
         const vendorTotal = entries.reduce((s, e) => s + e.remaining, 0);
         const isOpen = expanded.has(vid);
