@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -36,7 +37,8 @@ import { PasswordInput } from "@/components/ui/password-input";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function RouterSelector({ className, compact }: { className?: string; compact?: boolean }) {
-  const { selectedRouterId, setSelectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked } = useRouterContext();
+  const { selectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked } = useRouterContext();
+  const { selectWithPing, pingingId } = useSelectRouterWithPing();
 
   return (
     <div className={cn("flex items-center gap-2 min-w-0", className)}>
@@ -51,8 +53,11 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
       ) : (
         <Select
           value={selectedRouterId ? String(selectedRouterId) : ""}
-          onValueChange={(v) => setSelectedRouterId(v ? parseInt(v, 10) : null)}
-          disabled={routers.length === 0}
+          onValueChange={(v) => {
+            const id = v ? parseInt(v, 10) : null;
+            if (id) void selectWithPing(id, { navigateTo: false });
+          }}
+          disabled={routers.length === 0 || pingingId !== null}
         >
           <SelectTrigger className={cn(
             "h-8 text-xs bg-white/5 border-white/10 text-gray-200 hover:bg-white/10 focus:ring-0 focus:ring-offset-0 disabled:opacity-40 transition-colors min-w-0",
@@ -67,7 +72,9 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
           </SelectContent>
         </Select>
       )}
-      {selectedRouterId && (
+      {pingingId !== null ? (
+        <Loader2 className="h-3 w-3 animate-spin text-blue-300 flex-shrink-0" />
+      ) : selectedRouterId ? (
         <span className="relative flex h-2 w-2 flex-shrink-0">
           {routerOnline === true ? (
             <>
@@ -78,7 +85,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
             <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
           ) : null}
         </span>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -33,6 +33,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
+import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 
 interface RouterRow {
   id: number;
@@ -572,6 +573,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const qc = useQueryClient();
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
   const qk = ["super", "admin-routers", admin.id];
+  const { selectWithPing, pingingId: connectingId } = useSelectRouterWithPing();
 
   const [formTarget, setFormTarget] = useState<RouterRow | "create" | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -703,10 +705,13 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               const pingOk = pingResults[r.id];
               const hasPing = r.id in pingResults;
               const isPinging = pingingIds.has(r.id);
+              const isConnecting = connectingId === r.id;
               return (
                 <div
                   key={r.id}
-                  className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2 hover:shadow-md transition-shadow"
+                  className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group"
+                  title="Cliquer pour se connecter à ce routeur"
+                  onClick={() => void selectWithPing(r.id)}
                 >
                   {/* Icône */}
                   <div className="p-1.5 rounded-lg bg-blue-50 shrink-0">
@@ -731,31 +736,40 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    {/* Connexion en cours */}
+                    {isConnecting && (
+                      <span className="text-[9px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 flex items-center gap-0.5 shrink-0">
+                        <Loader2 className="h-2.5 w-2.5 animate-spin" /> Connexion…
+                      </span>
+                    )}
+
                     {/* Ping */}
-                    <div className="relative">
-                      {isPinging && (
-                        <span className="absolute inset-0 rounded-full animate-ping bg-blue-300 opacity-60 pointer-events-none" />
-                      )}
-                      <Button
-                        size="icon" variant="ghost"
-                        className="h-7 w-7 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200 relative"
-                        title="Tester la connexion"
-                        disabled={isPinging}
-                        onClick={() => void handlePing(r)}
-                      >
-                        {isPinging
-                          ? <Loader2 className="h-3 w-3 animate-spin" />
-                          : <Activity className="h-3 w-3" />}
-                      </Button>
-                    </div>
+                    {!isConnecting && (
+                      <div className="relative">
+                        {isPinging && (
+                          <span className="absolute inset-0 rounded-full animate-ping bg-blue-300 opacity-60 pointer-events-none" />
+                        )}
+                        <Button
+                          size="icon" variant="ghost"
+                          className="h-7 w-7 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200 relative"
+                          title="Tester la connexion"
+                          disabled={isPinging}
+                          onClick={(e) => { e.stopPropagation(); void handlePing(r); }}
+                        >
+                          {isPinging
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <Activity className="h-3 w-3" />}
+                        </Button>
+                      </div>
+                    )}
 
                     {/* Modifier */}
                     <Button
                       size="icon" variant="ghost"
                       className="h-7 w-7 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 border border-slate-200"
                       title="Modifier"
-                      onClick={() => setFormTarget(r)}
+                      onClick={(e) => { e.stopPropagation(); setFormTarget(r); }}
                     >
                       <Pencil className="h-3 w-3" />
                     </Button>
@@ -767,7 +781,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                       className="h-7 w-7 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50 border border-red-200"
                       title="Supprimer"
                       disabled={deletingId !== null}
-                      onClick={() => void deleteRouter(r)}
+                      onClick={(e) => { e.stopPropagation(); void deleteRouter(r); }}
                     >
                       {deletingId === r.id
                         ? <Loader2 className="h-3 w-3 animate-spin" />

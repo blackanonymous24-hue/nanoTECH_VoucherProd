@@ -28,6 +28,7 @@ import {
 import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangle, Coins, Activity, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -183,10 +184,11 @@ export default function Routers() {
   const [pingingIds, setPingingIds] = useState<Set<number>>(new Set());
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { setSelectedRouterId, selectedRouterId } = useRouterContext();
+  const { selectedRouterId } = useRouterContext();
   const { role, token, isSuperAdmin } = useAuth();
   const isManager = role === "manager";
   const [, navigate] = useLocation();
+  const { selectWithPing, pingingId: connectingId } = useSelectRouterWithPing();
 
   /* ── Quota & credits (admin only, regular admins see the banner) ─── */
   interface AdminMe {
@@ -306,8 +308,8 @@ export default function Routers() {
 
 
   const handleSelect = (id: number) => {
-    setSelectedRouterId(id);
-    navigate("/");
+    if (connectingId !== null) return;
+    void selectWithPing(id);
   };
 
   return (
@@ -428,17 +430,25 @@ export default function Routers() {
                 <CardContent className="py-3 px-3 sm:py-3 sm:px-4">
                   <div className="flex items-center justify-between gap-2">
                     <div
-                      className="flex items-center gap-2.5 min-w-0 w-3/4 max-w-[75%] cursor-pointer"
+                      className={`flex items-center gap-2.5 min-w-0 w-3/4 max-w-[75%] cursor-pointer${connectingId === r.id ? " opacity-60 pointer-events-none" : ""}`}
                       onClick={() => handleSelect(r.id)}
                       title="Sélectionner ce routeur"
                     >
                       <div className={`p-1.5 rounded-md flex-shrink-0 ${isSelected ? "bg-blue-500" : "bg-blue-50"}`}>
-                        <Wifi className={`h-4 w-4 ${isSelected ? "text-white" : "text-blue-500"}`} />
+                        {connectingId === r.id
+                          ? <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                          : <Wifi className={`h-4 w-4 ${isSelected ? "text-white" : "text-blue-500"}`} />
+                        }
                       </div>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1">
                           <span className="font-semibold text-sm text-gray-900">{r.name}</span>
-                          {isSelected && (
+                          {connectingId === r.id && (
+                            <Badge className="h-5 px-1.5 bg-amber-100 text-amber-700 border-amber-300 gap-1 flex-shrink-0">
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" /> Connexion…
+                            </Badge>
+                          )}
+                          {isSelected && connectingId !== r.id && (
                             <Badge className="h-5 px-1.5 bg-blue-100 text-blue-700 border-blue-300 gap-1 flex-shrink-0">
                               <CheckCircle2 className="h-2.5 w-2.5" /> Actif
                             </Badge>

@@ -462,7 +462,7 @@ export default function Dashboard() {
   // Display data: fresh from React Query OR last cached value — never undefined after first load
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any = _freshData ?? _dashboardCache.data;
-  const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity } = useRouterContext();
+  const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity, isPingFailed, setIsPingFailed } = useRouterContext();
   const { token: authToken } = useAuth();
   const [enableSecondaries, setEnableSecondaries] = useState(false);
   const [ssePriority, setSsePriority] = useState<PrioritySnapshot | null>(null);
@@ -537,13 +537,12 @@ export default function Dashboard() {
     const now = Date.now();
     if (now - mikLastSuccessTsRef.current < 3_000) return; // debounce recovery
     mikLastSuccessTsRef.current = now;
-    if (mikFailCountRef.current > 0) {
-      mikFailCountRef.current = 0;
-      mikLastFailTsRef.current = 0;
-      setShowErrorPage(false);
-      toast.dismiss("mikrotik-status");
-    }
-  }, []);
+    mikFailCountRef.current = 0;
+    mikLastFailTsRef.current = 0;
+    setShowErrorPage(false);
+    setIsPingFailed(false);
+    toast.dismiss("mikrotik-status");
+  }, [setIsPingFailed]);
 
   useEffect(() => {
     // Fermer le SSE si : pas de routeur sélectionné, utilisateur déconnecté, ou onglet caché.
@@ -1076,7 +1075,7 @@ export default function Dashboard() {
       </div>
 
       {/* ── Page d'erreur MikroTik hors ligne ─────────────────────────────── */}
-      {showErrorPage && selectedRouterId && (
+      {(showErrorPage || isPingFailed) && selectedRouterId && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/98 backdrop-blur-sm rounded-xl py-16 px-4 min-h-[420px]">
           {/* Animation visuelle */}
           <div className="relative flex flex-col items-center mb-8">

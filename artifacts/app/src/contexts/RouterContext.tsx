@@ -16,6 +16,8 @@ interface RouterContextValue {
   routerIdentity: string | null;
   setRouterIdentity: (identity: string | null) => void;
   isRouterLocked: boolean;
+  isPingFailed: boolean;
+  setIsPingFailed: (v: boolean) => void;
 }
 
 const RouterContext = createContext<RouterContextValue>({
@@ -30,6 +32,8 @@ const RouterContext = createContext<RouterContextValue>({
   routerIdentity: null,
   setRouterIdentity: () => {},
   isRouterLocked: false,
+  isPingFailed: false,
+  setIsPingFailed: () => {},
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
@@ -105,10 +109,12 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const [pingTrigger, setPingTrigger] = useState(0);
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
   const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
+  const [isPingFailed, setIsPingFailed] = useState(false);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
     setSelectedRouterIdState(id);
+    setIsPingFailed(false); // reset on every router change
     if (id === null) {
       localStorage.removeItem(STORAGE_KEY);
       setRouterOnline(null);
@@ -179,6 +185,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       routerIdentity,
       setRouterIdentity,
       isRouterLocked,
+      isPingFailed,
+      setIsPingFailed,
     }}>
       {children}
     </RouterContext.Provider>
