@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,7 +28,6 @@ import {
 import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangle, Coins, Activity, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
-import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -184,11 +183,12 @@ export default function Routers() {
   const [pingingIds, setPingingIds] = useState<Set<number>>(new Set());
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { selectedRouterId } = useRouterContext();
+  const { selectedRouterId, setSelectedRouterId } = useRouterContext();
   const { role, token, isSuperAdmin } = useAuth();
   const isManager = role === "manager";
   const [, navigate] = useLocation();
-  const { selectWithPing, pingingId: connectingId } = useSelectRouterWithPing();
+  const [connectingId, setConnectingId] = useState<number | null>(null);
+  const testResultsTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   /* ── Quota & credits (admin only, regular admins see the banner) ─── */
   interface AdminMe {
@@ -290,6 +290,16 @@ export default function Routers() {
     }
   };
 
+  const setTestResultWithAutoExpiry = (id: number, result: { success: boolean; message: string }) => {
+    // Annuler le timer précédent pour ce routeur s'il existe
+    if (testResultsTimersRef.current[id]) clearTimeout(testResultsTimersRef.current[id]);
+    setTestResults((prev) => ({ ...prev, [id]: result }));
+    testResultsTimersRef.current[id] = setTimeout(() => {
+      setTestResults((prev) => { const copy = { ...prev }; delete copy[id]; return copy; });
+      delete testResultsTimersRef.current[id];
+    }, 5000);
+  };
+
   const handleTest = async (id: number) => {
     setPingingIds((prev) => new Set(prev).add(id));
     try {
@@ -297,19 +307,38 @@ export default function Routers() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json() as { success: boolean };
-      setTestResults((prev) => ({ ...prev, [id]: { success: data.success, message: data.success ? "En ligne" : "Hors ligne" } }));
+      setTestResultWithAutoExpiry(id, { success: data.success, message: data.success ? "En ligne" : "Hors ligne" });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur de connexion";
-      setTestResults((prev) => ({ ...prev, [id]: { success: false, message } }));
+      setTestResultWithAutoExpiry(id, { success: false, message });
     } finally {
       setPingingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
     }
   };
 
-
-  const handleSelect = (id: number) => {
+  const handleSelect = async (id: number) => {
     if (connectingId !== null) return;
-    void selectWithPing(id);
+    setConnectingId(id);
+    try {
+      const res = await fetch(`${BASE}/api/routers/${id}/ping?force=1`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      let success = false;
+      if (res.ok) {
+        const data = await res.json() as { success: boolean };
+        success = data.success;
+      }
+      if (success) {
+        setSelectedRouterId(id);
+        navigate("/");
+      } else {
+        setTestResultWithAutoExpiry(id, { success: false, message: "Hors ligne" });
+      }
+    } catch {
+      setTestResultWithAutoExpiry(id, { success: false, message: "Hors ligne" });
+    } finally {
+      setConnectingId(null);
+    }
   };
 
   return (

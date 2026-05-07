@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRouterLogsQueryKey } from "@workspace/api-client-react";
@@ -533,6 +533,8 @@ export default function Dashboard() {
     }
   }, []);
 
+  const [, navigate] = useLocation();
+
   const handleMikrotikRecovery = useCallback(() => {
     const now = Date.now();
     if (now - mikLastSuccessTsRef.current < 3_000) return; // debounce recovery
@@ -543,6 +545,17 @@ export default function Dashboard() {
     setIsPingFailed(false);
     toast.dismiss("mikrotik-status");
   }, [setIsPingFailed]);
+
+  // Auto-redirect vers /routeurs après 5 s si la page d'erreur reste affichée
+  useEffect(() => {
+    if (!showErrorPage && !isPingFailed) return;
+    const t = setTimeout(() => {
+      setShowErrorPage(false);
+      setIsPingFailed(false);
+      navigate("/routers");
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [showErrorPage, isPingFailed, navigate, setIsPingFailed]);
 
   useEffect(() => {
     // Fermer le SSE si : pas de routeur sélectionné, utilisateur déconnecté, ou onglet caché.
