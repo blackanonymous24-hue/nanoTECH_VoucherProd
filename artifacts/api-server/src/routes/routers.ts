@@ -132,7 +132,7 @@ function foldText(value: string | null | undefined): string {
  * manager / vendor / collaborateur is calling). The endpoints that strictly
  * require an admin handle the auth refusal themselves.
  */
-function getAdminScopeFromHeader(req: { headers: { authorization?: string } }): { adminId: number; isSuperAdmin: boolean } | null {
+function getAdminScopeFromHeader(req: { headers: { authorization?: string } }): { adminId: number; isSuperAdmin: boolean; isImpersonating?: boolean } | null {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) return null;
   return verifyAdminTokenFull(auth.slice(7));
@@ -2717,8 +2717,15 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
  *   (none)                   → all history (scripts seulement)
  */
 router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
+  const adminScope = getAdminScopeFromHeader(req);
+  if (!adminScope) { res.status(401).json({ error: "Non authentifié" }); return; }
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  if (!adminScope.isSuperAdmin || adminScope.isImpersonating) {
+    const [r] = await db.select({ owner: routersTable.ownerAdminId })
+      .from(routersTable).where(eq(routersTable.id, id));
+    if (!r || r.owner !== adminScope.adminId) { res.status(403).json({ error: "Accès refusé" }); return; }
+  }
 
   const yearRaw  = req.query.year  ? parseInt(req.query.year  as string, 10) : null;
   const monthRaw = req.query.month ? parseInt(req.query.month as string, 10) : null;
