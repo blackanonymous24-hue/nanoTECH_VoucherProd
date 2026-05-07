@@ -54,11 +54,20 @@ router.post("/login", async (req, res): Promise<void> => {
   // Make sure the super-admin seed exists before the lookup.
   await getOrInitSuperAdmin();
 
-  // Admin lookup by login (multi-tenant: there may be many admin rows now).
-  const [adminRow] = await db
+  // Admin lookup by login — plusieurs admins peuvent avoir le même login
+  // (mots de passe différents). On essaie chacun jusqu'à trouver le bon.
+  const adminRows = await db
     .select()
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.login, loginTrimmed));
+
+  let adminRow = adminRows[0] as (typeof adminRows)[0] | undefined;
+  if (adminRows.length > 1) {
+    // Trouver le premier dont le mot de passe correspond
+    for (const row of adminRows) {
+      if (await verifyPassword(password, row.passwordHash)) { adminRow = row; break; }
+    }
+  }
 
   if (adminRow) {
     const valid = await verifyPassword(password, adminRow.passwordHash);
@@ -224,15 +233,6 @@ router.put("/admin/credentials", async (req, res): Promise<void> => {
     const loginTrimmed = login.trim();
     if (loginTrimmed.length < 3) {
       res.status(400).json({ error: "Login trop court (min 3 caractères)" });
-      return;
-    }
-    // Collision check (excluding self).
-    const dup = await db
-      .select({ id: adminSettingsTable.id })
-      .from(adminSettingsTable)
-      .where(and(eq(adminSettingsTable.login, loginTrimmed), ne(adminSettingsTable.id, claims.adminId)));
-    if (dup.length > 0) {
-      res.status(409).json({ error: "Login déjà utilisé" });
       return;
     }
     patch.login = loginTrimmed;

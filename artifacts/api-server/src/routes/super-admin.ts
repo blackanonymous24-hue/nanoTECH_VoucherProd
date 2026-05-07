@@ -134,14 +134,6 @@ router.post("/super/admins", async (req, res): Promise<void> => {
 
   const initialCredits = Math.max(0, Number.isFinite(credits) ? Math.trunc(credits as number) : 0);
 
-  // Detect login collision up-front for a clean 409 (the unique index would
-  // also prevent it, but the error message is friendlier).
-  const existing = await db.select({ id: adminSettingsTable.id }).from(adminSettingsTable).where(eq(adminSettingsTable.login, loginTrimmed));
-  if (existing.length > 0) {
-    res.status(409).json({ error: "Ce login est déjà utilisé" });
-    return;
-  }
-
   const passwordHash = await hashPassword(password);
   const [created] = await db
     .insert(adminSettingsTable)
@@ -198,11 +190,6 @@ router.patch("/super/admins/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Login trop court (min 2 caractères)" });
       return;
     }
-    // Collision check (excluding self).
-    const dup = await db.select({ id: adminSettingsTable.id })
-      .from(adminSettingsTable)
-      .where(and(eq(adminSettingsTable.login, loginTrimmed), ne(adminSettingsTable.id, id)));
-    if (dup.length > 0) { res.status(409).json({ error: "Login déjà utilisé" }); return; }
     patch.login = loginTrimmed;
   }
   if (password !== undefined) {

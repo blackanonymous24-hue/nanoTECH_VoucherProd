@@ -2,7 +2,7 @@ import { pgTable, serial, text, boolean, integer, timestamp } from "drizzle-orm/
 
 export const adminSettingsTable = pgTable("admin_settings", {
   id: serial("id").primaryKey(),
-  login: text("login").notNull().unique(),
+  login: text("login").notNull(),
   passwordHash: text("password_hash").notNull(),
   displayName: text("display_name"),
   // Marks the original / root admin who can manage other admins.
