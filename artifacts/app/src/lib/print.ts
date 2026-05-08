@@ -188,7 +188,9 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
   const COLS = 4;
-  const ROWS = 6;
+  // Nombre de lignes de base à 100 % (zoom = 1.0). Formule : ROWS_BASE / s
+  // → plus l'échelle est petite, plus de lignes tiennent sur une page A4.
+  const ROWS_BASE = 6;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
@@ -201,6 +203,10 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // On pré-calcule combien de rangées tiennent sur une page A4 à l'échelle donnée,
     // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
     // rien à calculer, chaque bloc est garantiellement complet.
+    //
+    // ROWS est dynamique : à 85 % de zoom chaque ticket est 0.85× plus petit,
+    // donc 1/0.85 ≈ 1.18× plus de lignes tiennent sur une page.
+    const ROWS = Math.max(2, Math.round(ROWS_BASE / s));
 
     const perPage = COLS * ROWS;
 
