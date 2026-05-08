@@ -77,7 +77,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta, readSmallScale, readSmallCols } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
@@ -863,7 +863,7 @@ export default function Vouchers() {
         return;
       }
       const title = ["Voucher-Small", lot.name].filter(Boolean).join("-");
-      const html = buildSmallModePrintHtml(data.html, title, readSmallScale());
+      const html = buildSmallModePrintHtml(data.html, title, readSmallScale(), readSmallCols());
       if (preWin) {
         preWin.document.open();
         preWin.document.write(html);

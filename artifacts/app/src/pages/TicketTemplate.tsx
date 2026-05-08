@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 const COLS_DESKTOP_KEY  = "vn_print_cols_desktop";
 export const SMALL_SCALE_KEY = "vn_small_scale";
+export const SMALL_COLS_KEY  = "vn_small_cols";
 
 function readCols(key: string, def = 4): number {
   try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
@@ -17,6 +18,11 @@ export function readSmallScale(): number {
   try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
 }
 function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
+
+export function readSmallCols(): number {
+  try { const v = parseInt(localStorage.getItem(SMALL_COLS_KEY) ?? "2", 10); return isNaN(v) ? 2 : Math.min(4, Math.max(1, v)); } catch { return 2; }
+}
+function saveSmallCols(v: number) { try { localStorage.setItem(SMALL_COLS_KEY, String(v)); } catch {} }
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 
@@ -405,6 +411,7 @@ export default function TicketTemplate() {
   const [showScaleDialog, setShowScaleDialog] = useState(false);
   const [colsDesktop,  setColsDesktop]  = useState(() => readCols(COLS_DESKTOP_KEY, 4));
   const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
+  const [smallCols,    setSmallCols]    = useState(() => readSmallCols());
 
   // Ajuste le défaut selon le type de template (MikHmon → 5, autre → 4)
   // uniquement si l'utilisateur n'a pas de préférence enregistrée
@@ -671,6 +678,24 @@ export default function TicketTemplate() {
                 />
                 <span className="text-xs text-gray-400 shrink-0">%</span>
               </div>
+            </div>
+
+            {/* Colonnes Small */}
+            <div className="space-y-1.5 border-t pt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-600">☰ Colonnes par défaut — mode Small</span>
+                <span className="text-xs text-violet-600 font-bold">{smallCols} col</span>
+              </div>
+              <div className="flex gap-1.5">
+                {[1, 2, 3, 4].map((n) => (
+                  <button
+                    key={n} type="button"
+                    onClick={() => { setSmallCols(n); saveSmallCols(n); }}
+                    className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${smallCols === n ? "bg-violet-600 text-white border-violet-600" : "bg-white text-gray-600 border-gray-200 hover:border-violet-300 hover:text-violet-600"}`}
+                  >{n}</button>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 leading-tight">Modifiable aussi en direct dans la barre de la page d'impression.</p>
             </div>
           </div>
           <DialogFooter>

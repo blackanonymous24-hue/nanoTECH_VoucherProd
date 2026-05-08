@@ -459,7 +459,7 @@ function printWithNativeBridge(html: string, title: string): void {
  * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
  * ce mode ne l'impose pas, contrairement au mode regular.
  */
-export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85): string {
+export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, defaultCols = 2): string {
   const css = `
     @page {
       size: auto;
@@ -531,11 +531,11 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     /* Décalage tickets sous la barre fixe */
     #vn-tickets { margin-top: 48px; }
 
-    /* ── Layout small — 2 tickets par ligne (48 % chacun) ────────────── */
+    /* ── Layout small — N tickets par ligne ──────────────────────────── */
     table.voucher {
       display: inline-block !important;
       vertical-align: top;
-      width: 48%;
+      width: ${(98 / defaultCols).toFixed(1)}%;
       border: 2px solid #000;
       margin: 2px;
       padding: 3px;
@@ -559,7 +559,6 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       tfoot  { display: table-footer-group; }
       table.voucher {
         display: inline-block !important;
-        width: 48%;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
@@ -574,16 +573,32 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
   `;
 
   const js = `
+    var _currentCols = ${defaultCols};
+    function updateInfo() {
+      var scale = parseFloat(document.getElementById('vn-scale').value);
+      var info  = document.getElementById('vn-scale-info');
+      if (info) info.textContent = Math.round(scale * 100) + '% · ' + _currentCols + ' col · ${htmlItems.length} ticket(s)';
+    }
     function applyPrintScale(scale) {
       document.body.style.transform = 'scale(' + scale + ')';
       document.body.style.width = (100 / scale) + '%';
-      var info = document.getElementById('vn-scale-info');
-      if (info) info.textContent = Math.round(scale * 100) + '% — ' + ${htmlItems.length} + ' ticket(s)';
+      updateInfo();
+    }
+    function applySmallCols(cols) {
+      _currentCols = cols;
+      var pct = (98 / cols).toFixed(1) + '%';
+      var s = document.getElementById('vn-cols-style');
+      if (!s) { s = document.createElement('style'); s.id = 'vn-cols-style'; document.head.appendChild(s); }
+      s.textContent = 'table.voucher { width: ' + pct + ' !important; }';
+      updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
-      var sel = document.getElementById('vn-scale');
-      sel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
-      applyPrintScale(parseFloat(sel.value));
+      var scaleSel = document.getElementById('vn-scale');
+      var colsSel  = document.getElementById('vn-cols');
+      scaleSel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
+      colsSel.addEventListener('change',  function() { applySmallCols(parseInt(this.value, 10)); });
+      applyPrintScale(parseFloat(scaleSel.value));
+      applySmallCols(parseInt(colsSel.value, 10));
     });
   `;
 
@@ -591,10 +606,18 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
     .join("\n    ");
 
+  const colsOptions = ([1, 2, 3, 4] as number[])
+    .map((c) => `<option value="${c}"${c === defaultCols ? " selected" : ""}>${c} col</option>`)
+    .join("\n    ");
+
   const bar = `<div id="vn-print-bar">
   <label for="vn-scale">Échelle :</label>
   <select id="vn-scale">
     ${scaleOptions}
+  </select>
+  <label for="vn-cols" style="margin-left:6px;">Colonnes :</label>
+  <select id="vn-cols">
+    ${colsOptions}
   </select>
   <span class="vn-sep"></span>
   <span class="vn-info" id="vn-scale-info"></span>
