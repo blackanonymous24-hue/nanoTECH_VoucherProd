@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } from "lucide-react";
+import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders, LayoutGrid } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 const COLS_DESKTOP_KEY  = "vn_print_cols_desktop";
@@ -402,7 +402,8 @@ export default function TicketTemplate() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Paramètres d'impression (colonnes desktop)
-  const [showScaleDialog, setShowScaleDialog] = useState(false);
+  const [showScaleDialog,      setShowScaleDialog]      = useState(false);
+  const [showSmallParamsDialog, setShowSmallParamsDialog] = useState(false);
   const [colsDesktop,  setColsDesktop]  = useState(() => readCols(COLS_DESKTOP_KEY, 4));
   const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
 
@@ -598,9 +599,13 @@ export default function TicketTemplate() {
               <span className="hidden sm:inline">Définir par défaut</span>
             </Button>
           </>
-          <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
+          <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression (colonnes desktop)">
             <Sliders className="h-3.5 w-3.5 shrink-0" />
             <span className="hidden sm:inline text-[11px]">🖥 {colsDesktop} col</span>
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5 text-violet-700 border-violet-200 hover:bg-violet-50" onClick={() => setShowSmallParamsDialog(true)} title="Paramètres mode Small (échelle d'impression)">
+            <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline text-[11px]">Small {Math.round(smallScale * 100)}%</span>
           </Button>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
@@ -617,8 +622,7 @@ export default function TicketTemplate() {
               Paramètres d'impression
             </DialogTitle>
           </DialogHeader>
-          <div className="py-2 space-y-4">
-            {/* Colonnes desktop (mode Imprimer normal) */}
+          <div className="py-2">
             <div className="space-y-1.5">
               <span className="text-xs font-medium text-gray-600">🖥 Colonnes desktop (mode normal)</span>
               <div className="flex gap-1.5">
@@ -631,51 +635,81 @@ export default function TicketTemplate() {
                 ))}
               </div>
             </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button size="sm" className="gap-1.5"><Save className="h-3.5 w-3.5" />Enregistrer</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-            {/* Échelle Small (pré-sélection de la barre dans la page Small) */}
-            <div className="space-y-1.5 border-t pt-3">
+      {/* ── Dialog dédié — Paramètres mode Small ── */}
+      <Dialog open={showSmallParamsDialog} onOpenChange={setShowSmallParamsDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LayoutGrid className="h-4 w-4 text-violet-600" />
+              Paramètres mode Small
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3 space-y-4">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600">📄 Échelle par défaut — mode Small</span>
-                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScale * 100)}%</span>
+                <span className="text-sm font-medium text-gray-700">Échelle d'impression</span>
+                <span className="text-lg font-bold text-violet-600 tabular-nums w-14 text-right">{Math.round(smallScale * 100)}%</span>
               </div>
               <p className="text-[11px] text-gray-400 leading-tight">
-                Glissez la barre, utilisez la molette ou saisissez une valeur de 0 à 100.
+                Glissez la barre, utilisez la molette ou saisissez directement la valeur (0–100).
+                Pré-sélectionnée dans la page Small à chaque impression.
               </p>
-              {/* Slider + saisie manuelle */}
+              {/* Slider */}
+              <input
+                type="range" min={0} max={100} step={1}
+                value={Math.round(smallScale * 100)}
+                onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScale(v); saveSmallScale(v); }}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  const delta = e.deltaY < 0 ? 1 : -1;
+                  const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + delta));
+                  setSmallScale(next / 100); saveSmallScale(next / 100);
+                }}
+                className="w-full cursor-pointer"
+                style={{ accentColor: "#7c3aed" }}
+              />
+              {/* Saisie manuelle */}
               <div className="flex items-center gap-2">
-                <input
-                  type="range" min={0} max={100} step={1}
-                  value={Math.round(smallScale * 100)}
-                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScale(v); saveSmallScale(v); }}
-                  onWheel={(e) => {
-                    e.preventDefault();
-                    const delta = e.deltaY < 0 ? 1 : -1;
-                    const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + delta));
-                    const v = next / 100;
-                    setSmallScale(v); saveSmallScale(v);
-                  }}
-                  className="flex-1 h-2 accent-violet-600 cursor-pointer"
-                  style={{ accentColor: "#7c3aed" }}
-                />
+                <span className="text-xs text-gray-500 flex-1">Valeur exacte :</span>
                 <input
                   type="number" min={0} max={100} step={1}
                   value={Math.round(smallScale * 100)}
                   onChange={(e) => {
                     const raw = parseInt(e.target.value, 10);
                     if (isNaN(raw)) return;
-                    const clamped = Math.min(100, Math.max(0, raw));
-                    const v = clamped / 100;
+                    const v = Math.min(100, Math.max(0, raw)) / 100;
                     setSmallScale(v); saveSmallScale(v);
                   }}
-                  className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
+                  className="w-16 text-center text-sm font-bold border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
                 />
-                <span className="text-xs text-gray-400 shrink-0">%</span>
+                <span className="text-sm text-gray-400 font-medium">%</span>
+              </div>
+              {/* Raccourcis rapides */}
+              <div className="flex gap-1 pt-1">
+                {[100, 90, 85, 80, 75, 70].map((pct) => (
+                  <button
+                    key={pct} type="button"
+                    onClick={() => { const v = pct / 100; setSmallScale(v); saveSmallScale(v); }}
+                    className={`flex-1 py-1 rounded text-xs font-semibold border transition-colors ${Math.round(smallScale * 100) === pct ? "bg-violet-600 text-white border-violet-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:border-violet-300 hover:text-violet-600"}`}
+                  >{pct}%</button>
+                ))}
               </div>
             </div>
           </div>
           <DialogFooter>
             <DialogClose asChild>
-              <Button size="sm" className="gap-1.5"><Save className="h-3.5 w-3.5" />Enregistrer</Button>
+              <Button size="sm" className="gap-1.5 bg-violet-600 hover:bg-violet-700">
+                <Save className="h-3.5 w-3.5" />Enregistrer
+              </Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>
