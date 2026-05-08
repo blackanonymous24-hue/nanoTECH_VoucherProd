@@ -465,7 +465,7 @@ export default function TicketTemplate() {
     };
     reader.readAsText(file, "UTF-8");
     e.target.value = "";
-  }, [toast]);
+  }, [toast, smallScale, scaleMobile]);
 
   // ── Sauvegarder — local + serveur (source de vérité cross-device)
   const handleSave = useCallback(async () => {
@@ -498,7 +498,7 @@ export default function TicketTemplate() {
         variant: "destructive",
       });
     }
-  }, [phpCode, toast]);
+  }, [phpCode, toast, smallScale, scaleMobile]);
 
   // ── Réinitialiser (vers le custom default s'il existe, sinon vers DEFAULT_MIKHMON_PHP)
   const handleReset = useCallback(() => {
@@ -538,7 +538,7 @@ export default function TicketTemplate() {
         variant: "destructive",
       });
     }
-  }, [phpCode, toast]);
+  }, [phpCode, toast, smallScale, scaleMobile]);
 
   const handleUseDefaultMikhmon = useCallback(() => {
     setTab("code");
