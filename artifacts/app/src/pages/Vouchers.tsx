@@ -788,14 +788,13 @@ export default function Vouchers() {
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
-      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
       if (preWin) {
         const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
-        printTickets(data.html, title, printScale, colsDesktop);
+        printTickets(data.html, title, printScale);
       }
     } catch (err) {
       preWin?.close();
@@ -1035,14 +1034,13 @@ export default function Vouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
       const mobileRowsPerPage = 6;
-      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
       if (preWin) {
         const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
-        printTickets(data.html as string[], title, printScale, colsDesktop);
+        printTickets(data.html as string[], title, printScale);
       }
     } finally {
       setIsPrinting(false);

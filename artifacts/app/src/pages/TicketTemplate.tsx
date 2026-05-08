@@ -5,12 +5,7 @@ import { Button } from "@/components/ui/button";
 import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
-const COLS_DESKTOP_KEY  = "vn_print_cols_desktop";
 export const SMALL_SCALE_KEY = "vn_small_scale";
-function readCols(key: string, def = 4): number {
-  try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
-}
-function saveCols(key: string, v: number) { try { localStorage.setItem(key, String(v)); } catch {} }
 
 export function readSmallScale(): number {
   try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
@@ -400,18 +395,9 @@ export default function TicketTemplate() {
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Paramètres d'impression (colonnes desktop)
+  // ── Paramètres d'impression
   const [showScaleDialog, setShowScaleDialog] = useState(false);
-  const [colsDesktop,  setColsDesktop]  = useState(() => readCols(COLS_DESKTOP_KEY, 4));
   const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
-
-  // Ajuste le défaut selon le type de template (MikHmon → 5, autre → 4)
-  // uniquement si l'utilisateur n'a pas de préférence enregistrée
-  useEffect(() => {
-    if (localStorage.getItem(COLS_DESKTOP_KEY) === null) {
-      setColsDesktop(phpCode.includes('class="voucher"') ? 5 : 4);
-    }
-  }, [phpCode]);
 
   // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -599,7 +585,7 @@ export default function TicketTemplate() {
           </>
           <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
             <Sliders className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline text-[11px]">🖥 {colsDesktop} col</span>
+            <span className="hidden sm:inline text-[11px]">Paramètres</span>
           </Button>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
@@ -617,22 +603,8 @@ export default function TicketTemplate() {
             </DialogTitle>
           </DialogHeader>
           <div className="py-2 space-y-4">
-            {/* Colonnes desktop (mode Imprimer normal) */}
-            <div className="space-y-1.5">
-              <span className="text-xs font-medium text-gray-600">🖥 Colonnes desktop (mode normal)</span>
-              <div className="flex gap-1.5">
-                {[2, 3, 4, 5, 6].map((n) => (
-                  <button
-                    key={n} type="button"
-                    onClick={() => { setColsDesktop(n); saveCols(COLS_DESKTOP_KEY, n); }}
-                    className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsDesktop === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
-                  >{n}</button>
-                ))}
-              </div>
-            </div>
-
             {/* Échelle Small (pré-sélection de la barre dans la page Small) */}
-            <div className="space-y-1.5 border-t pt-3">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-600">📄 Échelle par défaut — mode Small</span>
                 <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScale * 100)}%</span>
