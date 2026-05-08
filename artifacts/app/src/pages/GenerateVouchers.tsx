@@ -27,8 +27,8 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
+import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, printViaReactNative } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -693,17 +693,13 @@ export default function GenerateVouchers() {
     // Sur navigateur mobile, window.open après un await est traité comme un
     // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
     // de clic, puis on y écrit le HTML une fois prêt.
-    const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
-    })();
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
-
+    const isAPK = typeof (window as any).ReactNativeWebView !== "undefined";
+    const scale = readSmallScale();
+    const preWin: Window | null = isAPK ? null : window.open("", "_blank");
+    if (!isAPK && !preWin) {
+      toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site.", variant: "destructive" });
+      return;
+    }
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -711,7 +707,7 @@ export default function GenerateVouchers() {
 <style>
   body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
     background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
-  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#2563eb;
+  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#7c3aed;
     border-radius:50%;animation:spin 0.9s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
@@ -731,9 +727,7 @@ export default function GenerateVouchers() {
       });
       return;
     }
-    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
-    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-    const mobileRowsPerPage = isMikHmon ? 9 : 6;
+    const { template: php } = await fetchServerTemplateWithMeta();
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
@@ -776,16 +770,12 @@ export default function GenerateVouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       const title = printParts.join("-");
 
-      if (preWin) {
-        // Navigateur mobile : document.write direct — pas de navigation donc pas
-        // de message Safari "The web page did not finish loading"
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-      } else {
-        // APK WebView natif ou desktop
-        printTickets(data.html as string[], title, printScale, isMikHmon ? 5 : 4);
+      const html = buildSmallModePrintHtml(data.html as string[], title, scale, true);
+      if (!printViaReactNative(html, title)) {
+        preWin!.document.open();
+        preWin!.document.write(html);
+        preWin!.document.close();
+        preWin!.focus();
       }
     } catch (err: unknown) {
       preWin?.close();

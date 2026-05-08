@@ -428,6 +428,12 @@ function printWithIframe(html: string, title: string): void {
  * Pour les gros payloads (> 500 KB), découpe en chunks pour contourner la
  * limite de taille de postMessage sur Android WebView.
  */
+export function printViaReactNative(html: string, title: string): boolean {
+  if (!isNativeWebView()) return false;
+  printWithNativeBridge(html, title);
+  return true;
+}
+
 function printWithNativeBridge(html: string, title: string): void {
   const MAX_CHUNK = 500_000; // 500 KB de HTML par message
   if (html.length <= MAX_CHUNK) {
