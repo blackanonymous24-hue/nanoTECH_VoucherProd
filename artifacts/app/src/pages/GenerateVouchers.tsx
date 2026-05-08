@@ -732,7 +732,7 @@ export default function GenerateVouchers() {
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const title = ["Voucher-Small", toSlug(hotspotName), lot.comment].filter(Boolean).join("-");
+      const title = ["Voucher", toSlug(hotspotName), lot.comment].filter(Boolean).join("-");
       const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
       const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       if (isNativeWV) {

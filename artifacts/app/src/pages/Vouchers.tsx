@@ -735,7 +735,7 @@ export default function Vouchers() {
       if (!resp.ok) { preWin?.close(); const err = await resp.json().catch(() => ({})) as { error?: string }; toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" }); return; }
       const data = await resp.json() as { html: string[] };
       if (!data.html?.length) { preWin?.close(); toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" }); return; }
-      const title = ["Voucher-Small", toSlug(hotspotName), lot.name].filter(Boolean).join("-");
+      const title = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean).join("-");
       const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
       const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       if (isNativeWV) {
