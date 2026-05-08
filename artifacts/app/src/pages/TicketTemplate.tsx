@@ -5,18 +5,24 @@ import { Button } from "@/components/ui/button";
 import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
-const COLS_DESKTOP_KEY  = "vn_print_cols_desktop";
-export const SMALL_SCALE_KEY = "vn_small_scale";
-
-function readCols(key: string, def = 4): number {
-  try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
-}
-function saveCols(key: string, v: number) { try { localStorage.setItem(key, String(v)); } catch {} }
+export const SMALL_SCALE_KEY   = "vn_small_scale";
+export const WEB_SCALE_KEY     = "vn_print_scale_desktop";
+export const MOBILE_SCALE_KEY  = "vn_print_scale_mobile";
 
 export function readSmallScale(): number {
   try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
 }
 export function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
+
+export function readWebScale(def = 85): number {
+  try { const v = parseInt(localStorage.getItem(WEB_SCALE_KEY) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
+}
+export function saveWebScale(v: number) { try { localStorage.setItem(WEB_SCALE_KEY, String(v)); } catch {} }
+
+export function readMobileScale(def = 85): number {
+  try { const v = parseInt(localStorage.getItem(MOBILE_SCALE_KEY) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
+}
+export function saveMobileScale(v: number) { try { localStorage.setItem(MOBILE_SCALE_KEY, String(v)); } catch {} }
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 
@@ -401,18 +407,11 @@ export default function TicketTemplate() {
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Paramètres d'impression (colonnes desktop)
+  // ── Paramètres d'impression
   const [showScaleDialog, setShowScaleDialog] = useState(false);
-  const [colsDesktop,  setColsDesktop]  = useState(() => readCols(COLS_DESKTOP_KEY, 4));
-  const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
-
-  // Ajuste le défaut selon le type de template (MikHmon → 5, autre → 4)
-  // uniquement si l'utilisateur n'a pas de préférence enregistrée
-  useEffect(() => {
-    if (localStorage.getItem(COLS_DESKTOP_KEY) === null) {
-      setColsDesktop(phpCode.includes('class="voucher"') ? 5 : 4);
-    }
-  }, [phpCode]);
+  const [smallScale,  setSmallScale]  = useState(() => readSmallScale());
+  const [scaleDesktop, setScaleDesktop] = useState(() => readWebScale());
+  const [scaleMobile,  setScaleMobile]  = useState(() => readMobileScale());
 
   // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -600,7 +599,7 @@ export default function TicketTemplate() {
           </>
           <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
             <Sliders className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline text-[11px]">🖥 {colsDesktop} col · Small {Math.round(smallScale * 100)}%</span>
+            <span className="hidden sm:inline text-[11px]">Small {Math.round(smallScale * 100)}% · Web {scaleDesktop}% · Mob {scaleMobile}%</span>
           </Button>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
@@ -618,66 +617,69 @@ export default function TicketTemplate() {
             </DialogTitle>
           </DialogHeader>
           <div className="py-2 space-y-4">
-            {/* Colonnes desktop */}
-            <div className="space-y-1.5">
-              <span className="text-xs font-medium text-gray-600">🖥 Colonnes desktop (mode normal)</span>
-              <div className="flex gap-1.5">
-                {[2, 3, 4, 5, 6].map((n) => (
-                  <button
-                    key={n} type="button"
-                    onClick={() => { setColsDesktop(n); saveCols(COLS_DESKTOP_KEY, n); }}
-                    className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsDesktop === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
-                  >{n}</button>
-                ))}
-              </div>
-            </div>
-
-            {/* Échelle Small */}
-            <div className="space-y-2 border-t pt-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600">📄 Échelle par défaut — mode Small</span>
-                <span className="text-sm font-bold text-violet-600 tabular-nums">{Math.round(smallScale * 100)}%</span>
-              </div>
-              <p className="text-[11px] text-gray-400 leading-tight">
-                Glissez, molette ou saisissez (0–100). Pré-sélectionnée à chaque ouverture de la page Small.
-              </p>
-              <input
-                type="range" min={0} max={100} step={1}
-                value={Math.round(smallScale * 100)}
-                onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScale(v); saveSmallScale(v); }}
-                onWheel={(e) => {
-                  e.preventDefault();
-                  const delta = e.deltaY < 0 ? 1 : -1;
-                  const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + delta));
-                  setSmallScale(next / 100); saveSmallScale(next / 100);
-                }}
-                className="w-full cursor-pointer"
-                style={{ accentColor: "#7c3aed" }}
-              />
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1 flex-1">
-                  {[100, 90, 85, 80, 75, 70].map((pct) => (
-                    <button
-                      key={pct} type="button"
-                      onClick={() => { const v = pct / 100; setSmallScale(v); saveSmallScale(v); }}
-                      className={`flex-1 py-1 rounded text-xs font-semibold border transition-colors ${Math.round(smallScale * 100) === pct ? "bg-violet-600 text-white border-violet-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:border-violet-300 hover:text-violet-600"}`}
-                    >{pct}%</button>
-                  ))}
+            {/* Helper inline — réutilisé pour les 3 sections */}
+            {([
+              {
+                label: "📄 Échelle — mode Small",
+                hint: "2 colonnes MikHmon. Pré-sélectionnée à chaque impression Small.",
+                color: "#7c3aed",
+                val: Math.round(smallScale * 100),
+                onChange: (n: number) => { const v = n / 100; setSmallScale(v); saveSmallScale(v); },
+              },
+              {
+                label: "🖥 Échelle — Web / Desktop",
+                hint: "Navigateurs desktop (Chrome, Firefox, Edge, Safari…).",
+                color: "#2563eb",
+                val: scaleDesktop,
+                onChange: (n: number) => { setScaleDesktop(n); saveWebScale(n); },
+              },
+              {
+                label: "📱 Échelle — Mobile / APK",
+                hint: "Safari iOS, Chrome Android et APK WebView.",
+                color: "#16a34a",
+                val: scaleMobile,
+                onChange: (n: number) => { setScaleMobile(n); saveMobileScale(n); },
+              },
+            ] as { label: string; hint: string; color: string; val: number; onChange: (n: number) => void }[]).map((s, i) => (
+              <div key={i} className={`space-y-2 ${i > 0 ? "border-t pt-3" : ""}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-600">{s.label}</span>
+                  <span className="text-sm font-bold tabular-nums" style={{ color: s.color }}>{s.val}%</span>
                 </div>
+                <p className="text-[11px] text-gray-400 leading-tight">{s.hint}</p>
                 <input
-                  type="number" min={0} max={100} step={1}
-                  value={Math.round(smallScale * 100)}
-                  onChange={(e) => {
-                    const raw = parseInt(e.target.value, 10);
-                    if (isNaN(raw)) return;
-                    const v = Math.min(100, Math.max(0, raw)) / 100;
-                    setSmallScale(v); saveSmallScale(v);
+                  type="range" min={0} max={100} step={1}
+                  value={s.val}
+                  onChange={(e) => s.onChange(Number(e.target.value))}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    s.onChange(Math.min(100, Math.max(0, s.val + (e.deltaY < 0 ? 1 : -1))));
                   }}
-                  className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
+                  className="w-full cursor-pointer"
+                  style={{ accentColor: s.color }}
                 />
-                <span className="text-xs text-gray-400">%</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex gap-1 flex-1">
+                    {[100, 90, 85, 80, 75, 70].map((pct) => (
+                      <button
+                        key={pct} type="button"
+                        onClick={() => s.onChange(pct)}
+                        className={`flex-1 py-0.5 rounded text-[10px] font-semibold border transition-colors ${s.val === pct ? "text-white border-transparent" : "bg-gray-50 text-gray-500 border-gray-200 hover:text-gray-700"}`}
+                        style={s.val === pct ? { backgroundColor: s.color, borderColor: s.color } : {}}
+                      >{pct}</button>
+                    ))}
+                  </div>
+                  <input
+                    type="number" min={0} max={100} step={1}
+                    value={s.val}
+                    onChange={(e) => { const raw = parseInt(e.target.value, 10); if (!isNaN(raw)) s.onChange(Math.min(100, Math.max(0, raw))); }}
+                    className="w-12 text-center text-xs font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:ring-1"
+                    style={{ "--tw-ring-color": s.color } as React.CSSProperties}
+                  />
+                  <span className="text-[10px] text-gray-400">%</span>
+                </div>
               </div>
-            </div>
+            ))}
           </div>
           <DialogFooter>
             <DialogClose asChild>

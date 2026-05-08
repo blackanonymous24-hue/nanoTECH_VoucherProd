@@ -78,7 +78,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale, saveSmallScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta, readSmallScale, saveSmallScale, readWebScale, readMobileScale } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
@@ -708,9 +708,8 @@ export default function Vouchers() {
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const printScale = (() => {
-      try { const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10); return isNaN(v) ? 85 : v; } catch { return 85; }
-    })();
+    const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const printScale = (isNativeWV || isMobileBrowser) ? readMobileScale() : readWebScale();
     // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
     const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
@@ -789,15 +788,15 @@ export default function Vouchers() {
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
-      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
+      const fixedCols = isMikHmon ? 5 : 4;
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage, colsDesktop, colsDesktop);
+        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage, fixedCols, fixedCols);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
         // APK WebView natif uniquement
-        printTickets(data.html, title, printScale, colsDesktop);
+        printTickets(data.html, title, printScale, fixedCols);
       }
     } catch (err) {
       preWin?.close();
@@ -888,9 +887,8 @@ export default function Vouchers() {
       return;
     }
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const printScale = (() => {
-      try { const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10); return isNaN(v) ? 85 : v; } catch { return 85; }
-    })();
+    const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const printScale = (isNativeWV || isMobileBrowser) ? readMobileScale() : readWebScale();
     // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
     const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
@@ -1019,15 +1017,15 @@ export default function Vouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
       const mobileRowsPerPage = isMikHmon ? 9 : 6;
-      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
+      const fixedCols = isMikHmon ? 5 : 4;
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, colsDesktop, colsDesktop);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, fixedCols, fixedCols);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
         // APK WebView natif uniquement
-        printTickets(data.html as string[], title, printScale, colsDesktop);
+        printTickets(data.html as string[], title, printScale, fixedCols);
       }
     } finally {
       setIsPrinting(false);
