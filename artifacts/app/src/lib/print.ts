@@ -459,6 +459,14 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       margin-bottom: 3mm;
     }
 
+    /* zoom sur html = redéfinit le layout (unlike transform:scale qui est visuel uniquement).
+       Résultat : plus l'échelle est petite, plus les tickets sont petits, plus il en tient par page A4. */
+    html {
+      zoom: ${defaultScale};
+      margin: 0;
+      padding: 0;
+    }
+
     body {
       color: #000;
       background-color: #fff;
@@ -468,7 +476,6 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       padding: 0;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
-      transform-origin: top left;
     }
 
     /* ── Layout small — 2 tickets par ligne (48 % chacun) ────────────── */
@@ -513,8 +520,6 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
 
   const js = `
     window.onload = function() {
-      document.body.style.transform = 'scale(${defaultScale})';
-      document.body.style.width = '${Math.round(100 / defaultScale * 10000) / 10000}%';
       window.focus();
       window.print();
     };
