@@ -465,14 +465,7 @@ function printWithNativeBridge(html: string, title: string): void {
  * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
  * ce mode ne l'impose pas, contrairement au mode regular.
  */
-export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, autoPrint = false, cols = 4): string {
-  /* Groupe les tickets en rangées de `cols` pour l'anti-coupure à l'impression */
-  const rows: string[] = [];
-  for (let i = 0; i < htmlItems.length; i += cols) {
-    rows.push(`<div class="vn-row">${htmlItems.slice(i, i + cols).join("")}</div>`);
-  }
-  const rowsHtml = rows.join("\n");
-
+export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, autoPrint = false): string {
   const css = `
     @page {
       size: auto;
@@ -520,7 +513,9 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       font-size: 13px;
       cursor: pointer;
     }
-    #vn-print-bar .vn-sep { flex: 1; }
+    #vn-print-bar .vn-sep {
+      flex: 1;
+    }
     #vn-print-bar .vn-info {
       font-size: 11px;
       opacity: .55;
@@ -542,16 +537,14 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     /* Décalage tickets sous la barre fixe */
     #vn-tickets { margin-top: 48px; }
 
-    /* ── Rangée de N tickets ─────────────────────────────────────────── */
-    .vn-row {
-      display: block;
-      white-space: nowrap;
-    }
-
-    /* ── Ticket individuel ───────────────────────────────────────────── */
-    table.voucher {
+    /* ── Wrapper JS injecté autour de chaque ticket ─────────────────── */
+    .vn-w {
       display: inline-block;
       vertical-align: top;
+    }
+
+    /* ── Table ticket (apparence) ────────────────────────────────────── */
+    table.voucher {
       border: 2px solid #000;
       margin: 2px;
       padding: 3px;
@@ -564,15 +557,13 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       #vn-print-bar { display: none !important; }
       #vn-tickets   { margin-top: 0 !important; }
       body { transform: none !important; width: 100% !important; }
-      .vn-row {
+      .vn-w {
         display: block !important;
-        white-space: nowrap !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
+        -webkit-column-break-inside: avoid !important;
       }
       table.voucher {
-        display: inline-block !important;
-        vertical-align: top !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
@@ -590,9 +581,19 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
   const screenScaleStyle = (scale: number) =>
     `@media screen{body{transform:scale(${scale});transform-origin:top left;width:${(100 / scale).toFixed(2)}%}}`;
 
+  const wrapTicketsJs = `
+    Array.from(document.querySelectorAll('table.voucher')).forEach(function(t) {
+      var w = document.createElement('div');
+      w.className = 'vn-w';
+      t.parentNode.insertBefore(w, t);
+      w.appendChild(t);
+    });
+  `;
+
   const js = autoPrint
     ? `
     window.onload = function() {
+      ${wrapTicketsJs}
       var s = document.createElement('style');
       s.textContent = ${JSON.stringify(screenScaleStyle(defaultScale))};
       document.head.appendChild(s);
@@ -612,6 +613,10 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
+      Array.from(document.querySelectorAll('table.voucher')).forEach(function(t) {
+        var w = document.createElement('div'); w.className = 'vn-w';
+        t.parentNode.insertBefore(w, t); w.appendChild(t);
+      });
       var scaleSel = document.getElementById('vn-scale');
       scaleSel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
       applyPrintScale(parseFloat(scaleSel.value));
@@ -629,7 +634,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
   <script>${js}<\/script>
 </head>
 <body>
-<div id="vn-tickets" style="margin-top:0">${rowsHtml}</div>
+<div id="vn-tickets" style="margin-top:0">${htmlItems.join("\n")}</div>
 </body>
 </html>`;
   }
@@ -659,7 +664,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
 </head>
 <body>
 ${bar}
-<div id="vn-tickets">${rowsHtml}</div>
+<div id="vn-tickets">${htmlItems.join("\n")}</div>
 </body>
 </html>`;
 }
