@@ -592,7 +592,7 @@ export default function TicketTemplate() {
           </>
           <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
             <Sliders className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline text-[11px]">Small {Math.round(smallScale * 100)}% · Mob {scaleMobile}%</span>
+            <span className="hidden sm:inline text-[11px]">Imprimer {Math.round(smallScale * 100)}% · Mob {scaleMobile}%</span>
           </Button>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />

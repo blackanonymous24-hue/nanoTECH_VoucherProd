@@ -1875,7 +1875,7 @@ export default function Vouchers() {
                             className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
                             onClick={() => handlePrintSmallLot(lot)}
                             disabled={printingLot === lot.name}
-                            title="Imprimer en mode Small (2 colonnes)"
+                            title="Imprimer (2 colonnes)"
                           >
                             <Printer className="h-3.5 w-3.5" />
                             <span className="hidden sm:inline">Imprimer</span>
