@@ -6,11 +6,17 @@ import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } fr
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 const COLS_DESKTOP_KEY  = "vn_print_cols_desktop";
+export const SMALL_SCALE_KEY = "vn_small_scale";
 
 function readCols(key: string, def = 4): number {
   try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
 }
 function saveCols(key: string, v: number) { try { localStorage.setItem(key, String(v)); } catch {} }
+
+export function readSmallScale(): number {
+  try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
+}
+function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 
@@ -398,6 +404,7 @@ export default function TicketTemplate() {
   // ── Paramètres d'impression (colonnes desktop)
   const [showScaleDialog, setShowScaleDialog] = useState(false);
   const [colsDesktop,  setColsDesktop]  = useState(() => readCols(COLS_DESKTOP_KEY, 4));
+  const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
 
   // Ajuste le défaut selon le type de template (MikHmon → 5, autre → 4)
   // uniquement si l'utilisateur n'a pas de préférence enregistrée
@@ -610,9 +617,10 @@ export default function TicketTemplate() {
               Paramètres d'impression
             </DialogTitle>
           </DialogHeader>
-          <div className="py-2">
+          <div className="py-2 space-y-4">
+            {/* Colonnes desktop (mode Imprimer normal) */}
             <div className="space-y-1.5">
-              <span className="text-xs text-gray-500">Nombre de colonnes</span>
+              <span className="text-xs font-medium text-gray-600">🖥 Colonnes desktop (mode normal)</span>
               <div className="flex gap-1.5">
                 {[2, 3, 4, 5, 6].map((n) => (
                   <button
@@ -620,6 +628,23 @@ export default function TicketTemplate() {
                     onClick={() => { setColsDesktop(n); saveCols(COLS_DESKTOP_KEY, n); }}
                     className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsDesktop === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
                   >{n}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Échelle Small (pré-sélection de la barre dans la page Small) */}
+            <div className="space-y-1.5 border-t pt-3">
+              <span className="text-xs font-medium text-gray-600">📄 Échelle par défaut — mode Small</span>
+              <p className="text-[11px] text-gray-400 leading-tight">
+                Pré-sélectionne l'échelle dans la barre de la page Small. Agit comme le réglage d'échelle d'Edge.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {([1, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70] as number[]).map((s) => (
+                  <button
+                    key={s} type="button"
+                    onClick={() => { setSmallScale(s); saveSmallScale(s); }}
+                    className={`px-3 h-8 rounded text-sm font-bold border transition-colors ${smallScale === s ? "bg-violet-600 text-white border-violet-600" : "bg-white text-gray-600 border-gray-200 hover:border-violet-300 hover:text-violet-600"}`}
+                  >{Math.round(s * 100)}%</button>
                 ))}
               </div>
             </div>

@@ -459,7 +459,7 @@ function printWithNativeBridge(html: string, title: string): void {
  * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
  * ce mode ne l'impose pas, contrairement au mode regular.
  */
-export function buildSmallModePrintHtml(htmlItems: string[], title: string): string {
+export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85): string {
   const css = `
     @page {
       size: auto;
@@ -587,16 +587,14 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string): str
     });
   `;
 
+  const scaleOptions = ([1, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70] as number[])
+    .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
+    .join("\n    ");
+
   const bar = `<div id="vn-print-bar">
   <label for="vn-scale">Échelle :</label>
   <select id="vn-scale">
-    <option value="1">100%</option>
-    <option value="0.95">95%</option>
-    <option value="0.90">90%</option>
-    <option value="0.85" selected>85%</option>
-    <option value="0.80">80%</option>
-    <option value="0.75">75%</option>
-    <option value="0.70">70%</option>
+    ${scaleOptions}
   </select>
   <span class="vn-sep"></span>
   <span class="vn-info" id="vn-scale-info"></span>
