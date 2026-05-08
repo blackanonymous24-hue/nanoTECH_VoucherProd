@@ -501,6 +501,25 @@ export default function TicketTemplate() {
     }
   }, [phpCode, toast, smallScale, scaleMobile]);
 
+  // ── Sauvegarder uniquement les échelles d'impression (depuis le dialog)
+  const handleSaveScalesOnly = useCallback(async () => {
+    const _tok = localStorage.getItem("vouchernet_admin_token") ?? sessionStorage.getItem("vouchernet_admin_token") ?? "";
+    try {
+      const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(_tok ? { Authorization: `Bearer ${_tok}` } : {}) },
+        body: JSON.stringify({ template: phpCode, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
+      });
+      if (resp.ok) {
+        toast({ title: "Paramètres d'impression enregistrés", description: "Échelles synchronisées sur le serveur." });
+      } else {
+        toast({ title: "Échelles sauvegardées localement", description: "La synchronisation serveur a échoué.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Échelles sauvegardées localement", description: "Impossible de joindre le serveur.", variant: "destructive" });
+    }
+  }, [phpCode, toast, smallScale, scaleMobile]);
+
   // ── Réinitialiser (vers le custom default s'il existe, sinon vers DEFAULT_MIKHMON_PHP)
   const handleReset = useCallback(() => {
     const base = getCustomDefault() ?? DEFAULT_MIKHMON_PHP;
@@ -627,6 +646,7 @@ export default function TicketTemplate() {
         scaleMobile={scaleMobile}
         onScaleSmallChange={(n) => { const v = n / 100; setSmallScale(v); saveSmallScale(v); }}
         onScaleMobileChange={(n) => { setScaleMobile(n); saveMobileScale(n); }}
+        onSave={handleSaveScalesOnly}
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">

@@ -1,4 +1,5 @@
 import { Save, Sliders } from "lucide-react";
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
@@ -9,6 +10,7 @@ interface PrintScaleDialogProps {
   scaleMobile: number;
   onScaleSmallChange: (v: number) => void;
   onScaleMobileChange: (v: number) => void;
+  onSave?: () => void | Promise<void>;
 }
 
 const SECTIONS = [
@@ -33,9 +35,19 @@ export function PrintScaleDialog({
   scaleMobile,
   onScaleSmallChange,
   onScaleMobileChange,
+  onSave,
 }: PrintScaleDialogProps) {
+  const [saving, setSaving] = useState(false);
   const vals = { small: scaleSmall, mobile: scaleMobile };
   const handlers = { small: onScaleSmallChange, mobile: onScaleMobileChange };
+
+  const handleSave = async () => {
+    if (onSave) {
+      setSaving(true);
+      try { await onSave(); } finally { setSaving(false); }
+    }
+    onOpenChange(false);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,12 +98,10 @@ export function PrintScaleDialog({
           })}
         </div>
         <DialogFooter>
-          <DialogClose asChild>
-            <Button size="sm" className="gap-1.5">
-              <Save className="h-3.5 w-3.5" />
-              Enregistrer
-            </Button>
-          </DialogClose>
+          <Button size="sm" className="gap-1.5" disabled={saving} onClick={() => void handleSave()}>
+            <Save className="h-3.5 w-3.5" />
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

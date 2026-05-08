@@ -1579,6 +1579,18 @@ function TemplateDialog({ admin, onClose }: {
         scaleMobile={scaleMobile}
         onScaleSmallChange={(n) => { setScaleDesktop(n); saveScale(deskKey, n); }}
         onScaleMobileChange={(n) => { setScaleMobile(n); saveScale(mobKey, n); }}
+        onSave={async () => {
+          const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", ...authHeaders },
+            body: JSON.stringify({ template: templateCode, scaleSmall: scaleDesktop, scaleMobile }),
+          });
+          if (r.ok) {
+            toast({ title: "Paramètres d'impression enregistrés", description: `Échelles synchronisées pour ${admin.displayName || admin.login}.` });
+          } else {
+            toast({ title: "Erreur", description: "Impossible de synchroniser les échelles.", variant: "destructive" });
+          }
+        }}
       />
     </>
   );
