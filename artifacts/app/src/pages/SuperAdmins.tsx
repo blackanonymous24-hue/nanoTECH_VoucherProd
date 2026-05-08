@@ -1405,8 +1405,12 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
 
 const SCALE_DESKTOP_KEY = "vn_print_scale_desktop";
 const SCALE_MOBILE_KEY  = "vn_print_scale_mobile";
-function readScale(key: string, def = 85): number {
-  try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
+function readScale(key: string, def = 100): number {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored === "85") { localStorage.setItem(key, "100"); return 100; }
+    const v = parseInt(stored ?? String(def), 10); return isNaN(v) ? def : v;
+  } catch { return def; }
 }
 function saveScale(key: string, v: number) {
   try { localStorage.setItem(key, String(v)); } catch { /* ignore */ }
@@ -1423,8 +1427,8 @@ function TemplateDialog({ admin, onClose }: {
   const [showScaleDialog, setShowScaleDialog] = useState(false);
   const deskKey = `${SCALE_DESKTOP_KEY}_admin_${admin.id}`;
   const mobKey  = `${SCALE_MOBILE_KEY}_admin_${admin.id}`;
-  const [scaleDesktop, setScaleDesktop] = useState(() => readScale(deskKey, 85));
-  const [scaleMobile,  setScaleMobile]  = useState(() => readScale(mobKey,  85));
+  const [scaleDesktop, setScaleDesktop] = useState(() => readScale(deskKey, 100));
+  const [scaleMobile,  setScaleMobile]  = useState(() => readScale(mobKey,  100));
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1525,7 +1529,7 @@ function TemplateDialog({ admin, onClose }: {
             <Button variant="outline" size="sm" onClick={() => setShowScaleDialog(true)} className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50 h-auto py-1 shrink-0" title="Échelle d'impression">
               <Sliders className="h-3.5 w-3.5 shrink-0" />
               <span className="leading-tight text-left">
-                <span className="block text-[11px]">🖥 {scaleDesktop}%</span>
+                <span className="block text-[11px]">📄 {scaleDesktop}%</span>
                 <span className="block text-[11px]">📱 {scaleMobile}%</span>
               </span>
             </Button>
@@ -1571,7 +1575,7 @@ function TemplateDialog({ admin, onClose }: {
           <div className="space-y-6 py-2">
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-gray-700">🖥 Desktop / Laptop</span>
+                <span className="font-medium text-gray-700">📄 Imprimer (2 colonnes)</span>
                 <div className="flex items-center gap-1">
                   <input
                     type="number" min={50} max={100} step={5}
@@ -1587,11 +1591,11 @@ function TemplateDialog({ admin, onClose }: {
                 value={[scaleDesktop]}
                 onValueChange={([v]) => { setScaleDesktop(v); saveScale(deskKey, v); }}
               />
-              <p className="text-xs text-gray-400">Correspond au zoom d'impression du navigateur web sur ordinateur.</p>
+              <p className="text-xs text-gray-400">2 colonnes MikHmon. Pré-sélectionnée à chaque impression Imprimer.</p>
             </div>
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-gray-700">📱 Mobile / Tablette</span>
+                <span className="font-medium text-gray-700">📱 Mobile / APK</span>
                 <div className="flex items-center gap-1">
                   <input
                     type="number" min={50} max={100} step={5}
@@ -1607,7 +1611,7 @@ function TemplateDialog({ admin, onClose }: {
                 value={[scaleMobile]}
                 onValueChange={([v]) => { setScaleMobile(v); saveScale(mobKey, v); }}
               />
-              <p className="text-xs text-gray-400">Correspond au zoom d'impression sur iPhone / Android.</p>
+              <p className="text-xs text-gray-400">Safari iOS, Chrome Android et APK WebView.</p>
             </div>
           </div>
           <DialogFooter>
