@@ -610,12 +610,12 @@ router.get("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, id));
   if (!row) { res.status(404).json({ error: "Admin introuvable" }); return; }
 
-  res.json({ template: row.ticketTemplate ?? null });
+  res.json({ template: row.ticketTemplate ?? null, scaleSmall: row.printScaleSmall ?? 100, scaleMobile: row.printScaleMobile ?? 100 });
 });
 
 // ---------------------------------------------------------------------------
@@ -629,7 +629,7 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   const id = parseInt(req.params.id, 10);
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { template } = req.body as { template?: string };
+  const { template, scaleSmall, scaleMobile } = req.body as { template?: string; scaleSmall?: number; scaleMobile?: number };
   if (typeof template !== "string") {
     res.status(400).json({ error: "Champ template requis (string)" });
     return;
@@ -638,9 +638,13 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, id));
   if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
 
+  const scaleUpdate: Partial<typeof adminSettingsTable.$inferInsert> = {};
+  if (typeof scaleSmall === "number" && scaleSmall >= 50 && scaleSmall <= 100) scaleUpdate.printScaleSmall = scaleSmall;
+  if (typeof scaleMobile === "number" && scaleMobile >= 50 && scaleMobile <= 100) scaleUpdate.printScaleMobile = scaleMobile;
+
   const [updated] = await db
     .update(adminSettingsTable)
-    .set({ ticketTemplate: template.trim() || null })
+    .set({ ticketTemplate: template.trim() || null, ...scaleUpdate })
     .where(eq(adminSettingsTable.id, id))
     .returning();
 

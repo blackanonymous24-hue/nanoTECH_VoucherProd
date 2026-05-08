@@ -378,11 +378,11 @@ router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
   }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, tenantAdminId));
 
-  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE });
+  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100 });
 });
 
 /**

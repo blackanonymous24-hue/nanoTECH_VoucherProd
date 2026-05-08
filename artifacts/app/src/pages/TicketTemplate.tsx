@@ -264,7 +264,10 @@ export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResul
     const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
     const r = await fetch(`${BASE}/api/tenant/ticket-template`, { headers });
     if (r.ok) {
-      const data = (await r.json()) as { template: string | null };
+      const data = (await r.json()) as { template: string | null; scaleSmall?: number; scaleMobile?: number };
+      // Appliquer les échelles serveur en localStorage (synchronisation cross-device)
+      if (typeof data.scaleSmall === "number") saveSmallScale(data.scaleSmall / 100);
+      if (typeof data.scaleMobile === "number") saveMobileScale(data.scaleMobile);
       if (data.template && data.template.trim().length > 0) {
         try { localStorage.setItem(PHP_KEY, data.template); } catch {}
         return _cache({ template: data.template, isDefault: false });

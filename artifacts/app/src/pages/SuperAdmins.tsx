@@ -1436,8 +1436,12 @@ function TemplateDialog({ admin, onClose }: {
   useEffect(() => {
     setLoading(true);
     fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, { headers: authHeaders })
-      .then((r) => r.ok ? r.json() : { template: null })
-      .then((data: { template: string | null }) => setTemplateCode(data.template ?? ""))
+      .then((r) => r.ok ? r.json() : { template: null, scaleSmall: 100, scaleMobile: 100 })
+      .then((data: { template: string | null; scaleSmall?: number; scaleMobile?: number }) => {
+        setTemplateCode(data.template ?? "");
+        if (typeof data.scaleSmall === "number") setScaleDesktop(data.scaleSmall);
+        if (typeof data.scaleMobile === "number") setScaleMobile(data.scaleMobile);
+      })
       .catch(() => setTemplateCode(""))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1449,7 +1453,7 @@ function TemplateDialog({ admin, onClose }: {
       const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ template: templateCode }),
+        body: JSON.stringify({ template: templateCode, scaleSmall: scaleDesktop, scaleMobile }),
       });
       if (r.ok) {
         toast({ title: "Template sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
