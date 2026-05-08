@@ -583,8 +583,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     ? `
     window.onload = function() {
       ${wrapTicketsJs}
-      document.body.style.transform = 'scale(${defaultScale})';
-      document.body.style.width = (100 / ${defaultScale}).toFixed(2) + '%';
+      document.body.style.zoom = '${defaultScale}';
       window.print();
     };
   `
@@ -595,8 +594,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       if (info) info.textContent = Math.round(scale * 100) + '% · ${htmlItems.length} ticket(s)';
     }
     function applyPrintScale(scale) {
-      document.body.style.transform = 'scale(' + scale + ')';
-      document.body.style.width = (100 / scale) + '%';
+      document.body.style.zoom = String(scale);
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
@@ -786,8 +784,7 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
       if (info) info.textContent = Math.round(scale * 100) + '% · ' + _totalTickets + ' ticket(s)';
     }
     function applyPrintScale(scale) {
-      document.body.style.transform = 'scale(' + scale + ')';
-      document.body.style.width = (100 / scale) + '%';
+      document.body.style.zoom = String(scale);
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
