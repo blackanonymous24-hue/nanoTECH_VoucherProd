@@ -441,9 +441,10 @@ export default function TicketTemplate() {
       // Sauvegarde serveur immédiate — pas besoin de cliquer "Sauvegarder" séparément
       let serverSynced = false;
       try {
-        const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
+        const _tok = localStorage.getItem("vouchernet_admin_token") ?? sessionStorage.getItem("vouchernet_admin_token") ?? "";
+      const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(_tok ? { Authorization: `Bearer ${_tok}` } : {}) },
           body: JSON.stringify({ template: raw, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
         });
         serverSynced = resp.ok;
@@ -478,9 +479,10 @@ export default function TicketTemplate() {
     // Sauvegarde serveur : synchronise mobile, APK et tous les appareils
     let serverSynced = false;
     try {
+      const _tok = localStorage.getItem("vouchernet_admin_token") ?? sessionStorage.getItem("vouchernet_admin_token") ?? "";
       const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(_tok ? { Authorization: `Bearer ${_tok}` } : {}) },
         body: JSON.stringify({ template: phpCode, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
       });
       serverSynced = resp.ok;
@@ -520,9 +522,10 @@ export default function TicketTemplate() {
     // Synchronise sur le serveur pour que l'APK mobile l'utilise aussi
     let serverSynced = false;
     try {
+      const _tok = localStorage.getItem("vouchernet_admin_token") ?? sessionStorage.getItem("vouchernet_admin_token") ?? "";
       const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(_tok ? { Authorization: `Bearer ${_tok}` } : {}) },
         body: JSON.stringify({ template: phpCode, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
       });
       serverSynced = resp.ok;
