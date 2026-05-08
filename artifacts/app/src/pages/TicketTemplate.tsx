@@ -20,7 +20,7 @@ export function readSmallScale(): number {
 function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
 
 export function readSmallCols(): number {
-  try { const v = parseInt(localStorage.getItem(SMALL_COLS_KEY) ?? "2", 10); return isNaN(v) ? 2 : Math.min(4, Math.max(1, v)); } catch { return 2; }
+  try { const v = parseInt(localStorage.getItem(SMALL_COLS_KEY) ?? "2", 10); return isNaN(v) ? 2 : Math.min(8, Math.max(1, v)); } catch { return 2; }
 }
 function saveSmallCols(v: number) { try { localStorage.setItem(SMALL_COLS_KEY, String(v)); } catch {} }
 
@@ -686,8 +686,8 @@ export default function TicketTemplate() {
                 <span className="text-xs font-medium text-gray-600">☰ Colonnes par défaut — mode Small</span>
                 <span className="text-xs text-violet-600 font-bold">{smallCols} col</span>
               </div>
-              <div className="flex gap-1.5">
-                {[1, 2, 3, 4].map((n) => (
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
                   <button
                     key={n} type="button"
                     onClick={() => { setSmallCols(n); saveSmallCols(n); }}

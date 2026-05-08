@@ -606,7 +606,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
     .join("\n    ");
 
-  const colsOptions = ([1, 2, 3, 4] as number[])
+  const colsOptions = ([1, 2, 3, 4, 5, 6, 7, 8] as number[])
     .map((c) => `<option value="${c}"${c === defaultCols ? " selected" : ""}>${c} col</option>`)
     .join("\n    ");
 
