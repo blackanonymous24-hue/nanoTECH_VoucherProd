@@ -446,6 +446,94 @@ function printWithNativeBridge(html: string, title: string): void {
   }
 }
 
+export function buildWebPrintHtml(htmlItems: string[], title: string, defaultScale = 0.85): string {
+  const COLS = 4;
+  const ROWS_PER_PAGE = 9;
+  const PER_PAGE = COLS * ROWS_PER_PAGE;
+
+  const pageBlocks: string[] = [];
+  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
+    const chunk = htmlItems.slice(p, p + PER_PAGE);
+    const rows: string[] = [];
+    for (let r = 0; r < chunk.length; r += COLS) {
+      const cells = chunk.slice(r, r + COLS)
+        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
+        .join('');
+      rows.push(`<tr>${cells}</tr>`);
+    }
+    const isLast = p + PER_PAGE >= htmlItems.length;
+    const breakStyle = isLast ? '' : 'page-break-after:always;break-after:page;';
+    pageBlocks.push(
+      `<div class="vn-page" style="${breakStyle}">` +
+      `<table class="vn-tbl"><tbody>${rows.join('')}</tbody></table></div>`
+    );
+  }
+
+  const scaleOptions = [1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7]
+    .map(v => {
+      const sel = Math.abs(v - defaultScale) < 0.001 ? ' selected' : '';
+      return `<option value="${v}"${sel}>${Math.round(v * 100)}%</option>`;
+    }).join('');
+
+  const css = `
+    @page{size:auto;margin-left:7mm;margin-right:3mm;margin-top:9mm;margin-bottom:3mm;}
+    body{color:#000;background:#fff;font-size:14px;font-family:Helvetica,Arial,sans-serif;
+      margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;transform-origin:top left;}
+    #vn-print-bar{position:fixed;top:0;left:0;right:0;height:42px;
+      background:#1e1e2e;color:#cdd6f4;display:flex;align-items:center;
+      gap:10px;padding:0 14px;font-size:13px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,.45);}
+    #vn-print-bar label{opacity:.75;}
+    #vn-print-bar select{background:#313244;color:#cdd6f4;border:none;border-radius:4px;
+      padding:3px 6px;font-size:13px;cursor:pointer;}
+    #vn-print-bar button{background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;
+      padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;margin-left:auto;}
+    #vn-print-bar button:hover{background:#74c7ec;}
+    .vn-sep{flex:1;}.vn-info{font-size:12px;opacity:.65;}
+    #vn-tickets{margin-top:48px;}
+    .vn-page{display:block;}.vn-tbl{border-collapse:collapse;}
+    table.voucher{border:2px solid #000;margin:2px;padding:3px;box-sizing:border-box;}
+    #num,span#num{float:right!important;display:inline-block;margin-left:4px!important;clear:none!important;}
+    @media print{
+      #vn-print-bar{display:none!important;}
+      #vn-tickets{margin-top:0!important;}
+      body{transform:none!important;width:100%!important;}
+    }
+  `;
+
+  const n = htmlItems.length;
+  const js = `
+    function updateInfo(){
+      var scale=parseFloat(document.getElementById('vn-scale').value);
+      var info=document.getElementById('vn-scale-info');
+      if(info)info.textContent=Math.round(scale*100)+'% \u00b7 ${n} ticket${n>1?'s':''}';
+    }
+    function applyPrintScale(scale){
+      var el=document.getElementById('vn-s');
+      if(!el){el=document.createElement('style');el.id='vn-s';document.head.appendChild(el);}
+      el.textContent='@media screen{body{transform:scale('+scale+');transform-origin:top left;width:'+(100/scale).toFixed(2)+'%}}';
+      updateInfo();
+    }
+    document.addEventListener('DOMContentLoaded',function(){
+      var sel=document.getElementById('vn-scale');
+      sel.addEventListener('change',function(){applyPrintScale(parseFloat(this.value));});
+      applyPrintScale(parseFloat(sel.value));
+    });
+  `;
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+<style>${css}</style></head><body>
+<div id="vn-print-bar">
+  <label>Échelle :</label>
+  <select id="vn-scale">${scaleOptions}</select>
+  <span class="vn-sep"></span>
+  <span class="vn-info" id="vn-scale-info"></span>
+  <button onclick="window.print()">🖨 Imprimer</button>
+</div>
+<div id="vn-tickets">${pageBlocks.join('\n')}</div>
+<script>${js}<\/script>
+</body></html>`;
+}
+
 export function printTickets(htmlItems: string[], title: string, scale = 85): void {
   let html = buildHtml(htmlItems, title, false, scale, false, 6);
 

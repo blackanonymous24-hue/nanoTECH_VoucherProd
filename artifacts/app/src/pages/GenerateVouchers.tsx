@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchServerTemplateWithMeta, readSmallScale, readSmallScaleWeb } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, isMobile } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildWebPrintHtml, isMobile } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -694,9 +694,8 @@ export default function GenerateVouchers() {
     // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
     // de clic, puis on y écrit le HTML une fois prêt.
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
+    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
 
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
@@ -769,16 +768,19 @@ export default function GenerateVouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       const title = printParts.join("-");
 
-      if (preWin) {
-        // Navigateur mobile : document.write direct — pas de navigation donc pas
-        // de message Safari "The web page did not finish loading"
+      if (isNativeWV) {
+        printTickets(data.html as string[], title, printScale);
+      } else if (isMobile()) {
         const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
+        preWin!.document.open();
+        preWin!.document.write(html);
+        preWin!.document.close();
       } else {
-        // APK WebView natif ou desktop
-        printTickets(data.html as string[], title, printScale, 4);
+        const html = buildWebPrintHtml(data.html as string[], title, readSmallScaleWeb());
+        preWin!.document.open();
+        preWin!.document.write(html);
+        preWin!.document.close();
+        preWin!.focus();
       }
     } catch (err: unknown) {
       preWin?.close();

@@ -77,7 +77,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { fetchServerTemplateWithMeta, readSmallScale, readSmallScaleWeb } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, isMobile } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildWebPrintHtml, isMobile } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -703,9 +703,8 @@ export default function Vouchers() {
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
+    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -781,13 +780,19 @@ export default function Vouchers() {
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
-      if (preWin) {
-        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-      } else {
+      if (isNativeWV) {
         printTickets(data.html, title, printScale);
+      } else if (isMobile()) {
+        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage);
+        preWin!.document.open();
+        preWin!.document.write(html);
+        preWin!.document.close();
+      } else {
+        const html = buildWebPrintHtml(data.html, title, readSmallScaleWeb());
+        preWin!.document.open();
+        preWin!.document.write(html);
+        preWin!.document.close();
+        preWin!.focus();
       }
     } catch (err) {
       preWin?.close();
@@ -807,9 +812,8 @@ export default function Vouchers() {
       return;
     }
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
+    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -935,13 +939,19 @@ export default function Vouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
       const mobileRowsPerPage = 6;
-      if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-      } else {
+      if (isNativeWV) {
         printTickets(data.html as string[], title, printScale);
+      } else if (isMobile()) {
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
+        preWin!.document.open();
+        preWin!.document.write(html);
+        preWin!.document.close();
+      } else {
+        const html = buildWebPrintHtml(data.html as string[], title, readSmallScaleWeb());
+        preWin!.document.open();
+        preWin!.document.write(html);
+        preWin!.document.close();
+        preWin!.focus();
       }
     } finally {
       setIsPrinting(false);
