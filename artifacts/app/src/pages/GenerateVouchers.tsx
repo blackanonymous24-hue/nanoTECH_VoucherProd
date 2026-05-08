@@ -670,7 +670,8 @@ export default function GenerateVouchers() {
       setTimelimit("");
       setDatalimit("");
       setVendorId("");
-      setProfile("");
+      // Ne pas effacer le profil : l'utilisateur peut enchaîner une nouvelle génération
+      // sans avoir à le resélectionner.
 
     } finally {
       setApiRequestPause(false);
