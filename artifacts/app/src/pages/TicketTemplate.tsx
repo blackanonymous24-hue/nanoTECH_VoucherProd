@@ -293,7 +293,7 @@ const SAMPLE_USERNAME = "abc12345";
 
 const SAMPLE_VARS: Record<string, string> = {
   hotspotname: "MON HOTSPOT WIFI",
-  dnsname: "Tel: +243 XX XXX XXXX",
+  dnsname: "Tel: +225 XX XXX XXXX",
   username: SAMPLE_USERNAME,
   password: SAMPLE_USERNAME,
   price: "500",

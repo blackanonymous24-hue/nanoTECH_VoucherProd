@@ -580,7 +580,7 @@ export default function Routers() {
                 <Label>Contact</Label>
                 <Input
                   className="mt-1"
-                  placeholder="Tel : +243 XX XXX XXXX"
+                  placeholder="Tel : +225 XX XXX XXXX"
                   value={form.contact}
                   onChange={(e) => setForm({ ...form, contact: e.target.value })}
                 />
