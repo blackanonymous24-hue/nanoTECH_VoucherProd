@@ -2,12 +2,11 @@
  * Template PHP Mikhmon v3 par défaut.
  * Utilisé comme valeur initiale pour tout nouvel admin et comme
  * fallback pour les admins qui n'ont pas encore sauvegardé de template.
- * Doit rester identique à DEFAULT_MIKHMON_PHP dans TicketTemplate.tsx.
  */
 export const DEFAULT_TICKET_TEMPLATE = `<table class="voucher" style=" width: 160px;">
   <tbody>
     <tr>
-      <td style="font-size: 14px; font-weight:bold; border-bottom: 1px black solid; overflow:hidden;"><span id="num" style="float:right;margin-left:4px;"><?= " [$num]"; ?></span><?= $hotspotname; ?></td>
+      <td style="text-align: left; font-size: 14px; font-weight:bold; border-bottom: 1px black solid;"><?= $hotspotname; ?><span id="num"><?= " [$num]"; ?></span></td>
     </tr>
     <tr>
       <td>
@@ -19,7 +18,7 @@ export const DEFAULT_TICKET_TEMPLATE = `<table class="voucher" style=" width: 16
 <!-- Username = Password    -->
 <?php if ($usermode == "vc") { ?>
         <tr>
-          <td >Kode Voucher</td>
+          <td >Code ticket</td>
         </tr>
         <tr style="color: black; font-size: 14px;">
           <td style="width:100%; border: 1px solid black; font-weight:bold;"><?= $username; ?></td>
