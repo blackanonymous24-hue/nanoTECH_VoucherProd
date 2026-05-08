@@ -1,0 +1,162 @@
+Je veux ajouter dans mon système d’impression vouchers un réglage d’échelle EXACTEMENT comme Microsoft Edge pendant l’impression.
+
+OBJECTIF :
+Pouvoir changer dynamiquement l’échelle d’impression :
+- 100%
+- 95%
+- 90%
+- 85%
+- 80%
+- etc.
+
+comme dans Edge.
+
+IMPORTANT :
+Le changement doit modifier :
+- taille des tickets
+- densité
+- QR
+- polices
+- espacements
+- nombre de vouchers par page
+
+exactement comme l’échelle native d’impression Edge.
+
+FONCTIONNEMENT DEMANDÉ :
+
+Ajouter un sélecteur :
+
+<select id="printScale">
+  <option value="1">100%</option>
+  <option value="0.95">95%</option>
+  <option value="0.90">90%</option>
+  <option value="0.85" selected>85%</option>
+  <option value="0.80">80%</option>
+</select>
+
+Quand la valeur change :
+appliquer automatiquement le scale à toute la page d’impression.
+
+IMPORTANT :
+Le scale doit agir EXACTEMENT comme Edge print scale.
+
+UTILISER CETTE MÉTHODE :
+
+body.scaled {
+  transform-origin: top left;
+}
+
+Puis en JavaScript :
+
+function applyPrintScale(scale){
+
+  const body = document.body;
+
+  body.style.transform = `scale(${scale})`;
+
+  body.style.width = `${100 / scale}%`;
+
+}
+
+document
+.getElementById('printScale')
+.addEventListener('change', function(){
+
+   applyPrintScale(this.value);
+
+});
+
+window.addEventListener('load', () => {
+
+   applyPrintScale(0.85);
+
+});
+
+AJOUTER AUSSI :
+
+@page {
+  size: auto;
+  margin-left: 7mm;
+  margin-right: 3mm;
+  margin-top: 9mm;
+  margin-bottom: 3mm;
+}
+
+body {
+  color: #000;
+  background: #fff;
+  font-size: 14px;
+  font-family: Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+
+  -webkit-print-color-adjust: exact;
+}
+
+.voucher {
+
+  display: inline-block;
+
+  vertical-align: top;
+
+  width: 48%;
+
+  border: 2px solid #000;
+
+  margin: 2px;
+
+  padding: 3px;
+
+  box-sizing: border-box;
+
+  overflow: hidden;
+
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+}
+
+.voucher * {
+
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+}
+
+@media print {
+
+  table {
+    page-break-after: auto;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto;
+  }
+
+  td {
+    page-break-inside: avoid !important;
+    page-break-after: auto;
+  }
+
+  .voucher {
+
+    width: 48%;
+
+    display: inline-block;
+
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+
+OBJECTIF FINAL :
+
+- système d’échelle réglable comme Edge
+- rendu identique à Mikhmon
+- densité réglable
+- plus ou moins de vouchers par page
+- support impression navigateur
+- Edge Chrome mobile
+- PDF navigateur
+- aucun ticket coupé
+- comportement stable
+- mise à jour instantanée du layout

@@ -460,7 +460,6 @@ function printWithNativeBridge(html: string, title: string): void {
  * ce mode ne l'impose pas, contrairement au mode regular.
  */
 export function buildSmallModePrintHtml(htmlItems: string[], title: string): string {
-  // CSS copié exactement depuis le print.php de MikHmon v3
   const css = `
     @page {
       size: auto;
@@ -469,23 +468,90 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string): str
       margin-top: 9mm;
       margin-bottom: 3mm;
     }
+
     body {
       color: #000;
       background-color: #fff;
       font-size: 14px;
       font-family: Helvetica, Arial, sans-serif;
       margin: 0;
+      padding: 0;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      transform-origin: top left;
     }
-    /* Les table.voucher s'enchaînent en inline-block — 2 par ligne sur A4 */
+
+    /* ── Barre de contrôle (écran uniquement) ───────────────────────── */
+    #vn-print-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 42px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      font-size: 13px;
+      font-family: Helvetica, Arial, sans-serif;
+      z-index: 9999;
+      box-shadow: 0 2px 8px rgba(0,0,0,.45);
+    }
+    #vn-print-bar label { opacity: .75; white-space: nowrap; }
+    #vn-print-bar select {
+      padding: 3px 7px;
+      border-radius: 5px;
+      border: 1px solid #45475a;
+      background: #313244;
+      color: #cdd6f4;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #vn-print-bar .vn-sep {
+      flex: 1;
+    }
+    #vn-print-bar .vn-info {
+      font-size: 11px;
+      opacity: .55;
+      white-space: nowrap;
+    }
+    #vn-print-bar button {
+      padding: 5px 16px;
+      border: none;
+      border-radius: 5px;
+      background: #7c3aed;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #vn-print-bar button:hover { background: #6d28d9; }
+
+    /* Décalage tickets sous la barre fixe */
+    #vn-tickets { margin-top: 48px; }
+
+    /* ── Layout small — 2 tickets par ligne (48 % chacun) ────────────── */
     table.voucher {
       display: inline-block !important;
       vertical-align: top;
+      width: 48%;
       border: 2px solid #000;
       margin: 2px;
+      padding: 3px;
+      box-sizing: border-box;
+      overflow: hidden;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
+    table.voucher * {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+
     @media print {
+      #vn-print-bar { display: none !important; }
+      #vn-tickets   { margin-top: 0 !important; }
       table  { page-break-after: auto; }
       tr     { page-break-inside: avoid; page-break-after: auto; }
       td     { page-break-inside: avoid; page-break-after: auto; }
@@ -493,13 +559,49 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string): str
       tfoot  { display: table-footer-group; }
       table.voucher {
         display: inline-block !important;
+        width: 48%;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
     }
-    /* Numéro de ticket — float identique au comportement MikHmon */
-    #num, span#num { float: right !important; display: inline-block; margin-left: 4px !important; clear: none !important; }
+
+    #num, span#num {
+      float: right !important;
+      display: inline-block;
+      margin-left: 4px !important;
+      clear: none !important;
+    }
   `;
+
+  const js = `
+    function applyPrintScale(scale) {
+      document.body.style.transform = 'scale(' + scale + ')';
+      document.body.style.width = (100 / scale) + '%';
+      var info = document.getElementById('vn-scale-info');
+      if (info) info.textContent = Math.round(scale * 100) + '% — ' + ${htmlItems.length} + ' ticket(s)';
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+      var sel = document.getElementById('vn-scale');
+      sel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
+      applyPrintScale(parseFloat(sel.value));
+    });
+  `;
+
+  const bar = `<div id="vn-print-bar">
+  <label for="vn-scale">Échelle :</label>
+  <select id="vn-scale">
+    <option value="1">100%</option>
+    <option value="0.95">95%</option>
+    <option value="0.90">90%</option>
+    <option value="0.85" selected>85%</option>
+    <option value="0.80">80%</option>
+    <option value="0.75">75%</option>
+    <option value="0.70">70%</option>
+  </select>
+  <span class="vn-sep"></span>
+  <span class="vn-info" id="vn-scale-info"></span>
+  <button onclick="window.print()">🖨&nbsp;Imprimer</button>
+</div>`;
 
   return `<!doctype html>
 <html>
@@ -508,9 +610,12 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string): str
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   <style>${css}</style>
-  <script>window.onload = function() { window.focus(); window.print(); };<\/script>
+  <script>${js}<\/script>
 </head>
-<body>${htmlItems.join("\n")}</body>
+<body>
+${bar}
+<div id="vn-tickets">${htmlItems.join("\n")}</div>
+</body>
 </html>`;
 }
 
