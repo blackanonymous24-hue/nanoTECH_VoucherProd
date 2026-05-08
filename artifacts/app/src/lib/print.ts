@@ -195,17 +195,18 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
   if (mobile) {
     const s = scale / 100;
 
-    // Flux libre : une seule table, le navigateur pagine naturellement.
-    // break-inside:avoid sur chaque .ticket-row empêche de couper une rangée
-    // à mi-hauteur sans forcer un nombre fixe de rangées par page.
+    // Flux libre : une rangée = un <div> de niveau bloc.
+    // break-inside:avoid est fiable sur les <div> en impression Safari iOS,
+    // alors qu'il est ignoré sur les <tr> de tableau.
+    // 4 colonnes via display:inline-block 25% (pas de table → pas du problème tr).
     const rows: string[] = [];
     for (let r = 0; r < htmlItems.length; r += COLS) {
       const cells = htmlItems.slice(r, r + COLS)
-        .map(item => `<td><div class="ticket">${item}</div></td>`)
+        .map(item => `<div class="ticket-cell"><div class="ticket">${item}</div></div>`)
         .join("");
-      rows.push(`<tr class="ticket-row">${cells}</tr>`);
+      rows.push(`<div class="ticket-row">${cells}</div>`);
     }
-    const tableHtml = `<table class="ticket-page"><tbody>${rows.join("")}</tbody></table>`;
+    const tableHtml = `<div class="ticket-page">${rows.join("")}</div>`;
 
     // @page DOIT être à la racine (Safari iOS l'ignore dans @media print).
     const mobilePageCss = `
@@ -226,13 +227,34 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       }
       .doc-header { display: none !important; }
 
-      table.ticket-page { display: inline-table; border-collapse: collapse; margin: 0; }
-      table.ticket-page > tbody > tr > td { padding: 1px; vertical-align: top; }
+      /* Conteneur global centré */
+      .ticket-page { display: block; text-align: center; }
 
-      /* Chaque rangée est atomique — le navigateur la passe entière à la page suivante
-         plutôt que de la couper à mi-hauteur. */
-      .ticket-row { break-inside: avoid; page-break-inside: avoid; }
-      .ticket     { display: block; break-inside: avoid; page-break-inside: avoid; }
+      /* Rangée = div bloc — break-inside:avoid fiable sur <div> (pas sur <tr> Safari) */
+      .ticket-row {
+        display: block;
+        font-size: 0;           /* élimine l'espace entre inline-blocks */
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        -webkit-column-break-inside: avoid !important;
+        overflow: visible !important;
+      }
+
+      /* Cellule = 25 % de la largeur → 4 colonnes */
+      .ticket-cell {
+        display: inline-block;
+        width: 25%;
+        vertical-align: top;
+        padding: 1px;
+        box-sizing: border-box;
+        font-size: 14px;        /* restaure la taille après font-size:0 sur .ticket-row */
+      }
+
+      .ticket {
+        display: block;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
 
       /* Template PHP : table avec display:inline-block → force display:table.
          position:relative OBLIGATOIRE : overflow:hidden clippe le triangle décoratif. */
@@ -248,9 +270,8 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       /* float casse le flux d'impression */
       .ticket img { float: none !important; display: inline-block !important; }
 
-      /* overflow:visible sur conteneurs pour fix Safari page-break,
-         MAIS overflow:hidden maintenu sur .ticket > table (triangle décoratif) */
-      body, table.ticket-page, .ticket-row, .ticket-row > td {
+      /* overflow:visible sur tous les conteneurs sauf .ticket > table (triangle déco) */
+      body, .ticket-page, .ticket-row, .ticket-cell {
         overflow: visible !important;
       }
 
