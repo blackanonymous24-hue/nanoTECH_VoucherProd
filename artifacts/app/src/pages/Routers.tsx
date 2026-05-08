@@ -317,6 +317,12 @@ export default function Routers() {
 
   const handleSelect = async (id: number) => {
     if (connectingId !== null) return;
+    // Annuler le timer en cours et effacer le badge avant le nouveau ping
+    if (testResultsTimersRef.current[id]) {
+      clearTimeout(testResultsTimersRef.current[id]);
+      delete testResultsTimersRef.current[id];
+    }
+    setTestResults((prev) => { const copy = { ...prev }; delete copy[id]; return copy; });
     setConnectingId(id);
     try {
       const res = await fetch(`${BASE}/api/routers/${id}/ping?force=1`, {
