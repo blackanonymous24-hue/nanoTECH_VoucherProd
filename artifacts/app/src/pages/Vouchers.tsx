@@ -11,6 +11,7 @@ import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client
 import { queryClient } from "@/lib/queryClient";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,7 @@ import {
   FilePlus2,
   CheckCircle2,
   Copy,
+  LayoutGrid,
 } from "lucide-react";
 import { PasswordInput } from "@/components/ui/password-input";
 import {
@@ -161,6 +163,7 @@ function makeClientBatchId(mode: "vc" | "up"): string {
 
 export default function Vouchers() {
   const { selectedRouterId, routers } = useRouterContext();
+  const { token: authToken } = useAuth();
   const { toast } = useToast();
 
   const [view, setView] = useState<"list" | "lots">("list");
@@ -2102,6 +2105,19 @@ export default function Vouchers() {
                             {printingLot === lot.name
                               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               : <Printer className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-violet-600 border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                            onClick={() => {
+                              const url = `${BASE}/api/print-small?routerId=${activeRouterId}&lot=${encodeURIComponent(lot.name)}&token=${encodeURIComponent(authToken ?? "")}`;
+                              window.open(url, "_blank");
+                            }}
+                            title="Imprimer en mode Small MikHmon (2 colonnes, navigateur natif)"
+                          >
+                            <LayoutGrid className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Small</span>
                           </Button>
                           <Button
                             size="sm"
