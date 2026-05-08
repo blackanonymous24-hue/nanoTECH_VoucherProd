@@ -11,7 +11,6 @@ export const MOBILE_SCALE_KEY  = "vn_print_scale_mobile";
 export function readSmallScale(): number {
   try {
     const stored = localStorage.getItem(SMALL_SCALE_KEY);
-    if (stored === "0.85") { localStorage.setItem(SMALL_SCALE_KEY, "1"); return 1; }
     const v = parseFloat(stored ?? "1"); return isNaN(v) ? 1 : v;
   } catch { return 1; }
 }
@@ -20,7 +19,6 @@ export function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCA
 export function readMobileScale(def = 100): number {
   try {
     const stored = localStorage.getItem(MOBILE_SCALE_KEY);
-    if (stored === "85") { localStorage.setItem(MOBILE_SCALE_KEY, "100"); return 100; }
     const v = parseInt(stored ?? String(def), 10); return isNaN(v) ? def : v;
   } catch { return def; }
 }
