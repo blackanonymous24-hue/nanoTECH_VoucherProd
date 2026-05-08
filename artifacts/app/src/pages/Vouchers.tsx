@@ -1510,8 +1510,8 @@ export default function Vouchers() {
                         disabled={printingLot !== null}
                         className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors disabled:opacity-40"
                       >
-                        <Printer className="h-3 w-3" />
-                        <span>Imprimer</span>
+                        {printingLot !== null ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
+                        <span>{printingLot !== null ? "Impression…" : "Imprimer"}</span>
                       </button>
 
                       <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
@@ -1891,8 +1891,8 @@ export default function Vouchers() {
                             disabled={printingLot === lot.name}
                             title="Imprimer (2 colonnes)"
                           >
-                            <Printer className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Imprimer</span>
+                            {printingLot === lot.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+                            <span className="hidden sm:inline">{printingLot === lot.name ? "Impression…" : "Imprimer"}</span>
                           </Button>
                           <Button
                             size="sm"
