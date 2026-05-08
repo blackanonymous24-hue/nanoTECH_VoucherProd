@@ -11,7 +11,6 @@ import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client
 import { queryClient } from "@/lib/queryClient";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
-import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,7 +78,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -163,7 +162,6 @@ function makeClientBatchId(mode: "vc" | "up"): string {
 
 export default function Vouchers() {
   const { selectedRouterId, routers } = useRouterContext();
-  const { token: authToken } = useAuth();
   const { toast } = useToast();
 
   const [view, setView] = useState<"list" | "lots">("list");
@@ -803,6 +801,77 @@ export default function Vouchers() {
     } catch (err) {
       preWin?.close();
       toast({ title: "Erreur impression", description: String(err), variant: "destructive" });
+    } finally {
+      setPrintingLot(null);
+    }
+  };
+
+  // ── Print Small (mode MikHmon : 2 colonnes, CSS identique à print.php?small=yes) ─────────────
+  // Le QR n'est inclus QUE si le template PHP de l'admin contient $qrcode.
+  const handlePrintSmallLot = async (lot: LotSummary) => {
+    const preWin = window.open("", "_blank");
+    if (preWin) {
+      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
+<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#555}
+.spinner{width:36px;height:36px;border:4px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}</style></head>
+<body><div style="text-align:center"><div class="spinner"></div><p>Génération du mode Small…</p></div></body></html>`);
+      preWin.document.close();
+    }
+    const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
+    setPrintingLot(lot.name);
+    try {
+      const [{ template: php }, users] = await Promise.all([
+        fetchServerTemplateWithMeta(),
+        fetchLotUsers(lot),
+      ]);
+      if (users.length === 0) {
+        preWin?.close();
+        toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
+        return;
+      }
+      const vouchers = users.map((user, idx) => {
+        const profile = profilesList.find((p) => p.name === user.profile);
+        return {
+          hotspotname: hotspotName,
+          dnsname: (activeRouter as { contact?: string } | undefined)?.contact ?? "",
+          username: user.username,
+          password: user.password,
+          price: profile?.price ?? "",
+          currency: "FCFA",
+          validity: profile?.validity ?? "",
+          timelimit: user.limitUptime ?? "",
+          datalimit: user.limitBytesTotal ?? "",
+          num: idx + 1,
+        };
+      });
+      const resp = await fetch(`${BASE}/api/render-tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ php, vouchers }),
+      });
+      if (!resp.ok) {
+        preWin?.close();
+        const err = await resp.json().catch(() => ({})) as { error?: string };
+        toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" });
+        return;
+      }
+      const data = await resp.json() as { html: string[] };
+      if (!data.html?.length) {
+        preWin?.close();
+        toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
+        return;
+      }
+      const title = ["Voucher-Small", lot.name].filter(Boolean).join("-");
+      const html = buildSmallModePrintHtml(data.html, title);
+      if (preWin) {
+        preWin.document.open();
+        preWin.document.write(html);
+        preWin.document.close();
+      }
+    } catch (err) {
+      preWin?.close();
+      toast({ title: "Erreur impression small", description: String(err), variant: "destructive" });
     } finally {
       setPrintingLot(null);
     }
@@ -2110,10 +2179,7 @@ export default function Vouchers() {
                             size="sm"
                             variant="outline"
                             className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-violet-600 border-violet-200 hover:bg-violet-50 hover:text-violet-700"
-                            onClick={() => {
-                              const url = `${BASE}/api/print-small?routerId=${activeRouterId}&lot=${encodeURIComponent(lot.name)}&token=${encodeURIComponent(authToken ?? "")}`;
-                              window.open(url, "_blank");
-                            }}
+                            onClick={() => handlePrintSmallLot(lot)}
                             title="Imprimer en mode Small MikHmon (2 colonnes, navigateur natif)"
                           >
                             <LayoutGrid className="h-3.5 w-3.5" />

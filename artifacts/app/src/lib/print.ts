@@ -454,6 +454,67 @@ function printWithNativeBridge(html: string, title: string): void {
 }
 
 /**
+ * Construit le HTML pour le mode Small MikHmon.
+ * CSS identique à print.php?small=yes (Mikhmon v3).
+ * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
+ * ce mode ne l'impose pas, contrairement au mode regular.
+ */
+export function buildSmallModePrintHtml(htmlItems: string[], title: string): string {
+  // CSS copié exactement depuis le print.php de MikHmon v3
+  const css = `
+    @page {
+      size: auto;
+      margin-left: 7mm;
+      margin-right: 3mm;
+      margin-top: 9mm;
+      margin-bottom: 3mm;
+    }
+    body {
+      color: #000;
+      background-color: #fff;
+      font-size: 14px;
+      font-family: Helvetica, Arial, sans-serif;
+      margin: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    /* Les table.voucher s'enchaînent en inline-block — 2 par ligne sur A4 */
+    table.voucher {
+      display: inline-block !important;
+      vertical-align: top;
+      border: 2px solid #000;
+      margin: 2px;
+    }
+    @media print {
+      table  { page-break-after: auto; }
+      tr     { page-break-inside: avoid; page-break-after: auto; }
+      td     { page-break-inside: avoid; page-break-after: auto; }
+      thead  { display: table-header-group; }
+      tfoot  { display: table-footer-group; }
+      table.voucher {
+        display: inline-block !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+    }
+    /* Numéro de ticket — float identique au comportement MikHmon */
+    #num, span#num { float: right !important; display: inline-block; margin-left: 4px !important; clear: none !important; }
+  `;
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>${css}</style>
+  <script>window.onload = function() { window.focus(); window.print(); };<\/script>
+</head>
+<body>${htmlItems.join("\n")}</body>
+</html>`;
+}
+
+/**
  * Imprime des tickets HTML.
  * — APK WebView : pont natif via postMessage → expo-print.
  * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
