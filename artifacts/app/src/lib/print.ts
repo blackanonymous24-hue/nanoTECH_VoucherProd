@@ -190,10 +190,10 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
   const COLS = 4;
   // Nombre de lignes de base à 100 % (zoom = 1.0). Formule : ROWS_BASE / s
   // → plus l'échelle est petite, plus de lignes tiennent sur une page A4.
-  // Calibré sur Safari iOS / Chrome Android : @page margin:0 laisse ~270 mm
-  // de zone utile (hors chrome navigateur). Chaque rangée ≈ 30 mm → 9 rangées
-  // remplissent ~270/30 = 9 pages utiles (vs 6 avant = 35 % d'espace vide).
-  const ROWS_BASE = 9;
+  // Calibré sur Safari iOS / Chrome Android : @page margin:0, chrome navigateur
+  // ~30 mm (header URL + footer page). Chaque rangée ≈ 33 mm → 8 rangées tiennent
+  // dans les ~270 mm utiles sans coupure (9 rangées font déborder la dernière).
+  const ROWS_BASE = 8;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
