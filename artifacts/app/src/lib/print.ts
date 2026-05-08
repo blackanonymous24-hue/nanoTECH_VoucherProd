@@ -428,12 +428,6 @@ function printWithIframe(html: string, title: string): void {
  * Pour les gros payloads (> 500 KB), découpe en chunks pour contourner la
  * limite de taille de postMessage sur Android WebView.
  */
-export function printViaReactNative(html: string, title: string): boolean {
-  if (!isNativeWebView()) return false;
-  printWithNativeBridge(html, title);
-  return true;
-}
-
 function printWithNativeBridge(html: string, title: string): void {
   const MAX_CHUNK = 500_000; // 500 KB de HTML par message
   if (html.length <= MAX_CHUNK) {
@@ -558,8 +552,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       #vn-tickets   { margin-top: 0 !important; }
       body { transform: none !important; width: 100% !important; }
       .vn-w {
-        display: inline-block !important;
-        vertical-align: top !important;
+        display: block !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
@@ -568,6 +561,13 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
+    }
+
+    #num, span#num {
+      float: right !important;
+      display: inline-block;
+      margin-left: 4px !important;
+      clear: none !important;
     }
   `;
 
@@ -747,10 +747,8 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
     @media print {
       #vn-print-bar { display: none !important; }
       #vn-tickets   { margin-top: 0 !important; }
-      body { transform: none !important; width: 100% !important; }
       .vn-w {
-        display: inline-block !important;
-        vertical-align: top !important;
+        display: block !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
@@ -759,6 +757,12 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
+    }
+    #num, span#num {
+      float: right !important;
+      display: inline-block;
+      margin-left: 4px !important;
+      clear: none !important;
     }
     #vn-loading {
       display: flex;
