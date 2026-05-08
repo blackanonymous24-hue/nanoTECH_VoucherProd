@@ -28,6 +28,7 @@ import {
 import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangle, Coins, Activity, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -180,6 +181,7 @@ export default function Routers() {
   const isManager = role === "manager";
   const [, navigate] = useLocation();
   const [connectingId, setConnectingId] = useState<number | null>(null);
+  const [confirmDeleteRouterId, setConfirmDeleteRouterId] = useState<number | null>(null);
   const testResultsTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   /* ── Quota & credits (admin only, regular admins see the banner) ─── */
@@ -266,9 +268,13 @@ export default function Routers() {
     invalidate();
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Supprimer ce routeur et tous ses vouchers ?")) return;
-    if (deletingRouterId !== null) return;
+  const handleDelete = (id: number) => {
+    setConfirmDeleteRouterId(id);
+  };
+
+  const doDeleteRouter = async () => {
+    const id = confirmDeleteRouterId;
+    if (id === null) return;
     setDeletingRouterId(id);
     try {
       await deleteMutation.mutateAsync({ id });
@@ -279,6 +285,7 @@ export default function Routers() {
       invalidate();
     } finally {
       setDeletingRouterId(null);
+      setConfirmDeleteRouterId(null);
     }
   };
 
@@ -663,6 +670,14 @@ export default function Routers() {
 
       <CredentialsDialog open={showCredentials} onClose={() => setShowCredentials(false)} />
 
+      <DeleteConfirmDialog
+        open={confirmDeleteRouterId !== null}
+        onOpenChange={(o) => { if (!o && deletingRouterId === null) setConfirmDeleteRouterId(null); }}
+        title="Supprimer ce routeur ?"
+        description="Tous les vouchers et données associés seront définitivement supprimés. Cette action est irréversible."
+        onConfirm={() => void doDeleteRouter()}
+        loading={deletingRouterId !== null}
+      />
     </div>
   );
 }

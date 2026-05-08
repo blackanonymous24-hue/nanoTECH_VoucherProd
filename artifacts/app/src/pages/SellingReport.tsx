@@ -13,16 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileDown, Search, RotateCcw, Receipt, Loader2, AlertCircle, Trash2, RefreshCw,
 } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { foldText } from "@/lib/text";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -535,30 +526,14 @@ export default function SellingReport() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={confirmDeleteMonth} onOpenChange={(o) => { if (!o && !deletingMonthScripts) setConfirmDeleteMonth(false); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer les scripts de vente du mois sélectionné ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Cette action supprime directement dans MikroTik les scripts MikHmon de{" "}
-              <strong>{reportLabel}</strong>. Les données locales en base sont conservées.
-              Cette action est irréversible.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deletingMonthScripts}>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={() => void handleDeleteSelectedMonthScripts()}
-              disabled={deletingMonthScripts}
-            >
-              {deletingMonthScripts
-                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression...</span>
-                : "Supprimer"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={confirmDeleteMonth}
+        onOpenChange={(o) => { if (!o && !deletingMonthScripts) setConfirmDeleteMonth(false); }}
+        title="Supprimer les scripts du mois sélectionné ?"
+        description={<>Cette action supprime dans MikroTik les scripts MikHmon de <strong>{reportLabel}</strong>. Les données locales en base sont conservées. Cette action est irréversible.</>}
+        onConfirm={() => void handleDeleteSelectedMonthScripts()}
+        loading={deletingMonthScripts}
+      />
     </div>
   );
 }

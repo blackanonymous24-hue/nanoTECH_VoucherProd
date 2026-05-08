@@ -25,6 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import {
   Printer,
   Loader2,
@@ -1819,31 +1820,15 @@ export default function Vouchers() {
                 </AlertDialogContent>
               </AlertDialog>
 
-              {/* Confirmation dialog — delete selected */}
-              <AlertDialog open={confirmDeleteSelected} onOpenChange={(open) => { if (!isDeletingSelected) setConfirmDeleteSelected(open); }}>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Supprimer {selectedUsernames.size} voucher(s) ?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Cette action supprimera définitivement {selectedUsernames.size} utilisateur(s)
-                      du profil <strong>{filterProfile}</strong> sur MikroTik.
-                      Cette opération est irréversible.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingSelected}>Annuler</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDeleteSelected}
-                      disabled={isDeletingSelected}
-                      className="bg-red-600 hover:bg-red-700"
-                    >
-                      {isDeletingSelected
-                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Suppression...</>
-                        : "Supprimer définitivement"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <DeleteConfirmDialog
+                open={confirmDeleteSelected}
+                onOpenChange={(o) => { if (!isDeletingSelected) setConfirmDeleteSelected(o); }}
+                title={`Supprimer ${selectedUsernames.size} voucher(s) ?`}
+                description={<>Cette action supprimera définitivement {selectedUsernames.size} utilisateur(s) du profil <strong>{filterProfile}</strong> sur MikroTik. Cette opération est irréversible.</>}
+                onConfirm={handleDeleteSelected}
+                loading={isDeletingSelected}
+                confirmLabel="Supprimer définitivement"
+              />
 
               <Card>
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -2497,35 +2482,14 @@ export default function Vouchers() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!confirmDeleteEditUser} onOpenChange={(o) => { if (!o && !isDeletingEditUser) setConfirmDeleteEditUser(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer ce voucher&nbsp;?</AlertDialogTitle>
-            <AlertDialogDescription>
-              L&apos;utilisateur{" "}
-              <span className="font-mono font-semibold">{confirmDeleteEditUser?.username}</span>{" "}
-              sera définitivement supprimé de MikroTik. Cette action est irréversible.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingEditUser}>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={isDeletingEditUser}
-              onClick={() => void handleConfirmDeleteEditUser()}
-            >
-              {isDeletingEditUser ? (
-                <>
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  Suppression…
-                </>
-              ) : (
-                "Supprimer"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={!!confirmDeleteEditUser}
+        onOpenChange={(o) => { if (!o && !isDeletingEditUser) setConfirmDeleteEditUser(null); }}
+        title="Supprimer ce voucher ?"
+        description={<>L'utilisateur <span className="font-mono font-semibold">{confirmDeleteEditUser?.username}</span> sera définitivement supprimé de MikroTik. Cette action est irréversible.</>}
+        onConfirm={() => void handleConfirmDeleteEditUser()}
+        loading={isDeletingEditUser}
+      />
 
       {/* ── Add User dialog (Mikhmon-style compact) ─────────────────────── */}
       <Dialog open={addUserOpen} onOpenChange={(o) => {
@@ -2764,30 +2728,14 @@ export default function Vouchers() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete lot confirmation */}
-      <AlertDialog open={!!deletingLot} onOpenChange={(o) => { if (!o && !isDeletingLot) setDeletingLot(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer le lot ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Le lot <strong className="font-mono">{deletingLot}</strong> et tous ses vouchers seront
-              définitivement supprimés de MikroTik. Cette action est irréversible.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingLot}>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={() => deletingLot && handleDeleteLot(deletingLot)}
-              disabled={isDeletingLot}
-            >
-              {isDeletingLot
-                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression...</span>
-                : "Supprimer"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={!!deletingLot}
+        onOpenChange={(o) => { if (!o && !isDeletingLot) setDeletingLot(null); }}
+        title="Supprimer le lot ?"
+        description={<>Le lot <strong className="font-mono">{deletingLot}</strong> et tous ses vouchers seront définitivement supprimés de MikroTik. Cette action est irréversible.</>}
+        onConfirm={() => deletingLot && handleDeleteLot(deletingLot)}
+        loading={isDeletingLot}
+      />
 
       {/* Hidden download icon for accessibility */}
       <Download className="hidden" />

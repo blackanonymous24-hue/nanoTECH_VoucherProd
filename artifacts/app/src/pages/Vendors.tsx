@@ -28,16 +28,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 
 export type PersonFormData = {
   name: string;
@@ -789,28 +780,14 @@ export default function Vendors() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteVendorId} onOpenChange={(o) => { if (!o && !deleteMutation.isPending) setDeleteVendorId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer ce vendeur ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Cette action est irréversible. Les vouchers attribués à ce vendeur ne seront plus liés à lui.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={handleDelete}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending
-                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression...</span>
-                : "Supprimer"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={!!deleteVendorId}
+        onOpenChange={(o) => { if (!o && !deleteMutation.isPending) setDeleteVendorId(null); }}
+        title="Supprimer ce vendeur ?"
+        description="Cette action est irréversible. Les vouchers attribués à ce vendeur ne seront plus liés à lui."
+        onConfirm={handleDelete}
+        loading={deleteMutation.isPending}
+      />
 
       {/* Bulk commission dialog */}
       <Dialog open={showBulkCommission} onOpenChange={(o) => { if (!o) setShowBulkCommission(false); }}>

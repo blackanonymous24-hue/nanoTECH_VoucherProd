@@ -18,16 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { Activity, RefreshCw, Wifi, Users, Search, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
@@ -288,28 +279,16 @@ export default function Sessions() {
         </Card>
       )}
 
-      <AlertDialog open={!!disconnectUser} onOpenChange={(o) => { if (!o && !disconnectMutation.isPending) setDisconnectUser(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Déconnecter ce client ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              L&apos;utilisateur <strong className="font-mono">{disconnectUser}</strong> sera déconnecté du hotspot immédiatement. Il pourra se reconnecter avec ses identifiants.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={handleDisconnect}
-              disabled={disconnectMutation.isPending}
-            >
-              {disconnectMutation.isPending
-                ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Déconnexion...</span>
-                : "Déconnecter"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={!!disconnectUser}
+        onOpenChange={(o) => { if (!o && !disconnectMutation.isPending) setDisconnectUser(null); }}
+        icon="warning"
+        title="Déconnecter ce client ?"
+        description={<>L'utilisateur <strong className="font-mono">{disconnectUser}</strong> sera déconnecté du hotspot immédiatement. Il pourra se reconnecter avec ses identifiants.</>}
+        onConfirm={handleDisconnect}
+        loading={disconnectMutation.isPending}
+        confirmLabel="Déconnecter"
+      />
     </div>
   );
 }

@@ -23,16 +23,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { PackageOpen, Clock, Banknote, Users, Wifi, Lock, Plus, Pencil, Trash2, RefreshCw, Infinity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
@@ -451,28 +442,14 @@ export default function Forfaits() {
         </>
       )}
 
-      <AlertDialog open={deletingName !== null} onOpenChange={(open) => { if (!open && !deleting) setDeletingName(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer le forfait ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Le profil <span className="font-semibold text-gray-900">{deletingName}</span> sera supprimé définitivement du routeur MikroTik. Cette action est irréversible.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleting}
-              className="bg-red-600 hover:bg-red-700 focus:ring-red-500"
-            >
-              {deleting
-                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression…</span>
-                : "Supprimer"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={deletingName !== null}
+        onOpenChange={(o) => { if (!o && !deleting) setDeletingName(null); }}
+        title="Supprimer le forfait ?"
+        description={<>Le profil <strong className="font-semibold">{deletingName}</strong> sera supprimé définitivement du routeur MikroTik. Cette action est irréversible.</>}
+        onConfirm={handleDelete}
+        loading={deleting}
+      />
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="max-w-md max-h-[90vh] flex flex-col">

@@ -30,16 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { ShieldCheck, RefreshCw, Plus, Search, Trash2, Pencil, ShieldOff, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
@@ -1213,33 +1204,14 @@ export default function IpBindings() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirm */}
-      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => { if (!o && !deleting) setConfirmDelete(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer la liaison ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              La liaison{" "}
-              <strong className="font-mono">
-                {confirmDelete?.macAddress || confirmDelete?.address || ""}
-              </strong>{" "}
-              sera supprimée définitivement du routeur. L&apos;appareil devra à nouveau passer par le portail captif.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={() => void handleDelete()}
-              disabled={deleting}
-            >
-              {deleting
-                ? <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Suppression…</span>
-                : "Supprimer"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={!!confirmDelete}
+        onOpenChange={(o) => { if (!o && !deleting) setConfirmDelete(null); }}
+        title="Supprimer la liaison ?"
+        description={<>La liaison <strong className="font-mono">{confirmDelete?.macAddress || confirmDelete?.address || ""}</strong> sera supprimée définitivement du routeur. L'appareil devra à nouveau passer par le portail captif.</>}
+        onConfirm={() => void handleDelete()}
+        loading={deleting}
+      />
     </div>
   );
 }

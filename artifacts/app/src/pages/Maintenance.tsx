@@ -5,10 +5,7 @@ import { useRouterContext } from "@/contexts/RouterContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 // Larger batches → fewer round-trips → less risk of network "load failed".
@@ -549,27 +546,14 @@ export default function Maintenance() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={confirmScript} onOpenChange={setConfirmScript}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer les anciens scripts ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Cette action supprime définitivement les scripts de ventes MikHmon antérieurs au
-              mois précédent sur chaque routeur, ainsi que les entrées correspondantes du cache
-              local. Les scripts du mois en cours et du mois précédent sont conservés.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700 text-white"
-              onClick={() => { setConfirmScript(false); runScriptPurge(); }}
-            >
-              Confirmer la suppression
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={confirmScript}
+        onOpenChange={setConfirmScript}
+        title="Supprimer les anciens scripts ?"
+        description="Cette action supprime définitivement les scripts de ventes MikHmon antérieurs au mois précédent sur chaque routeur, ainsi que les entrées du cache local. Les scripts du mois en cours et du mois précédent sont conservés."
+        onConfirm={() => { setConfirmScript(false); runScriptPurge(); }}
+        confirmLabel="Confirmer la suppression"
+      />
     </div>
   );
 }
