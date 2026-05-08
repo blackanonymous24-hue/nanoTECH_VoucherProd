@@ -813,14 +813,17 @@ export default function Vouchers() {
     const cols  = readSmallCols();
     const title = ["Voucher-Small", lot.name].filter(Boolean).join("-");
 
-    // Ouvre la fenêtre et affiche la barre immédiatement (paramètres déjà pré-définis)
+    // Ouvre la fenêtre avec un spinner (évite le blocage popup), les tickets seront écrits dès qu'ils sont prêts
     const preWin = window.open("", "_blank");
     if (!preWin) {
       toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site.", variant: "destructive" });
       return;
     }
-    const shellHtml = buildSmallModeShell(title, scale, cols);
-    preWin.document.write(shellHtml);
+    preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
+<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#fff}
+.sp{width:32px;height:32px;border:4px solid #e5e7eb;border-top-color:#7c3aed;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}</style></head>
+<body><div class="sp"></div></body></html>`);
     preWin.document.close();
 
     const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
@@ -867,25 +870,12 @@ export default function Vouchers() {
         toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
         return;
       }
-      // Injecte les tickets dans la page déjà ouverte (sans réécrire), puis imprime directement
-      const ticketsDiv = preWin.document.getElementById("vn-tickets");
-      if (ticketsDiv) {
-        ticketsDiv.innerHTML = data.html.join("\n");
-        (preWin as unknown as Record<string, unknown>)._totalTickets = data.html.length;
-        const w = preWin as unknown as { updateInfo?: () => void; applySmallCols?: (n: number) => void };
-        w.applySmallCols?.(cols);
-        w.updateInfo?.();
-        preWin.focus();
-        preWin.print();
-      } else {
-        // Fallback si le DOM n'est pas prêt
-        const html = buildSmallModePrintHtml(data.html, title, scale, cols);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-        preWin.focus();
-        preWin.print();
-      }
+      // Écrit le HTML final (sans barre) — window.print() se déclenche automatiquement au DOMContentLoaded
+      const html = buildSmallModePrintHtml(data.html, title, scale, cols, true);
+      preWin.document.open();
+      preWin.document.write(html);
+      preWin.document.close();
+      preWin.focus();
     } catch (err) {
       preWin.close();
       toast({ title: "Erreur impression small", description: String(err), variant: "destructive" });

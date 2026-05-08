@@ -459,7 +459,7 @@ function printWithNativeBridge(html: string, title: string): void {
  * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
  * ce mode ne l'impose pas, contrairement au mode regular.
  */
-export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, defaultCols = 2): string {
+export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, defaultCols = 2, autoPrint = false): string {
   const css = `
     @page {
       size: auto;
@@ -572,7 +572,20 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     }
   `;
 
-  const js = `
+  const pct = (98 / defaultCols).toFixed(1);
+
+  const js = autoPrint
+    ? `
+    document.addEventListener('DOMContentLoaded', function() {
+      document.body.style.transform = 'scale(${defaultScale})';
+      document.body.style.width = (100 / ${defaultScale}).toFixed(2) + '%';
+      var s = document.createElement('style');
+      s.textContent = 'table.voucher { width: ${pct}% !important; }';
+      document.head.appendChild(s);
+      window.print();
+    });
+  `
+    : `
     var _currentCols = ${defaultCols};
     function updateInfo() {
       var scale = parseFloat(document.getElementById('vn-scale').value);
@@ -586,10 +599,10 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     }
     function applySmallCols(cols) {
       _currentCols = cols;
-      var pct = (98 / cols).toFixed(1) + '%';
+      var p = (98 / cols).toFixed(1) + '%';
       var s = document.getElementById('vn-cols-style');
       if (!s) { s = document.createElement('style'); s.id = 'vn-cols-style'; document.head.appendChild(s); }
-      s.textContent = 'table.voucher { width: ' + pct + ' !important; }';
+      s.textContent = 'table.voucher { width: ' + p + ' !important; }';
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
@@ -601,6 +614,22 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       applySmallCols(parseInt(colsSel.value, 10));
     });
   `;
+
+  if (autoPrint) {
+    return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>${css}</style>
+  <script>${js}<\/script>
+</head>
+<body>
+<div id="vn-tickets" style="margin-top:0">${htmlItems.join("\n")}</div>
+</body>
+</html>`;
+  }
 
   const scaleOptions = ([1, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70] as number[])
     .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
