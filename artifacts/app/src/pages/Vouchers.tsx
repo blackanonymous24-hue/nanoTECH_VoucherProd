@@ -77,8 +77,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readSmallScale, readSmallScaleWeb } from "@/pages/TicketTemplate";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml, isMobile } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -807,7 +807,7 @@ export default function Vouchers() {
   // ── Print Small (mode MikHmon : 2 colonnes, CSS identique à print.php?small=yes) ─────────────
   // Le QR n'est inclus QUE si le template PHP de l'admin contient $qrcode.
   const handlePrintSmallLot = async (lot: LotSummary) => {
-    const scale = readSmallScale();
+    const scale = isMobile() ? readSmallScale() : readSmallScaleWeb();
     const title = ["Voucher-Small", lot.name].filter(Boolean).join("-");
 
     // Ouvre la fenêtre avec un spinner (évite le blocage popup), les tickets seront écrits dès qu'ils sont prêts

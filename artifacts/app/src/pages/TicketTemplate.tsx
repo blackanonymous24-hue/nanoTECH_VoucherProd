@@ -5,12 +5,16 @@ import { Button } from "@/components/ui/button";
 import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
-export const SMALL_SCALE_KEY = "vn_small_scale";
+const SMALL_SCALE_MOBILE_KEY = "vn_small_scale";
+const SMALL_SCALE_WEB_KEY    = "vn_small_scale_web";
 
 export function readSmallScale(): number {
-  try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
+  try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_MOBILE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
 }
-function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
+export function readSmallScaleWeb(): number {
+  try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_WEB_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
+}
+function saveSmallScale(key: string, v: number) { try { localStorage.setItem(key, String(v)); } catch {} }
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 
@@ -397,7 +401,8 @@ export default function TicketTemplate() {
 
   // ── Paramètres d'impression
   const [showScaleDialog, setShowScaleDialog] = useState(false);
-  const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
+  const [smallScaleMobile, setSmallScaleMobile] = useState(() => readSmallScale());
+  const [smallScaleWeb,    setSmallScaleWeb]    = useState(() => readSmallScaleWeb());
 
   // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -603,40 +608,71 @@ export default function TicketTemplate() {
             </DialogTitle>
           </DialogHeader>
           <div className="py-2 space-y-4">
-            {/* Échelle Small (pré-sélection de la barre dans la page Small) */}
+            {/* Échelle Mobile / APK */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600">📄 Échelle par défaut — mode Small</span>
-                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScale * 100)}%</span>
+                <span className="text-xs font-medium text-gray-600">📱 Échelle — Mobile / APK</span>
+                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScaleMobile * 100)}%</span>
               </div>
-              <p className="text-[11px] text-gray-400 leading-tight">
-                Glissez la barre, utilisez la molette ou saisissez une valeur de 0 à 100.
-              </p>
-              {/* Slider + saisie manuelle */}
               <div className="flex items-center gap-2">
                 <input
                   type="range" min={0} max={100} step={1}
-                  value={Math.round(smallScale * 100)}
-                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScale(v); saveSmallScale(v); }}
+                  value={Math.round(smallScaleMobile * 100)}
+                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScaleMobile(v); saveSmallScale(SMALL_SCALE_MOBILE_KEY, v); }}
                   onWheel={(e) => {
                     e.preventDefault();
                     const delta = e.deltaY < 0 ? 1 : -1;
-                    const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + delta));
+                    const next = Math.min(100, Math.max(0, Math.round(smallScaleMobile * 100) + delta));
                     const v = next / 100;
-                    setSmallScale(v); saveSmallScale(v);
+                    setSmallScaleMobile(v); saveSmallScale(SMALL_SCALE_MOBILE_KEY, v);
                   }}
                   className="flex-1 h-2 accent-violet-600 cursor-pointer"
                   style={{ accentColor: "#7c3aed" }}
                 />
                 <input
                   type="number" min={0} max={100} step={1}
-                  value={Math.round(smallScale * 100)}
+                  value={Math.round(smallScaleMobile * 100)}
                   onChange={(e) => {
                     const raw = parseInt(e.target.value, 10);
                     if (isNaN(raw)) return;
-                    const clamped = Math.min(100, Math.max(0, raw));
-                    const v = clamped / 100;
-                    setSmallScale(v); saveSmallScale(v);
+                    const v = Math.min(100, Math.max(0, raw)) / 100;
+                    setSmallScaleMobile(v); saveSmallScale(SMALL_SCALE_MOBILE_KEY, v);
+                  }}
+                  className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
+                />
+                <span className="text-xs text-gray-400 shrink-0">%</span>
+              </div>
+            </div>
+
+            {/* Échelle Web / Desktop */}
+            <div className="space-y-1.5 border-t pt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-600">🖥 Échelle — Web / Desktop</span>
+                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScaleWeb * 100)}%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range" min={0} max={100} step={1}
+                  value={Math.round(smallScaleWeb * 100)}
+                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScaleWeb(v); saveSmallScale(SMALL_SCALE_WEB_KEY, v); }}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY < 0 ? 1 : -1;
+                    const next = Math.min(100, Math.max(0, Math.round(smallScaleWeb * 100) + delta));
+                    const v = next / 100;
+                    setSmallScaleWeb(v); saveSmallScale(SMALL_SCALE_WEB_KEY, v);
+                  }}
+                  className="flex-1 h-2 accent-violet-600 cursor-pointer"
+                  style={{ accentColor: "#7c3aed" }}
+                />
+                <input
+                  type="number" min={0} max={100} step={1}
+                  value={Math.round(smallScaleWeb * 100)}
+                  onChange={(e) => {
+                    const raw = parseInt(e.target.value, 10);
+                    if (isNaN(raw)) return;
+                    const v = Math.min(100, Math.max(0, raw)) / 100;
+                    setSmallScaleWeb(v); saveSmallScale(SMALL_SCALE_WEB_KEY, v);
                   }}
                   className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
                 />

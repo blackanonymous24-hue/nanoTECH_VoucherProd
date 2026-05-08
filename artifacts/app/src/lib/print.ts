@@ -69,7 +69,7 @@ function isNativeWebView(): boolean {
   return typeof window !== "undefined" && !!window.ReactNativeWebView;
 }
 
-function isMobile(): boolean {
+export function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
