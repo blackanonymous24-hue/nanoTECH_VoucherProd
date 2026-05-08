@@ -37,7 +37,7 @@ const DialogContent = React.forwardRef<
       ref={ref}
       onOpenAutoFocus={(e) => e.preventDefault()}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-3 sm:gap-4 border bg-background p-4 sm:p-6 shadow-lg sm:rounded-lg max-h-[90dvh] overflow-y-auto",
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-2 sm:gap-3 lg:gap-2 border bg-background p-4 sm:p-5 lg:p-4 shadow-lg sm:rounded-lg max-h-[90dvh] overflow-y-auto",
         className
       )}
       {...props}
