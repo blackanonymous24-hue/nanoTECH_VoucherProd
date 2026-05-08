@@ -705,13 +705,7 @@ export default function Vouchers() {
   const handlePrintLot = async (lot: LotSummary) => {
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
     const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
-    })();
+    const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
     const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
@@ -901,13 +895,7 @@ export default function Vouchers() {
     }
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
     const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
-    })();
+    const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
     const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">

@@ -27,8 +27,8 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readSmallScale, readSmallScaleWeb } from "@/pages/TicketTemplate";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, isMobile } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -695,13 +695,7 @@ export default function GenerateVouchers() {
     // de clic, puis on y écrit le HTML une fois prêt.
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
     const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
-    })();
+    const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
     const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
 
     if (preWin) {
