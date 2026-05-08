@@ -251,9 +251,11 @@ export type ServerTemplateResult = {
   serverScaleMobile: number | null;
 };
 
-// ── Cache mémoire — évite un aller-retour réseau à chaque clic Imprimer ────────
+// ── Pas de cache mémoire : TTL = 0 → chaque impression lit toujours la version courante du serveur.
+// Cela garantit que admin/gérant/collaborateur voient le template immédiatement après une sauvegarde,
+// quelle que soit leur session navigateur. Les impressions sont des actions manuelles peu fréquentes.
 let _templateCache: { result: ServerTemplateResult; expiresAt: number } | null = null;
-const TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const TEMPLATE_CACHE_TTL_MS = 0;
 
 /** Invalide le cache (à appeler après toute modification du template). */
 export function invalidateTemplateCache(): void {
