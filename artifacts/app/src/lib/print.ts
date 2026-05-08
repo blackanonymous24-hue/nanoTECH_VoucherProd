@@ -188,51 +188,26 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
   const COLS = 4;
-  // Nombre de lignes de base à 100 % (zoom = 1.0). Formule : ROWS_BASE / s
-  // → plus l'échelle est petite, plus de lignes tiennent sur une page A4.
-  // Calibré sur Safari iOS / Chrome Android : @page margin:0, chrome navigateur
-  // ~30 mm (header URL + footer page). Chaque rangée ≈ 33 mm → 8 rangées tiennent
-  // dans les ~270 mm utiles sans coupure (9 rangées font déborder la dernière).
-  const ROWS_BASE = 8;
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
+  // ─── CHEMIN MOBILE — flux libre ───────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
   if (mobile) {
     const s = scale / 100;
 
-    // Solution radicale anti-coupure :
-    // On ne s'appuie PAS sur break-inside:avoid du navigateur (trop peu fiable).
-    // On pré-calcule combien de rangées tiennent sur une page A4 à l'échelle donnée,
-    // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
-    // rien à calculer, chaque bloc est garantiellement complet.
-    //
-    // ROWS est dynamique : à 85 % de zoom chaque ticket est 0.85× plus petit,
-    // donc 1/0.85 ≈ 1.18× plus de lignes tiennent sur une page.
-    const ROWS = Math.max(2, Math.round(ROWS_BASE / s));
-
-    const perPage = COLS * ROWS;
-
-    // Construction des blocs de page avec page-break-after:always explicite
-    const mobileBlocks: string[] = [];
-    for (let p = 0; p < htmlItems.length; p += perPage) {
-      const chunk = htmlItems.slice(p, p + perPage);
-      const rows: string[] = [];
-      for (let r = 0; r < chunk.length; r += COLS) {
-        const cells = chunk.slice(r, r + COLS)
-          .map(item => `<td style="padding:2px;vertical-align:top;"><div class="ticket">${item}</div></td>`)
-          .join("");
-        rows.push(`<tr class="ticket-row">${cells}</tr>`);
-      }
-      const isLast = p + perPage >= htmlItems.length;
-      // page-break-after:always sur chaque bloc sauf le dernier
-      const breakStyle = isLast ? "" : "page-break-after:always;break-after:page;";
-      mobileBlocks.push(
-        `<div class="ticket-page-wrap" style="${breakStyle}"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`,
-      );
+    // Flux libre : une seule table, le navigateur pagine naturellement.
+    // break-inside:avoid sur chaque .ticket-row empêche de couper une rangée
+    // à mi-hauteur sans forcer un nombre fixe de rangées par page.
+    const rows: string[] = [];
+    for (let r = 0; r < htmlItems.length; r += COLS) {
+      const cells = htmlItems.slice(r, r + COLS)
+        .map(item => `<td><div class="ticket">${item}</div></td>`)
+        .join("");
+      rows.push(`<tr class="ticket-row">${cells}</tr>`);
     }
+    const tableHtml = `<table class="ticket-page"><tbody>${rows.join("")}</tbody></table>`;
 
-    // @page DOIT être à la racine, jamais dans @media print (Safari iOS l'ignore sinon).
+    // @page DOIT être à la racine (Safari iOS l'ignore dans @media print).
     const mobilePageCss = `
       @page        { margin: 0; }
       @page :first { margin: 0; }
@@ -240,38 +215,27 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       @page :right { margin: 0; }
     `;
 
-    // CSS sans @media print : ce HTML est print-only (iframe + window.print()),
-    // donc les règles s'appliquent directement sans risque de conflit écran.
     // zoom sur html = dezoom sans stacking context (transform:scale le casse).
     const mobilePrintCss = `
       html { zoom: ${s}; margin: 0; padding: 0; }
       html, body { margin: 0; padding: 0; }
       body {
-        color: #000; background: #fff;
+        color: #000; background: #fff; text-align: center;
         font-size: 14px; font-family: Helvetica, Arial, sans-serif;
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
       }
       .doc-header { display: none !important; }
 
-      /* Bloc de page : page-break-after forcé inline, mais on renforce ici */
-      .ticket-page-wrap { display: block; text-align: center; }
-      .ticket-page-wrap + .ticket-page-wrap { page-break-before: always; break-before: page; }
-
       table.ticket-page { display: inline-table; border-collapse: collapse; margin: 0; }
       table.ticket-page > tbody > tr > td { padding: 1px; vertical-align: top; }
 
-      /* Sécurité break-inside en plus du page-break-after (double protection) */
+      /* Chaque rangée est atomique — le navigateur la passe entière à la page suivante
+         plutôt que de la couper à mi-hauteur. */
       .ticket-row { break-inside: avoid; page-break-inside: avoid; }
-      .ticket {
-        display: block;
-        break-inside: avoid;
-        page-break-inside: avoid;
-      }
+      .ticket     { display: block; break-inside: avoid; page-break-inside: avoid; }
 
       /* Template PHP : table avec display:inline-block → force display:table.
-         position:relative OBLIGATOIRE : sans lui, overflow:hidden ne clippe pas
-         les enfants position:absolute (le triangle décoratif CSS border-right:170px
-         déborde alors sur la bordure droite du ticket voisin). */
+         position:relative OBLIGATOIRE : overflow:hidden clippe le triangle décoratif. */
       .ticket > table {
         display: table !important;
         overflow: hidden !important;
@@ -286,14 +250,11 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
 
       /* overflow:visible sur conteneurs pour fix Safari page-break,
          MAIS overflow:hidden maintenu sur .ticket > table (triangle décoratif) */
-      body, .ticket-page-wrap, table.ticket-page, .ticket-row, .ticket-row > td {
+      body, table.ticket-page, .ticket-row, .ticket-row > td {
         overflow: visible !important;
       }
 
-      /* Template MikHmon (class="voucher") : la table n'a pas de border par défaut.
-         On ajoute une bordure directement sur la table — cible uniquement les tickets
-         qui utilisent class="voucher", sans toucher aux templates personnalisés.
-         box-sizing:border-box garantit que la bordure reste dans la largeur déclarée. */
+      /* Template MikHmon (class="voucher") */
       table.voucher {
         border: 1px solid #444 !important;
         box-sizing: border-box !important;
@@ -312,7 +273,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     <style>${mobilePrintCss}</style>
     ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
   </head>
-  <body>${mobileBlocks.join("")}</body>
+  <body>${tableHtml}</body>
 </html>`;
   }
 
