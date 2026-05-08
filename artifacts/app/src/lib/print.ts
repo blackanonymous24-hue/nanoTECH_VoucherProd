@@ -529,11 +529,18 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     #vn-print-bar button:hover { background: #6d28d9; }
 
     /* Décalage tickets sous la barre fixe */
-    #vn-tickets { margin-top: 48px; }
+    #vn-tickets {
+      margin-top: 48px;
+      display: flex !important;
+      flex-wrap: wrap !important;
+      align-items: flex-start !important;
+      align-content: flex-start !important;
+    }
 
-    /* ── Layout small — inline-block naturel (identique MikHmon) ────── */
+    /* ── Layout small — flex-wrap (iOS WebKit : évite la coupure) ────── */
     table.voucher {
-      display: inline-block !important;
+      flex: 0 0 auto !important;
+      display: inline-table !important;
       vertical-align: top;
       border: 2px solid #000;
       margin: 2px;
@@ -541,19 +548,28 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       box-sizing: border-box;
       page-break-inside: avoid !important;
       break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
     }
     table.voucher * {
       page-break-inside: avoid !important;
       break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
     }
 
     @media print {
       #vn-print-bar { display: none !important; }
-      #vn-tickets   { margin-top: 0 !important; }
+      #vn-tickets {
+        margin-top: 0 !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: flex-start !important;
+        align-content: flex-start !important;
+      }
       table.voucher {
-        display: inline-block !important;
+        flex: 0 0 auto !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
+        -webkit-column-break-inside: avoid !important;
       }
     }
 
@@ -707,9 +723,16 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
       white-space: nowrap;
     }
     #vn-print-bar button:hover { background: #6d28d9; }
-    #vn-tickets { margin-top: 48px; }
+    #vn-tickets {
+      margin-top: 48px;
+      display: flex !important;
+      flex-wrap: wrap !important;
+      align-items: flex-start !important;
+      align-content: flex-start !important;
+    }
     table.voucher {
-      display: inline-block !important;
+      flex: 0 0 auto !important;
+      display: inline-table !important;
       vertical-align: top;
       border: 2px solid #000;
       margin: 2px;
@@ -717,18 +740,27 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
       box-sizing: border-box;
       page-break-inside: avoid !important;
       break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
     }
     table.voucher * {
       page-break-inside: avoid !important;
       break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
     }
     @media print {
       #vn-print-bar { display: none !important; }
-      #vn-tickets   { margin-top: 0 !important; }
+      #vn-tickets {
+        margin-top: 0 !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: flex-start !important;
+        align-content: flex-start !important;
+      }
       table.voucher {
-        display: inline-block !important;
+        flex: 0 0 auto !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
+        -webkit-column-break-inside: avoid !important;
       }
     }
     #num, span#num {
