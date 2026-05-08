@@ -558,7 +558,8 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       #vn-tickets   { margin-top: 0 !important; }
       body { transform: none !important; width: 100% !important; }
       .vn-w {
-        display: block !important;
+        display: inline-block !important;
+        vertical-align: top !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
@@ -567,13 +568,6 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
-    }
-
-    #num, span#num {
-      float: right !important;
-      display: inline-block;
-      margin-left: 4px !important;
-      clear: none !important;
     }
   `;
 
@@ -753,8 +747,10 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
     @media print {
       #vn-print-bar { display: none !important; }
       #vn-tickets   { margin-top: 0 !important; }
+      body { transform: none !important; width: 100% !important; }
       .vn-w {
-        display: block !important;
+        display: inline-block !important;
+        vertical-align: top !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
@@ -763,12 +759,6 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
-    }
-    #num, span#num {
-      float: right !important;
-      display: inline-block;
-      margin-left: 4px !important;
-      clear: none !important;
     }
     #vn-loading {
       display: flex;
