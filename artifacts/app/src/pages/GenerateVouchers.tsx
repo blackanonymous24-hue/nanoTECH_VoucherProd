@@ -27,7 +27,7 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta, readSmallScale, readWebScale } from "@/pages/TicketTemplate";
 import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, printViaReactNative } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
@@ -694,7 +694,8 @@ export default function GenerateVouchers() {
     // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
     // de clic, puis on y écrit le HTML une fois prêt.
     const isAPK = typeof (window as any).ReactNativeWebView !== "undefined";
-    const scale = readSmallScale();
+    const isMob = !isAPK && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const scale = (isAPK || isMob) ? readSmallScale() : readWebScale();
     const preWin: Window | null = isAPK ? null : window.open("", "_blank");
     if (!isAPK && !preWin) {
       toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site.", variant: "destructive" });

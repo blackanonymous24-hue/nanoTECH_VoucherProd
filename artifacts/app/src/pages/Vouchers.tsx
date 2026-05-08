@@ -77,7 +77,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta, readSmallScale, readWebScale } from "@/pages/TicketTemplate";
 import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, printViaReactNative } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
@@ -704,7 +704,8 @@ export default function Vouchers() {
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
     const isAPK = typeof (window as any).ReactNativeWebView !== "undefined";
-    const scale = readSmallScale();
+    const isMob = !isAPK && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const scale = (isAPK || isMob) ? readSmallScale() : readWebScale();
     const preWin: Window | null = isAPK ? null : window.open("", "_blank");
     if (!isAPK && !preWin) {
       toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site.", variant: "destructive" });
@@ -895,7 +896,8 @@ export default function Vouchers() {
       return;
     }
     const isAPK = typeof (window as any).ReactNativeWebView !== "undefined";
-    const scale = readSmallScale();
+    const isMob = !isAPK && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const scale = (isAPK || isMob) ? readSmallScale() : readWebScale();
     const preWin: Window | null = isAPK ? null : window.open("", "_blank");
     if (!isAPK && !preWin) {
       toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site.", variant: "destructive" });
