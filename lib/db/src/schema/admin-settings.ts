@@ -23,6 +23,7 @@ export const adminSettingsTable = pgTable("admin_settings", {
   printScaleMobile: integer("print_scale_mobile").notNull().default(100),
   passwordPlain: text("password_plain"),
   verificationCode: text("verification_code"),
+  selectedPresetId: integer("selected_preset_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

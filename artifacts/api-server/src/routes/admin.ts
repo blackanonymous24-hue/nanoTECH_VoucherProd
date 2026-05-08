@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { eq, and, ne, sql } from "drizzle-orm";
-import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
+import { eq, and, ne, sql, asc } from "drizzle-orm";
+import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable, presetTemplatesTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken, verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
@@ -315,6 +315,30 @@ router.post("/admin/buy-routers", async (req, res): Promise<void> => {
 });
 
 /**
+ * GET /api/tenant/preset-templates
+ * Liste tous les modèles prédéfinis (tous les rôles authentifiés).
+ */
+router.get("/tenant/preset-templates", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+  const token = auth.slice(7);
+  const isAuth =
+    verifyAdminTokenFull(token) ||
+    verifyVendorToken(token) ||
+    verifyManagerToken(token) ||
+    verifyCollaborateurToken(token);
+  if (!isAuth) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+  const presets = await db.select().from(presetTemplatesTable).orderBy(asc(presetTemplatesTable.position), asc(presetTemplatesTable.id));
+  res.json({ presets });
+});
+
+/**
  * GET /api/tenant/ticket-template
  * Même contenu que GET /api/admin/ticket-template, mais accepte aussi les jetons
  * vendeur / manager / collaborateur (template du propriétaire du tenant).
@@ -378,11 +402,19 @@ router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
   }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile })
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile, selectedPresetId: adminSettingsTable.selectedPresetId })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, tenantAdminId));
 
-  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100 });
+  if (row?.selectedPresetId) {
+    const [preset] = await db.select().from(presetTemplatesTable).where(eq(presetTemplatesTable.id, row.selectedPresetId));
+    if (preset) {
+      res.json({ template: preset.html, scaleSmall: preset.scaleSmall, scaleMobile: preset.scaleMobile, selectedPresetId: row.selectedPresetId });
+      return;
+    }
+  }
+
+  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100, selectedPresetId: row?.selectedPresetId ?? null });
 });
 
 /**
@@ -396,24 +428,47 @@ router.get("/admin/ticket-template", async (req, res): Promise<void> => {
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile })
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile, selectedPresetId: adminSettingsTable.selectedPresetId })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, claims.adminId));
 
-  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100 });
+  if (row?.selectedPresetId) {
+    const [preset] = await db.select().from(presetTemplatesTable).where(eq(presetTemplatesTable.id, row.selectedPresetId));
+    if (preset) {
+      res.json({ template: preset.html, scaleSmall: preset.scaleSmall, scaleMobile: preset.scaleMobile, selectedPresetId: row.selectedPresetId });
+      return;
+    }
+  }
+
+  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100, selectedPresetId: row?.selectedPresetId ?? null });
 });
 
 /**
  * PUT /api/admin/ticket-template
  * Sauvegarde le template PHP Mikhmon v3 de l'admin connecté côté serveur.
  * Body: { template: string }  — chaîne vide = réinitialiser au défaut.
+ * Body: { presetId: number | null } — sélectionner un modèle prédéfini (null = désélectionner).
  */
 router.put("/admin/ticket-template", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const { template, scaleSmall, scaleMobile } = req.body as { template?: string; scaleSmall?: number; scaleMobile?: number };
+  const body = req.body as { template?: string; scaleSmall?: number; scaleMobile?: number; presetId?: number | null };
+
+  // Mode preset : sélectionner ou désélectionner un modèle prédéfini
+  if ("presetId" in body) {
+    const pid = body.presetId != null ? Number(body.presetId) : null;
+    await db
+      .update(adminSettingsTable)
+      .set({ selectedPresetId: pid })
+      .where(eq(adminSettingsTable.id, claims.adminId));
+    res.json({ ok: true });
+    return;
+  }
+
+  // Mode template personnalisé
+  const { template, scaleSmall, scaleMobile } = body;
   if (typeof template !== "string") {
     res.status(400).json({ error: "Champ template requis (string)" });
     return;
@@ -425,7 +480,7 @@ router.put("/admin/ticket-template", async (req, res): Promise<void> => {
 
   await db
     .update(adminSettingsTable)
-    .set({ ticketTemplate: template.trim() || null, ...scaleUpdate })
+    .set({ ticketTemplate: template.trim() || null, selectedPresetId: null, ...scaleUpdate })
     .where(eq(adminSettingsTable.id, claims.adminId));
 
   res.json({ ok: true });
@@ -583,6 +638,90 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Erreur routeur" });
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Super-admin — CRUD modèles prédéfinis
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/super/preset-templates
+ * Liste tous les modèles prédéfinis (super-admin).
+ */
+router.get("/super/preset-templates", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims?.isSuperAdmin) { res.status(403).json({ error: "Accès super-admin requis" }); return; }
+  const presets = await db.select().from(presetTemplatesTable).orderBy(asc(presetTemplatesTable.position), asc(presetTemplatesTable.id));
+  res.json({ presets });
+});
+
+/**
+ * POST /api/super/preset-templates
+ * Crée un nouveau modèle prédéfini (super-admin).
+ */
+router.post("/super/preset-templates", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims?.isSuperAdmin) { res.status(403).json({ error: "Accès super-admin requis" }); return; }
+
+  const { name, html, scaleSmall, scaleMobile, position } = req.body as { name?: string; html?: string; scaleSmall?: number; scaleMobile?: number; position?: number };
+  if (!name?.trim() || !html?.trim()) {
+    res.status(400).json({ error: "Champs name et html requis" });
+    return;
+  }
+  const [created] = await db.insert(presetTemplatesTable).values({
+    name: name.trim(),
+    html: html.trim(),
+    scaleSmall: typeof scaleSmall === "number" ? scaleSmall : 85,
+    scaleMobile: typeof scaleMobile === "number" ? scaleMobile : 100,
+    position: typeof position === "number" ? position : 0,
+  }).returning();
+  res.json({ preset: created });
+});
+
+/**
+ * PUT /api/super/preset-templates/:id
+ * Met à jour un modèle prédéfini (super-admin).
+ */
+router.put("/super/preset-templates/:id", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims?.isSuperAdmin) { res.status(403).json({ error: "Accès super-admin requis" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "id invalide" }); return; }
+
+  const { name, html, scaleSmall, scaleMobile, position } = req.body as { name?: string; html?: string; scaleSmall?: number; scaleMobile?: number; position?: number };
+  const update: Partial<typeof presetTemplatesTable.$inferInsert> = {};
+  if (typeof name === "string" && name.trim()) update.name = name.trim();
+  if (typeof html === "string" && html.trim()) update.html = html.trim();
+  if (typeof scaleSmall === "number") update.scaleSmall = scaleSmall;
+  if (typeof scaleMobile === "number") update.scaleMobile = scaleMobile;
+  if (typeof position === "number") update.position = position;
+
+  const [updated] = await db.update(presetTemplatesTable).set(update).where(eq(presetTemplatesTable.id, id)).returning();
+  if (!updated) { res.status(404).json({ error: "Modèle introuvable" }); return; }
+  res.json({ preset: updated });
+});
+
+/**
+ * DELETE /api/super/preset-templates/:id
+ * Supprime un modèle prédéfini (super-admin). Efface aussi le selectedPresetId des admins concernés.
+ */
+router.delete("/super/preset-templates/:id", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
+  if (!claims?.isSuperAdmin) { res.status(403).json({ error: "Accès super-admin requis" }); return; }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "id invalide" }); return; }
+
+  // Détacher ce preset des admins qui l'utilisent
+  await db.update(adminSettingsTable).set({ selectedPresetId: null }).where(eq(adminSettingsTable.selectedPresetId, id));
+  const [deleted] = await db.delete(presetTemplatesTable).where(eq(presetTemplatesTable.id, id)).returning();
+  if (!deleted) { res.status(404).json({ error: "Modèle introuvable" }); return; }
+  res.json({ ok: true });
 });
 
 export default router;
