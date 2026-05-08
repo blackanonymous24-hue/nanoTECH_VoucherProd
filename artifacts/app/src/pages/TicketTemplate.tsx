@@ -634,18 +634,42 @@ export default function TicketTemplate() {
 
             {/* Échelle Small (pré-sélection de la barre dans la page Small) */}
             <div className="space-y-1.5 border-t pt-3">
-              <span className="text-xs font-medium text-gray-600">📄 Échelle par défaut — mode Small</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-600">📄 Échelle par défaut — mode Small</span>
+                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScale * 100)}%</span>
+              </div>
               <p className="text-[11px] text-gray-400 leading-tight">
-                Pré-sélectionne l'échelle dans la barre de la page Small. Agit comme le réglage d'échelle d'Edge.
+                Glissez la barre, utilisez la molette ou saisissez une valeur de 0 à 100.
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {([1, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70] as number[]).map((s) => (
-                  <button
-                    key={s} type="button"
-                    onClick={() => { setSmallScale(s); saveSmallScale(s); }}
-                    className={`px-3 h-8 rounded text-sm font-bold border transition-colors ${smallScale === s ? "bg-violet-600 text-white border-violet-600" : "bg-white text-gray-600 border-gray-200 hover:border-violet-300 hover:text-violet-600"}`}
-                  >{Math.round(s * 100)}%</button>
-                ))}
+              {/* Slider + saisie manuelle */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="range" min={0} max={100} step={1}
+                  value={Math.round(smallScale * 100)}
+                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScale(v); saveSmallScale(v); }}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY < 0 ? 1 : -1;
+                    const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + delta));
+                    const v = next / 100;
+                    setSmallScale(v); saveSmallScale(v);
+                  }}
+                  className="flex-1 h-2 accent-violet-600 cursor-pointer"
+                  style={{ accentColor: "#7c3aed" }}
+                />
+                <input
+                  type="number" min={0} max={100} step={1}
+                  value={Math.round(smallScale * 100)}
+                  onChange={(e) => {
+                    const raw = parseInt(e.target.value, 10);
+                    if (isNaN(raw)) return;
+                    const clamped = Math.min(100, Math.max(0, raw));
+                    const v = clamped / 100;
+                    setSmallScale(v); saveSmallScale(v);
+                  }}
+                  className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
+                />
+                <span className="text-xs text-gray-400 shrink-0">%</span>
               </div>
             </div>
           </div>
