@@ -708,15 +708,11 @@ export default function Vouchers() {
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
+      try { const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10); return isNaN(v) ? 85 : v; } catch { return 85; }
     })();
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
+    // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
+    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -795,11 +791,12 @@ export default function Vouchers() {
       const title = printParts.join("-");
       const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage);
+        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage, colsDesktop, colsDesktop);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
+        // APK WebView natif uniquement
         printTickets(data.html, title, printScale, colsDesktop);
       }
     } catch (err) {
@@ -891,15 +888,11 @@ export default function Vouchers() {
       return;
     }
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
+      try { const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10); return isNaN(v) ? 85 : v; } catch { return 85; }
     })();
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
+    // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
+    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1028,11 +1021,12 @@ export default function Vouchers() {
       const mobileRowsPerPage = isMikHmon ? 9 : 6;
       const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, colsDesktop, colsDesktop);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
+        // APK WebView natif uniquement
         printTickets(data.html as string[], title, printScale, colsDesktop);
       }
     } finally {

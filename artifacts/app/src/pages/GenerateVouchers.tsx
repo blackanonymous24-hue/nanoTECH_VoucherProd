@@ -694,15 +694,11 @@ export default function GenerateVouchers() {
     // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
     // de clic, puis on y écrit le HTML une fois prêt.
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const printScale = (() => {
-      try {
-        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
-        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
-        return isNaN(v) ? 85 : v;
-      } catch { return 85; }
+      try { const v = parseInt(localStorage.getItem("vn_print_scale_desktop") ?? "85", 10); return isNaN(v) ? 85 : v; } catch { return 85; }
     })();
-    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
+    // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
+    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
 
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
@@ -776,16 +772,15 @@ export default function GenerateVouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       const title = printParts.join("-");
 
+      const genCols = isMikHmon ? 5 : 4;
       if (preWin) {
-        // Navigateur mobile : document.write direct — pas de navigation donc pas
-        // de message Safari "The web page did not finish loading"
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, genCols, genCols);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
-        // APK WebView natif ou desktop
-        printTickets(data.html as string[], title, printScale, isMikHmon ? 5 : 4);
+        // APK WebView natif uniquement
+        printTickets(data.html as string[], title, printScale, genCols);
       }
     } catch (err: unknown) {
       preWin?.close();
