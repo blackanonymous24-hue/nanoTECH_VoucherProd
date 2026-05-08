@@ -29,7 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale, hasExplicitSmallScale, hasExplicitMobileScale, saveSmallScale, saveMobileScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale, saveSmallScale, saveMobileScale } from "@/pages/TicketTemplate";
 import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
 
 const LS_KEY = "vouchernet-last-lot";
@@ -704,27 +704,21 @@ export default function GenerateVouchers() {
     }
     const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
     if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) { preWin?.close(); return; }
-    // Détecter AVANT l'appel si l'utilisateur a déjà une valeur locale explicite.
-    // Si non (nouveau compte, navigation privée, stockage effacé) → on appliquera
-    // la valeur du tenant (serveur) pour que les gérants/collaborateurs héritent
-    // de l'échelle de leur admin sans devoir passer par la page Paramètres.
-    const hadExplicitSmall  = hasExplicitSmallScale();
-    const hadExplicitMobile = hasExplicitMobileScale();
-    // Capturer les valeurs actuelles (défense en profondeur : prise au moment du clic)
+    // Fallback localStorage si le serveur est injoignable
     let capturedSmallScale  = readSmallScale();
     let capturedMobileScale = readMobileScale();
     setIsPrintingSmall(true);
     try {
       const { template: php, serverScaleSmall, serverScaleMobile } = await fetchServerTemplateWithMeta();
-      // Appliquer la valeur serveur (tenant admin) uniquement si aucune préférence locale :
-      if (!hadExplicitSmall && serverScaleSmall !== null) {
-        const v = serverScaleSmall / 100;
-        saveSmallScale(v);
-        capturedSmallScale = v;
+      // Le serveur est toujours la source de vérité — tous les rôles utilisent
+      // l'échelle du tenant admin, corrige aussi les valeurs localStorage périmées.
+      if (serverScaleSmall !== null) {
+        capturedSmallScale = serverScaleSmall / 100;
+        saveSmallScale(capturedSmallScale);
       }
-      if (!hadExplicitMobile && serverScaleMobile !== null) {
-        saveMobileScale(serverScaleMobile);
+      if (serverScaleMobile !== null) {
         capturedMobileScale = serverScaleMobile;
+        saveMobileScale(capturedMobileScale);
       }
       const PRICE_COLORS: Record<string, string> = {
         "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
