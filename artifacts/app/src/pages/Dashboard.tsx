@@ -278,14 +278,17 @@ function yTickFmt(v: number) {
 
 function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | null; enabled?: boolean }) {
   const isVisible = usePageVisibility();
+  const { token: authToken } = useAuth();
   const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
   const [selectedIface, setSelectedIface] = useState<string>("");
+
+  const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
   // Fetch interface list when router changes — gated on tab visibility
   const { data: ifaceList } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
     queryKey: ["interfaces", routerId],
     queryFn: async ({ signal }) => {
-      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`, { signal });
+      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`, { signal, headers: authHeaders });
       if (!res.ok) throw new Error("interfaces unavailable");
       return res.json();
     },
@@ -295,11 +298,13 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     throwOnError: false,
   });
 
-  // Auto-select first non-disabled interface when list arrives
+  // Auto-select ether1 by default, fallback to first non-disabled interface
   useEffect(() => {
     if (!ifaceList?.length) return;
     setSelectedIface(prev => {
       if (prev && ifaceList.some(i => i.name === prev)) return prev;
+      const ether1 = ifaceList.find(i => i.name === "ether1" && !i.disabled);
+      if (ether1) return ether1.name;
       return ifaceList.find(i => !i.disabled)?.name ?? ifaceList[0].name ?? "";
     });
   }, [ifaceList]);
@@ -311,7 +316,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
   const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
     queryKey: ["traffic", routerId, selectedIface],
     queryFn: async ({ signal }) => {
-      const res = await fetch(trafficUrl, { signal });
+      const res = await fetch(trafficUrl, { signal, headers: authHeaders });
       if (!res.ok) throw new Error("traffic unavailable");
       return res.json();
     },
