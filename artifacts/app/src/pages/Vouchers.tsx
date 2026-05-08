@@ -160,7 +160,7 @@ function makeClientBatchId(mode: "vc" | "up"): string {
 }
 
 export default function Vouchers() {
-  const { selectedRouterId, routers } = useRouterContext();
+  const { selectedRouterId, routers, selectedRouter } = useRouterContext();
   const { toast } = useToast();
 
   const [view, setView] = useState<"list" | "lots">("list");
@@ -245,7 +245,7 @@ export default function Vouchers() {
   const debouncedSearch = useDebounce(search, 400);
 
   const activeRouterId = selectedRouterId ?? null;
-  const activeRouter = routers.find((r) => r.id === activeRouterId);
+  const activeRouter = selectedRouter ?? routers.find((r) => r.id === activeRouterId);
 
   // ── Lots query — lightweight, always active (tiny payload from server cache) ──
   const {

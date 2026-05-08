@@ -743,7 +743,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                   key={r.id}
                   className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group"
                   title="Cliquer pour se connecter à ce routeur"
-                  onClick={() => void selectWithPing(r.id, { routerData: { id: r.id, name: r.name, ownerAdminId: r.ownerAdminId } })}
+                  onClick={() => void selectWithPing(r.id, { routerData: { id: r.id, name: r.name, ownerAdminId: r.ownerAdminId, hotspotName: r.hotspotName ?? null, contact: r.contact ?? null } })}
                 >
                   {/* Icône */}
                   <div className="p-1.5 rounded-lg bg-blue-50 shrink-0">

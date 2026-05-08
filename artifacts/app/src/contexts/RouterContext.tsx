@@ -4,7 +4,7 @@ import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 
-export type BorrowedRouter = { id: number; name: string; ownerAdminId: number };
+export type BorrowedRouter = { id: number; name: string; ownerAdminId: number; hotspotName?: string | null; contact?: string | null };
 
 interface RouterContextValue {
   selectedRouterId: number | null;
