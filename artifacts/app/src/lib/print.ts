@@ -136,8 +136,8 @@ export function openPrintHtmlWindow(html: string, title: string): void {
  *   - 9           : template MikHmon intégré         → 4×9 = 36 tickets/page.
  *   Ne jamais passer 9 pour un template importé ou enregistré par l'admin.
  */
-export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false, rowsPerPage = 6, desktopCols = 4, mobileCols = 4): string {
-  return buildHtml(htmlItems, title, true, scale, mobile, rowsPerPage, desktopCols, mobileCols);
+export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false, rowsPerPage = 6): string {
+  return buildHtml(htmlItems, title, true, scale, mobile, rowsPerPage);
 }
 
 /**
@@ -191,7 +191,8 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 </html>`;
 }
 
-function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false, rowsPerPage = 6, desktopCols = 4, mobileCols = 4): string {
+function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false, rowsPerPage = 6): string {
+  const COLS = 4;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
@@ -205,9 +206,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
     // rien à calculer, chaque bloc est garantiellement complet.
 
-    // mobileCols : configurable depuis le bouton "Paramètres d'impression" (défaut 4).
-    // Le zoom `s` sur html élargit la zone de contenu à 794/s px.
-    const MOBILE_COLS = Math.max(1, Math.min(6, mobileCols));
+    const MOBILE_COLS = COLS;
 
     // rowsPerPage : 6 (templates personnalisés) ou 9 (template MikHmon intégré sans sauvegarde).
     // Passé en paramètre depuis buildTicketPrintHtml.
@@ -317,9 +316,8 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ─── CHEMIN DESKTOP (inchangé) ────────────────────────────────────────────
+  // ─── CHEMIN DESKTOP ───────────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  const COLS = desktopCols;
   const PER_PAGE = COLS * 8;
   const pageBlocks: string[] = [];
   for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
@@ -549,8 +547,8 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
  * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
  * — Desktop     : utilise un <iframe> invisible.
  */
-export function printTickets(htmlItems: string[], title: string, scale = 85, desktopCols = 4): void {
-  let html = buildHtml(htmlItems, title, false, scale, false, 6, desktopCols);
+export function printTickets(htmlItems: string[], title: string, scale = 85): void {
+  let html = buildHtml(htmlItems, title, false, scale, false, 6);
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);

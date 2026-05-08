@@ -783,15 +783,14 @@ export default function Vouchers() {
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
-      const fixedCols = isMikHmon ? 5 : 4;
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage, fixedCols, fixedCols);
+        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
         // APK WebView natif uniquement
-        printTickets(data.html, title, printScale, fixedCols);
+        printTickets(data.html, title, printScale);
       }
     } catch (err) {
       preWin?.close();
@@ -941,15 +940,14 @@ export default function Vouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
       const mobileRowsPerPage = isMikHmon ? 9 : 6;
-      const fixedCols = isMikHmon ? 5 : 4;
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, fixedCols, fixedCols);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
         // APK WebView natif uniquement
-        printTickets(data.html as string[], title, printScale, fixedCols);
+        printTickets(data.html as string[], title, printScale);
       }
     } finally {
       setIsPrinting(false);

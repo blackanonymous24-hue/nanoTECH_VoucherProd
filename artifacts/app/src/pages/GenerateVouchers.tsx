@@ -771,15 +771,14 @@ export default function GenerateVouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       const title = printParts.join("-");
 
-      const genCols = isMikHmon ? 5 : 4;
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage, genCols, genCols);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       } else {
         // APK WebView natif uniquement
-        printTickets(data.html as string[], title, printScale, genCols);
+        printTickets(data.html as string[], title, printScale);
       }
     } catch (err: unknown) {
       preWin?.close();
