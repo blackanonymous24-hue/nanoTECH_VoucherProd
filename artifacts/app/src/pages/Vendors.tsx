@@ -270,7 +270,7 @@ export function PersonForm({
                 <Label htmlFor="pf-ticket-letter">Lettre</Label>
                 <Input
                   id="pf-ticket-letter"
-                  className="mt-1 font-mono w-24"
+                  className="mt-1 w-24"
                   placeholder="ex: K"
                   maxLength={3}
                   value={ticketLetter}
