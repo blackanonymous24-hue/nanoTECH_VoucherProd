@@ -529,38 +529,42 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     #vn-print-bar button:hover { background: #6d28d9; }
 
     /* Décalage tickets sous la barre fixe */
-    #vn-tickets { margin-top: 48px; }
+    #vn-tickets {
+      margin-top: 48px;
+      column-count: ${defaultCols};
+      column-gap: 4px;
+    }
 
-    /* ── Layout small — N tickets par ligne ──────────────────────────── */
+    /* ── Layout small — colonnes CSS (compatible iOS WebKit) ────────── */
     table.voucher {
-      display: inline-block !important;
-      vertical-align: top;
-      width: ${(98 / defaultCols).toFixed(1)}%;
+      display: block !important;
+      width: 100% !important;
       border: 2px solid #000;
-      margin: 2px;
+      margin: 2px 0;
       padding: 3px;
       box-sizing: border-box;
-      overflow: hidden;
-      page-break-inside: avoid !important;
       break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
+      page-break-inside: avoid !important;
     }
     table.voucher * {
-      page-break-inside: avoid !important;
       break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
+      page-break-inside: avoid !important;
     }
 
     @media print {
       #vn-print-bar { display: none !important; }
-      #vn-tickets   { margin-top: 0 !important; }
-      table  { page-break-after: auto; }
-      tr     { page-break-inside: avoid; page-break-after: auto; }
-      td     { page-break-inside: avoid; page-break-after: auto; }
-      thead  { display: table-header-group; }
-      tfoot  { display: table-footer-group; }
+      #vn-tickets {
+        margin-top: 0 !important;
+        column-count: ${defaultCols};
+        column-gap: 4px;
+      }
       table.voucher {
-        display: inline-block !important;
-        page-break-inside: avoid !important;
+        display: block !important;
         break-inside: avoid !important;
+        -webkit-column-break-inside: avoid !important;
+        page-break-inside: avoid !important;
       }
     }
 
@@ -572,18 +576,14 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     }
   `;
 
-  const pct = (98 / defaultCols).toFixed(1);
-
   const js = autoPrint
     ? `
-    document.addEventListener('DOMContentLoaded', function() {
+    window.onload = function() {
       document.body.style.transform = 'scale(${defaultScale})';
       document.body.style.width = (100 / ${defaultScale}).toFixed(2) + '%';
-      var s = document.createElement('style');
-      s.textContent = 'table.voucher { width: ${pct}% !important; }';
-      document.head.appendChild(s);
+      document.getElementById('vn-tickets').style.columnCount = '${defaultCols}';
       window.print();
-    });
+    };
   `
     : `
     var _currentCols = ${defaultCols};
@@ -599,10 +599,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     }
     function applySmallCols(cols) {
       _currentCols = cols;
-      var p = (98 / cols).toFixed(1) + '%';
-      var s = document.getElementById('vn-cols-style');
-      if (!s) { s = document.createElement('style'); s.id = 'vn-cols-style'; document.head.appendChild(s); }
-      s.textContent = 'table.voucher { width: ' + p + ' !important; }';
+      document.getElementById('vn-tickets').style.columnCount = cols;
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
@@ -739,35 +736,39 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85, defaultC
       white-space: nowrap;
     }
     #vn-print-bar button:hover { background: #6d28d9; }
-    #vn-tickets { margin-top: 48px; }
+    #vn-tickets {
+      margin-top: 48px;
+      column-count: ${defaultCols};
+      column-gap: 4px;
+    }
     table.voucher {
-      display: inline-block !important;
-      vertical-align: top;
-      width: ${(98 / defaultCols).toFixed(1)}%;
+      display: block !important;
+      width: 100% !important;
       border: 2px solid #000;
-      margin: 2px;
+      margin: 2px 0;
       padding: 3px;
       box-sizing: border-box;
-      overflow: hidden;
-      page-break-inside: avoid !important;
       break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
+      page-break-inside: avoid !important;
     }
     table.voucher * {
-      page-break-inside: avoid !important;
       break-inside: avoid !important;
+      -webkit-column-break-inside: avoid !important;
+      page-break-inside: avoid !important;
     }
     @media print {
       #vn-print-bar { display: none !important; }
-      #vn-tickets   { margin-top: 0 !important; }
-      table  { page-break-after: auto; }
-      tr     { page-break-inside: avoid; page-break-after: auto; }
-      td     { page-break-inside: avoid; page-break-after: auto; }
-      thead  { display: table-header-group; }
-      tfoot  { display: table-footer-group; }
+      #vn-tickets {
+        margin-top: 0 !important;
+        column-count: ${defaultCols};
+        column-gap: 4px;
+      }
       table.voucher {
-        display: inline-block !important;
-        page-break-inside: avoid !important;
+        display: block !important;
         break-inside: avoid !important;
+        -webkit-column-break-inside: avoid !important;
+        page-break-inside: avoid !important;
       }
     }
     #num, span#num {
@@ -812,10 +813,7 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85, defaultC
     }
     function applySmallCols(cols) {
       _currentCols = cols;
-      var pct = (98 / cols).toFixed(1) + '%';
-      var s = document.getElementById('vn-cols-style');
-      if (!s) { s = document.createElement('style'); s.id = 'vn-cols-style'; document.head.appendChild(s); }
-      s.textContent = 'table.voucher { width: ' + pct + ' !important; }';
+      document.getElementById('vn-tickets').style.columnCount = cols;
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
