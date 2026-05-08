@@ -195,10 +195,17 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
   if (mobile) {
     const s = scale / 100;
 
-    // Flux libre : chaque ticket est une cellule inline-block indépendante.
-    // Le navigateur remplit chaque ligne selon la largeur naturelle du ticket
-    // (template étroit → plus de colonnes, template large → moins de colonnes).
-    // Pas de groupement en rangées fixes : le nombre de colonnes s'adapte automatiquement.
+    // Colonnes auto : on lit la largeur native du ticket (attribut width sur la <table>)
+    // pour calculer combien de colonnes tiennent sur une page A4 avec ce zoom.
+    // Chaque cellule prend exactement 1/cols × 100 % → ligne remplie à 100 %, aucune marge.
+    const firstItem = htmlItems[0] ?? "";
+    const tableWidthMatch = firstItem.match(/<table[^>]+width=['"]?(\d+)/i);
+    const ticketNativePx = tableWidthMatch ? parseInt(tableWidthMatch[1], 10) : 200;
+    // A4 print = ~794 CSS px. Avec zoom:s sur html, le contenu dispose de 794/s px.
+    const effectivePagePx = Math.round(794 / s);
+    const cols = Math.max(1, Math.floor(effectivePagePx / (ticketNativePx + 4)));
+    const cellWidthPct = (100 / cols).toFixed(4);
+
     const cells = htmlItems
       .map(item => `<div class="ticket-cell"><div class="ticket">${item}</div></div>`)
       .join("");
@@ -224,31 +231,32 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       .doc-header { display: none !important; }
 
       /* Conteneur global : font-size:0 supprime l'espace entre inline-blocks.
-         text-align:center centre les tickets sur les lignes incomplètes. */
+         text-align:left — tickets partent du bord gauche, pas de marge centrée. */
       .ticket-page {
         display: block;
-        text-align: center;
+        text-align: left;
         font-size: 0;
         overflow: visible !important;
       }
 
-      /* Cellule = largeur naturelle du ticket (auto-colonnes selon le template).
-         Template étroit → plus de colonnes ; template large → moins de colonnes.
-         break-inside:avoid protège chaque ticket individuellement. */
+      /* Cellule = ${cellWidthPct}% (calculé : 100 % / ${cols} colonnes).
+         Remplit exactement toute la largeur de la page — aucune marge résiduelle.
+         La largeur est fixe (pas auto) → width:100% sur la table fille ne crée
+         pas de référence circulaire. */
       .ticket-cell {
         display: inline-block;
-        width: auto;
+        width: ${cellWidthPct}%;
         vertical-align: top;
         padding: 1px;
-        font-size: 14px;        /* restaure la taille après font-size:0 sur .ticket-page */
+        box-sizing: border-box;
+        font-size: 14px;
         break-inside: avoid !important;
         page-break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
         overflow: visible !important;
       }
 
-      /* .ticket = boîte clippante : empêche le contenu du ticket de déborder
-         sur le voisin de droite quand la table interne a une largeur fixe en px. */
+      /* .ticket = boîte clippante pour le contenu interne. */
       .ticket {
         display: block;
         overflow: hidden !important;
@@ -256,14 +264,12 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
         page-break-inside: avoid !important;
       }
 
-      /* Template PHP : table avec display:inline-block → force display:table.
-         PAS de width:100% ici — laisser la table garder sa largeur native
-         (définie par l'attribut width du template, ex. width="250").
-         width:100% + width:auto sur la cellule crée une référence circulaire
-         que le navigateur résout en forçant 4 colonnes.
+      /* Template PHP : force display:table, occupe toute la cellule (largeur fixe %),
          position:relative + overflow:hidden clippent le triangle décoratif CSS. */
       .ticket > table {
         display: table !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
         overflow: hidden !important;
         position: relative !important;
       }
