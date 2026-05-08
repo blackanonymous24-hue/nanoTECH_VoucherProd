@@ -743,7 +743,7 @@ export default function Vouchers() {
     setPrintingLot(lot.name);
     try {
       // Parallélisation : template + users en simultané
-      const [{ template: php, isDefault: isMikHmonDefault }, users] = await Promise.all([
+      const [{ template: php }, users] = await Promise.all([
         fetchServerTemplateWithMeta(),
         fetchLotUsers(lot),
       ]);
@@ -752,8 +752,7 @@ export default function Vouchers() {
         toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
         return;
       }
-      const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-      const mobileRowsPerPage = isMikHmon ? 9 : 6;
+      const mobileRowsPerPage = 6;
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const vouchers = users.map((user, idx) => {
         const profile = profilesList.find((p) => p.name === user.profile);
@@ -789,7 +788,7 @@ export default function Vouchers() {
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
-      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
+      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
       if (preWin) {
         const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage);
         preWin.document.open();
@@ -944,8 +943,7 @@ export default function Vouchers() {
       }
     }
     setIsPrinting(true);
-    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
-    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+    const { template: php } = await fetchServerTemplateWithMeta();
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -1036,8 +1034,8 @@ export default function Vouchers() {
       const printComment = firstUser?.comment ?? "";
       const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
-      const mobileRowsPerPage = isMikHmon ? 9 : 6;
-      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
+      const mobileRowsPerPage = 6;
+      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? "4", 10); return isNaN(v) ? 4 : Math.max(1, Math.min(6, v)); } catch { return 4; } })();
       if (preWin) {
         const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
         preWin.document.open();
