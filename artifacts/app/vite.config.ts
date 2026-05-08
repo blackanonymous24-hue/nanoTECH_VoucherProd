@@ -9,9 +9,35 @@ const port = rawPort && !Number.isNaN(Number(rawPort)) ? Number(rawPort) : 4173;
 
 const basePath = process.env.BASE_PATH ?? "/";
 
+/** Plugin : headers de cache corrects pour dev + preview (production).
+ *  - index.html / racine → no-store (toujours rechargé après déploiement)
+ *  - /assets/* (JS/CSS hashés) → immutable 1 an (contenu ne change jamais)
+ */
+const cacheHeaders = (): import("vite").Plugin => {
+  const applyHeaders = (server: import("vite").PreviewServer | import("vite").ViteDevServer) => {
+    server.middlewares.use((_req, res, next) => {
+      const url = (_req as { url?: string }).url ?? "";
+      if (url === "/" || url.endsWith(".html") || url === "") {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+      } else if (url.includes("/assets/")) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+      next();
+    });
+  };
+  return {
+    name: "cache-headers",
+    configureServer: applyHeaders,
+    configurePreviewServer: applyHeaders,
+  };
+};
+
 export default defineConfig({
   base: basePath,
   plugins: [
+    cacheHeaders(),
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
