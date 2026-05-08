@@ -257,13 +257,13 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       }
 
       /* Template PHP : table avec display:inline-block → force display:table.
-         width:100% contraint la table à la cellule (évite le chevauchement).
+         PAS de width:100% ici — laisser la table garder sa largeur native
+         (définie par l'attribut width du template, ex. width="250").
+         width:100% + width:auto sur la cellule crée une référence circulaire
+         que le navigateur résout en forçant 4 colonnes.
          position:relative + overflow:hidden clippent le triangle décoratif CSS. */
       .ticket > table {
         display: table !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
         overflow: hidden !important;
         position: relative !important;
       }
