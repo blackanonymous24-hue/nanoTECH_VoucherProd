@@ -867,7 +867,7 @@ export default function Vouchers() {
         toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
         return;
       }
-      // Injecte les tickets dans la page déjà ouverte (sans réécrire)
+      // Injecte les tickets dans la page déjà ouverte (sans réécrire), puis imprime directement
       const ticketsDiv = preWin.document.getElementById("vn-tickets");
       if (ticketsDiv) {
         ticketsDiv.innerHTML = data.html.join("\n");
@@ -875,12 +875,16 @@ export default function Vouchers() {
         const w = preWin as unknown as { updateInfo?: () => void; applySmallCols?: (n: number) => void };
         w.applySmallCols?.(cols);
         w.updateInfo?.();
+        preWin.focus();
+        preWin.print();
       } else {
         // Fallback si le DOM n'est pas prêt
         const html = buildSmallModePrintHtml(data.html, title, scale, cols);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
+        preWin.focus();
+        preWin.print();
       }
     } catch (err) {
       preWin.close();
