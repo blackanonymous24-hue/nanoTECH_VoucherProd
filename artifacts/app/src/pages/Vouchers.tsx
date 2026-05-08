@@ -78,7 +78,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { fetchServerTemplateWithMeta, readSmallScale, readSmallCols } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml, buildSmallModeShell } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -809,15 +809,20 @@ export default function Vouchers() {
   // ── Print Small (mode MikHmon : 2 colonnes, CSS identique à print.php?small=yes) ─────────────
   // Le QR n'est inclus QUE si le template PHP de l'admin contient $qrcode.
   const handlePrintSmallLot = async (lot: LotSummary) => {
+    const scale = readSmallScale();
+    const cols  = readSmallCols();
+    const title = ["Voucher-Small", lot.name].filter(Boolean).join("-");
+
+    // Ouvre la fenêtre et affiche la barre immédiatement (paramètres déjà pré-définis)
     const preWin = window.open("", "_blank");
-    if (preWin) {
-      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#555}
-.spinner{width:36px;height:36px;border:4px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
-@keyframes spin{to{transform:rotate(360deg)}}</style></head>
-<body><div style="text-align:center"><div class="spinner"></div><p>Génération du mode Small…</p></div></body></html>`);
-      preWin.document.close();
+    if (!preWin) {
+      toast({ title: "Popup bloqué", description: "Autorisez les popups pour ce site.", variant: "destructive" });
+      return;
     }
+    const shellHtml = buildSmallModeShell(title, scale, cols);
+    preWin.document.write(shellHtml);
+    preWin.document.close();
+
     const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
     setPrintingLot(lot.name);
     try {
@@ -826,7 +831,7 @@ export default function Vouchers() {
         fetchLotUsers(lot),
       ]);
       if (users.length === 0) {
-        preWin?.close();
+        preWin.close();
         toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
         return;
       }
@@ -851,26 +856,34 @@ export default function Vouchers() {
         body: JSON.stringify({ php, vouchers }),
       });
       if (!resp.ok) {
-        preWin?.close();
+        preWin.close();
         const err = await resp.json().catch(() => ({})) as { error?: string };
         toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" });
         return;
       }
       const data = await resp.json() as { html: string[] };
       if (!data.html?.length) {
-        preWin?.close();
+        preWin.close();
         toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
         return;
       }
-      const title = ["Voucher-Small", lot.name].filter(Boolean).join("-");
-      const html = buildSmallModePrintHtml(data.html, title, readSmallScale(), readSmallCols());
-      if (preWin) {
+      // Injecte les tickets dans la page déjà ouverte (sans réécrire)
+      const ticketsDiv = preWin.document.getElementById("vn-tickets");
+      if (ticketsDiv) {
+        ticketsDiv.innerHTML = data.html.join("\n");
+        (preWin as unknown as Record<string, unknown>)._totalTickets = data.html.length;
+        const w = preWin as unknown as { updateInfo?: () => void; applySmallCols?: (n: number) => void };
+        w.applySmallCols?.(cols);
+        w.updateInfo?.();
+      } else {
+        // Fallback si le DOM n'est pas prêt
+        const html = buildSmallModePrintHtml(data.html, title, scale, cols);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
       }
     } catch (err) {
-      preWin?.close();
+      preWin.close();
       toast({ title: "Erreur impression small", description: String(err), variant: "destructive" });
     } finally {
       setPrintingLot(null);

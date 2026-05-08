@@ -641,6 +641,203 @@ ${bar}
 }
 
 /**
+ * Génère le shell HTML du mode Small (barre pré-configurée, #vn-tickets vide).
+ * Les tickets sont injectés ultérieurement via innerHTML.
+ * Le compteur utilise window._totalTickets (mis à jour par l'appelant).
+ */
+export function buildSmallModeShell(title: string, defaultScale = 0.85, defaultCols = 2): string {
+  const css = `
+    @page {
+      size: auto;
+      margin-left: 7mm;
+      margin-right: 3mm;
+      margin-top: 9mm;
+      margin-bottom: 3mm;
+    }
+    body {
+      color: #000;
+      background-color: #fff;
+      font-size: 14px;
+      font-family: Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      transform-origin: top left;
+    }
+    #vn-print-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 42px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      font-size: 13px;
+      font-family: Helvetica, Arial, sans-serif;
+      z-index: 9999;
+      box-shadow: 0 2px 8px rgba(0,0,0,.45);
+    }
+    #vn-print-bar label { opacity: .75; white-space: nowrap; }
+    #vn-print-bar select {
+      padding: 3px 7px;
+      border-radius: 5px;
+      border: 1px solid #45475a;
+      background: #313244;
+      color: #cdd6f4;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #vn-print-bar .vn-sep { flex: 1; }
+    #vn-print-bar .vn-info {
+      font-size: 11px;
+      opacity: .75;
+      white-space: nowrap;
+      font-weight: 600;
+      color: #a6e3a1;
+    }
+    #vn-print-bar button {
+      padding: 5px 16px;
+      border: none;
+      border-radius: 5px;
+      background: #7c3aed;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #vn-print-bar button:hover { background: #6d28d9; }
+    #vn-tickets { margin-top: 48px; }
+    table.voucher {
+      display: inline-block !important;
+      vertical-align: top;
+      width: ${(98 / defaultCols).toFixed(1)}%;
+      border: 2px solid #000;
+      margin: 2px;
+      padding: 3px;
+      box-sizing: border-box;
+      overflow: hidden;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    table.voucher * {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    @media print {
+      #vn-print-bar { display: none !important; }
+      #vn-tickets   { margin-top: 0 !important; }
+      table  { page-break-after: auto; }
+      tr     { page-break-inside: avoid; page-break-after: auto; }
+      td     { page-break-inside: avoid; page-break-after: auto; }
+      thead  { display: table-header-group; }
+      tfoot  { display: table-footer-group; }
+      table.voucher {
+        display: inline-block !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+    }
+    #num, span#num {
+      float: right !important;
+      display: inline-block;
+      margin-left: 4px !important;
+      clear: none !important;
+    }
+    #vn-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 60vh;
+      color: #888;
+      font-size: 14px;
+      font-family: sans-serif;
+    }
+    .vn-spinner {
+      width: 32px; height: 32px;
+      border: 4px solid #e5e7eb;
+      border-top-color: #7c3aed;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      margin-bottom: 10px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  `;
+
+  const js = `
+    var _currentCols = ${defaultCols};
+    var _totalTickets = 0;
+    function updateInfo() {
+      var scale = parseFloat(document.getElementById('vn-scale').value);
+      var info  = document.getElementById('vn-scale-info');
+      if (info) info.textContent = Math.round(scale * 100) + '% · ' + _currentCols + ' col · ' + _totalTickets + ' ticket(s)';
+    }
+    function applyPrintScale(scale) {
+      document.body.style.transform = 'scale(' + scale + ')';
+      document.body.style.width = (100 / scale) + '%';
+      updateInfo();
+    }
+    function applySmallCols(cols) {
+      _currentCols = cols;
+      var pct = (98 / cols).toFixed(1) + '%';
+      var s = document.getElementById('vn-cols-style');
+      if (!s) { s = document.createElement('style'); s.id = 'vn-cols-style'; document.head.appendChild(s); }
+      s.textContent = 'table.voucher { width: ' + pct + ' !important; }';
+      updateInfo();
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+      var scaleSel = document.getElementById('vn-scale');
+      var colsSel  = document.getElementById('vn-cols');
+      scaleSel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
+      colsSel.addEventListener('change',  function() { applySmallCols(parseInt(this.value, 10)); });
+      applyPrintScale(parseFloat(scaleSel.value));
+      applySmallCols(parseInt(colsSel.value, 10));
+    });
+  `;
+
+  const scaleOptions = ([1, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70] as number[])
+    .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
+    .join("\n    ");
+
+  const colsOptions = ([1, 2, 3, 4, 5, 6, 7, 8] as number[])
+    .map((c) => `<option value="${c}"${c === defaultCols ? " selected" : ""}>${c} col</option>`)
+    .join("\n    ");
+
+  const bar = `<div id="vn-print-bar">
+  <label for="vn-scale">Échelle :</label>
+  <select id="vn-scale">
+    ${scaleOptions}
+  </select>
+  <label for="vn-cols" style="margin-left:6px;">Colonnes :</label>
+  <select id="vn-cols">
+    ${colsOptions}
+  </select>
+  <span class="vn-sep"></span>
+  <span class="vn-info" id="vn-scale-info"></span>
+  <button onclick="window.print()">🖨&nbsp;Imprimer</button>
+</div>`;
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>${css}</style>
+  <script>${js}<\/script>
+</head>
+<body>
+${bar}
+<div id="vn-tickets"><div id="vn-loading"><div class="vn-spinner"></div><p>Chargement des tickets…</p></div></div>
+</body>
+</html>`;
+}
+
+/**
  * Imprime des tickets HTML.
  * — APK WebView : pont natif via postMessage → expo-print.
  * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
