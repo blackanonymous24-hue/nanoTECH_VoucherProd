@@ -16,7 +16,7 @@ function saveCols(key: string, v: number) { try { localStorage.setItem(key, Stri
 export function readSmallScale(): number {
   try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
 }
-function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
+export function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 

@@ -58,6 +58,7 @@ import {
   CheckCircle2,
   Copy,
   LayoutGrid,
+  Sliders,
 } from "lucide-react";
 import { PasswordInput } from "@/components/ui/password-input";
 import {
@@ -77,7 +78,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta, readSmallScale, saveSmallScale } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
@@ -172,6 +173,9 @@ export default function Vouchers() {
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [printingLot, setPrintingLot] = useState<string | null>(null);
+  const [smallScale, setSmallScaleState] = useState(() => readSmallScale());
+  const [smallScaleOpen, setSmallScaleOpen] = useState(false);
+  const updateSmallScale = (v: number) => { setSmallScaleState(v); saveSmallScale(v); };
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
   const [isDeletingLot, setIsDeletingLot] = useState(false);
   const [deletingLotName, setDeletingLotName] = useState<string | null>(null);
@@ -2175,16 +2179,73 @@ export default function Vouchers() {
                               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               : <Printer className="h-3.5 w-3.5" />}
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-violet-600 border-violet-200 hover:bg-violet-50 hover:text-violet-700"
-                            onClick={() => handlePrintSmallLot(lot)}
-                            title="Imprimer en mode Small MikHmon (2 colonnes, navigateur natif)"
-                          >
-                            <LayoutGrid className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Small</span>
-                          </Button>
+                          {/* Small + réglage échelle inline */}
+                          <div className="flex items-center">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-violet-600 border-violet-200 hover:bg-violet-50 hover:text-violet-700 rounded-r-none border-r-0"
+                              onClick={() => handlePrintSmallLot(lot)}
+                              title="Imprimer en mode Small MikHmon (2 colonnes, navigateur natif)"
+                            >
+                              <LayoutGrid className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">Small</span>
+                            </Button>
+                            <Popover open={smallScaleOpen} onOpenChange={setSmallScaleOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-1.5 text-[10px] font-bold text-violet-500 border-violet-200 hover:bg-violet-50 hover:text-violet-700 rounded-l-none tabular-nums"
+                                  title="Régler l'échelle du mode Small"
+                                >
+                                  <Sliders className="h-3 w-3" />
+                                  <span className="hidden sm:inline ml-0.5">{Math.round(smallScale * 100)}%</span>
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-64 p-3 space-y-3" align="end">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-semibold text-gray-700">Échelle mode Small</span>
+                                  <span className="text-sm font-bold text-violet-600 tabular-nums">{Math.round(smallScale * 100)}%</span>
+                                </div>
+                                {/* Slider + molette */}
+                                <input
+                                  type="range" min={0} max={100} step={1}
+                                  value={Math.round(smallScale * 100)}
+                                  onChange={(e) => updateSmallScale(Number(e.target.value) / 100)}
+                                  onWheel={(e) => {
+                                    e.preventDefault();
+                                    const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + (e.deltaY < 0 ? 1 : -1)));
+                                    updateSmallScale(next / 100);
+                                  }}
+                                  className="w-full cursor-pointer"
+                                  style={{ accentColor: "#7c3aed" }}
+                                />
+                                {/* Raccourcis + saisie manuelle */}
+                                <div className="flex items-center gap-1.5">
+                                  <div className="flex gap-1 flex-1">
+                                    {[100, 90, 85, 80, 75, 70].map((pct) => (
+                                      <button
+                                        key={pct} type="button"
+                                        onClick={() => updateSmallScale(pct / 100)}
+                                        className={`flex-1 py-0.5 rounded text-[10px] font-semibold border transition-colors ${Math.round(smallScale * 100) === pct ? "bg-violet-600 text-white border-violet-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:border-violet-300 hover:text-violet-600"}`}
+                                      >{pct}</button>
+                                    ))}
+                                  </div>
+                                  <input
+                                    type="number" min={0} max={100} step={1}
+                                    value={Math.round(smallScale * 100)}
+                                    onChange={(e) => {
+                                      const raw = parseInt(e.target.value, 10);
+                                      if (!isNaN(raw)) updateSmallScale(Math.min(100, Math.max(0, raw)) / 100);
+                                    }}
+                                    className="w-12 text-center text-xs font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
+                                  />
+                                  <span className="text-[10px] text-gray-400">%</span>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
                           <Button
                             size="sm"
                             variant="outline"
