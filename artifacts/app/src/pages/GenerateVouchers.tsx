@@ -704,6 +704,9 @@ export default function GenerateVouchers() {
     }
     const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
     if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) { preWin?.close(); return; }
+    // Capturer les échelles AVANT fetchServerTemplateWithMeta qui peut écraser localStorage
+    const capturedSmallScale  = readSmallScale();
+    const capturedMobileScale = readMobileScale();
     setIsPrintingSmall(true);
     try {
       const { template: php } = await fetchServerTemplateWithMeta();
@@ -737,11 +740,11 @@ export default function GenerateVouchers() {
       const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       if (isNativeWV) {
         // APK : pont natif, pas de window.open
-        printTickets(data.html as string[], title, readMobileScale());
+        printTickets(data.html as string[], title, capturedMobileScale);
       } else if (isMobileBrowser) {
         // Mobile browser : zoom + page-breaks (anti-coupure)
         if (preWin) {
-          const html = buildTicketPrintHtml(data.html as string[], title, readMobileScale(), true);
+          const html = buildTicketPrintHtml(data.html as string[], title, capturedMobileScale, true);
           preWin.document.open();
           preWin.document.write(html);
           preWin.document.close();
@@ -749,7 +752,7 @@ export default function GenerateVouchers() {
       } else {
         // Desktop : 2 colonnes Small
         if (preWin) {
-          const html = buildSmallModePrintHtml(data.html as string[], title, readSmallScale());
+          const html = buildSmallModePrintHtml(data.html as string[], title, capturedSmallScale);
           preWin.document.open();
           preWin.document.write(html);
           preWin.document.close();

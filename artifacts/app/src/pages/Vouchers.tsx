@@ -722,6 +722,9 @@ export default function Vouchers() {
     }
     const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
     if (await tryOpenVoucherPrintPage(lot.name, hotspotName)) { preWin?.close(); return; }
+    // Capturer les échelles AVANT fetchServerTemplateWithMeta qui peut écraser localStorage
+    const capturedSmallScale  = readSmallScale();
+    const capturedMobileScale = readMobileScale();
     setPrintingLot(lot.name);
     try {
       const [{ template: php }, users] = await Promise.all([fetchServerTemplateWithMeta(), fetchLotUsers(lot)]);
@@ -740,17 +743,17 @@ export default function Vouchers() {
       const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       if (isNativeWV) {
         // APK : pont natif, pas de window.open
-        printTickets(data.html, title, readMobileScale());
+        printTickets(data.html, title, capturedMobileScale);
       } else if (isMobileBrowser) {
         // Mobile browser : zoom + page-breaks (anti-coupure)
         if (preWin) {
-          const html = buildTicketPrintHtml(data.html, title, readMobileScale(), true);
+          const html = buildTicketPrintHtml(data.html, title, capturedMobileScale, true);
           preWin.document.open(); preWin.document.write(html); preWin.document.close();
         }
       } else {
         // Desktop : 2 colonnes Small
         if (preWin) {
-          const html = buildSmallModePrintHtml(data.html, title, readSmallScale());
+          const html = buildSmallModePrintHtml(data.html, title, capturedSmallScale);
           preWin.document.open(); preWin.document.write(html); preWin.document.close();
         }
       }
