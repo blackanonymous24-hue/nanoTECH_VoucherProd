@@ -9,12 +9,20 @@ export const SMALL_SCALE_KEY   = "vn_small_scale";
 export const MOBILE_SCALE_KEY  = "vn_print_scale_mobile";
 
 export function readSmallScale(): number {
-  try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
+  try {
+    const stored = localStorage.getItem(SMALL_SCALE_KEY);
+    if (stored === "0.85") { localStorage.setItem(SMALL_SCALE_KEY, "1"); return 1; }
+    const v = parseFloat(stored ?? "1"); return isNaN(v) ? 1 : v;
+  } catch { return 1; }
 }
 export function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
 
-export function readMobileScale(def = 85): number {
-  try { const v = parseInt(localStorage.getItem(MOBILE_SCALE_KEY) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
+export function readMobileScale(def = 100): number {
+  try {
+    const stored = localStorage.getItem(MOBILE_SCALE_KEY);
+    if (stored === "85") { localStorage.setItem(MOBILE_SCALE_KEY, "100"); return 100; }
+    const v = parseInt(stored ?? String(def), 10); return isNaN(v) ? def : v;
+  } catch { return def; }
 }
 export function saveMobileScale(v: number) { try { localStorage.setItem(MOBILE_SCALE_KEY, String(v)); } catch {} }
 
