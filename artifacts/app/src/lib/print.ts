@@ -529,47 +529,36 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     #vn-print-bar button:hover { background: #6d28d9; }
 
     /* Décalage tickets sous la barre fixe */
-    #vn-tickets {
-      margin-top: 48px;
-      display: flex !important;
-      flex-wrap: wrap !important;
-      align-items: flex-start !important;
-      align-content: flex-start !important;
+    #vn-tickets { margin-top: 48px; }
+
+    /* ── Wrapper JS injecté autour de chaque ticket ─────────────────── */
+    .vn-w {
+      display: inline-block;
+      vertical-align: top;
     }
 
-    /* ── Layout small — flex-wrap (iOS WebKit : évite la coupure) ────── */
+    /* ── Table ticket (apparence) ────────────────────────────────────── */
     table.voucher {
-      flex: 0 0 auto !important;
-      display: inline-table !important;
-      vertical-align: top;
       border: 2px solid #000;
       margin: 2px;
       padding: 3px;
       box-sizing: border-box;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      -webkit-column-break-inside: avoid !important;
-    }
-    table.voucher * {
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      -webkit-column-break-inside: avoid !important;
     }
 
+    /* ── Impression : display:block sur le wrapper → iOS respecte      */
+    /*    page-break-inside:avoid (ne fonctionne pas sur inline-block)  */
     @media print {
       #vn-print-bar { display: none !important; }
-      #vn-tickets {
-        margin-top: 0 !important;
-        display: flex !important;
-        flex-wrap: wrap !important;
-        align-items: flex-start !important;
-        align-content: flex-start !important;
-      }
-      table.voucher {
-        flex: 0 0 auto !important;
+      #vn-tickets   { margin-top: 0 !important; }
+      .vn-w {
+        display: block !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
+      }
+      table.voucher {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
     }
 
@@ -581,9 +570,19 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     }
   `;
 
+  const wrapTicketsJs = `
+    Array.from(document.querySelectorAll('table.voucher')).forEach(function(t) {
+      var w = document.createElement('div');
+      w.className = 'vn-w';
+      t.parentNode.insertBefore(w, t);
+      w.appendChild(t);
+    });
+  `;
+
   const js = autoPrint
     ? `
     window.onload = function() {
+      ${wrapTicketsJs}
       document.body.style.transform = 'scale(${defaultScale})';
       document.body.style.width = (100 / ${defaultScale}).toFixed(2) + '%';
       window.print();
@@ -601,6 +600,10 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
+      Array.from(document.querySelectorAll('table.voucher')).forEach(function(t) {
+        var w = document.createElement('div'); w.className = 'vn-w';
+        t.parentNode.insertBefore(w, t); w.appendChild(t);
+      });
       var scaleSel = document.getElementById('vn-scale');
       scaleSel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
       applyPrintScale(parseFloat(scaleSel.value));
@@ -723,44 +726,29 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
       white-space: nowrap;
     }
     #vn-print-bar button:hover { background: #6d28d9; }
-    #vn-tickets {
-      margin-top: 48px;
-      display: flex !important;
-      flex-wrap: wrap !important;
-      align-items: flex-start !important;
-      align-content: flex-start !important;
+    #vn-tickets { margin-top: 48px; }
+    .vn-w {
+      display: inline-block;
+      vertical-align: top;
     }
     table.voucher {
-      flex: 0 0 auto !important;
-      display: inline-table !important;
-      vertical-align: top;
       border: 2px solid #000;
       margin: 2px;
       padding: 3px;
       box-sizing: border-box;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      -webkit-column-break-inside: avoid !important;
-    }
-    table.voucher * {
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      -webkit-column-break-inside: avoid !important;
     }
     @media print {
       #vn-print-bar { display: none !important; }
-      #vn-tickets {
-        margin-top: 0 !important;
-        display: flex !important;
-        flex-wrap: wrap !important;
-        align-items: flex-start !important;
-        align-content: flex-start !important;
-      }
-      table.voucher {
-        flex: 0 0 auto !important;
+      #vn-tickets   { margin-top: 0 !important; }
+      .vn-w {
+        display: block !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
+      }
+      table.voucher {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
     }
     #num, span#num {
@@ -803,6 +791,10 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
+      Array.from(document.querySelectorAll('table.voucher')).forEach(function(t) {
+        var w = document.createElement('div'); w.className = 'vn-w';
+        t.parentNode.insertBefore(w, t); w.appendChild(t);
+      });
       var scaleSel = document.getElementById('vn-scale');
       scaleSel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
       applyPrintScale(parseFloat(scaleSel.value));
