@@ -539,8 +539,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
 
     /* ── Wrapper JS injecté autour de chaque ticket ─────────────────── */
     .vn-w {
-      display: inline-block;
-      vertical-align: top;
+      display: block;
     }
 
     /* ── Table ticket (apparence) ────────────────────────────────────── */
