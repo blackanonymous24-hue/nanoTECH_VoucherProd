@@ -57,6 +57,7 @@ import {
   FilePlus2,
   CheckCircle2,
   Copy,
+  LayoutGrid,
 } from "lucide-react";
 import { PasswordInput } from "@/components/ui/password-input";
 import {
@@ -76,8 +77,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale, readSmallScaleWeb } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildWebPrintHtml, isMobile } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -703,8 +704,15 @@ export default function Vouchers() {
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
-    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
+    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const printScale = (() => {
+      try {
+        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
+        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
+        return isNaN(v) ? 85 : v;
+      } catch { return 85; }
+    })();
+    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -735,7 +743,7 @@ export default function Vouchers() {
     setPrintingLot(lot.name);
     try {
       // Parallélisation : template + users en simultané
-      const [{ template: php }, users] = await Promise.all([
+      const [{ template: php, isDefault: isMikHmonDefault }, users] = await Promise.all([
         fetchServerTemplateWithMeta(),
         fetchLotUsers(lot),
       ]);
@@ -744,7 +752,8 @@ export default function Vouchers() {
         toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
         return;
       }
-      const mobileRowsPerPage = 6;
+      const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+      const mobileRowsPerPage = isMikHmon ? 9 : 6;
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const vouchers = users.map((user, idx) => {
         const profile = profilesList.find((p) => p.name === user.profile);
@@ -780,23 +789,89 @@ export default function Vouchers() {
       }
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
-      if (isNativeWV) {
-        printTickets(data.html, title, printScale);
-      } else if (isMobile()) {
+      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
+      if (preWin) {
         const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage);
-        preWin!.document.open();
-        preWin!.document.write(html);
-        preWin!.document.close();
+        preWin.document.open();
+        preWin.document.write(html);
+        preWin.document.close();
       } else {
-        const html = buildWebPrintHtml(data.html, title, readSmallScaleWeb());
-        preWin!.document.open();
-        preWin!.document.write(html);
-        preWin!.document.close();
-        preWin!.focus();
+        printTickets(data.html, title, printScale, colsDesktop);
       }
     } catch (err) {
       preWin?.close();
       toast({ title: "Erreur impression", description: String(err), variant: "destructive" });
+    } finally {
+      setPrintingLot(null);
+    }
+  };
+
+  // ── Print Small (mode MikHmon : 2 colonnes, CSS identique à print.php?small=yes) ─────────────
+  // Le QR n'est inclus QUE si le template PHP de l'admin contient $qrcode.
+  const handlePrintSmallLot = async (lot: LotSummary) => {
+    const preWin = window.open("", "_blank");
+    if (preWin) {
+      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
+<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#555}
+.spinner{width:36px;height:36px;border:4px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}</style></head>
+<body><div style="text-align:center"><div class="spinner"></div><p>Génération du mode Small…</p></div></body></html>`);
+      preWin.document.close();
+    }
+    const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
+    setPrintingLot(lot.name);
+    try {
+      const [{ template: php }, users] = await Promise.all([
+        fetchServerTemplateWithMeta(),
+        fetchLotUsers(lot),
+      ]);
+      if (users.length === 0) {
+        preWin?.close();
+        toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
+        return;
+      }
+      const vouchers = users.map((user, idx) => {
+        const profile = profilesList.find((p) => p.name === user.profile);
+        return {
+          hotspotname: hotspotName,
+          dnsname: (activeRouter as { contact?: string } | undefined)?.contact ?? "",
+          username: user.username,
+          password: user.password,
+          price: profile?.price ?? "",
+          currency: "FCFA",
+          validity: profile?.validity ?? "",
+          timelimit: user.limitUptime ?? "",
+          datalimit: user.limitBytesTotal ?? "",
+          num: idx + 1,
+        };
+      });
+      const resp = await fetch(`${BASE}/api/render-tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ php, vouchers }),
+      });
+      if (!resp.ok) {
+        preWin?.close();
+        const err = await resp.json().catch(() => ({})) as { error?: string };
+        toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" });
+        return;
+      }
+      const data = await resp.json() as { html: string[] };
+      if (!data.html?.length) {
+        preWin?.close();
+        toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
+        return;
+      }
+      const title = ["Voucher-Small", lot.name].filter(Boolean).join("-");
+      const html = buildSmallModePrintHtml(data.html, title, readSmallScale());
+      if (preWin) {
+        preWin.document.open();
+        preWin.document.write(html);
+        preWin.document.close();
+      }
+    } catch (err) {
+      preWin?.close();
+      toast({ title: "Erreur impression small", description: String(err), variant: "destructive" });
     } finally {
       setPrintingLot(null);
     }
@@ -812,8 +887,15 @@ export default function Vouchers() {
       return;
     }
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
-    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
+    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const printScale = (() => {
+      try {
+        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
+        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
+        return isNaN(v) ? 85 : v;
+      } catch { return 85; }
+    })();
+    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -847,7 +929,8 @@ export default function Vouchers() {
       }
     }
     setIsPrinting(true);
-    const { template: php } = await fetchServerTemplateWithMeta();
+    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
+    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -938,20 +1021,15 @@ export default function Vouchers() {
       const printComment = firstUser?.comment ?? "";
       const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
-      const mobileRowsPerPage = 6;
-      if (isNativeWV) {
-        printTickets(data.html as string[], title, printScale);
-      } else if (isMobile()) {
+      const mobileRowsPerPage = isMikHmon ? 9 : 6;
+      const colsDesktop = (() => { try { const v = parseInt(localStorage.getItem("vn_print_cols_desktop") ?? (isMikHmon ? "5" : "4"), 10); return isNaN(v) ? (isMikHmon ? 5 : 4) : Math.max(1, Math.min(6, v)); } catch { return isMikHmon ? 5 : 4; } })();
+      if (preWin) {
         const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
-        preWin!.document.open();
-        preWin!.document.write(html);
-        preWin!.document.close();
+        preWin.document.open();
+        preWin.document.write(html);
+        preWin.document.close();
       } else {
-        const html = buildWebPrintHtml(data.html as string[], title, readSmallScaleWeb());
-        preWin!.document.open();
-        preWin!.document.write(html);
-        preWin!.document.close();
-        preWin!.focus();
+        printTickets(data.html as string[], title, printScale, colsDesktop);
       }
     } finally {
       setIsPrinting(false);
@@ -2096,6 +2174,16 @@ export default function Vouchers() {
                             {printingLot === lot.name
                               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               : <Printer className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-violet-600 border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                            onClick={() => handlePrintSmallLot(lot)}
+                            title="Imprimer en mode Small MikHmon (2 colonnes, navigateur natif)"
+                          >
+                            <LayoutGrid className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Small</span>
                           </Button>
                           <Button
                             size="sm"

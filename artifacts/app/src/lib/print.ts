@@ -69,7 +69,7 @@ function isNativeWebView(): boolean {
   return typeof window !== "undefined" && !!window.ReactNativeWebView;
 }
 
-export function isMobile(): boolean {
+function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
@@ -132,10 +132,12 @@ export function openPrintHtmlWindow(html: string, title: string): void {
  * Exposé pour permettre la pré-ouverture de fenêtre avant tout `await`.
  *
  * @param rowsPerPage  Nombre de lignes par bloc de page (mobile uniquement).
- *   - 6 (défaut) : 4×6 = 24 tickets/page.
+ *   - 6 (défaut) : templates personnalisés/importés → 4×6 = 24 tickets/page.
+ *   - 9           : template MikHmon intégré         → 4×9 = 36 tickets/page.
+ *   Ne jamais passer 9 pour un template importé ou enregistré par l'admin.
  */
-export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false, rowsPerPage = 6): string {
-  return buildHtml(htmlItems, title, true, scale, mobile, rowsPerPage);
+export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false, rowsPerPage = 6, desktopCols = 4, mobileCols = 4): string {
+  return buildHtml(htmlItems, title, true, scale, mobile, rowsPerPage, desktopCols, mobileCols);
 }
 
 /**
@@ -189,7 +191,7 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 </html>`;
 }
 
-function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false, rowsPerPage = 6): string {
+function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false, rowsPerPage = 6, desktopCols = 4, mobileCols = 4): string {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
@@ -203,7 +205,12 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
     // rien à calculer, chaque bloc est garantiellement complet.
 
-    const MOBILE_COLS = 4;
+    // mobileCols : configurable depuis le bouton "Paramètres d'impression" (défaut 4).
+    // Le zoom `s` sur html élargit la zone de contenu à 794/s px.
+    const MOBILE_COLS = Math.max(1, Math.min(6, mobileCols));
+
+    // rowsPerPage : 6 (templates personnalisés) ou 9 (template MikHmon intégré sans sauvegarde).
+    // Passé en paramètre depuis buildTicketPrintHtml.
     const perPage = MOBILE_COLS * rowsPerPage;
 
     // Construction des blocs de page avec page-break-after:always explicite
@@ -310,9 +317,9 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ─── CHEMIN DESKTOP ───────────────────────────────────────────────────────
+  // ─── CHEMIN DESKTOP (inchangé) ────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  const COLS = 4;
+  const COLS = desktopCols;
   const PER_PAGE = COLS * 8;
   const pageBlocks: string[] = [];
   for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
@@ -446,97 +453,178 @@ function printWithNativeBridge(html: string, title: string): void {
   }
 }
 
-export function buildWebPrintHtml(htmlItems: string[], title: string, defaultScale = 0.85): string {
-  const COLS = 4;
-  const ROWS_PER_PAGE = 9;
-  const PER_PAGE = COLS * ROWS_PER_PAGE;
-
-  const pageBlocks: string[] = [];
-  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
-    const chunk = htmlItems.slice(p, p + PER_PAGE);
-    const rows: string[] = [];
-    for (let r = 0; r < chunk.length; r += COLS) {
-      const cells = chunk.slice(r, r + COLS)
-        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
-        .join('');
-      rows.push(`<tr>${cells}</tr>`);
-    }
-    const isLast = p + PER_PAGE >= htmlItems.length;
-    const breakStyle = isLast ? '' : 'page-break-after:always;break-after:page;';
-    pageBlocks.push(
-      `<div class="vn-page" style="${breakStyle}">` +
-      `<table class="vn-tbl"><tbody>${rows.join('')}</tbody></table></div>`
-    );
-  }
-
-  const scaleOptions = [1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7]
-    .map(v => {
-      const sel = Math.abs(v - defaultScale) < 0.001 ? ' selected' : '';
-      return `<option value="${v}"${sel}>${Math.round(v * 100)}%</option>`;
-    }).join('');
-
+/**
+ * Construit le HTML pour le mode Small MikHmon.
+ * CSS identique à print.php?small=yes (Mikhmon v3).
+ * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
+ * ce mode ne l'impose pas, contrairement au mode regular.
+ */
+export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85): string {
   const css = `
-    @page{size:auto;margin-left:7mm;margin-right:3mm;margin-top:9mm;margin-bottom:3mm;}
-    body{color:#000;background:#fff;font-size:14px;font-family:Helvetica,Arial,sans-serif;
-      margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;transform-origin:top left;}
-    #vn-print-bar{position:fixed;top:0;left:0;right:0;height:42px;
-      background:#1e1e2e;color:#cdd6f4;display:flex;align-items:center;
-      gap:10px;padding:0 14px;font-size:13px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,.45);}
-    #vn-print-bar label{opacity:.75;}
-    #vn-print-bar select{background:#313244;color:#cdd6f4;border:none;border-radius:4px;
-      padding:3px 6px;font-size:13px;cursor:pointer;}
-    #vn-print-bar button{background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;
-      padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;margin-left:auto;}
-    #vn-print-bar button:hover{background:#74c7ec;}
-    .vn-sep{flex:1;}.vn-info{font-size:12px;opacity:.65;}
-    #vn-tickets{margin-top:48px;}
-    .vn-page{display:block;}.vn-tbl{border-collapse:collapse;}
-    table.voucher{border:2px solid #000;margin:2px;padding:3px;box-sizing:border-box;}
-    #num,span#num{float:right!important;display:inline-block;margin-left:4px!important;clear:none!important;}
-    @media print{
-      #vn-print-bar{display:none!important;}
-      #vn-tickets{margin-top:0!important;}
-      body{transform:none!important;width:100%!important;}
+    @page {
+      size: auto;
+      margin-left: 7mm;
+      margin-right: 3mm;
+      margin-top: 9mm;
+      margin-bottom: 3mm;
+    }
+
+    body {
+      color: #000;
+      background-color: #fff;
+      font-size: 14px;
+      font-family: Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      transform-origin: top left;
+    }
+
+    /* ── Barre de contrôle (écran uniquement) ───────────────────────── */
+    #vn-print-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 42px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      font-size: 13px;
+      font-family: Helvetica, Arial, sans-serif;
+      z-index: 9999;
+      box-shadow: 0 2px 8px rgba(0,0,0,.45);
+    }
+    #vn-print-bar label { opacity: .75; white-space: nowrap; }
+    #vn-print-bar select {
+      padding: 3px 7px;
+      border-radius: 5px;
+      border: 1px solid #45475a;
+      background: #313244;
+      color: #cdd6f4;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #vn-print-bar .vn-sep {
+      flex: 1;
+    }
+    #vn-print-bar .vn-info {
+      font-size: 11px;
+      opacity: .55;
+      white-space: nowrap;
+    }
+    #vn-print-bar button {
+      padding: 5px 16px;
+      border: none;
+      border-radius: 5px;
+      background: #7c3aed;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #vn-print-bar button:hover { background: #6d28d9; }
+
+    /* Décalage tickets sous la barre fixe */
+    #vn-tickets { margin-top: 48px; }
+
+    /* ── Layout small — 2 tickets par ligne (48 % chacun) ────────────── */
+    table.voucher {
+      display: inline-block !important;
+      vertical-align: top;
+      width: 48%;
+      border: 2px solid #000;
+      margin: 2px;
+      padding: 3px;
+      box-sizing: border-box;
+      overflow: hidden;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    table.voucher * {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+
+    @media print {
+      #vn-print-bar { display: none !important; }
+      #vn-tickets   { margin-top: 0 !important; }
+      table  { page-break-after: auto; }
+      tr     { page-break-inside: avoid; page-break-after: auto; }
+      td     { page-break-inside: avoid; page-break-after: auto; }
+      thead  { display: table-header-group; }
+      tfoot  { display: table-footer-group; }
+      table.voucher {
+        display: inline-block !important;
+        width: 48%;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+    }
+
+    #num, span#num {
+      float: right !important;
+      display: inline-block;
+      margin-left: 4px !important;
+      clear: none !important;
     }
   `;
 
-  const n = htmlItems.length;
   const js = `
-    function updateInfo(){
-      var scale=parseFloat(document.getElementById('vn-scale').value);
-      var info=document.getElementById('vn-scale-info');
-      if(info)info.textContent=Math.round(scale*100)+'% \u00b7 ${n} ticket${n>1?'s':''}';
+    function applyPrintScale(scale) {
+      document.body.style.transform = 'scale(' + scale + ')';
+      document.body.style.width = (100 / scale) + '%';
+      var info = document.getElementById('vn-scale-info');
+      if (info) info.textContent = Math.round(scale * 100) + '% — ' + ${htmlItems.length} + ' ticket(s)';
     }
-    function applyPrintScale(scale,save){
-      var el=document.getElementById('vn-s');
-      if(!el){el=document.createElement('style');el.id='vn-s';document.head.appendChild(el);}
-      el.textContent='@media screen{body{transform:scale('+scale+');transform-origin:top left;width:'+(100/scale).toFixed(2)+'%}}';
-      if(save){try{localStorage.setItem('vn_small_scale_web',String(scale));}catch(e){}}
-      updateInfo();
-    }
-    document.addEventListener('DOMContentLoaded',function(){
-      var sel=document.getElementById('vn-scale');
-      sel.addEventListener('change',function(){applyPrintScale(parseFloat(this.value),true);});
-      applyPrintScale(parseFloat(sel.value),false);
+    document.addEventListener('DOMContentLoaded', function() {
+      var sel = document.getElementById('vn-scale');
+      sel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
+      applyPrintScale(parseFloat(sel.value));
     });
   `;
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
-<style>${css}</style></head><body>
-<div id="vn-print-bar">
-  <label>Échelle :</label>
-  <select id="vn-scale">${scaleOptions}</select>
+  const scaleOptions = ([1, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70] as number[])
+    .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
+    .join("\n    ");
+
+  const bar = `<div id="vn-print-bar">
+  <label for="vn-scale">Échelle :</label>
+  <select id="vn-scale">
+    ${scaleOptions}
+  </select>
   <span class="vn-sep"></span>
   <span class="vn-info" id="vn-scale-info"></span>
-  <button onclick="window.print()">🖨 Imprimer</button>
-</div>
-<div id="vn-tickets">${pageBlocks.join('\n')}</div>
-<script>${js}<\/script>
-</body></html>`;
+  <button onclick="window.print()">🖨&nbsp;Imprimer</button>
+</div>`;
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>${css}</style>
+  <script>${js}<\/script>
+</head>
+<body>
+${bar}
+<div id="vn-tickets">${htmlItems.join("\n")}</div>
+</body>
+</html>`;
 }
 
-export function printTickets(htmlItems: string[], title: string, scale = 85): void {
-  let html = buildHtml(htmlItems, title, false, scale, false, 6);
+/**
+ * Imprime des tickets HTML.
+ * — APK WebView : pont natif via postMessage → expo-print.
+ * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
+ * — Desktop     : utilise un <iframe> invisible.
+ */
+export function printTickets(htmlItems: string[], title: string, scale = 85, desktopCols = 4): void {
+  let html = buildHtml(htmlItems, title, false, scale, false, 6, desktopCols);
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);

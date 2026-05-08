@@ -27,8 +27,8 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchServerTemplateWithMeta, readSmallScale, readSmallScaleWeb } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildWebPrintHtml, isMobile } from "@/lib/print";
+import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -694,8 +694,15 @@ export default function GenerateVouchers() {
     // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
     // de clic, puis on y écrit le HTML une fois prêt.
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const printScale = Math.round((isMobile() ? readSmallScale() : readSmallScaleWeb()) * 100);
-    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
+    const useMobileWindow = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const printScale = (() => {
+      try {
+        const key = useMobileWindow ? "vn_print_scale_mobile" : "vn_print_scale_desktop";
+        const v = parseInt(localStorage.getItem(key) ?? "85", 10);
+        return isNaN(v) ? 85 : v;
+      } catch { return 85; }
+    })();
+    const preWin: Window | null = useMobileWindow ? window.open("", "_blank") : null;
 
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
@@ -724,8 +731,9 @@ export default function GenerateVouchers() {
       });
       return;
     }
-    const { template: php } = await fetchServerTemplateWithMeta();
-    const mobileRowsPerPage = 6;
+    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
+    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+    const mobileRowsPerPage = isMikHmon ? 9 : 6;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
@@ -768,19 +776,16 @@ export default function GenerateVouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       const title = printParts.join("-");
 
-      if (isNativeWV) {
-        printTickets(data.html as string[], title, printScale);
-      } else if (isMobile()) {
+      if (preWin) {
+        // Navigateur mobile : document.write direct — pas de navigation donc pas
+        // de message Safari "The web page did not finish loading"
         const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
-        preWin!.document.open();
-        preWin!.document.write(html);
-        preWin!.document.close();
+        preWin.document.open();
+        preWin.document.write(html);
+        preWin.document.close();
       } else {
-        const html = buildWebPrintHtml(data.html as string[], title, readSmallScaleWeb());
-        preWin!.document.open();
-        preWin!.document.write(html);
-        preWin!.document.close();
-        preWin!.focus();
+        // APK WebView natif ou desktop
+        printTickets(data.html as string[], title, printScale, isMikHmon ? 5 : 4);
       }
     } catch (err: unknown) {
       preWin?.close();

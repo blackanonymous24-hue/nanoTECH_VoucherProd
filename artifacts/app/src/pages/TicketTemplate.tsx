@@ -5,16 +5,18 @@ import { Button } from "@/components/ui/button";
 import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
-const SMALL_SCALE_MOBILE_KEY = "vn_small_scale";
-const SMALL_SCALE_WEB_KEY    = "vn_small_scale_web";
+const COLS_DESKTOP_KEY  = "vn_print_cols_desktop";
+export const SMALL_SCALE_KEY = "vn_small_scale";
+
+function readCols(key: string, def = 4): number {
+  try { const v = parseInt(localStorage.getItem(key) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
+}
+function saveCols(key: string, v: number) { try { localStorage.setItem(key, String(v)); } catch {} }
 
 export function readSmallScale(): number {
-  try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_MOBILE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
+  try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
 }
-export function readSmallScaleWeb(): number {
-  try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_WEB_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
-}
-function saveSmallScale(key: string, v: number) { try { localStorage.setItem(key, String(v)); } catch {} }
+function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 
@@ -399,10 +401,18 @@ export default function TicketTemplate() {
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Paramètres d'impression
+  // ── Paramètres d'impression (colonnes desktop)
   const [showScaleDialog, setShowScaleDialog] = useState(false);
-  const [smallScaleMobile, setSmallScaleMobile] = useState(() => readSmallScale());
-  const [smallScaleWeb,    setSmallScaleWeb]    = useState(() => readSmallScaleWeb());
+  const [colsDesktop,  setColsDesktop]  = useState(() => readCols(COLS_DESKTOP_KEY, 4));
+  const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
+
+  // Ajuste le défaut selon le type de template (MikHmon → 5, autre → 4)
+  // uniquement si l'utilisateur n'a pas de préférence enregistrée
+  useEffect(() => {
+    if (localStorage.getItem(COLS_DESKTOP_KEY) === null) {
+      setColsDesktop(phpCode.includes('class="voucher"') ? 5 : 4);
+    }
+  }, [phpCode]);
 
   // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -590,7 +600,7 @@ export default function TicketTemplate() {
           </>
           <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
             <Sliders className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline text-[11px]">Paramètres</span>
+            <span className="hidden sm:inline text-[11px]">🖥 {colsDesktop} col</span>
           </Button>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
@@ -608,78 +618,60 @@ export default function TicketTemplate() {
             </DialogTitle>
           </DialogHeader>
           <div className="py-2 space-y-4">
-            {/* Échelle Web / Desktop */}
+            {/* Colonnes desktop (mode Imprimer normal) */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600">🖥 Échelle — Web / Desktop</span>
-                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScaleWeb * 100)}%</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range" min={0} max={100} step={1}
-                  value={Math.round(smallScaleWeb * 100)}
-                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScaleWeb(v); saveSmallScale(SMALL_SCALE_WEB_KEY, v); }}
-                  onWheel={(e) => {
-                    e.preventDefault();
-                    const delta = e.deltaY < 0 ? 1 : -1;
-                    const next = Math.min(100, Math.max(0, Math.round(smallScaleWeb * 100) + delta));
-                    const v = next / 100;
-                    setSmallScaleWeb(v); saveSmallScale(SMALL_SCALE_WEB_KEY, v);
-                  }}
-                  className="flex-1 h-2 accent-violet-600 cursor-pointer"
-                  style={{ accentColor: "#7c3aed" }}
-                />
-                <input
-                  type="number" min={0} max={100} step={1}
-                  value={Math.round(smallScaleWeb * 100)}
-                  onChange={(e) => {
-                    const raw = parseInt(e.target.value, 10);
-                    if (isNaN(raw)) return;
-                    const v = Math.min(100, Math.max(0, raw)) / 100;
-                    setSmallScaleWeb(v); saveSmallScale(SMALL_SCALE_WEB_KEY, v);
-                  }}
-                  className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
-                />
-                <span className="text-xs text-gray-400 shrink-0">%</span>
+              <span className="text-xs font-medium text-gray-600">🖥 Colonnes desktop (mode normal)</span>
+              <div className="flex gap-1.5">
+                {[2, 3, 4, 5, 6].map((n) => (
+                  <button
+                    key={n} type="button"
+                    onClick={() => { setColsDesktop(n); saveCols(COLS_DESKTOP_KEY, n); }}
+                    className={`flex-1 h-8 rounded text-sm font-bold border transition-colors ${colsDesktop === n ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600"}`}
+                  >{n}</button>
+                ))}
               </div>
             </div>
 
-            {/* Échelle Mobile / APK */}
+            {/* Échelle Small (pré-sélection de la barre dans la page Small) */}
             <div className="space-y-1.5 border-t pt-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600">📱 Échelle — Mobile / APK</span>
-                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScaleMobile * 100)}%</span>
+                <span className="text-xs font-medium text-gray-600">📄 Échelle par défaut — mode Small</span>
+                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScale * 100)}%</span>
               </div>
+              <p className="text-[11px] text-gray-400 leading-tight">
+                Glissez la barre, utilisez la molette ou saisissez une valeur de 0 à 100.
+              </p>
+              {/* Slider + saisie manuelle */}
               <div className="flex items-center gap-2">
                 <input
                   type="range" min={0} max={100} step={1}
-                  value={Math.round(smallScaleMobile * 100)}
-                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScaleMobile(v); saveSmallScale(SMALL_SCALE_MOBILE_KEY, v); }}
+                  value={Math.round(smallScale * 100)}
+                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScale(v); saveSmallScale(v); }}
                   onWheel={(e) => {
                     e.preventDefault();
                     const delta = e.deltaY < 0 ? 1 : -1;
-                    const next = Math.min(100, Math.max(0, Math.round(smallScaleMobile * 100) + delta));
+                    const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + delta));
                     const v = next / 100;
-                    setSmallScaleMobile(v); saveSmallScale(SMALL_SCALE_MOBILE_KEY, v);
+                    setSmallScale(v); saveSmallScale(v);
                   }}
                   className="flex-1 h-2 accent-violet-600 cursor-pointer"
                   style={{ accentColor: "#7c3aed" }}
                 />
                 <input
                   type="number" min={0} max={100} step={1}
-                  value={Math.round(smallScaleMobile * 100)}
+                  value={Math.round(smallScale * 100)}
                   onChange={(e) => {
                     const raw = parseInt(e.target.value, 10);
                     if (isNaN(raw)) return;
-                    const v = Math.min(100, Math.max(0, raw)) / 100;
-                    setSmallScaleMobile(v); saveSmallScale(SMALL_SCALE_MOBILE_KEY, v);
+                    const clamped = Math.min(100, Math.max(0, raw));
+                    const v = clamped / 100;
+                    setSmallScale(v); saveSmallScale(v);
                   }}
                   className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
                 />
                 <span className="text-xs text-gray-400 shrink-0">%</span>
               </div>
             </div>
-
           </div>
           <DialogFooter>
             <DialogClose asChild>
