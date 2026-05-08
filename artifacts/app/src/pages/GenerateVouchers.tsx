@@ -728,7 +728,9 @@ export default function GenerateVouchers() {
       });
       return;
     }
-    const { template: php } = await fetchServerTemplateWithMeta();
+    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
+    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+    const cols = isMikHmon ? 5 : 4;
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
@@ -771,7 +773,7 @@ export default function GenerateVouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
       const title = printParts.join("-");
 
-      const html = buildSmallModePrintHtml(data.html as string[], title, scale, true);
+      const html = buildSmallModePrintHtml(data.html as string[], title, scale, true, cols);
       if (!printViaReactNative(html, title)) {
         preWin!.document.open();
         preWin!.document.write(html);

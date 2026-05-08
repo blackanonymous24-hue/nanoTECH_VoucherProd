@@ -782,9 +782,11 @@ export default function Vouchers() {
         toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
         return;
       }
+      const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+      const cols = isMikHmon ? 5 : 4;
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
-      const html = buildSmallModePrintHtml(data.html, title, scale, true);
+      const html = buildSmallModePrintHtml(data.html, title, scale, true, cols);
       if (!printViaReactNative(html, title)) {
         preWin!.document.open();
         preWin!.document.write(html);
@@ -850,7 +852,9 @@ export default function Vouchers() {
       }
     }
     setIsPrinting(true);
-    const { template: php } = await fetchServerTemplateWithMeta();
+    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
+    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+    const cols = isMikHmon ? 5 : 4;
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -941,7 +945,7 @@ export default function Vouchers() {
       const printComment = firstUser?.comment ?? "";
       const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
-      const html = buildSmallModePrintHtml(data.html as string[], title, scale, true);
+      const html = buildSmallModePrintHtml(data.html as string[], title, scale, true, cols);
       if (!printViaReactNative(html, title)) {
         preWin!.document.open();
         preWin!.document.write(html);
