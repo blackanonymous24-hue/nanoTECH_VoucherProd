@@ -670,8 +670,7 @@ export default function GenerateVouchers() {
       setTimelimit("");
       setDatalimit("");
       setVendorId("");
-      // Ne pas effacer le profil : l'utilisateur peut enchaîner une nouvelle génération
-      // sans avoir à le resélectionner.
+      setProfile("");
 
     } finally {
       setApiRequestPause(false);
@@ -1164,14 +1163,28 @@ export default function GenerateVouchers() {
               )}
 
               <div>
-                <Button
-                  type="submit"
-                  className="w-full gap-1.5 h-9 text-sm"
-                  disabled={!selectedRouterId || !profile || !!progress}
-                >
-                  <Zap className="h-3.5 w-3.5" />
-                  {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
-                </Button>
+                {lastLot && !profile ? (
+                  <Button
+                    type="button"
+                    className="w-full gap-1.5 h-9 text-sm bg-purple-600 hover:bg-purple-700 text-white"
+                    onClick={() => void handlePrintSmall(lastLot)}
+                    disabled={isPrintingSmall || !selectedRouterId}
+                  >
+                    {isPrintingSmall
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Printer className="h-3.5 w-3.5" />}
+                    {isPrintingSmall ? "Impression…" : "Imprimer"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    className="w-full gap-1.5 h-9 text-sm"
+                    disabled={!selectedRouterId || !profile || !!progress}
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
+                  </Button>
+                )}
                 {progress && (
                   <div className="mt-2 space-y-1.5">
                     <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
