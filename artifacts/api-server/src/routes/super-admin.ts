@@ -639,8 +639,8 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
 
   const scaleUpdate: Partial<typeof adminSettingsTable.$inferInsert> = {};
-  if (typeof scaleSmall === "number" && scaleSmall >= 50 && scaleSmall <= 100) scaleUpdate.printScaleSmall = scaleSmall;
-  if (typeof scaleMobile === "number" && scaleMobile >= 50 && scaleMobile <= 100) scaleUpdate.printScaleMobile = scaleMobile;
+  if (typeof scaleSmall === "number" && scaleSmall >= 0 && scaleSmall <= 100) scaleUpdate.printScaleSmall = scaleSmall;
+  if (typeof scaleMobile === "number" && scaleMobile >= 0 && scaleMobile <= 100) scaleUpdate.printScaleMobile = scaleMobile;
 
   const [updated] = await db
     .update(adminSettingsTable)

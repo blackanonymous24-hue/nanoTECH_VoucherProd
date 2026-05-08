@@ -1577,50 +1577,55 @@ function TemplateDialog({ admin, onClose }: {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sliders className="h-4 w-4 text-purple-600" />
-              Échelle d'impression
+              Paramètres d'impression
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-6 py-2">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-gray-700">📄 Imprimer (2 colonnes)</span>
-                <div className="flex items-center gap-1">
+          <div className="py-2 space-y-4">
+            {([
+              {
+                label: "📄 Échelle — mode Small",
+                hint: "2 colonnes MikHmon. Pré-sélectionnée à chaque impression Small.",
+                color: "#7c3aed",
+                val: scaleDesktop,
+                onChange: (n: number) => { setScaleDesktop(n); saveScale(deskKey, n); },
+              },
+              {
+                label: "📱 Échelle — Mobile / APK",
+                hint: "Safari iOS, Chrome Android et APK WebView.",
+                color: "#16a34a",
+                val: scaleMobile,
+                onChange: (n: number) => { setScaleMobile(n); saveScale(mobKey, n); },
+              },
+            ] as { label: string; hint: string; color: string; val: number; onChange: (n: number) => void }[]).map((s, i) => (
+              <div key={i} className={`space-y-2 ${i > 0 ? "border-t pt-3" : ""}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-600">{s.label}</span>
+                  <span className="text-sm font-bold tabular-nums" style={{ color: s.color }}>{s.val}%</span>
+                </div>
+                <p className="text-[11px] text-gray-400 leading-tight">{s.hint}</p>
+                <input
+                  type="range" min={0} max={100} step={1}
+                  value={s.val}
+                  onChange={(e) => s.onChange(Number(e.target.value))}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    s.onChange(Math.min(100, Math.max(0, s.val + (e.deltaY < 0 ? 1 : -1))));
+                  }}
+                  className="w-full cursor-pointer"
+                  style={{ accentColor: s.color }}
+                />
+                <div className="flex items-center gap-1.5">
                   <input
-                    type="number" min={50} max={100} step={5}
-                    value={scaleDesktop}
-                    onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleDesktop(v); saveScale(deskKey, v); }}
-                    className="w-16 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                    type="number" min={0} max={100} step={1}
+                    value={s.val}
+                    onChange={(e) => { const raw = parseInt(e.target.value, 10); if (!isNaN(raw)) s.onChange(Math.min(100, Math.max(0, raw))); }}
+                    className="w-12 text-center text-xs font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:ring-1"
+                    style={{ "--tw-ring-color": s.color } as React.CSSProperties}
                   />
-                  <span className="text-xs text-gray-500">%</span>
+                  <span className="text-[10px] text-gray-400">%</span>
                 </div>
               </div>
-              <Slider
-                min={50} max={100} step={5}
-                value={[scaleDesktop]}
-                onValueChange={([v]) => { setScaleDesktop(v); saveScale(deskKey, v); }}
-              />
-              <p className="text-xs text-gray-400">2 colonnes MikHmon. Pré-sélectionnée à chaque impression Imprimer.</p>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-gray-700">📱 Mobile / APK</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number" min={50} max={100} step={5}
-                    value={scaleMobile}
-                    onChange={(e) => { const v = Math.min(100, Math.max(50, parseInt(e.target.value) || 50)); setScaleMobile(v); saveScale(mobKey, v); }}
-                    className="w-16 rounded border border-purple-200 bg-white px-1.5 py-0.5 text-right font-mono text-sm font-bold text-purple-700 focus:outline-none focus:ring-1 focus:ring-purple-400"
-                  />
-                  <span className="text-xs text-gray-500">%</span>
-                </div>
-              </div>
-              <Slider
-                min={50} max={100} step={5}
-                value={[scaleMobile]}
-                onValueChange={([v]) => { setScaleMobile(v); saveScale(mobKey, v); }}
-              />
-              <p className="text-xs text-gray-400">Safari iOS, Chrome Android et APK WebView.</p>
-            </div>
+            ))}
           </div>
           <DialogFooter>
             <DialogClose asChild>

@@ -420,8 +420,8 @@ router.put("/admin/ticket-template", async (req, res): Promise<void> => {
   }
 
   const scaleUpdate: Partial<typeof adminSettingsTable.$inferInsert> = {};
-  if (typeof scaleSmall === "number" && scaleSmall >= 50 && scaleSmall <= 150) scaleUpdate.printScaleSmall = scaleSmall;
-  if (typeof scaleMobile === "number" && scaleMobile >= 50 && scaleMobile <= 150) scaleUpdate.printScaleMobile = scaleMobile;
+  if (typeof scaleSmall === "number" && scaleSmall >= 0 && scaleSmall <= 100) scaleUpdate.printScaleSmall = scaleSmall;
+  if (typeof scaleMobile === "number" && scaleMobile >= 0 && scaleMobile <= 100) scaleUpdate.printScaleMobile = scaleMobile;
 
   await db
     .update(adminSettingsTable)
