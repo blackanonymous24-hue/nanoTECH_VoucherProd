@@ -1078,7 +1078,7 @@ export default function GenerateVouchers() {
                     onChange={(e) => setUserLength(e.target.value)}
                   >
                     {[3,4,5,6,7,8].map((n) => (
-                      <option key={n} value={String(n)}>{n} car.</option>
+                      <option key={n} value={String(n)}>{n} caractères</option>
                     ))}
                   </select>
                 </div>
