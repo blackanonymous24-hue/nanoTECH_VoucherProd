@@ -459,7 +459,8 @@ function printWithNativeBridge(html: string, title: string): void {
  * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
  * ce mode ne l'impose pas, contrairement au mode regular.
  */
-export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, defaultCols = 2, autoPrint = false): string {
+export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, autoPrint = false): string {
+  const defaultCols = 2;
   const css = `
     @page {
       size: auto;
@@ -581,34 +582,24 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     window.onload = function() {
       document.body.style.transform = 'scale(${defaultScale})';
       document.body.style.width = (100 / ${defaultScale}).toFixed(2) + '%';
-      document.getElementById('vn-tickets').style.columnCount = '${defaultCols}';
       window.print();
     };
   `
     : `
-    var _currentCols = ${defaultCols};
     function updateInfo() {
       var scale = parseFloat(document.getElementById('vn-scale').value);
       var info  = document.getElementById('vn-scale-info');
-      if (info) info.textContent = Math.round(scale * 100) + '% · ' + _currentCols + ' col · ${htmlItems.length} ticket(s)';
+      if (info) info.textContent = Math.round(scale * 100) + '% · ${htmlItems.length} ticket(s)';
     }
     function applyPrintScale(scale) {
       document.body.style.transform = 'scale(' + scale + ')';
       document.body.style.width = (100 / scale) + '%';
       updateInfo();
     }
-    function applySmallCols(cols) {
-      _currentCols = cols;
-      document.getElementById('vn-tickets').style.columnCount = cols;
-      updateInfo();
-    }
     document.addEventListener('DOMContentLoaded', function() {
       var scaleSel = document.getElementById('vn-scale');
-      var colsSel  = document.getElementById('vn-cols');
       scaleSel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
-      colsSel.addEventListener('change',  function() { applySmallCols(parseInt(this.value, 10)); });
       applyPrintScale(parseFloat(scaleSel.value));
-      applySmallCols(parseInt(colsSel.value, 10));
     });
   `;
 
@@ -632,18 +623,10 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
     .join("\n    ");
 
-  const colsOptions = ([1, 2, 3, 4, 5, 6, 7, 8] as number[])
-    .map((c) => `<option value="${c}"${c === defaultCols ? " selected" : ""}>${c} col</option>`)
-    .join("\n    ");
-
   const bar = `<div id="vn-print-bar">
   <label for="vn-scale">Échelle :</label>
   <select id="vn-scale">
     ${scaleOptions}
-  </select>
-  <label for="vn-cols" style="margin-left:6px;">Colonnes :</label>
-  <select id="vn-cols">
-    ${colsOptions}
   </select>
   <span class="vn-sep"></span>
   <span class="vn-info" id="vn-scale-info"></span>
@@ -671,7 +654,8 @@ ${bar}
  * Les tickets sont injectés ultérieurement via innerHTML.
  * Le compteur utilise window._totalTickets (mis à jour par l'appelant).
  */
-export function buildSmallModeShell(title: string, defaultScale = 0.85, defaultCols = 2): string {
+export function buildSmallModeShell(title: string, defaultScale = 0.85): string {
+  const defaultCols = 2;
   const css = `
     @page {
       size: auto;
@@ -799,30 +783,21 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85, defaultC
   `;
 
   const js = `
-    var _currentCols = ${defaultCols};
     var _totalTickets = 0;
     function updateInfo() {
       var scale = parseFloat(document.getElementById('vn-scale').value);
       var info  = document.getElementById('vn-scale-info');
-      if (info) info.textContent = Math.round(scale * 100) + '% · ' + _currentCols + ' col · ' + _totalTickets + ' ticket(s)';
+      if (info) info.textContent = Math.round(scale * 100) + '% · ' + _totalTickets + ' ticket(s)';
     }
     function applyPrintScale(scale) {
       document.body.style.transform = 'scale(' + scale + ')';
       document.body.style.width = (100 / scale) + '%';
       updateInfo();
     }
-    function applySmallCols(cols) {
-      _currentCols = cols;
-      document.getElementById('vn-tickets').style.columnCount = cols;
-      updateInfo();
-    }
     document.addEventListener('DOMContentLoaded', function() {
       var scaleSel = document.getElementById('vn-scale');
-      var colsSel  = document.getElementById('vn-cols');
       scaleSel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
-      colsSel.addEventListener('change',  function() { applySmallCols(parseInt(this.value, 10)); });
       applyPrintScale(parseFloat(scaleSel.value));
-      applySmallCols(parseInt(colsSel.value, 10));
     });
   `;
 
@@ -830,18 +805,10 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85, defaultC
     .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
     .join("\n    ");
 
-  const colsOptions = ([1, 2, 3, 4, 5, 6, 7, 8] as number[])
-    .map((c) => `<option value="${c}"${c === defaultCols ? " selected" : ""}>${c} col</option>`)
-    .join("\n    ");
-
   const bar = `<div id="vn-print-bar">
   <label for="vn-scale">Échelle :</label>
   <select id="vn-scale">
     ${scaleOptions}
-  </select>
-  <label for="vn-cols" style="margin-left:6px;">Colonnes :</label>
-  <select id="vn-cols">
-    ${colsOptions}
   </select>
   <span class="vn-sep"></span>
   <span class="vn-info" id="vn-scale-info"></span>

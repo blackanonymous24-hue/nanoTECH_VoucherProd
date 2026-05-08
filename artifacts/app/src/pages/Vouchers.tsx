@@ -77,8 +77,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale, readSmallCols } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml, buildSmallModeShell } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -810,7 +810,6 @@ export default function Vouchers() {
   // Le QR n'est inclus QUE si le template PHP de l'admin contient $qrcode.
   const handlePrintSmallLot = async (lot: LotSummary) => {
     const scale = readSmallScale();
-    const cols  = readSmallCols();
     const title = ["Voucher-Small", lot.name].filter(Boolean).join("-");
 
     // Ouvre la fenêtre avec un spinner (évite le blocage popup), les tickets seront écrits dès qu'ils sont prêts
@@ -871,7 +870,7 @@ export default function Vouchers() {
         return;
       }
       // Écrit le HTML final (sans barre) — window.print() se déclenche automatiquement au DOMContentLoaded
-      const html = buildSmallModePrintHtml(data.html, title, scale, cols, true);
+      const html = buildSmallModePrintHtml(data.html, title, scale, true);
       preWin.document.open();
       preWin.document.write(html);
       preWin.document.close();
