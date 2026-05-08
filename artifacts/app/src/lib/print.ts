@@ -250,16 +250,23 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
         font-size: 14px;        /* restaure la taille après font-size:0 sur .ticket-row */
       }
 
+      /* .ticket = boîte clippante : empêche le contenu du ticket de déborder
+         sur le voisin de droite quand la table interne a une largeur fixe en px. */
       .ticket {
         display: block;
+        overflow: hidden !important;
         break-inside: avoid !important;
         page-break-inside: avoid !important;
       }
 
       /* Template PHP : table avec display:inline-block → force display:table.
-         position:relative OBLIGATOIRE : overflow:hidden clippe le triangle décoratif. */
+         width:100% contraint la table à la cellule (évite le chevauchement).
+         position:relative + overflow:hidden clippent le triangle décoratif CSS. */
       .ticket > table {
         display: table !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
         overflow: hidden !important;
         position: relative !important;
       }
@@ -270,7 +277,8 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       /* float casse le flux d'impression */
       .ticket img { float: none !important; display: inline-block !important; }
 
-      /* overflow:visible sur tous les conteneurs sauf .ticket > table (triangle déco) */
+      /* overflow:visible sur les conteneurs de pagination (Safari page-break).
+         .ticket reste en overflow:hidden pour clipper son contenu. */
       body, .ticket-page, .ticket-row, .ticket-cell {
         overflow: visible !important;
       }
