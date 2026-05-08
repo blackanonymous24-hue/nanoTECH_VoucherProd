@@ -396,11 +396,11 @@ router.get("/admin/ticket-template", async (req, res): Promise<void> => {
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, claims.adminId));
 
-  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE });
+  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100 });
 });
 
 /**
@@ -413,15 +413,19 @@ router.put("/admin/ticket-template", async (req, res): Promise<void> => {
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const { template } = req.body as { template?: string };
+  const { template, scaleSmall, scaleMobile } = req.body as { template?: string; scaleSmall?: number; scaleMobile?: number };
   if (typeof template !== "string") {
     res.status(400).json({ error: "Champ template requis (string)" });
     return;
   }
 
+  const scaleUpdate: Partial<typeof adminSettingsTable.$inferInsert> = {};
+  if (typeof scaleSmall === "number" && scaleSmall >= 50 && scaleSmall <= 150) scaleUpdate.printScaleSmall = scaleSmall;
+  if (typeof scaleMobile === "number" && scaleMobile >= 50 && scaleMobile <= 150) scaleUpdate.printScaleMobile = scaleMobile;
+
   await db
     .update(adminSettingsTable)
-    .set({ ticketTemplate: template.trim() || null })
+    .set({ ticketTemplate: template.trim() || null, ...scaleUpdate })
     .where(eq(adminSettingsTable.id, claims.adminId));
 
   res.json({ ok: true });

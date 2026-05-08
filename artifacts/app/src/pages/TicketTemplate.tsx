@@ -402,7 +402,13 @@ export default function TicketTemplate() {
 
   // Chargement depuis le serveur au montage (source de vérité cross-device)
   useEffect(() => {
-    fetchServerTemplate().then((tpl) => setPhpCode(tpl));
+    fetchServerTemplateWithMeta().then(({ template }) => {
+      setPhpCode(template);
+      // fetchServerTemplateWithMeta a déjà persisté les échelles en localStorage via
+      // saveSmallScale / saveMobileScale — synchronise maintenant le state React
+      setSmallScale(readSmallScale());
+      setScaleMobile(readMobileScale());
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -438,7 +444,7 @@ export default function TicketTemplate() {
         const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ template: raw }),
+          body: JSON.stringify({ template: raw, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
         });
         serverSynced = resp.ok;
       } catch {
@@ -475,7 +481,7 @@ export default function TicketTemplate() {
       const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ template: phpCode }),
+        body: JSON.stringify({ template: phpCode, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
       });
       serverSynced = resp.ok;
     } catch {
@@ -517,7 +523,7 @@ export default function TicketTemplate() {
       const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ template: phpCode }),
+        body: JSON.stringify({ template: phpCode, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
       });
       serverSynced = resp.ok;
     } catch {
