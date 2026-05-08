@@ -29,8 +29,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
-import { tryOpenVoucherPrintPage, buildSmallModePrintHtml } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale } from "@/pages/TicketTemplate";
+import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -733,11 +733,27 @@ export default function GenerateVouchers() {
       if (data.error) throw new Error(data.error);
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const title = ["Voucher-Small", toSlug(hotspotName), lot.comment].filter(Boolean).join("-");
-      if (preWin) {
-        const html = buildSmallModePrintHtml(data.html as string[], title, readSmallScale());
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
+      const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
+      const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (isNativeWV) {
+        // APK : pont natif, pas de window.open
+        printTickets(data.html as string[], title, readMobileScale());
+      } else if (isMobileBrowser) {
+        // Mobile browser : zoom + page-breaks (anti-coupure)
+        if (preWin) {
+          const html = buildTicketPrintHtml(data.html as string[], title, readMobileScale(), true);
+          preWin.document.open();
+          preWin.document.write(html);
+          preWin.document.close();
+        }
+      } else {
+        // Desktop : 2 colonnes Small
+        if (preWin) {
+          const html = buildSmallModePrintHtml(data.html as string[], title, readSmallScale());
+          preWin.document.open();
+          preWin.document.write(html);
+          preWin.document.close();
+        }
       }
     } catch (err) {
       preWin?.close();
