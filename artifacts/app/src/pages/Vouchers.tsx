@@ -76,8 +76,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
+import { tryOpenVoucherPrintPage, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -167,7 +167,7 @@ export default function Vouchers() {
   const [search, setSearch] = useState("");
   const [filterProfile, setFilterProfile] = useState<string>("all");
   const [filterComment, setFilterComment] = useState<string>("all");
-  const [isPrinting, setIsPrinting] = useState(false);
+
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
   const [printingLot, setPrintingLot] = useState<string | null>(null);
@@ -700,103 +700,6 @@ export default function Vouchers() {
     }
   };
 
-  // ── Print lot — fetches all users for a lot and prints their tickets ─────────
-  const handlePrintLot = async (lot: LotSummary) => {
-    const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (isNativeWV || isMobileBrowser) ? readMobileScale() : 85;
-    // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
-    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
-    if (preWin) {
-      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chargement…</title>
-<style>
-  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
-    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
-  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#2563eb;
-    border-radius:50%;animation:spin 0.9s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
-</style></head>
-<body><div class="spinner"></div>
-<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
-</body></html>`);
-      preWin.document.close();
-    }
-
-    const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
-    if (await tryOpenVoucherPrintPage(lot.name, hotspotName)) {
-      preWin?.close();
-      toast({
-        title: "Impression Mikhmon",
-        description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
-      });
-      return;
-    }
-    setPrintingLot(lot.name);
-    try {
-      // Parallélisation : template + users en simultané
-      const [{ template: php }, users] = await Promise.all([
-        fetchServerTemplateWithMeta(),
-        fetchLotUsers(lot),
-      ]);
-      if (users.length === 0) {
-        preWin?.close();
-        toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
-        return;
-      }
-      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const vouchers = users.map((user, idx) => {
-        const profile = profilesList.find((p) => p.name === user.profile);
-        return {
-          hotspotname: hotspotName,
-          dnsname: (activeRouter as { contact?: string } | undefined)?.contact ?? "",
-          username: user.username,
-          password: user.password,
-          price: profile?.price ?? "",
-          currency: "FCFA",
-          validity: profile?.validity ?? "",
-          timelimit: user.limitUptime ?? "",
-          datalimit: user.limitBytesTotal ?? "",
-          num: idx + 1,
-        };
-      });
-      const resp = await fetch(`${BASE}/api/render-tickets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ php, vouchers }),
-      });
-      if (!resp.ok) {
-        preWin?.close();
-        const err = await resp.json().catch(() => ({})) as { error?: string };
-        toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" });
-        return;
-      }
-      const data = await resp.json() as { html: string[] };
-      if (!data.html?.length) {
-        preWin?.close();
-        toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" });
-        return;
-      }
-      const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
-      const title = printParts.join("-");
-      if (preWin) {
-        const html = buildTicketPrintHtml(data.html, title, printScale, true);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-      } else {
-        // APK WebView natif uniquement
-        printTickets(data.html, title, printScale);
-      }
-    } catch (err) {
-      preWin?.close();
-      toast({ title: "Erreur impression", description: String(err), variant: "destructive" });
-    } finally {
-      setPrintingLot(null);
-    }
-  };
 
   const handlePrintSmallLot = async (lot: LotSummary) => {
     const preWin: Window | null = window.open("", "_blank");
@@ -846,156 +749,6 @@ export default function Vouchers() {
   };
 
   // ── Print ────────────────────────────────────────────────────────────────────
-  const handlePrintVouchers = async () => {
-    const usersForPrint = selectedUsernames.size > 0
-      ? filtered.filter((u) => selectedUsernames.has(u.username))
-      : filtered;
-    if (usersForPrint.length === 0) {
-      toast({ title: "Aucun voucher à imprimer", description: "Sélectionnez un lot ou des vouchers d'abord.", variant: "destructive" });
-      return;
-    }
-    const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (isNativeWV || isMobileBrowser) ? readMobileScale() : 85;
-    // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
-    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
-    if (preWin) {
-      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chargement…</title>
-<style>
-  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
-    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
-  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#2563eb;
-    border-radius:50%;animation:spin 0.9s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
-</style></head>
-<body><div class="spinner"></div>
-<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
-</body></html>`);
-      preWin.document.close();
-    }
-
-    const hotspotName = (activeRouter as any)?.hotspotName || activeRouter?.name || "";
-    const uniqueLots = new Set(usersForPrint.map((u) => (u.comment ?? "").trim()).filter(Boolean));
-
-    if (uniqueLots.size === 1) {
-      const [lotId] = [...uniqueLots];
-      if (lotId && await tryOpenVoucherPrintPage(lotId, hotspotName)) {
-        preWin?.close();
-        toast({
-          title: "Impression Mikhmon",
-          description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
-        });
-        return;
-      }
-    }
-    setIsPrinting(true);
-    const { template: php } = await fetchServerTemplateWithMeta();
-    const vouchers = usersForPrint.map((user, idx) => {
-      const profile = profilesList.find((p) => p.name === user.profile);
-      return {
-        hotspotname: (activeRouter as any)?.hotspotName || (activeRouter?.name ?? ""),
-        dnsname: (activeRouter as any)?.contact ?? "",
-        username: user.username,
-        password: user.password,
-        price: profile?.price ?? "",
-        currency: "FCFA",
-        validity: profile?.validity ?? "",
-        timelimit: user.limitUptime ?? "",
-        datalimit: user.limitBytesTotal ?? "",
-        num: idx + 1,
-      };
-    });
-    try {
-      let resp: Response;
-      try {
-        resp = await fetch(`${BASE}/api/render-tickets`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ php, vouchers }),
-        });
-      } catch (netErr) {
-        // eslint-disable-next-line no-console
-        console.error("[print] network error:", netErr);
-        preWin?.close();
-        toast({
-          title: "Connexion au serveur perdue",
-          description: "Vérifiez votre connexion Internet puis réessayez.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Lecture sécurisée — l'API peut renvoyer du HTML (504, 502…) au lieu de JSON
-      const rawText = await resp.text();
-      let data: { html?: string[]; error?: string } = {};
-      try { data = rawText ? JSON.parse(rawText) : {}; } catch {
-        // eslint-disable-next-line no-console
-        console.error("[print] non-JSON response:", resp.status, rawText.slice(0, 300));
-        preWin?.close();
-        toast({
-          title: "Réponse serveur invalide",
-          description: `HTTP ${resp.status} — réessayez dans quelques secondes.`,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!resp.ok || data.error) {
-        const msg = data.error ?? `HTTP ${resp.status}`;
-        // eslint-disable-next-line no-console
-        console.error("[print] server error:", msg);
-        preWin?.close();
-        toast({
-          title: "Erreur d'impression",
-          description: msg.length > 220 ? msg.slice(0, 220) + "…" : msg,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!Array.isArray(data.html) || data.html.length === 0) {
-        preWin?.close();
-        toast({
-          title: "Aucun ticket généré",
-          description: "Le modèle PHP n'a rien retourné. Vérifiez votre template.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const toFileValidity = (v: string) => {
-        const s = v.trim();
-        const mk = s.match(/^(\d+)(h|d|m|w)$/i);
-        if (mk) {
-          const map: Record<string, string> = { h: "Heure", d: "Jour", m: "Minute", w: "Semaine" };
-          return mk[1] + (map[mk[2].toLowerCase()] ?? mk[2].toUpperCase());
-        }
-        return s.replace(/[\s-]+/g, "");
-      };
-      const firstUser = usersForPrint[0];
-      const printProfile = firstUser?.profile ?? "";
-      const rawValidity = profilesList.find((p) => p.name === printProfile)?.validity ?? "";
-      const compactValidity = toFileValidity(rawValidity);
-      const printComment = firstUser?.comment ?? "";
-      const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
-      const title = printParts.join("-");
-      if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-      } else {
-        // APK WebView natif uniquement
-        printTickets(data.html as string[], title, printScale);
-      }
-    } finally {
-      setIsPrinting(false);
-    }
-  };
 
   // ── Export .txt / .csv — lazy-fetch users for the lot on demand ─────────────
   const fetchLotUsers = async (lot: LotSummary): Promise<HotspotUser[]> => {
@@ -1680,18 +1433,6 @@ export default function Vouchers() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={handlePrintVouchers}
-                      disabled={isPrinting}
-                      className="gap-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                    >
-                      {isPrinting
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Printer className="h-3.5 w-3.5" />}
-                      {isPrinting ? "Impression en cours..." : "Imprimer"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
                       onClick={() => setDeletingLot(filterComment)}
                       disabled={isDeletingLot}
                       className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
@@ -1744,17 +1485,6 @@ export default function Vouchers() {
                     <>
                       <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
 
-                      {/* Imprimer */}
-                      <button
-                        type="button"
-                        onClick={handlePrintVouchers}
-                        disabled={isPrinting}
-                        className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-blue-100 px-2 py-1 rounded transition-colors disabled:opacity-40"
-                      >
-                        {isPrinting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
-                        <span>Imprimer</span>
-                      </button>
-
                       {/* Small */}
                       <button
                         type="button"
@@ -1763,7 +1493,7 @@ export default function Vouchers() {
                           const lot = lots.find((l) => l.name === filterComment);
                           if (lot) await handlePrintSmallLot(lot);
                         }}
-                        disabled={isPrinting}
+                        disabled={printingLot !== null}
                         className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors disabled:opacity-40"
                       >
                         <Printer className="h-3 w-3" />
@@ -2139,18 +1869,6 @@ export default function Vouchers() {
 
                         {/* Boutons — icônes seules sur mobile, libellés sur sm+ */}
                         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                            onClick={() => handlePrintLot(lot)}
-                            disabled={printingLot === lot.name}
-                            title="Imprimer les tickets de ce lot"
-                          >
-                            {printingLot === lot.name
-                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              : <Printer className="h-3.5 w-3.5" />}
-                          </Button>
                           <Button
                             size="sm"
                             variant="outline"

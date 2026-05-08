@@ -24,11 +24,9 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import {
-  Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
+  Zap, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchServerTemplateWithMeta, readMobileScale } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 
@@ -322,7 +320,7 @@ export default function GenerateVouchers() {
   const [vendorId, setVendorId] = useState<string>("");
   const [lastLot, setLastLot] = useState<LastLot | null>(null);
   const [loadingLastLot, setLoadingLastLot] = useState(false);
-  const [isPrinting, setIsPrinting] = useState(false);
+
   const [copiedLot, setCopiedLot] = useState(false);
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
   const [confirmDeleteLastLot, setConfirmDeleteLastLot] = useState<LastLot | null>(null);
@@ -330,7 +328,6 @@ export default function GenerateVouchers() {
   const [genPaused, setGenPaused] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
-  const [justGenerated, setJustGenerated] = useState(false);
   const autoLoadAttempted = useState(() => new Set<number>())[0];
 
   useEffect(() => {
@@ -671,12 +668,7 @@ export default function GenerateVouchers() {
       setDatalimit("");
       setVendorId("");
       setProfile("");
-      setJustGenerated(true);
 
-      // Auto-print uniquement dans l'APK Expo (User-Agent nanoTECH-VouchersBills-Mobile)
-      if (isNativeApp) {
-        void handlePrint(lot);
-      }
     } finally {
       setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
@@ -688,103 +680,6 @@ export default function GenerateVouchers() {
     }
   };
 
-  const handlePrint = async (lot: LastLot) => {
-    // ── Pré-ouvrir la fenêtre ICI, AVANT tout await ──────────────────────────
-    // Sur navigateur mobile, window.open après un await est traité comme un
-    // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
-    // de clic, puis on y écrit le HTML une fois prêt.
-    const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (isNativeWV || isMobileBrowser) ? readMobileScale() : 85;
-    // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
-    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
-
-    if (preWin) {
-      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chargement…</title>
-<style>
-  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
-    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
-  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#2563eb;
-    border-radius:50%;animation:spin 0.9s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
-</style></head>
-<body><div class="spinner"></div>
-<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
-</body></html>`);
-      preWin.document.close();
-    }
-
-    const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
-    if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) {
-      preWin?.close();
-      toast({
-        title: "Impression Mikhmon",
-        description: "Ouverture de la page print.php (mobile) pour refresh/réimpression.",
-      });
-      return;
-    }
-    const { template: php } = await fetchServerTemplateWithMeta();
-    const PRICE_COLORS: Record<string, string> = {
-      "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
-      "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
-    };
-    const vouchers = lot.vouchers.map((v, idx) => ({
-      hotspotname: (selectedRouter as any)?.hotspotName || lot.routerName,
-      dnsname: (selectedRouter as any)?.contact ?? "",
-      username: v.username,
-      password: v.password,
-      price: String(v.price ?? ""),
-      currency: "FCFA",
-      validity: v.validity ?? "",
-      timelimit: "",
-      datalimit: "",
-      num: idx + 1,
-      color: PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD",
-    }));
-    setIsPrinting(true);
-    try {
-      const resp = await fetch(`${BASE}/api/render-tickets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ php, vouchers }),
-      });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error);
-      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const toFileValidity = (v: string) => {
-        const s = v.trim();
-        const mk = s.match(/^(\d+)(h|d|m|w)$/i);
-        if (mk) {
-          const map: Record<string, string> = { h: "Heure", d: "Jour", m: "Minute", w: "Semaine" };
-          return mk[1] + (map[mk[2].toLowerCase()] ?? mk[2].toUpperCase());
-        }
-        return s.replace(/[\s-]+/g, "");
-      };
-      const rawValidity = lot.validity || lot.vouchers[0]?.validity || "";
-      const compactValidity = toFileValidity(rawValidity);
-      const profileSlug = lot.profileName.trim().split(/\s+/)[0] ?? lot.profileName;
-      const printParts = ["Voucher", toSlug(hotspotName), compactValidity, lot.comment, profileSlug].filter(Boolean);
-      const title = printParts.join("-");
-
-      if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true);
-        preWin.document.open();
-        preWin.document.write(html);
-        preWin.document.close();
-      } else {
-        // APK WebView natif uniquement
-        printTickets(data.html as string[], title, printScale);
-      }
-    } catch (err: unknown) {
-      preWin?.close();
-      toast({ title: "Erreur impression PHP", description: String(err), variant: "destructive" });
-    } finally {
-      setIsPrinting(false);
-    }
-  };
 
   const downloadFile = (content: string, filename: string, mime: string) => {
     const blob = new Blob([content], { type: mime });
@@ -935,7 +830,6 @@ export default function GenerateVouchers() {
                               onSelect={() => {
                                 setProfile(p.name);
                                 setProfilePopoverOpen(false);
-                                setJustGenerated(false);
                               }}
                             >
                               <Check className={`mr-2 h-4 w-4 shrink-0 ${profile === p.name ? "opacity-100" : "opacity-0"}`} />
@@ -1188,32 +1082,12 @@ export default function GenerateVouchers() {
 
               <div>
                 <Button
-                  type={justGenerated && lastLot ? "button" : "submit"}
+                  type="submit"
                   className="w-full gap-1.5 h-9 text-sm"
-                  disabled={
-                    justGenerated && lastLot
-                      ? isPrinting
-                      : !selectedRouterId || !profile || !!progress
-                  }
-                  onClick={
-                    justGenerated && lastLot
-                      ? () => void handlePrint(lastLot)
-                      : undefined
-                  }
+                  disabled={!selectedRouterId || !profile || !!progress}
                 >
-                  {justGenerated && lastLot ? (
-                    <>
-                      {isPrinting
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Printer className="h-3.5 w-3.5" />}
-                      {isPrinting ? "Impression…" : "Imprimer"}
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="h-3.5 w-3.5" />
-                      {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
-                    </>
-                  )}
+                  <Zap className="h-3.5 w-3.5" />
+                  {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
                 </Button>
                 {progress && (
                   <div className="mt-2 space-y-1.5">
@@ -1312,17 +1186,6 @@ export default function GenerateVouchers() {
 
               {/* Dernier lot — barre d’actions */}
               <div className="px-3 py-2 border-b border-gray-100 flex gap-1.5">
-                <Button
-                  size="sm"
-                  className="flex-1 gap-1.5 h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white"
-                  onClick={() => handlePrint(lastLot)}
-                  disabled={isPrinting}
-                >
-                  {isPrinting
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <Printer className="h-3.5 w-3.5" />}
-                  {isPrinting ? "Impression…" : "Imprimer"}
-                </Button>
                 <Button
                   size="sm"
                   variant="outline"
