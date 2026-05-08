@@ -233,6 +233,14 @@ export type ServerTemplateResult = {
    *          → ne JAMAIS appliquer le layout 4×9, même contenu similaire au modèle.
    */
   isDefault: boolean;
+  /**
+   * Échelles renvoyées par le serveur (entiers 0-100), présentes uniquement sur
+   * cache-miss (null en cas de cache hit ou d'erreur réseau).
+   * Les appelants qui gèrent des paramètres (TicketTemplate) peuvent les persister
+   * en localStorage ; les fonctions d'impression ne doivent PAS les écrire.
+   */
+  serverScaleSmall:  number | null;
+  serverScaleMobile: number | null;
 };
 
 // ── Cache mémoire — évite un aller-retour réseau à chaque clic Imprimer ────────
@@ -250,6 +258,7 @@ export function invalidateTemplateCache(): void {
  */
 export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResult> {
   if (_templateCache && Date.now() < _templateCache.expiresAt) {
+    // Cache hit — échelles non re-synchronisées intentionnellement (voir commentaire type)
     return _templateCache.result;
   }
 
@@ -264,14 +273,26 @@ export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResul
     const r = await fetch(`${BASE}/api/tenant/ticket-template`, { headers });
     if (r.ok) {
       const data = (await r.json()) as { template: string | null; scaleSmall?: number; scaleMobile?: number };
-      // Appliquer les échelles serveur en localStorage (synchronisation cross-device)
-      if (typeof data.scaleSmall === "number") saveSmallScale(data.scaleSmall / 100);
-      if (typeof data.scaleMobile === "number") saveMobileScale(data.scaleMobile);
+      // NE PAS écrire les échelles en localStorage ici — cela écraserait silencieusement
+      // la valeur choisie par l'utilisateur dans le dialog si le serveur a une valeur différente
+      // (ex. admin avec printScaleSmall=100 par défaut mais utilisateur a mis 85%).
+      // Les échelles sont retournées dans le résultat : seuls les appelants qui gèrent
+      // des paramètres (TicketTemplate.tsx useEffect) les persistent en localStorage.
+      const serverScaleSmall  = typeof data.scaleSmall  === "number" ? data.scaleSmall  : null;
+      const serverScaleMobile = typeof data.scaleMobile === "number" ? data.scaleMobile : null;
       if (data.template && data.template.trim().length > 0) {
         try { localStorage.setItem(PHP_KEY, data.template); } catch {}
-        return _cache({ template: data.template, isDefault: false });
+        return _cache({ template: data.template, isDefault: false, serverScaleSmall, serverScaleMobile });
       }
       // Serveur joignable, aucun template en DB — vérifier localStorage
+      // (conserver quand même les échelles pour que le useEffect TicketTemplate les applique)
+      const cached = (() => {
+        try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault(); } catch { return null; }
+      })();
+      if (cached && cached.trim().length > 0) {
+        return _cache({ template: cached, isDefault: false, serverScaleSmall, serverScaleMobile });
+      }
+      return _cache({ template: DEFAULT_MIKHMON_PHP, isDefault: true, serverScaleSmall, serverScaleMobile });
     }
   } catch { /* réseau indisponible — utiliser cache local */ }
 
@@ -279,11 +300,11 @@ export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResul
     try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault(); } catch { return null; }
   })();
   if (cached && cached.trim().length > 0) {
-    return _cache({ template: cached, isDefault: false });
+    return _cache({ template: cached, isDefault: false, serverScaleSmall: null, serverScaleMobile: null });
   }
 
   // Dernier recours : DEFAULT_MIKHMON_PHP (rien enregistré nulle part)
-  return _cache({ template: DEFAULT_MIKHMON_PHP, isDefault: true });
+  return _cache({ template: DEFAULT_MIKHMON_PHP, isDefault: true, serverScaleSmall: null, serverScaleMobile: null });
 }
 
 /**
@@ -401,12 +422,24 @@ export default function TicketTemplate() {
 
   // Chargement depuis le serveur au montage (source de vérité cross-device)
   useEffect(() => {
-    fetchServerTemplateWithMeta().then(({ template }) => {
+    fetchServerTemplateWithMeta().then(({ template, serverScaleSmall, serverScaleMobile }) => {
       setPhpCode(template);
-      // fetchServerTemplateWithMeta a déjà persisté les échelles en localStorage via
-      // saveSmallScale / saveMobileScale — synchronise maintenant le state React
-      setSmallScale(readSmallScale());
-      setScaleMobile(readMobileScale());
+      // Appliquer les échelles serveur → localStorage UNIQUEMENT ici (page paramètres).
+      // Les fonctions d'impression ne font PAS cette synchronisation pour éviter
+      // d'écraser la valeur choisie par l'utilisateur dans le dialog.
+      if (serverScaleSmall !== null) {
+        const v = serverScaleSmall / 100;
+        saveSmallScale(v);
+        setSmallScale(v);
+      } else {
+        setSmallScale(readSmallScale());
+      }
+      if (serverScaleMobile !== null) {
+        saveMobileScale(serverScaleMobile);
+        setScaleMobile(serverScaleMobile);
+      } else {
+        setScaleMobile(readMobileScale());
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

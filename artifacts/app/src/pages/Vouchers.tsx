@@ -722,7 +722,9 @@ export default function Vouchers() {
     }
     const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
     if (await tryOpenVoucherPrintPage(lot.name, hotspotName)) { preWin?.close(); return; }
-    // Capturer les échelles AVANT fetchServerTemplateWithMeta qui peut écraser localStorage
+    // Capturer les échelles avant tout appel async (défense en profondeur —
+    // fetchServerTemplateWithMeta ne touche plus localStorage mais la capture
+    // garantit que la valeur est prise au moment du clic, avant tout await).
     const capturedSmallScale  = readSmallScale();
     const capturedMobileScale = readMobileScale();
     setPrintingLot(lot.name);
