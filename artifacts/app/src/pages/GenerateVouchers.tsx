@@ -1261,7 +1261,7 @@ export default function GenerateVouchers() {
                   {isPrintingSmall
                     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     : <Printer className="h-3.5 w-3.5" />}
-                  {isPrintingSmall ? "Impression…" : "Small"}
+                  {isPrintingSmall ? "Impression…" : "Imprimer"}
                 </Button>
                 <Button
                   size="sm"

@@ -1497,7 +1497,7 @@ export default function Vouchers() {
                         className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors disabled:opacity-40"
                       >
                         <Printer className="h-3 w-3" />
-                        <span>Small</span>
+                        <span>Imprimer</span>
                       </button>
 
                       <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
@@ -1878,7 +1878,7 @@ export default function Vouchers() {
                             title="Imprimer en mode Small (2 colonnes)"
                           >
                             <Printer className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Small</span>
+                            <span className="hidden sm:inline">Imprimer</span>
                           </Button>
                           <Button
                             size="sm"
