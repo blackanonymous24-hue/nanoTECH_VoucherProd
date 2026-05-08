@@ -460,7 +460,6 @@ function printWithNativeBridge(html: string, title: string): void {
  * ce mode ne l'impose pas, contrairement au mode regular.
  */
 export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, autoPrint = false): string {
-  const defaultCols = 2;
   const css = `
     @page {
       size: auto;
@@ -530,42 +529,31 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     #vn-print-bar button:hover { background: #6d28d9; }
 
     /* Décalage tickets sous la barre fixe */
-    #vn-tickets {
-      margin-top: 48px;
-      column-count: ${defaultCols};
-      column-gap: 4px;
-    }
+    #vn-tickets { margin-top: 48px; }
 
-    /* ── Layout small — colonnes CSS (compatible iOS WebKit) ────────── */
+    /* ── Layout small — inline-block naturel (identique MikHmon) ────── */
     table.voucher {
-      display: block !important;
-      width: 100% !important;
+      display: inline-block !important;
+      vertical-align: top;
       border: 2px solid #000;
-      margin: 2px 0;
+      margin: 2px;
       padding: 3px;
       box-sizing: border-box;
-      break-inside: avoid !important;
-      -webkit-column-break-inside: avoid !important;
       page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
     table.voucher * {
-      break-inside: avoid !important;
-      -webkit-column-break-inside: avoid !important;
       page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
 
     @media print {
       #vn-print-bar { display: none !important; }
-      #vn-tickets {
-        margin-top: 0 !important;
-        column-count: ${defaultCols};
-        column-gap: 4px;
-      }
+      #vn-tickets   { margin-top: 0 !important; }
       table.voucher {
-        display: block !important;
-        break-inside: avoid !important;
-        -webkit-column-break-inside: avoid !important;
+        display: inline-block !important;
         page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
     }
 
@@ -655,7 +643,6 @@ ${bar}
  * Le compteur utilise window._totalTickets (mis à jour par l'appelant).
  */
 export function buildSmallModeShell(title: string, defaultScale = 0.85): string {
-  const defaultCols = 2;
   const css = `
     @page {
       size: auto;
@@ -720,39 +707,28 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
       white-space: nowrap;
     }
     #vn-print-bar button:hover { background: #6d28d9; }
-    #vn-tickets {
-      margin-top: 48px;
-      column-count: ${defaultCols};
-      column-gap: 4px;
-    }
+    #vn-tickets { margin-top: 48px; }
     table.voucher {
-      display: block !important;
-      width: 100% !important;
+      display: inline-block !important;
+      vertical-align: top;
       border: 2px solid #000;
-      margin: 2px 0;
+      margin: 2px;
       padding: 3px;
       box-sizing: border-box;
-      break-inside: avoid !important;
-      -webkit-column-break-inside: avoid !important;
       page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
     table.voucher * {
-      break-inside: avoid !important;
-      -webkit-column-break-inside: avoid !important;
       page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
     @media print {
       #vn-print-bar { display: none !important; }
-      #vn-tickets {
-        margin-top: 0 !important;
-        column-count: ${defaultCols};
-        column-gap: 4px;
-      }
+      #vn-tickets   { margin-top: 0 !important; }
       table.voucher {
-        display: block !important;
-        break-inside: avoid !important;
-        -webkit-column-break-inside: avoid !important;
+        display: inline-block !important;
         page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
     }
     #num, span#num {
