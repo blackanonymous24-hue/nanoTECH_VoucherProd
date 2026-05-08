@@ -481,56 +481,6 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       transform-origin: top left;
     }
 
-    /* ── Barre de contrôle (écran uniquement) ───────────────────────── */
-    #vn-print-bar {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      height: 42px;
-      background: #1e1e2e;
-      color: #cdd6f4;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 0 14px;
-      font-size: 13px;
-      font-family: Helvetica, Arial, sans-serif;
-      z-index: 9999;
-      box-shadow: 0 2px 8px rgba(0,0,0,.45);
-    }
-    #vn-print-bar label { opacity: .75; white-space: nowrap; }
-    #vn-print-bar select {
-      padding: 3px 7px;
-      border-radius: 5px;
-      border: 1px solid #45475a;
-      background: #313244;
-      color: #cdd6f4;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    #vn-print-bar .vn-sep {
-      flex: 1;
-    }
-    #vn-print-bar .vn-info {
-      font-size: 11px;
-      opacity: .55;
-      white-space: nowrap;
-    }
-    #vn-print-bar button {
-      padding: 5px 16px;
-      border: none;
-      border-radius: 5px;
-      background: #7c3aed;
-      color: #fff;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    #vn-print-bar button:hover { background: #6d28d9; }
-
-    /* Décalage tickets sous la barre fixe */
-    #vn-tickets { margin-top: 48px; }
-
     /* ── Layout small — 2 tickets par ligne (48 % chacun) ────────────── */
     table.voucher {
       display: inline-block !important;
@@ -550,8 +500,6 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     }
 
     @media print {
-      #vn-print-bar { display: none !important; }
-      #vn-tickets   { margin-top: 0 !important; }
       table  { page-break-after: auto; }
       tr     { page-break-inside: avoid; page-break-after: auto; }
       td     { page-break-inside: avoid; page-break-after: auto; }
@@ -574,32 +522,13 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
   `;
 
   const js = `
-    function applyPrintScale(scale) {
-      document.body.style.transform = 'scale(' + scale + ')';
-      document.body.style.width = (100 / scale) + '%';
-      var info = document.getElementById('vn-scale-info');
-      if (info) info.textContent = Math.round(scale * 100) + '% — ' + ${htmlItems.length} + ' ticket(s)';
-    }
-    document.addEventListener('DOMContentLoaded', function() {
-      var sel = document.getElementById('vn-scale');
-      sel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
-      applyPrintScale(parseFloat(sel.value));
-    });
+    window.onload = function() {
+      document.body.style.transform = 'scale(${defaultScale})';
+      document.body.style.width = '${Math.round(100 / defaultScale * 10000) / 10000}%';
+      window.focus();
+      window.print();
+    };
   `;
-
-  const scaleOptions = ([1, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70] as number[])
-    .map((s) => `<option value="${s}"${s === defaultScale ? " selected" : ""}>${Math.round(s * 100)}%</option>`)
-    .join("\n    ");
-
-  const bar = `<div id="vn-print-bar">
-  <label for="vn-scale">Échelle :</label>
-  <select id="vn-scale">
-    ${scaleOptions}
-  </select>
-  <span class="vn-sep"></span>
-  <span class="vn-info" id="vn-scale-info"></span>
-  <button onclick="window.print()">🖨&nbsp;Imprimer</button>
-</div>`;
 
   return `<!doctype html>
 <html>
@@ -610,10 +539,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
   <style>${css}</style>
   <script>${js}<\/script>
 </head>
-<body>
-${bar}
-<div id="vn-tickets">${htmlItems.join("\n")}</div>
-</body>
+<body>${htmlItems.join("\n")}</body>
 </html>`;
 }
 
