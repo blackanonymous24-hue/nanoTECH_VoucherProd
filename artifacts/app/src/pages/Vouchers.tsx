@@ -76,8 +76,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readWebScale, readMobileScale } from "@/pages/TicketTemplate";
-import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readWebScale, readMobileScale, readSmallScale } from "@/pages/TicketTemplate";
+import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
@@ -793,6 +793,43 @@ export default function Vouchers() {
     } catch (err) {
       preWin?.close();
       toast({ title: "Erreur impression", description: String(err), variant: "destructive" });
+    } finally {
+      setPrintingLot(null);
+    }
+  };
+
+  const handlePrintSmallLot = async (lot: LotSummary) => {
+    const preWin: Window | null = window.open("", "_blank");
+    if (preWin) {
+      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
+<title>Chargement…</title>
+<style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}.spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#7c3aed;border-radius:50%;animation:spin 0.9s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}</style></head>
+<body><div class="spinner"></div><p>Mode Small — chargement…</p></body></html>`);
+      preWin.document.close();
+    }
+    const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
+    if (await tryOpenVoucherPrintPage(lot.name, hotspotName)) { preWin?.close(); return; }
+    setPrintingLot(lot.name);
+    try {
+      const [{ template: php }, users] = await Promise.all([fetchServerTemplateWithMeta(), fetchLotUsers(lot)]);
+      if (users.length === 0) { preWin?.close(); toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" }); return; }
+      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
+      const vouchers = users.map((user, idx) => {
+        const profile = profilesList.find((p) => p.name === user.profile);
+        return { hotspotname: hotspotName, dnsname: (activeRouter as { contact?: string } | undefined)?.contact ?? "", username: user.username, password: user.password, price: profile?.price ?? "", currency: "FCFA", validity: profile?.validity ?? "", timelimit: user.limitUptime ?? "", datalimit: user.limitBytesTotal ?? "", num: idx + 1 };
+      });
+      const resp = await fetch(`${BASE}/api/render-tickets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ php, vouchers }) });
+      if (!resp.ok) { preWin?.close(); const err = await resp.json().catch(() => ({})) as { error?: string }; toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" }); return; }
+      const data = await resp.json() as { html: string[] };
+      if (!data.html?.length) { preWin?.close(); toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" }); return; }
+      const title = ["Voucher-Small", toSlug(hotspotName), lot.name].filter(Boolean).join("-");
+      if (preWin) {
+        const html = buildSmallModePrintHtml(data.html, title, readSmallScale());
+        preWin.document.open(); preWin.document.write(html); preWin.document.close();
+      }
+    } catch (err) {
+      preWin?.close();
+      toast({ title: "Erreur impression Small", description: String(err), variant: "destructive" });
     } finally {
       setPrintingLot(null);
     }
@@ -1708,6 +1745,21 @@ export default function Vouchers() {
                         <span>Imprimer</span>
                       </button>
 
+                      {/* Small */}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!filterComment) return;
+                          const lot = lots.find((l) => l.name === filterComment);
+                          if (lot) await handlePrintSmallLot(lot);
+                        }}
+                        disabled={isPrinting}
+                        className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                      >
+                        <Printer className="h-3 w-3" />
+                        <span>Small</span>
+                      </button>
+
                       <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
 
                       {/* Activer / Désactiver */}
@@ -2088,6 +2140,17 @@ export default function Vouchers() {
                             {printingLot === lot.name
                               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               : <Printer className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                            onClick={() => handlePrintSmallLot(lot)}
+                            disabled={printingLot === lot.name}
+                            title="Imprimer en mode Small (2 colonnes)"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Small</span>
                           </Button>
                           <Button
                             size="sm"
