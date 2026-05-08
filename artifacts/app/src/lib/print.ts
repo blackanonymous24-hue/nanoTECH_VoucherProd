@@ -130,14 +130,9 @@ export function openPrintHtmlWindow(html: string, title: string): void {
 /**
  * Construit le HTML complet pour l'impression de tickets (avec autoprint).
  * Exposé pour permettre la pré-ouverture de fenêtre avant tout `await`.
- *
- * @param rowsPerPage  Nombre de lignes par bloc de page (mobile uniquement).
- *   - 6 (défaut) : templates personnalisés/importés → 4×6 = 24 tickets/page.
- *   - 9           : template MikHmon intégré         → 4×9 = 36 tickets/page.
- *   Ne jamais passer 9 pour un template importé ou enregistré par l'admin.
  */
-export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false, rowsPerPage = 6): string {
-  return buildHtml(htmlItems, title, true, scale, mobile, rowsPerPage);
+export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false): string {
+  return buildHtml(htmlItems, title, true, scale, mobile);
 }
 
 /**
@@ -191,8 +186,9 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 </html>`;
 }
 
-function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false, rowsPerPage = 6): string {
+function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
   const COLS = 4;
+  const ROWS = 6;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
@@ -206,19 +202,15 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
     // rien à calculer, chaque bloc est garantiellement complet.
 
-    const MOBILE_COLS = COLS;
-
-    // rowsPerPage : 6 (templates personnalisés) ou 9 (template MikHmon intégré sans sauvegarde).
-    // Passé en paramètre depuis buildTicketPrintHtml.
-    const perPage = MOBILE_COLS * rowsPerPage;
+    const perPage = COLS * ROWS;
 
     // Construction des blocs de page avec page-break-after:always explicite
     const mobileBlocks: string[] = [];
     for (let p = 0; p < htmlItems.length; p += perPage) {
       const chunk = htmlItems.slice(p, p + perPage);
       const rows: string[] = [];
-      for (let r = 0; r < chunk.length; r += MOBILE_COLS) {
-        const cells = chunk.slice(r, r + MOBILE_COLS)
+      for (let r = 0; r < chunk.length; r += COLS) {
+        const cells = chunk.slice(r, r + COLS)
           .map(item => `<td style="padding:2px;vertical-align:top;"><div class="ticket">${item}</div></td>`)
           .join("");
         rows.push(`<tr class="ticket-row">${cells}</tr>`);
@@ -548,7 +540,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
  * — Desktop     : utilise un <iframe> invisible.
  */
 export function printTickets(htmlItems: string[], title: string, scale = 85): void {
-  let html = buildHtml(htmlItems, title, false, scale, false, 6);
+  let html = buildHtml(htmlItems, title, false, scale, false);
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);

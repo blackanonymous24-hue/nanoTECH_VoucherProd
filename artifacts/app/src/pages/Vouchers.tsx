@@ -737,7 +737,7 @@ export default function Vouchers() {
     setPrintingLot(lot.name);
     try {
       // Parallélisation : template + users en simultané
-      const [{ template: php, isDefault: isMikHmonDefault }, users] = await Promise.all([
+      const [{ template: php }, users] = await Promise.all([
         fetchServerTemplateWithMeta(),
         fetchLotUsers(lot),
       ]);
@@ -746,8 +746,6 @@ export default function Vouchers() {
         toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" });
         return;
       }
-      const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-      const mobileRowsPerPage = isMikHmon ? 9 : 6;
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const vouchers = users.map((user, idx) => {
         const profile = profilesList.find((p) => p.name === user.profile);
@@ -784,7 +782,7 @@ export default function Vouchers() {
       const printParts = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean);
       const title = printParts.join("-");
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html, title, printScale, true, mobileRowsPerPage);
+        const html = buildTicketPrintHtml(data.html, title, printScale, true);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
@@ -847,8 +845,7 @@ export default function Vouchers() {
       }
     }
     setIsPrinting(true);
-    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
-    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
+    const { template: php } = await fetchServerTemplateWithMeta();
     const vouchers = usersForPrint.map((user, idx) => {
       const profile = profilesList.find((p) => p.name === user.profile);
       return {
@@ -939,9 +936,8 @@ export default function Vouchers() {
       const printComment = firstUser?.comment ?? "";
       const printParts = ["Voucher", toSlug(hotspotName), printComment].filter(Boolean);
       const title = printParts.join("-");
-      const mobileRowsPerPage = isMikHmon ? 9 : 6;
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();

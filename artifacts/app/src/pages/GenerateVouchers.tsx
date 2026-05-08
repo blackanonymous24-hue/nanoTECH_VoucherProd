@@ -726,9 +726,7 @@ export default function GenerateVouchers() {
       });
       return;
     }
-    const { template: php, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
-    const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-    const mobileRowsPerPage = isMikHmon ? 9 : 6;
+    const { template: php } = await fetchServerTemplateWithMeta();
     const PRICE_COLORS: Record<string, string> = {
       "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
       "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
@@ -772,7 +770,7 @@ export default function GenerateVouchers() {
       const title = printParts.join("-");
 
       if (preWin) {
-        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true, mobileRowsPerPage);
+        const html = buildTicketPrintHtml(data.html as string[], title, printScale, true);
         preWin.document.open();
         preWin.document.write(html);
         preWin.document.close();
