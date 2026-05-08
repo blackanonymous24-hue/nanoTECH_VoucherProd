@@ -76,7 +76,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale, hasExplicitSmallScale, hasExplicitMobileScale, saveSmallScale, saveMobileScale } from "@/pages/TicketTemplate";
 import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
@@ -722,14 +722,28 @@ export default function Vouchers() {
     }
     const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
     if (await tryOpenVoucherPrintPage(lot.name, hotspotName)) { preWin?.close(); return; }
-    // Capturer les échelles avant tout appel async (défense en profondeur —
-    // fetchServerTemplateWithMeta ne touche plus localStorage mais la capture
-    // garantit que la valeur est prise au moment du clic, avant tout await).
-    const capturedSmallScale  = readSmallScale();
-    const capturedMobileScale = readMobileScale();
+    // Détecter AVANT l'appel si l'utilisateur a déjà une valeur locale explicite.
+    // Si non (nouveau compte, navigation privée, stockage effacé) → on appliquera
+    // la valeur du tenant (serveur) pour que les gérants/collaborateurs héritent
+    // de l'échelle de leur admin sans devoir passer par la page Paramètres.
+    const hadExplicitSmall  = hasExplicitSmallScale();
+    const hadExplicitMobile = hasExplicitMobileScale();
+    // Capturer les valeurs actuelles (défense en profondeur : prise au moment du clic)
+    let capturedSmallScale  = readSmallScale();
+    let capturedMobileScale = readMobileScale();
     setPrintingLot(lot.name);
     try {
-      const [{ template: php }, users] = await Promise.all([fetchServerTemplateWithMeta(), fetchLotUsers(lot)]);
+      const [{ template: php, serverScaleSmall, serverScaleMobile }, users] = await Promise.all([fetchServerTemplateWithMeta(), fetchLotUsers(lot)]);
+      // Appliquer la valeur serveur (tenant admin) uniquement si aucune préférence locale :
+      if (!hadExplicitSmall && serverScaleSmall !== null) {
+        const v = serverScaleSmall / 100;
+        saveSmallScale(v);
+        capturedSmallScale = v;
+      }
+      if (!hadExplicitMobile && serverScaleMobile !== null) {
+        saveMobileScale(serverScaleMobile);
+        capturedMobileScale = serverScaleMobile;
+      }
       if (users.length === 0) { preWin?.close(); toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" }); return; }
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const vouchers = users.map((user, idx) => {

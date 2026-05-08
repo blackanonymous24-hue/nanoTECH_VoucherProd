@@ -16,6 +16,10 @@ export function readSmallScale(): number {
   } catch { return 1; }
 }
 export function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
+/** true si l'utilisateur a déjà une valeur stockée (même le défaut 1.0) */
+export function hasExplicitSmallScale(): boolean {
+  try { return localStorage.getItem(SMALL_SCALE_KEY) !== null; } catch { return false; }
+}
 
 export function readMobileScale(def = 100): number {
   try {
@@ -24,6 +28,10 @@ export function readMobileScale(def = 100): number {
   } catch { return def; }
 }
 export function saveMobileScale(v: number) { try { localStorage.setItem(MOBILE_SCALE_KEY, String(v)); } catch {} }
+/** true si l'utilisateur a déjà une valeur stockée */
+export function hasExplicitMobileScale(): boolean {
+  try { return localStorage.getItem(MOBILE_SCALE_KEY) !== null; } catch { return false; }
+}
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 
