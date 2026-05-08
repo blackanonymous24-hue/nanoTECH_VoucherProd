@@ -610,43 +610,8 @@ export default function TicketTemplate() {
             </DialogTitle>
           </DialogHeader>
           <div className="py-2 space-y-4">
-            {/* Échelle Mobile & APK */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600">📱 Échelle par défaut (Mobile &amp; APK)</span>
-                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScale * 100)}%</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range" min={0} max={100} step={1}
-                  value={Math.round(smallScale * 100)}
-                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScale(v); saveSmallScale(v); }}
-                  onWheel={(e) => {
-                    e.preventDefault();
-                    const delta = e.deltaY < 0 ? 1 : -1;
-                    const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + delta));
-                    setSmallScale(next / 100); saveSmallScale(next / 100);
-                  }}
-                  className="flex-1 h-2 cursor-pointer"
-                  style={{ accentColor: "#7c3aed" }}
-                />
-                <input
-                  type="number" min={0} max={100} step={1}
-                  value={Math.round(smallScale * 100)}
-                  onChange={(e) => {
-                    const raw = parseInt(e.target.value, 10);
-                    if (isNaN(raw)) return;
-                    const v = Math.min(100, Math.max(0, raw)) / 100;
-                    setSmallScale(v); saveSmallScale(v);
-                  }}
-                  className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
-                />
-                <span className="text-xs text-gray-400 shrink-0">%</span>
-              </div>
-            </div>
-
             {/* Échelle Web & Desktop */}
-            <div className="space-y-1.5 border-t pt-3">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-600">🖥 Échelle par défaut (Web &amp; Desktop)</span>
                 <span className="text-xs text-blue-600 font-bold tabular-nums">{Math.round(webScale * 100)}%</span>
@@ -675,6 +640,41 @@ export default function TicketTemplate() {
                     setWebScale(v); saveWebScale(v);
                   }}
                   className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-blue-400"
+                />
+                <span className="text-xs text-gray-400 shrink-0">%</span>
+              </div>
+            </div>
+
+            {/* Échelle Mobile & APK */}
+            <div className="space-y-1.5 border-t pt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-600">📱 Échelle par défaut (Mobile &amp; APK)</span>
+                <span className="text-xs text-violet-600 font-bold tabular-nums">{Math.round(smallScale * 100)}%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range" min={0} max={100} step={1}
+                  value={Math.round(smallScale * 100)}
+                  onChange={(e) => { const v = Number(e.target.value) / 100; setSmallScale(v); saveSmallScale(v); }}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY < 0 ? 1 : -1;
+                    const next = Math.min(100, Math.max(0, Math.round(smallScale * 100) + delta));
+                    setSmallScale(next / 100); saveSmallScale(next / 100);
+                  }}
+                  className="flex-1 h-2 cursor-pointer"
+                  style={{ accentColor: "#7c3aed" }}
+                />
+                <input
+                  type="number" min={0} max={100} step={1}
+                  value={Math.round(smallScale * 100)}
+                  onChange={(e) => {
+                    const raw = parseInt(e.target.value, 10);
+                    if (isNaN(raw)) return;
+                    const v = Math.min(100, Math.max(0, raw)) / 100;
+                    setSmallScale(v); saveSmallScale(v);
+                  }}
+                  className="w-14 text-center text-sm font-bold border border-gray-200 rounded px-1 py-1 focus:outline-none focus:border-violet-400"
                 />
                 <span className="text-xs text-gray-400 shrink-0">%</span>
               </div>
