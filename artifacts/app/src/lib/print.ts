@@ -545,11 +545,12 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       box-sizing: border-box;
     }
 
-    /* ── Impression : display:block sur le wrapper → iOS respecte      */
-    /*    page-break-inside:avoid (ne fonctionne pas sur inline-block)  */
+    /* ── Impression : transform supprimé → iOS calcule les sauts de    */
+    /*    page sur le layout réel → page-break-inside:avoid fonctionne */
     @media print {
       #vn-print-bar { display: none !important; }
       #vn-tickets   { margin-top: 0 !important; }
+      body { transform: none !important; width: 100% !important; }
       .vn-w {
         display: block !important;
         page-break-inside: avoid !important;
@@ -570,6 +571,10 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     }
   `;
 
+  /* Injecte le scale uniquement pour @media screen — laisse print sans transform */
+  const screenScaleStyle = (scale: number) =>
+    `@media screen{body{transform:scale(${scale});transform-origin:top left;width:${(100 / scale).toFixed(2)}%}}`;
+
   const wrapTicketsJs = `
     Array.from(document.querySelectorAll('table.voucher')).forEach(function(t) {
       var w = document.createElement('div');
@@ -583,7 +588,9 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     ? `
     window.onload = function() {
       ${wrapTicketsJs}
-      document.body.style.zoom = '${defaultScale}';
+      var s = document.createElement('style');
+      s.textContent = ${JSON.stringify(screenScaleStyle(defaultScale))};
+      document.head.appendChild(s);
       window.print();
     };
   `
@@ -594,7 +601,9 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       if (info) info.textContent = Math.round(scale * 100) + '% · ${htmlItems.length} ticket(s)';
     }
     function applyPrintScale(scale) {
-      document.body.style.zoom = String(scale);
+      var el = document.getElementById('vn-s');
+      if (!el) { el = document.createElement('style'); el.id = 'vn-s'; document.head.appendChild(el); }
+      el.textContent = '@media screen{body{transform:scale(' + scale + ');transform-origin:top left;width:' + (100 / scale).toFixed(2) + '%}}';
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
@@ -784,7 +793,9 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
       if (info) info.textContent = Math.round(scale * 100) + '% · ' + _totalTickets + ' ticket(s)';
     }
     function applyPrintScale(scale) {
-      document.body.style.zoom = String(scale);
+      var el = document.getElementById('vn-s');
+      if (!el) { el = document.createElement('style'); el.id = 'vn-s'; document.head.appendChild(el); }
+      el.textContent = '@media screen{body{transform:scale(' + scale + ');transform-origin:top left;width:' + (100 / scale).toFixed(2) + '%}}';
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
