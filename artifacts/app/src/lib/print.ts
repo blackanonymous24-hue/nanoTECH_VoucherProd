@@ -195,18 +195,14 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
   if (mobile) {
     const s = scale / 100;
 
-    // Flux libre : une rangée = un <div> de niveau bloc.
-    // break-inside:avoid est fiable sur les <div> en impression Safari iOS,
-    // alors qu'il est ignoré sur les <tr> de tableau.
-    // 4 colonnes via display:inline-block 25% (pas de table → pas du problème tr).
-    const rows: string[] = [];
-    for (let r = 0; r < htmlItems.length; r += COLS) {
-      const cells = htmlItems.slice(r, r + COLS)
-        .map(item => `<div class="ticket-cell"><div class="ticket">${item}</div></div>`)
-        .join("");
-      rows.push(`<div class="ticket-row">${cells}</div>`);
-    }
-    const tableHtml = `<div class="ticket-page">${rows.join("")}</div>`;
+    // Flux libre : chaque ticket est une cellule inline-block indépendante.
+    // Le navigateur remplit chaque ligne selon la largeur naturelle du ticket
+    // (template étroit → plus de colonnes, template large → moins de colonnes).
+    // Pas de groupement en rangées fixes : le nombre de colonnes s'adapte automatiquement.
+    const cells = htmlItems
+      .map(item => `<div class="ticket-cell"><div class="ticket">${item}</div></div>`)
+      .join("");
+    const tableHtml = `<div class="ticket-page">${cells}</div>`;
 
     // @page DOIT être à la racine (Safari iOS l'ignore dans @media print).
     const mobilePageCss = `
@@ -227,27 +223,28 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       }
       .doc-header { display: none !important; }
 
-      /* Conteneur global centré */
-      .ticket-page { display: block; text-align: center; }
-
-      /* Rangée = div bloc — break-inside:avoid fiable sur <div> (pas sur <tr> Safari) */
-      .ticket-row {
+      /* Conteneur global : font-size:0 supprime l'espace entre inline-blocks.
+         text-align:center centre les tickets sur les lignes incomplètes. */
+      .ticket-page {
         display: block;
-        font-size: 0;           /* élimine l'espace entre inline-blocks */
+        text-align: center;
+        font-size: 0;
+        overflow: visible !important;
+      }
+
+      /* Cellule = largeur naturelle du ticket (auto-colonnes selon le template).
+         Template étroit → plus de colonnes ; template large → moins de colonnes.
+         break-inside:avoid protège chaque ticket individuellement. */
+      .ticket-cell {
+        display: inline-block;
+        width: auto;
+        vertical-align: top;
+        padding: 1px;
+        font-size: 14px;        /* restaure la taille après font-size:0 sur .ticket-page */
         break-inside: avoid !important;
         page-break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
         overflow: visible !important;
-      }
-
-      /* Cellule = 25 % de la largeur → 4 colonnes */
-      .ticket-cell {
-        display: inline-block;
-        width: 25%;
-        vertical-align: top;
-        padding: 1px;
-        box-sizing: border-box;
-        font-size: 14px;        /* restaure la taille après font-size:0 sur .ticket-row */
       }
 
       /* .ticket = boîte clippante : empêche le contenu du ticket de déborder
@@ -279,7 +276,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
 
       /* overflow:visible sur les conteneurs de pagination (Safari page-break).
          .ticket reste en overflow:hidden pour clipper son contenu. */
-      body, .ticket-page, .ticket-row, .ticket-cell {
+      body, .ticket-page, .ticket-cell {
         overflow: visible !important;
       }
 
