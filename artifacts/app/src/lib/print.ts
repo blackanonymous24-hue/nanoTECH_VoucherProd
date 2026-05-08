@@ -130,14 +130,9 @@ export function openPrintHtmlWindow(html: string, title: string): void {
 /**
  * Construit le HTML complet pour l'impression de tickets (avec autoprint).
  * Exposé pour permettre la pré-ouverture de fenêtre avant tout `await`.
- *
- * @param rowsPerPage  Nombre de lignes de base par bloc de page (mobile uniquement).
- *   - 6 (défaut) : templates personnalisés/importés → 4×6 = 24 tickets/page.
- *   - 9           : template MikHmon intégré         → 4×9 = 36 tickets/page.
- *   Ne jamais passer 9 pour un template importé ou enregistré par l'admin.
  */
-export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false, rowsPerPage = 6): string {
-  return buildHtml(htmlItems, title, true, scale, mobile, rowsPerPage);
+export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false): string {
+  return buildHtml(htmlItems, title, true, scale, mobile);
 }
 
 /**
@@ -191,12 +186,11 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 </html>`;
 }
 
-function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false, rowsPerPage = 6): string {
+function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
   const COLS = 4;
-  // ROWS_BASE = rowsPerPage : 6 pour templates custom, 9 pour MikHmon intégré.
-  // Formule dynamique : ROWS_BASE / s → plus l'échelle est petite,
-  // plus de lignes tiennent sur une page A4.
-  const ROWS_BASE = rowsPerPage;
+  // Nombre de lignes de base à 100 % (zoom = 1.0). Formule : ROWS_BASE / s
+  // → plus l'échelle est petite, plus de lignes tiennent sur une page A4.
+  const ROWS_BASE = 6;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────

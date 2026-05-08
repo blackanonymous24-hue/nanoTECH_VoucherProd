@@ -715,7 +715,7 @@ export default function GenerateVouchers() {
     let capturedMobileScale = readMobileScale();
     setIsPrintingSmall(true);
     try {
-      const { template: php, serverScaleSmall, serverScaleMobile, isDefault: isMikHmonDefault } = await fetchServerTemplateWithMeta();
+      const { template: php, serverScaleSmall, serverScaleMobile } = await fetchServerTemplateWithMeta();
       // Appliquer la valeur serveur (tenant admin) uniquement si aucune préférence locale :
       if (!hadExplicitSmall && serverScaleSmall !== null) {
         const v = serverScaleSmall / 100;
@@ -726,10 +726,6 @@ export default function GenerateVouchers() {
         saveMobileScale(serverScaleMobile);
         capturedMobileScale = serverScaleMobile;
       }
-      // 9 lignes/page pour le template MikHmon intégré (tickets plus compacts),
-      // 6 pour les templates personnalisés/importés.
-      const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-      const mobileRowsPerPage = isMikHmon ? 9 : 6;
       const PRICE_COLORS: Record<string, string> = {
         "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
         "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
@@ -764,7 +760,7 @@ export default function GenerateVouchers() {
       } else if (isMobileBrowser) {
         // Mobile browser : zoom + page-breaks (anti-coupure)
         if (preWin) {
-          const html = buildTicketPrintHtml(data.html as string[], title, capturedMobileScale, true, mobileRowsPerPage);
+          const html = buildTicketPrintHtml(data.html as string[], title, capturedMobileScale, true);
           preWin.document.open();
           preWin.document.write(html);
           preWin.document.close();

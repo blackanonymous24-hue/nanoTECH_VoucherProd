@@ -733,7 +733,7 @@ export default function Vouchers() {
     let capturedMobileScale = readMobileScale();
     setPrintingLot(lot.name);
     try {
-      const [{ template: php, serverScaleSmall, serverScaleMobile, isDefault: isMikHmonDefault }, users] = await Promise.all([fetchServerTemplateWithMeta(), fetchLotUsers(lot)]);
+      const [{ template: php, serverScaleSmall, serverScaleMobile }, users] = await Promise.all([fetchServerTemplateWithMeta(), fetchLotUsers(lot)]);
       // Appliquer la valeur serveur (tenant admin) uniquement si aucune préférence locale :
       if (!hadExplicitSmall && serverScaleSmall !== null) {
         const v = serverScaleSmall / 100;
@@ -744,10 +744,6 @@ export default function Vouchers() {
         saveMobileScale(serverScaleMobile);
         capturedMobileScale = serverScaleMobile;
       }
-      // 9 lignes/page pour le template MikHmon intégré (tickets plus compacts),
-      // 6 pour les templates personnalisés/importés.
-      const isMikHmon = isMikHmonDefault || php.includes('class="voucher"');
-      const mobileRowsPerPage = isMikHmon ? 9 : 6;
       if (users.length === 0) { preWin?.close(); toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" }); return; }
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const vouchers = users.map((user, idx) => {
@@ -767,7 +763,7 @@ export default function Vouchers() {
       } else if (isMobileBrowser) {
         // Mobile browser : zoom + page-breaks (anti-coupure)
         if (preWin) {
-          const html = buildTicketPrintHtml(data.html, title, capturedMobileScale, true, mobileRowsPerPage);
+          const html = buildTicketPrintHtml(data.html, title, capturedMobileScale, true);
           preWin.document.open(); preWin.document.write(html); preWin.document.close();
         }
       } else {
