@@ -819,10 +819,19 @@ export default function Vouchers() {
       return;
     }
     preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#fff}
-.sp{width:32px;height:32px;border:4px solid #e5e7eb;border-top-color:#7c3aed;border-radius:50%;animation:sp .8s linear infinite}
-@keyframes sp{to{transform:rotate(360deg)}}</style></head>
-<body><div class="sp"></div></body></html>`);
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chargement…</title>
+<style>
+  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
+    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
+  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#7c3aed;
+    border-radius:50%;animation:spin 0.9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
+</style></head>
+<body><div class="spinner"></div>
+<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
+</body></html>`);
     preWin.document.close();
 
     const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
