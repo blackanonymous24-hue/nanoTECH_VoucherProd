@@ -1421,6 +1421,8 @@ function TemplateDialog({ admin, onClose }: {
   onClose: () => void;
 }) {
   const { toast } = useToast();
+  const { token } = useAuth();
+  const authHeaders = { Authorization: `Bearer ${token ?? ""}` };
   const [templateCode, setTemplateCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1433,11 +1435,12 @@ function TemplateDialog({ admin, onClose }: {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`)
+    fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, { headers: authHeaders })
       .then((r) => r.ok ? r.json() : { template: null })
       .then((data: { template: string | null }) => setTemplateCode(data.template ?? ""))
       .catch(() => setTemplateCode(""))
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin.id]);
 
   const handleSave = async () => {
@@ -1445,14 +1448,15 @@ function TemplateDialog({ admin, onClose }: {
     try {
       const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ template: templateCode }),
       });
       if (r.ok) {
         toast({ title: "Template sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
         onClose();
       } else {
-        toast({ title: "Erreur", description: "Impossible de sauvegarder le template.", variant: "destructive" });
+        const err = await r.json().catch(() => ({})) as { error?: string };
+        toast({ title: "Erreur", description: err.error ?? "Impossible de sauvegarder le template.", variant: "destructive" });
       }
     } catch {
       toast({ title: "Erreur réseau", description: "Vérifiez votre connexion.", variant: "destructive" });

@@ -637,10 +637,6 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
 
   const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, id));
   if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
-  if (target.isSuperAdmin) {
-    res.status(403).json({ error: "Impossible de modifier le super administrateur via cette voie" });
-    return;
-  }
 
   const [updated] = await db
     .update(adminSettingsTable)
