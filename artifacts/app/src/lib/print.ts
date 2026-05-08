@@ -507,16 +507,17 @@ export function buildWebPrintHtml(htmlItems: string[], title: string, defaultSca
       var info=document.getElementById('vn-scale-info');
       if(info)info.textContent=Math.round(scale*100)+'% \u00b7 ${n} ticket${n>1?'s':''}';
     }
-    function applyPrintScale(scale){
+    function applyPrintScale(scale,save){
       var el=document.getElementById('vn-s');
       if(!el){el=document.createElement('style');el.id='vn-s';document.head.appendChild(el);}
       el.textContent='@media screen{body{transform:scale('+scale+');transform-origin:top left;width:'+(100/scale).toFixed(2)+'%}}';
+      if(save){try{localStorage.setItem('vn_small_scale_web',String(scale));}catch(e){}}
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded',function(){
       var sel=document.getElementById('vn-scale');
-      sel.addEventListener('change',function(){applyPrintScale(parseFloat(this.value));});
-      applyPrintScale(parseFloat(sel.value));
+      sel.addEventListener('change',function(){applyPrintScale(parseFloat(this.value),true);});
+      applyPrintScale(parseFloat(sel.value),false);
     });
   `;
 
