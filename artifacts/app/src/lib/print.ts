@@ -453,6 +453,33 @@ function printWithNativeBridge(html: string, title: string): void {
  * ce mode ne l'impose pas, contrairement au mode regular.
  */
 export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85, autoPrint = false): string {
+  /* ── Pré-chunking : même stratégie que le mode mobile normal ──────────
+     On pré-découpe en blocs de page avec page-break-after:always.
+     Plus besoin de page-break-inside:avoid (non fiable iOS) ni de
+     display:block qui forçait une colonne unique.                      */
+  const COLS = 4;
+  const ROWS_PER_PAGE = 9; // tickets à taille naturelle (sans transform print)
+  const PER_PAGE = COLS * ROWS_PER_PAGE;
+
+  const pageBlocks: string[] = [];
+  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
+    const chunk = htmlItems.slice(p, p + PER_PAGE);
+    const rows: string[] = [];
+    for (let r = 0; r < chunk.length; r += COLS) {
+      const cells = chunk
+        .slice(r, r + COLS)
+        .map((item) => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
+        .join("");
+      rows.push(`<tr>${cells}</tr>`);
+    }
+    const isLast = p + PER_PAGE >= htmlItems.length;
+    const breakStyle = isLast ? "" : "page-break-after:always;break-after:page;";
+    pageBlocks.push(
+      `<div class="vn-page" style="${breakStyle}"><table class="vn-tbl"><tbody>${rows.join("")}</tbody></table></div>`
+    );
+  }
+  const bodyContent = pageBlocks.join("\n");
+
   const css = `
     @page {
       size: auto;
@@ -500,9 +527,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       font-size: 13px;
       cursor: pointer;
     }
-    #vn-print-bar .vn-sep {
-      flex: 1;
-    }
+    #vn-print-bar .vn-sep { flex: 1; }
     #vn-print-bar .vn-info {
       font-size: 11px;
       opacity: .55;
@@ -524,11 +549,9 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     /* Décalage tickets sous la barre fixe */
     #vn-tickets { margin-top: 48px; }
 
-    /* ── Wrapper JS injecté autour de chaque ticket ─────────────────── */
-    .vn-w {
-      display: inline-block;
-      vertical-align: top;
-    }
+    /* ── Layout tickets : table pré-chunquée ────────────────────────── */
+    .vn-page  { display: block; }
+    .vn-tbl   { border-collapse: collapse; }
 
     /* ── Table ticket (apparence) ────────────────────────────────────── */
     table.voucher {
@@ -538,22 +561,11 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       box-sizing: border-box;
     }
 
-    /* ── Impression : transform supprimé → iOS calcule les sauts de    */
-    /*    page sur le layout réel → page-break-inside:avoid fonctionne */
+    /* ── Impression : transform supprimé, barre masquée ─────────────── */
     @media print {
       #vn-print-bar { display: none !important; }
       #vn-tickets   { margin-top: 0 !important; }
-      body { transform: none !important; width: 100% !important; }
-      .vn-w {
-        display: block !important;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-        -webkit-column-break-inside: avoid !important;
-      }
-      table.voucher {
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-      }
+      body          { transform: none !important; width: 100% !important; }
     }
 
     #num, span#num {
@@ -564,23 +576,13 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     }
   `;
 
-  /* Injecte le scale uniquement pour @media screen — laisse print sans transform */
+  /* Scale écran injecté dynamiquement — print reste sans transform */
   const screenScaleStyle = (scale: number) =>
     `@media screen{body{transform:scale(${scale});transform-origin:top left;width:${(100 / scale).toFixed(2)}%}}`;
-
-  const wrapTicketsJs = `
-    Array.from(document.querySelectorAll('table.voucher')).forEach(function(t) {
-      var w = document.createElement('div');
-      w.className = 'vn-w';
-      t.parentNode.insertBefore(w, t);
-      w.appendChild(t);
-    });
-  `;
 
   const js = autoPrint
     ? `
     window.onload = function() {
-      ${wrapTicketsJs}
       var s = document.createElement('style');
       s.textContent = ${JSON.stringify(screenScaleStyle(defaultScale))};
       document.head.appendChild(s);
@@ -600,10 +602,6 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       updateInfo();
     }
     document.addEventListener('DOMContentLoaded', function() {
-      Array.from(document.querySelectorAll('table.voucher')).forEach(function(t) {
-        var w = document.createElement('div'); w.className = 'vn-w';
-        t.parentNode.insertBefore(w, t); w.appendChild(t);
-      });
       var scaleSel = document.getElementById('vn-scale');
       scaleSel.addEventListener('change', function() { applyPrintScale(parseFloat(this.value)); });
       applyPrintScale(parseFloat(scaleSel.value));
@@ -621,7 +619,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
   <script>${js}<\/script>
 </head>
 <body>
-<div id="vn-tickets" style="margin-top:0">${htmlItems.join("\n")}</div>
+<div id="vn-tickets" style="margin-top:0">${bodyContent}</div>
 </body>
 </html>`;
   }
@@ -651,7 +649,7 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
 </head>
 <body>
 ${bar}
-<div id="vn-tickets">${htmlItems.join("\n")}</div>
+<div id="vn-tickets">${bodyContent}</div>
 </body>
 </html>`;
 }
