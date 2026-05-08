@@ -27,7 +27,7 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchServerTemplateWithMeta, readWebScale, readMobileScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml } from "@/lib/print";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
@@ -694,8 +694,7 @@ export default function GenerateVouchers() {
     // popup et bloqué. On l'ouvre de manière synchrone pendant le gestionnaire
     // de clic, puis on y écrit le HTML une fois prêt.
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (isNativeWV || isMobileBrowser) ? readMobileScale() : readWebScale();
+    const printScale = 85;
     // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
     const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
 

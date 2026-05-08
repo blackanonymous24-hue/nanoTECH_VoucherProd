@@ -6,23 +6,11 @@ import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } fr
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 export const SMALL_SCALE_KEY   = "vn_small_scale";
-export const WEB_SCALE_KEY     = "vn_print_scale_desktop";
-export const MOBILE_SCALE_KEY  = "vn_print_scale_mobile";
 
 export function readSmallScale(): number {
   try { const v = parseFloat(localStorage.getItem(SMALL_SCALE_KEY) ?? "0.85"); return isNaN(v) ? 0.85 : v; } catch { return 0.85; }
 }
 export function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
-
-export function readWebScale(def = 85): number {
-  try { const v = parseInt(localStorage.getItem(WEB_SCALE_KEY) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
-}
-export function saveWebScale(v: number) { try { localStorage.setItem(WEB_SCALE_KEY, String(v)); } catch {} }
-
-export function readMobileScale(def = 85): number {
-  try { const v = parseInt(localStorage.getItem(MOBILE_SCALE_KEY) ?? String(def), 10); return isNaN(v) ? def : v; } catch { return def; }
-}
-export function saveMobileScale(v: number) { try { localStorage.setItem(MOBILE_SCALE_KEY, String(v)); } catch {} }
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 
@@ -410,8 +398,6 @@ export default function TicketTemplate() {
   // ── Paramètres d'impression
   const [showScaleDialog, setShowScaleDialog] = useState(false);
   const [smallScale,  setSmallScale]  = useState(() => readSmallScale());
-  const [scaleDesktop, setScaleDesktop] = useState(() => readWebScale());
-  const [scaleMobile,  setScaleMobile]  = useState(() => readMobileScale());
 
   // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -599,7 +585,7 @@ export default function TicketTemplate() {
           </>
           <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
             <Sliders className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline text-[11px]">Small {Math.round(smallScale * 100)}% · Web {scaleDesktop}% · Mob {scaleMobile}%</span>
+            <span className="hidden sm:inline text-[11px]">Small {Math.round(smallScale * 100)}%</span>
           </Button>
           <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
             <Save className="h-3.5 w-3.5" />
@@ -625,20 +611,6 @@ export default function TicketTemplate() {
                 color: "#7c3aed",
                 val: Math.round(smallScale * 100),
                 onChange: (n: number) => { const v = n / 100; setSmallScale(v); saveSmallScale(v); },
-              },
-              {
-                label: "🖥 Échelle — Web / Desktop",
-                hint: "Navigateurs desktop (Chrome, Firefox, Edge, Safari…).",
-                color: "#2563eb",
-                val: scaleDesktop,
-                onChange: (n: number) => { setScaleDesktop(n); saveWebScale(n); },
-              },
-              {
-                label: "📱 Échelle — Mobile / APK",
-                hint: "Safari iOS, Chrome Android et APK WebView.",
-                color: "#16a34a",
-                val: scaleMobile,
-                onChange: (n: number) => { setScaleMobile(n); saveMobileScale(n); },
               },
             ] as { label: string; hint: string; color: string; val: number; onChange: (n: number) => void }[]).map((s, i) => (
               <div key={i} className={`space-y-2 ${i > 0 ? "border-t pt-3" : ""}`}>

@@ -76,7 +76,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readWebScale, readMobileScale, readSmallScale } from "@/pages/TicketTemplate";
+import { fetchServerTemplateWithMeta, readSmallScale } from "@/pages/TicketTemplate";
 import { printTickets, tryOpenVoucherPrintPage, buildTicketPrintHtml, buildSmallModePrintHtml } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
@@ -703,8 +703,7 @@ export default function Vouchers() {
   // ── Print lot — fetches all users for a lot and prints their tickets ─────────
   const handlePrintLot = async (lot: LotSummary) => {
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (isNativeWV || isMobileBrowser) ? readMobileScale() : readWebScale();
+    const printScale = 85;
     // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
     const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
@@ -845,8 +844,7 @@ export default function Vouchers() {
       return;
     }
     const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-    const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const printScale = (isNativeWV || isMobileBrowser) ? readMobileScale() : readWebScale();
+    const printScale = 85;
     // MikHmon : nouvel onglet sur tous les écrans (mobile + desktop), sauf APK WebView natif
     const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
