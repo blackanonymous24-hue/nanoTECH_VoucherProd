@@ -535,15 +535,13 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
     #vn-print-bar button:hover { background: #6d28d9; }
 
     /* Décalage tickets sous la barre fixe */
-    #vn-tickets {
-      margin-top: 48px;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-start;
-    }
+    #vn-tickets { margin-top: 48px; }
 
     /* ── Wrapper JS injecté autour de chaque ticket ─────────────────── */
-    .vn-w { display: block; }
+    .vn-w {
+      display: inline-block;
+      vertical-align: top;
+    }
 
     /* ── Table ticket (apparence) ────────────────────────────────────── */
     table.voucher {
@@ -553,18 +551,15 @@ export function buildSmallModePrintHtml(htmlItems: string[], title: string, defa
       box-sizing: border-box;
     }
 
-    /* ── Impression ─────────────────────────────────────────────────── */
+    /* ── Impression : transform supprimé → iOS calcule les sauts de    */
+    /*    page sur le layout réel → page-break-inside:avoid fonctionne */
     @media print {
       #vn-print-bar { display: none !important; }
+      #vn-tickets   { margin-top: 0 !important; }
       body { transform: none !important; width: 100% !important; }
-      #vn-tickets {
-        margin-top: 0 !important;
-        display: flex !important;
-        flex-wrap: wrap !important;
-        align-items: flex-start !important;
-      }
       .vn-w {
-        display: block !important;
+        display: inline-block !important;
+        vertical-align: top !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
@@ -738,13 +733,11 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
       white-space: nowrap;
     }
     #vn-print-bar button:hover { background: #6d28d9; }
-    #vn-tickets {
-      margin-top: 48px;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-start;
+    #vn-tickets { margin-top: 48px; }
+    .vn-w {
+      display: inline-block;
+      vertical-align: top;
     }
-    .vn-w { display: block; }
     table.voucher {
       border: 2px solid #000;
       margin: 2px;
@@ -753,15 +746,11 @@ export function buildSmallModeShell(title: string, defaultScale = 0.85): string 
     }
     @media print {
       #vn-print-bar { display: none !important; }
+      #vn-tickets   { margin-top: 0 !important; }
       body { transform: none !important; width: 100% !important; }
-      #vn-tickets {
-        margin-top: 0 !important;
-        display: flex !important;
-        flex-wrap: wrap !important;
-        align-items: flex-start !important;
-      }
       .vn-w {
-        display: block !important;
+        display: inline-block !important;
+        vertical-align: top !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
         -webkit-column-break-inside: avoid !important;
