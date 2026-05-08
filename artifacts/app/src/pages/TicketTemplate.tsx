@@ -659,16 +659,6 @@ export default function TicketTemplate() {
                   style={{ accentColor: s.color }}
                 />
                 <div className="flex items-center gap-1.5">
-                  <div className="flex gap-1 flex-1">
-                    {[100, 90, 85, 80, 75, 70].map((pct) => (
-                      <button
-                        key={pct} type="button"
-                        onClick={() => s.onChange(pct)}
-                        className={`flex-1 py-0.5 rounded text-[10px] font-semibold border transition-colors ${s.val === pct ? "text-white border-transparent" : "bg-gray-50 text-gray-500 border-gray-200 hover:text-gray-700"}`}
-                        style={s.val === pct ? { backgroundColor: s.color, borderColor: s.color } : {}}
-                      >{pct}</button>
-                    ))}
-                  </div>
                   <input
                     type="number" min={0} max={100} step={1}
                     value={s.val}
