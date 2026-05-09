@@ -14,6 +14,56 @@ import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 
 const router = Router();
 
+type TenantBearerAuth =
+  | { ok: true; tenantAdminId: number; isAdminJwt: boolean }
+  | { ok: false; status: number; error: string };
+
+/** Résout l’admin propriétaire du tenant (jeton admin, vendeur, gérant ou collaborateur). */
+async function resolveTenantBearerAuth(authorization: string | undefined): Promise<TenantBearerAuth> {
+  if (!authorization?.startsWith("Bearer ")) {
+    return { ok: false, status: 401, error: "Non authentifié" };
+  }
+  const token = authorization.slice(7);
+  const adminClaims = verifyAdminTokenFull(token);
+  if (adminClaims) {
+    return { ok: true, tenantAdminId: adminClaims.adminId, isAdminJwt: true };
+  }
+  const vnd = verifyVendorToken(token);
+  if (vnd) {
+    const [row] = await db
+      .select({ ownerAdminId: vendorsTable.ownerAdminId, isActive: vendorsTable.isActive })
+      .from(vendorsTable)
+      .where(eq(vendorsTable.id, vnd.vendorId));
+    if (!row?.isActive) {
+      return { ok: false, status: 401, error: "Non authentifié" };
+    }
+    return { ok: true, tenantAdminId: row.ownerAdminId, isAdminJwt: false };
+  }
+  const mgr = verifyManagerToken(token);
+  if (mgr) {
+    const [row] = await db
+      .select({ ownerAdminId: managersTable.ownerAdminId, isActive: managersTable.isActive })
+      .from(managersTable)
+      .where(eq(managersTable.id, mgr.managerId));
+    if (!row?.isActive) {
+      return { ok: false, status: 401, error: "Non authentifié" };
+    }
+    return { ok: true, tenantAdminId: row.ownerAdminId, isAdminJwt: false };
+  }
+  const col = verifyCollaborateurToken(token);
+  if (col) {
+    const [row] = await db
+      .select({ ownerAdminId: collaborateursTable.ownerAdminId, isActive: collaborateursTable.isActive })
+      .from(collaborateursTable)
+      .where(eq(collaborateursTable.id, col.collaborateurId));
+    if (!row?.isActive) {
+      return { ok: false, status: 401, error: "Non authentifié" };
+    }
+    return { ok: true, tenantAdminId: row.ownerAdminId, isAdminJwt: false };
+  }
+  return { ok: false, status: 401, error: "Non authentifié" };
+}
+
 /**
  * Ensure that at least one super-admin exists. On a fresh database we seed
  * one with login="admin" / password="root". On an existing database we make
@@ -344,62 +394,12 @@ router.get("/tenant/preset-templates", async (req, res): Promise<void> => {
  * vendeur / manager / collaborateur (template du propriétaire du tenant).
  */
 router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Non authentifié" });
+  const auth = await resolveTenantBearerAuth(req.headers.authorization);
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error });
     return;
   }
-  const token = auth.slice(7);
-
-  let tenantAdminId: number | null = null;
-  const adminClaims = verifyAdminTokenFull(token);
-  if (adminClaims) {
-    tenantAdminId = adminClaims.adminId;
-  } else {
-    const vnd = verifyVendorToken(token);
-    if (vnd) {
-      const [row] = await db
-        .select({ ownerAdminId: vendorsTable.ownerAdminId, isActive: vendorsTable.isActive })
-        .from(vendorsTable)
-        .where(eq(vendorsTable.id, vnd.vendorId));
-      if (!row?.isActive) {
-        res.status(401).json({ error: "Non authentifié" });
-        return;
-      }
-      tenantAdminId = row.ownerAdminId;
-    } else {
-      const mgr = verifyManagerToken(token);
-      if (mgr) {
-        const [row] = await db
-          .select({ ownerAdminId: managersTable.ownerAdminId, isActive: managersTable.isActive })
-          .from(managersTable)
-          .where(eq(managersTable.id, mgr.managerId));
-        if (!row?.isActive) {
-          res.status(401).json({ error: "Non authentifié" });
-          return;
-        }
-        tenantAdminId = row.ownerAdminId;
-      } else {
-        const col = verifyCollaborateurToken(token);
-        if (col) {
-          const [row] = await db
-            .select({ ownerAdminId: collaborateursTable.ownerAdminId, isActive: collaborateursTable.isActive })
-            .from(collaborateursTable)
-            .where(eq(collaborateursTable.id, col.collaborateurId));
-          if (!row?.isActive) {
-            res.status(401).json({ error: "Non authentifié" });
-            return;
-          }
-          tenantAdminId = row.ownerAdminId;
-        }
-      }
-    }
-  }
-
-  if (tenantAdminId == null) {
-    res.status(401).json({ error: "Non authentifié" });
-    return;
-  }
+  const { tenantAdminId } = auth;
 
   const [row] = await db
     .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile, selectedPresetId: adminSettingsTable.selectedPresetId })
@@ -415,6 +415,58 @@ router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
   }
 
   res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100, selectedPresetId: row?.selectedPresetId ?? null });
+});
+
+/**
+ * PUT /api/tenant/ticket-template
+ * Applique un modèle prédéfini pour le compte admin du tenant (admin, vendeur, gérant ou collaborateur).
+ * Seul un jeton administrateur peut envoyer presetId: null (mode personnalisé côté super-admin).
+ */
+router.put("/tenant/ticket-template", async (req, res): Promise<void> => {
+  const auth = await resolveTenantBearerAuth(req.headers.authorization);
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error });
+    return;
+  }
+
+  const body = req.body as { presetId?: number | null };
+  if (!("presetId" in body)) {
+    res.status(400).json({ error: "presetId requis" });
+    return;
+  }
+
+  const pid = body.presetId != null ? Number(body.presetId) : null;
+  if (pid !== null && (Number.isNaN(pid) || pid < 1)) {
+    res.status(400).json({ error: "presetId invalide" });
+    return;
+  }
+  if (pid === null && !auth.isAdminJwt) {
+    res.status(403).json({ error: "Seul l'administrateur peut désactiver le modèle prédéfini." });
+    return;
+  }
+
+  if (pid !== null) {
+    const [preset] = await db.select().from(presetTemplatesTable).where(eq(presetTemplatesTable.id, pid));
+    if (!preset) {
+      res.status(404).json({ error: "Modèle introuvable" });
+      return;
+    }
+    await db
+      .update(adminSettingsTable)
+      .set({
+        selectedPresetId: pid,
+        printScaleSmall: preset.scaleSmall,
+        printScaleMobile: preset.scaleMobile,
+      })
+      .where(eq(adminSettingsTable.id, auth.tenantAdminId));
+  } else {
+    await db
+      .update(adminSettingsTable)
+      .set({ selectedPresetId: null })
+      .where(eq(adminSettingsTable.id, auth.tenantAdminId));
+  }
+
+  res.json({ ok: true });
 });
 
 /**
@@ -459,10 +511,26 @@ router.put("/admin/ticket-template", async (req, res): Promise<void> => {
   // Mode preset : sélectionner ou désélectionner un modèle prédéfini
   if ("presetId" in body) {
     const pid = body.presetId != null ? Number(body.presetId) : null;
-    await db
-      .update(adminSettingsTable)
-      .set({ selectedPresetId: pid })
-      .where(eq(adminSettingsTable.id, claims.adminId));
+    if (pid !== null) {
+      const [preset] = await db.select().from(presetTemplatesTable).where(eq(presetTemplatesTable.id, pid));
+      if (!preset) {
+        res.status(404).json({ error: "Modèle introuvable" });
+        return;
+      }
+      await db
+        .update(adminSettingsTable)
+        .set({
+          selectedPresetId: pid,
+          printScaleSmall: preset.scaleSmall,
+          printScaleMobile: preset.scaleMobile,
+        })
+        .where(eq(adminSettingsTable.id, claims.adminId));
+    } else {
+      await db
+        .update(adminSettingsTable)
+        .set({ selectedPresetId: null })
+        .where(eq(adminSettingsTable.id, claims.adminId));
+    }
     res.json({ ok: true });
     return;
   }

@@ -1832,9 +1832,10 @@ export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 13):
 
 /**
  * Enable or disable a list of hotspot users on a MikroTik router.
- * Fetches all users in one shot, then sends one set-command per target user.
- * Uses a long timeout (120 s) to handle large vendor voucher batches.
- * Users not found on the router are silently skipped.
+ * Fetches all users in one shot, then applies disabled= with a worker pool
+ * (same idea as generateVouchers) so large lots (5000+) finish within the timeout.
+ * When disabling, kicks active sessions and removes cookies for affected users.
+ * Timeout scales with batch size (cap 15 min).
  */
 export async function enableDisableHotspotUsers(
   conn: RouterConnection,
@@ -1844,6 +1845,17 @@ export async function enableDisableHotspotUsers(
   if (usernames.length === 0) return { done: 0, notFound: [], sessionsKicked: 0, cookiesRemoved: 0 };
 
   const target = new Set(usernames.map((u) => u.toLowerCase()));
+  const PARALLEL_SETS = 24;
+  // Per-batch estimate before we know exact match count (upper bound ≈ usernames.length).
+  const timeout = Math.min(
+    900_000,
+    Math.max(
+      120_000,
+      50_000 +
+        Math.ceil(usernames.length / PARALLEL_SETS) * 700 +
+        (enable ? 30_000 : 90_000),
+    ),
+  );
 
   return withRouter(conn, async (api) => {
     // Fetch all hotspot users once
@@ -1868,14 +1880,22 @@ export async function enableDisableHotspotUsers(
     const notFound = usernames.filter((u) => !found.has(u.toLowerCase()));
     const disabledVal = enable ? "no" : "yes";
 
-    // RouterOS 7.x API requires one set command per item; comma-separated IDs
-    // in a single command are unreliable across versions.
-    for (const id of toSet) {
-      await api.write("/ip/hotspot/user/set", [
-        `=.id=${id}`,
-        `=disabled=${disabledVal}`,
-      ]);
-    }
+    // RouterOS 7.x API: one set per .id; parallelize like voucher generation.
+    let cursor = 0;
+    const workers = Array.from(
+      { length: Math.min(PARALLEL_SETS, Math.max(1, toSet.length)) },
+      async () => {
+        for (;;) {
+          const i = cursor++;
+          if (i >= toSet.length) break;
+          await api.write("/ip/hotspot/user/set", [
+            `=.id=${toSet[i]}`,
+            `=disabled=${disabledVal}`,
+          ]);
+        }
+      },
+    );
+    await Promise.all(workers);
 
     let sessionsKicked = 0;
     let cookiesRemoved = 0;
@@ -1912,7 +1932,7 @@ export async function enableDisableHotspotUsers(
     }
 
     return { done: toSet.length, notFound, sessionsKicked, cookiesRemoved };
-  }, 60_000, "high");
+  }, timeout, "high");
 }
 
 /**

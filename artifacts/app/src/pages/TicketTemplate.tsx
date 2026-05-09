@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders, Settings2, Plus, Pencil, Trash2, Check } from "lucide-react";
+import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders, Settings2, Plus, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { PrintScaleDialog } from "@/components/PrintScaleDialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const SMALL_SCALE_KEY   = "vn_small_scale";
 export const MOBILE_SCALE_KEY  = "vn_print_scale_mobile";
@@ -456,6 +457,10 @@ export default function TicketTemplate() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!showPrintSettings) setShowScaleDialog(false);
+  }, [showPrintSettings]);
+
   // ── Sélectionner un preset
   const handleSelectPreset = useCallback((presetId: number | null) => {
     setPendingPresetId(presetId);
@@ -480,7 +485,7 @@ export default function TicketTemplate() {
   const handleSavePreset = useCallback(async () => {
     const tok = _getToken();
     try {
-      const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
+      const resp = await fetch(`${BASE}/api/tenant/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
         body: JSON.stringify({ presetId: pendingPresetId }),
@@ -728,6 +733,14 @@ export default function TicketTemplate() {
   }, [pendingPresetId, refreshPresets, toast]);
 
   const hasSaved = (() => { try { return localStorage.getItem(PHP_KEY) !== null; } catch { return false; } })();
+  const isCustomMode = pendingPresetId === null;
+  const showPrintSettings = isSuperAdmin && isCustomMode;
+  const presetSelectValue = isSuperAdmin
+    ? (isCustomMode ? "custom" : String(pendingPresetId))
+    : pendingPresetId != null
+      ? String(pendingPresetId)
+      : "";
+  const selectControlledValue = presetSelectValue === "" ? undefined : presetSelectValue;
 
   // ═══ Rendu ════════════════════════════════════════════════════════════════
 
@@ -744,13 +757,13 @@ export default function TicketTemplate() {
 
         {/* Boutons barre d'actions (super-admin uniquement pour la plupart) */}
         <div className="flex flex-wrap items-center gap-2">
-          {isSuperAdmin && hasSaved && (
+          {isSuperAdmin && hasSaved && isCustomMode && (
             <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50" title="Réinitialiser">
               <RotateCcw className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Réinitialiser</span>
             </Button>
           )}
-          {isSuperAdmin && (
+          {isSuperAdmin && isCustomMode && (
             <>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={handleUseDefaultMikhmon} title="Coller modèle Mikhmon">
                 <FileCode className="h-3.5 w-3.5" />
@@ -765,73 +778,75 @@ export default function TicketTemplate() {
                 <BookMarked className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Définir par défaut</span>
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
-                <Sliders className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline text-[11px]">Imprimer {Math.round(smallScale * 100)}% · Mob {scaleMobile}%</span>
-              </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={handleOpenManage} title="Gérer les modèles prédéfinis">
-                <Settings2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Gérer les modèles</span>
-              </Button>
-              <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
-                <Save className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{saved ? "Sauvegardé ✓" : "Sauvegarder"}</span>
-              </Button>
             </>
           )}
-          {/* Bouton Enregistrer pour admin/gérant/collab — visible si sélection changée */}
-          {isSimplified && hasUnsavedPresetChange && (
-            <Button size="sm" onClick={handleSavePreset} className="gap-1.5 bg-blue-600 hover:bg-blue-700" disabled={saved}>
+          {showPrintSettings && (
+            <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
+              <Sliders className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline text-[11px]">Imprimer {Math.round(smallScale * 100)}% · Mob {scaleMobile}%</span>
+            </Button>
+          )}
+          {isSuperAdmin && (
+            <Button variant="outline" size="sm" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={handleOpenManage} title="Gérer les modèles prédéfinis de la plateforme (super-admin)">
+              <Settings2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Modèles plateforme</span>
+            </Button>
+          )}
+          {isSuperAdmin && isCustomMode && (
+            <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
               <Save className="h-3.5 w-3.5" />
-              <span>{saved ? "Enregistré ✓" : "Enregistrer"}</span>
+              <span className="hidden sm:inline">{saved ? "Sauvegardé ✓" : "Sauvegarder"}</span>
+            </Button>
+          )}
+          {hasUnsavedPresetChange && (
+            <Button size="sm" onClick={handleSavePreset} className="gap-1.5 bg-blue-600 hover:bg-blue-700">
+              <Save className="h-3.5 w-3.5" />
+              <span>Enregistrer</span>
             </Button>
           )}
         </div>
       </div>
 
-      {/* ── Sélecteur de modèle prédéfini ── */}
+      {/* ── Liste déroulante : modèles prédéfinis ── */}
       {presets.length > 0 && (
         <Card className="mb-5">
-          <CardContent className="py-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-gray-500 mr-1">Modèle :</span>
-              {presets.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => handleSelectPreset(p.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                    pendingPresetId === p.id
-                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-blue-400 hover:text-blue-700"
-                  }`}
-                >
-                  {pendingPresetId === p.id && <Check className="h-3 w-3" />}
-                  {p.name}
-                </button>
-              ))}
-              {isSuperAdmin && (
-                <button
-                  onClick={() => handleSelectPreset(null)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                    pendingPresetId === null
-                      ? "bg-gray-800 text-white border-gray-800 shadow-sm"
-                      : "bg-white text-gray-500 border-gray-200 hover:border-gray-400"
-                  }`}
-                >
-                  {pendingPresetId === null && <Check className="h-3 w-3" />}
-                  Personnalisé
-                </button>
-              )}
+          <CardContent className="py-4 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <span className="text-xs font-semibold text-gray-600 shrink-0">Modèle de ticket</span>
+              <Select
+                value={selectControlledValue}
+                onValueChange={(v) => {
+                  if (v === "custom") handleSelectPreset(null);
+                  else handleSelectPreset(Number(v));
+                }}
+              >
+                <SelectTrigger className="w-full sm:max-w-3xl text-left h-auto min-h-9 py-2">
+                  <SelectValue placeholder="Choisir un modèle prédéfini…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {presets.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                  {isSuperAdmin && (
+                    <SelectItem value="custom">Personnalisé (édition PHP / échelles)</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
               {hasUnsavedPresetChange && (
-                <span className="text-xs text-amber-600 font-medium ml-2">• Non enregistré</span>
+                <span className="text-xs text-amber-600 font-medium sm:ml-1">Non enregistré</span>
               )}
             </div>
+            <p className="text-xs text-gray-500 max-w-3xl">
+              Chaque modèle impose des échelles d&apos;impression fixes : mode Small (premier pourcentage) et Mobile / APK (second). Elles ne sont pas modifiables pour les modèles prédéfinis.
+            </p>
           </CardContent>
         </Card>
       )}
 
       <PrintScaleDialog
-        open={showScaleDialog}
+        open={showPrintSettings && showScaleDialog}
         onOpenChange={setShowScaleDialog}
         scaleSmall={Math.round(smallScale * 100)}
         scaleMobile={scaleMobile}
@@ -871,8 +886,8 @@ export default function TicketTemplate() {
                   className="w-full font-mono text-xs p-4 resize-none focus:outline-none rounded-b-xl leading-relaxed bg-gray-950 text-purple-300"
                   style={{ minHeight: "520px" }}
                   value={phpCode}
-                  onChange={(e) => { if (!isSimplified || pendingPresetId === null) setPhpCode(e.target.value); }}
-                  readOnly={isSimplified && pendingPresetId !== null}
+                  onChange={(e) => { if (!isSimplified) setPhpCode(e.target.value); }}
+                  readOnly={isSimplified}
                   spellCheck={false}
                   placeholder="Collez ici le code PHP complet du template Mikhmon v3…"
                 />
@@ -953,7 +968,7 @@ export default function TicketTemplate() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Settings2 className="h-5 w-5 text-emerald-600" />
-              Gérer les modèles prédéfinis
+              Modèles prédéfinis (plateforme)
             </DialogTitle>
           </DialogHeader>
 
@@ -974,11 +989,11 @@ export default function TicketTemplate() {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
-                          <Label className="text-xs">Échelle bureau (%)</Label>
+                          <Label className="text-xs">Échelle Small (%)</Label>
                           <Input type="number" min={50} max={100} value={editForm.scaleSmall} onChange={e => setEditForm(f => ({ ...f, scaleSmall: Number(e.target.value) }))} className="h-8 text-xs" />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Échelle mobile (%)</Label>
+                          <Label className="text-xs">Échelle Mobile/APK (%)</Label>
                           <Input type="number" min={50} max={100} value={editForm.scaleMobile} onChange={e => setEditForm(f => ({ ...f, scaleMobile: Number(e.target.value) }))} className="h-8 text-xs" />
                         </div>
                       </div>
@@ -1006,7 +1021,7 @@ export default function TicketTemplate() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-medium text-sm text-gray-900">{p.name}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">Bureau {p.scaleSmall}% · Mobile {p.scaleMobile}%</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Small {p.scaleSmall}% · Mobile/APK {p.scaleMobile}%</div>
                     </div>
                     <div className="flex gap-1 flex-shrink-0">
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-500 hover:text-blue-600" onClick={() => handleEditPreset(p)} title="Modifier">
@@ -1032,11 +1047,11 @@ export default function TicketTemplate() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <Label className="text-xs">Bureau (%)</Label>
+                      <Label className="text-xs">Small (%)</Label>
                       <Input type="number" min={50} max={100} value={editForm.scaleSmall} onChange={e => setEditForm(f => ({ ...f, scaleSmall: Number(e.target.value) }))} className="h-8 text-xs" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Mobile (%)</Label>
+                      <Label className="text-xs">Mobile/APK (%)</Label>
                       <Input type="number" min={50} max={100} value={editForm.scaleMobile} onChange={e => setEditForm(f => ({ ...f, scaleMobile: Number(e.target.value) }))} className="h-8 text-xs" />
                     </div>
                   </div>

@@ -1,5 +1,5 @@
-import { sql } from "drizzle-orm";
-import { db } from "@workspace/db";
+import { sql, eq, asc } from "drizzle-orm";
+import { db, presetTemplatesTable, adminSettingsTable } from "@workspace/db";
 import { logger } from "./logger.js";
 
 /**
@@ -239,12 +239,53 @@ export async function seedDefaultPresets(): Promise<void> {
     await db.execute(sql`
       INSERT INTO preset_templates (name, html, scale_small, scale_mobile, position)
       VALUES
-        ('Mikhmon',                ${MIKHMON_HTML},         85, 75, 0),
-        ('nanoTECH (normal)',      ${NANOTECH_NORMAL_HTML}, 85, 85, 1),
-        ('nanoTECH (petit format)',${NANOTECH_SMALL_HTML},  100,75, 2)
+        ('Modèle de ticket style Mikhmon (85% | 75%)', ${MIKHMON_HTML}, 85, 75, 0),
+        ('Modèle de Ticket style nanoTECH (normal) (85% | 85%)', ${NANOTECH_NORMAL_HTML}, 85, 85, 1),
+        ('Modèle de Ticket style nanoTECH (petit format) (100% | 75%)', ${NANOTECH_SMALL_HTML}, 100, 75, 2)
     `);
     logger.info("DB compat: 3 presets par défaut insérés dans preset_templates");
   } catch (err) {
     logger.error({ err }, "DB compat: erreur lors du seed de preset_templates");
+  }
+}
+
+/** Met à jour nom + échelles uniquement pour les anciens libellés seed (sans toucher aux modifs super-admin). */
+export async function migrateLegacyPresetTemplateMetadata(): Promise<void> {
+  const rows: [string, string, number, number][] = [
+    ["Mikhmon", "Modèle de ticket style Mikhmon (85% | 75%)", 85, 75],
+    ["nanoTECH (normal)", "Modèle de Ticket style nanoTECH (normal) (85% | 85%)", 85, 85],
+    ["nanoTECH (petit format)", "Modèle de Ticket style nanoTECH (petit format) (100% | 75%)", 100, 75],
+  ];
+  try {
+    for (const [oldName, newName, scaleSmall, scaleMobile] of rows) {
+      await db
+        .update(presetTemplatesTable)
+        .set({ name: newName, scaleSmall, scaleMobile })
+        .where(eq(presetTemplatesTable.name, oldName));
+    }
+    logger.info("DB compat: migration des libellés preset legacy (si présents) effectuée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: migrateLegacyPresetTemplateMetadata a échoué");
+  }
+}
+
+/** Mikhmon (premier preset par position) par défaut si aucun modèle personnalisé ni sélection. */
+export async function backfillDefaultSelectedPresetForAdmins(): Promise<void> {
+  try {
+    const [first] = await db
+      .select({ id: presetTemplatesTable.id })
+      .from(presetTemplatesTable)
+      .orderBy(asc(presetTemplatesTable.position), asc(presetTemplatesTable.id))
+      .limit(1);
+    if (!first) return;
+    await db.execute(sql`
+      UPDATE admin_settings
+      SET selected_preset_id = ${first.id}
+      WHERE selected_preset_id IS NULL
+        AND (ticket_template IS NULL OR TRIM(ticket_template) = '')
+    `);
+    logger.info("DB compat: selected_preset_id par défaut appliqué aux admins sans template perso");
+  } catch (err) {
+    logger.error({ err }, "DB compat: backfillDefaultSelectedPresetForAdmins a échoué");
   }
 }

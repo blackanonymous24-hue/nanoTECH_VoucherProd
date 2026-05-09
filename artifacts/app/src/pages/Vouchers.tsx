@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import {
@@ -80,12 +80,54 @@ import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale, saveSmall
 import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
+import { setApiRequestPause } from "@/lib/installAuthFetch";
 
 type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
 type VendorAliasRow = { name: string; commentSuffix?: string | null; commentSuffix2?: string | null };
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+/** Au-delà : lots HTTP + barre de progression + reprise auto (comme la génération). */
+const TOGGLE_BATCH_THRESHOLD = 50;
+const TOGGLE_BATCH_SIZE = 150;
+
+function isRouterUnreachableToggle(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as Record<string, unknown>;
+  if (e.name === "AbortError") return false;
+  const response = e.response as Record<string, unknown> | undefined;
+  if (response?.status === 502) return true;
+  const msg = String(e.message ?? "").toLowerCase();
+  return (
+    msg.includes("502") ||
+    msg.includes("contacter") ||
+    msg.includes("unreachable") ||
+    msg.includes("network error") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("load failed")
+  );
+}
+
+async function waitForRouterToggle(routerId: number, base: string): Promise<void> {
+  for (;;) {
+    await new Promise<void>((r) => setTimeout(r, 4000));
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10_000);
+      try {
+        const res = await fetch(`${base}/api/routers/${routerId}/ping?force=1`, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json() as { success: boolean };
+          if (data.success) return;
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch { /* retry */ }
+  }
+}
 
 // Module-level cache — persists across component unmount/remount (tab navigation).
 // Provides instant display on re-visit without waiting for React Query to refetch.
@@ -175,6 +217,8 @@ export default function Vouchers() {
   const [isDeletingLot, setIsDeletingLot] = useState(false);
   const [deletingLotName, setDeletingLotName] = useState<string | null>(null);
   const [isDisabling, setIsDisabling] = useState(false);
+  const [hotspotBulkProgress, setHotspotBulkProgress] = useState<{ done: number; total: number; enable: boolean } | null>(null);
+  const [hotspotBulkPaused, setHotspotBulkPaused] = useState(false);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
@@ -496,6 +540,76 @@ export default function Vouchers() {
     [profilesList],
   );
 
+  /** Désactivation / réactivation par paquets HTTP + verrou routeur (même principe que la génération). */
+  const runBatchedHotspotToggle = useCallback(async (routerId: number, usernames: string[], enable: boolean) => {
+    let lockAcquired = false;
+    setApiRequestPause(true, {
+      allowPathPatterns: [
+        /\/api\/vouchers\/users-toggle(?:$|[/?#])/,
+        /\/api\/vouchers\/lot-usernames(?:$|[/?#])/,
+        /\/api\/vouchers\/lot-disable(?:$|[/?#])/,
+        /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
+        /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
+        /\/api\/routers\/\d+\/users(?:$|[/?#])/,
+      ],
+    });
+    setHotspotBulkPaused(false);
+    setHotspotBulkProgress({ done: 0, total: usernames.length, enable });
+    try {
+      const lockResp = await fetch(`${BASE}/api/routers/${routerId}/generation-lock`, { method: "POST" });
+      if (!lockResp.ok) {
+        const reason = await lockResp.text().catch(() => "");
+        throw new Error(reason || "Impossible d'obtenir le verrou routeur (opération en cours ?).");
+      }
+      lockAcquired = true;
+
+      let done = 0;
+      while (done < usernames.length) {
+        const slice = usernames.slice(done, done + TOGGLE_BATCH_SIZE);
+        let batchOk = false;
+        let unreachableStreak = 0;
+        while (!batchOk) {
+          try {
+            const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ routerId, usernames: slice, enable }),
+            });
+            if (!res.ok) {
+              const err = Object.assign(new Error(`HTTP ${res.status}`), { response: { status: res.status } });
+              throw err;
+            }
+            done += slice.length;
+            setHotspotBulkProgress({ done, total: usernames.length, enable });
+            batchOk = true;
+            unreachableStreak = 0;
+          } catch (e: unknown) {
+            if (isRouterUnreachableToggle(e)) {
+              unreachableStreak++;
+              if (unreachableStreak === 1) {
+                await new Promise<void>((r) => setTimeout(r, 3000));
+                continue;
+              }
+              setHotspotBulkPaused(true);
+              await waitForRouterToggle(routerId, BASE);
+              setHotspotBulkPaused(false);
+              unreachableStreak = 0;
+            } else {
+              throw e;
+            }
+          }
+        }
+      }
+    } finally {
+      setApiRequestPause(false);
+      if (lockAcquired) {
+        void fetch(`${BASE}/api/routers/${routerId}/generation-lock`, { method: "DELETE" });
+      }
+      setHotspotBulkProgress(null);
+      setHotspotBulkPaused(false);
+    }
+  }, []);
+
   // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
   const handleDisableLot = async (comment: string, enable: boolean) => {
     if (!activeRouterId) return;
@@ -510,17 +624,32 @@ export default function Vouchers() {
 
     setIsDisabling(true);
     try {
-      const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routerId: activeRouterId, comment, enable }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { done: number; notFound: string[] };
+      const listRes = await fetch(
+        `${BASE}/api/vouchers/lot-usernames?routerId=${activeRouterId}&comment=${encodeURIComponent(comment)}`,
+      );
+      if (!listRes.ok) throw new Error(`HTTP ${listRes.status}`);
+      const { usernames } = (await listRes.json()) as { usernames?: string[] };
+      const list = usernames ?? [];
+      if (list.length === 0) {
+        toast({ title: "Aucun voucher pour ce lot en base", variant: "destructive" });
+        return;
+      }
+
+      if (list.length >= TOGGLE_BATCH_THRESHOLD) {
+        await runBatchedHotspotToggle(activeRouterId, list, enable);
+      } else {
+        const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ routerId: activeRouterId, comment, enable }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
+
       toast({
         title: enable
-          ? `${data.done} voucher(s) réactivé(s)`
-          : `${data.done} voucher(s) désactivé(s)`,
+          ? `${list.length} voucher(s) réactivé(s)`
+          : `${list.length} voucher(s) désactivé(s)`,
         description: `Lot : ${comment}`,
       });
       void refetchLots();
@@ -559,28 +688,37 @@ export default function Vouchers() {
     if (!activeRouterId || selectedUsernames.size === 0 || isTogglingSelected) return;
     const usernamesArr = [...selectedUsernames];
     const count = usernamesArr.length;
+    const useBatch = count >= TOGGLE_BATCH_THRESHOLD;
 
-    // 1. Optimistic update — instant visual feedback
     const snapshot = optimisticSetDisabled(activeRouterId, selectedUsernames, !enable);
 
-    // 2. Close dialog + clear selection + toast immediately (0ms delay)
-    setConfirmToggleSelected(null);
-    setSelectedUsernames(new Set());
-    toast({ title: enable ? `${count} voucher(s) réactivé(s)` : `${count} voucher(s) désactivé(s)` });
+    if (!useBatch) {
+      setConfirmToggleSelected(null);
+      setSelectedUsernames(new Set());
+      toast({ title: enable ? `${count} voucher(s) réactivé(s)` : `${count} voucher(s) désactivé(s)` });
+    }
 
-    // 3. API call + silent background sync
     setIsTogglingSelected(true);
     try {
-      const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routerId: activeRouterId, usernames: usernamesArr, enable }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (useBatch) {
+        await runBatchedHotspotToggle(activeRouterId, usernamesArr, enable);
+        setConfirmToggleSelected(null);
+        setSelectedUsernames(new Set());
+        toast({
+          title: enable ? `${count} voucher(s) réactivé(s)` : `${count} voucher(s) désactivé(s)`,
+          description: "Synchronisation MikroTik terminée.",
+        });
+      } else {
+        const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ routerId: activeRouterId, usernames: usernamesArr, enable }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
       void refetchLots();
       void refetchUsers();
     } catch (err) {
-      // Rollback optimistic update
       for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       toast({ title: "Erreur", description: String(err), variant: "destructive" });
     } finally {
@@ -1194,6 +1332,52 @@ export default function Vouchers() {
         </Card>
       ) : (
         <>
+          {hotspotBulkProgress && (
+            <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50/90 px-3 py-2.5 shadow-sm">
+              <p className="text-xs font-semibold text-orange-900 mb-1.5">
+                {hotspotBulkProgress.enable ? "Réactivation des vouchers…" : "Désactivation des vouchers…"}
+              </p>
+              <div className="relative h-2 bg-white/80 rounded-full overflow-hidden border border-orange-100">
+                <div
+                  className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                    hotspotBulkPaused ? "bg-amber-400" : "bg-orange-500"
+                  }`}
+                  style={{
+                    width: `${Math.round((hotspotBulkProgress.done / Math.max(1, hotspotBulkProgress.total)) * 100)}%`,
+                  }}
+                />
+                {!hotspotBulkPaused && (
+                  <div
+                    className="absolute inset-0 animate-shimmer"
+                    style={{
+                      background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
+                      backgroundSize: "200% 100%",
+                    }}
+                  />
+                )}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-orange-900/80 mt-1.5">
+                {hotspotBulkPaused ? (
+                  <span className="flex items-center gap-1 text-amber-700 font-medium">
+                    <WifiOff className="h-3 w-3" />
+                    Routeur inaccessible — reprise automatique…
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin text-orange-600" />
+                    Envoi vers MikroTik par lots de {TOGGLE_BATCH_SIZE}…
+                  </span>
+                )}
+                <span className="tabular-nums font-medium">
+                  {hotspotBulkProgress.done} / {hotspotBulkProgress.total}
+                  <span className="text-orange-700/70 font-normal ml-1">
+                    ({Math.round((hotspotBulkProgress.done / Math.max(1, hotspotBulkProgress.total)) * 100)}%)
+                  </span>
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Tab toggle */}
           <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
             <button

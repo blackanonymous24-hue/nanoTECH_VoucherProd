@@ -352,6 +352,37 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
 });
 
 // POST /vouchers/users-toggle — enable/disable a specific set of usernames
+/**
+ * GET /vouchers/lot-usernames?routerId=&comment=
+ * Liste des noms d'utilisateur (DB) pour un lot — utilisé pour désactiver par lots
+ * avec progression côté client sans charger tout en une seule requête MikroTik.
+ */
+router.get("/vouchers/lot-usernames", async (req, res): Promise<void> => {
+  const { routerId, comment } = req.query as { routerId?: string; comment?: string };
+  if (!routerId || comment == null || comment === "") {
+    res.status(400).json({ error: "routerId et comment sont requis" });
+    return;
+  }
+  const rid = parseInt(routerId, 10);
+  if (Number.isNaN(rid)) {
+    res.status(400).json({ error: "routerId invalide" });
+    return;
+  }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, rid));
+  if (!r) {
+    res.status(404).json({ error: "Routeur introuvable" });
+    return;
+  }
+
+  const rows = await db
+    .select({ username: vouchersTable.username })
+    .from(vouchersTable)
+    .where(and(eq(vouchersTable.routerId, rid), eq(vouchersTable.comment, comment)));
+
+  res.json({ usernames: rows.map((x) => x.username) });
+});
+
 router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
   const { routerId, usernames, enable } = req.body as {
     routerId?: number;

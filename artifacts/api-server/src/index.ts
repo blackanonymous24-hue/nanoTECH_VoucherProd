@@ -1,7 +1,7 @@
 import "source-map-support/register.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
-import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureTicketTemplateColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensurePresetTemplatesTable, ensureSelectedPresetIdColumn, seedDefaultPresets } from "./lib/ensure-router-currency-column.js";
+import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureTicketTemplateColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensurePresetTemplatesTable, ensureSelectedPresetIdColumn, seedDefaultPresets, migrateLegacyPresetTemplateMetadata, backfillDefaultSelectedPresetForAdmins } from "./lib/ensure-router-currency-column.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
@@ -53,6 +53,8 @@ async function start() {
   await ensurePresetTemplatesTable();
   await ensureSelectedPresetIdColumn();
   await seedDefaultPresets();
+  await migrateLegacyPresetTemplateMetadata();
+  await backfillDefaultSelectedPresetForAdmins();
 
   startRealtimeVendorSync();
   setOnVendorSyncComplete(invalidateVendorPortalCache);
