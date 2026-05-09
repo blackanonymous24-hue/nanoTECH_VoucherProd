@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw, Percent, Receipt } from "lucide-react";
+import { Users, Plus, Trash2, Phone, Check, X, Mail, KeyRound, ExternalLink, Pencil, Tag, RefreshCw, Percent, Receipt, WifiOff, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -29,6 +29,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
+import { runHotspotUserToggleBatches, TOGGLE_BATCH_SIZE } from "@/lib/hotspot-bulk-toggle";
 
 export type PersonFormData = {
   name: string;
@@ -322,6 +323,16 @@ export function PersonForm({
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+function getAdminJsonHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token =
+    typeof window !== "undefined"
+      ? (window.localStorage.getItem("vouchernet_admin_token") ?? window.sessionStorage.getItem("vouchernet_admin_token"))
+      : null;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
 export default function Vendors() {
   const { selectedRouterId } = useRouterContext();
   const { role } = useAuth();
@@ -342,6 +353,9 @@ export default function Vendors() {
   const [showBulkCommission, setShowBulkCommission] = useState(false);
   const [bulkCommissionRate, setBulkCommissionRate] = useState("0");
   const [bulkCommissionLoading, setBulkCommissionLoading] = useState(false);
+  const [vendorHotspotProgress, setVendorHotspotProgress] = useState<{ done: number; total: number; enable: boolean } | null>(null);
+  const [vendorHotspotPaused, setVendorHotspotPaused] = useState(false);
+  const [vendorToggleRunningId, setVendorToggleRunningId] = useState<number | null>(null);
 
   const handleSync = async (vendor: Vendor) => {
     setSyncingId(vendor.id);
@@ -445,15 +459,59 @@ export default function Vendors() {
   };
 
   const handleToggleActive = async (vendor: Vendor) => {
+    const nextActive = !vendor.isActive;
+    setVendorToggleRunningId(vendor.id);
     try {
-      await updateMutation.mutateAsync({
-        id: vendor.id,
-        data: { isActive: !vendor.isActive },
+      const putRes = await fetch(`${BASE}/api/vendors/${vendor.id}`, {
+        method: "PUT",
+        headers: getAdminJsonHeaders(),
+        body: JSON.stringify({ isActive: nextActive, deferHotspotUserToggle: true }),
       });
+      if (!putRes.ok) {
+        const j = (await putRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `HTTP ${putRes.status}`);
+      }
+      const updatedVendor = (await putRes.json()) as Vendor & { routerId?: number | null };
       invalidate();
-      toast({ title: `Vendeur ${vendor.isActive ? "désactivé" : "activé"}` });
-    } catch {
-      toast({ title: "Erreur", description: "Impossible de modifier le statut", variant: "destructive" });
+
+      const scopeRouterId =
+        updatedVendor.routerId ?? selectedRouterId ?? (vendor as Vendor & { routerId?: number }).routerId ?? null;
+      const listPath =
+        scopeRouterId != null
+          ? `${BASE}/api/vendors/${vendor.id}/unsold-vouchers-by-router?routerId=${scopeRouterId}`
+          : `${BASE}/api/vendors/${vendor.id}/unsold-vouchers-by-router`;
+      const listRes = await fetch(listPath, {
+        headers: getAdminJsonHeaders(),
+      });
+      if (!listRes.ok) {
+        throw new Error(`Liste des tickets HTTP ${listRes.status}`);
+      }
+      const { groups } = (await listRes.json()) as { groups?: Array<{ routerId: number; usernames: string[] }> };
+      const plans = groups ?? [];
+
+      await runHotspotUserToggleBatches(BASE, plans, nextActive, {
+        onProgress: (p) => setVendorHotspotProgress(p),
+        onPaused: setVendorHotspotPaused,
+      });
+
+      for (const g of plans) {
+        void queryClient.invalidateQueries({ queryKey: [`/routers/${g.routerId}/users`], exact: false });
+      }
+
+      toast({
+        title: nextActive ? "Vendeur activé" : "Vendeur désactivé",
+        description:
+          plans.reduce((n, g) => n + g.usernames.length, 0) > 0
+            ? "Tickets non vendus synchronisés sur MikroTik."
+            : "Aucun ticket non vendu à synchroniser.",
+      });
+    } catch (e) {
+      toast({ title: "Erreur", description: String(e), variant: "destructive" });
+      invalidate();
+    } finally {
+      setVendorToggleRunningId(null);
+      setVendorHotspotProgress(null);
+      setVendorHotspotPaused(false);
     }
   };
 
@@ -510,6 +568,82 @@ export default function Vendors() {
 
   return (
     <div>
+      {vendorHotspotProgress && (
+        <div
+          className={`mb-4 rounded-lg border px-3 py-2.5 shadow-sm ${
+            vendorHotspotProgress.enable
+              ? "border-green-200 bg-green-50/90"
+              : "border-orange-200 bg-orange-50/90"
+          }`}
+        >
+          <p
+            className={`text-xs font-semibold mb-1.5 ${
+              vendorHotspotProgress.enable ? "text-green-900" : "text-orange-900"
+            }`}
+          >
+            {vendorHotspotProgress.enable
+              ? "Réactivation des tickets (vendeur)…"
+              : "Désactivation des tickets (vendeur)…"}
+          </p>
+          <div
+            className={`relative h-2 bg-white/80 rounded-full overflow-hidden border ${
+              vendorHotspotProgress.enable ? "border-green-100" : "border-orange-100"
+            }`}
+          >
+            <div
+              className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                vendorHotspotPaused
+                  ? "bg-amber-400"
+                  : vendorHotspotProgress.enable
+                    ? "bg-green-600"
+                    : "bg-orange-500"
+              }`}
+              style={{
+                width: `${Math.round((vendorHotspotProgress.done / Math.max(1, vendorHotspotProgress.total)) * 100)}%`,
+              }}
+            />
+            {!vendorHotspotPaused && (
+              <div
+                className="absolute inset-0 animate-shimmer"
+                style={{
+                  background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
+                  backgroundSize: "200% 100%",
+                }}
+              />
+            )}
+          </div>
+          <div
+            className={`flex items-center justify-between text-[11px] mt-1.5 ${
+              vendorHotspotProgress.enable ? "text-green-900/80" : "text-orange-900/80"
+            }`}
+          >
+            {vendorHotspotPaused ? (
+              <span className="flex items-center gap-1 text-amber-700 font-medium">
+                <WifiOff className="h-3 w-3" />
+                Routeur inaccessible — reprise automatique…
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <Loader2
+                  className={`h-3 w-3 animate-spin ${vendorHotspotProgress.enable ? "text-green-600" : "text-orange-600"}`}
+                />
+                Envoi vers MikroTik — lots de {TOGGLE_BATCH_SIZE}…
+              </span>
+            )}
+            <span className="tabular-nums font-medium">
+              {vendorHotspotProgress.done} / {vendorHotspotProgress.total}
+              <span
+                className={`font-normal ml-1 ${
+                  vendorHotspotProgress.enable ? "text-green-800/70" : "text-orange-700/70"
+                }`}
+              >
+                ({Math.round((vendorHotspotProgress.done / Math.max(1, vendorHotspotProgress.total)) * 100)}%)
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Vendeurs</h1>
@@ -694,7 +828,8 @@ export default function Vendors() {
                       className={`flex-1 gap-1.5 min-w-0 ${vendor.isActive
                         ? "text-orange-500 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
                         : "text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"}`}
-                      onClick={() => handleToggleActive(vendor)}
+                      onClick={() => void handleToggleActive(vendor)}
+                      disabled={vendorToggleRunningId !== null}
                       title={vendor.isActive ? "Désactiver" : "Activer"}
                     >
                       {vendor.isActive

@@ -226,13 +226,73 @@ router.put("/vendors/bulk-commission", async (req, res): Promise<void> => {
   res.json({ updated: updated.length, commissionRate: rate });
 });
 
+/**
+ * GET /vendors/:id/unsold-vouchers-by-router
+ * Tickets non vendus du vendeur, groupés par routeur — pour bascule MikroTik côté client (paquets + progression).
+ * Query `routerId` (optionnel) : limiter au routeur actif / au site courant (évite de toucher d’autres routeurs si des lignes orphelines ont le même vendorId).
+ */
+router.get("/vendors/:id/unsold-vouchers-by-router", async (req, res): Promise<void> => {
+  const scope = getAdminScopeOptional(req);
+  if (!scope) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "ID invalide" });
+    return;
+  }
+
+  const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
+  if (!vendor) {
+    res.status(404).json({ error: "Vendeur introuvable" });
+    return;
+  }
+  if ((!scope.isSuperAdmin || scope.isImpersonating) && vendor.ownerAdminId !== scope.adminId) {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
+  }
+
+  const voucherConds = [eq(vouchersTable.vendorId, id), isNull(vouchersTable.usedAt)];
+  const ridRaw = req.query.routerId;
+  if (ridRaw != null && String(ridRaw).trim() !== "") {
+    const rid = parseInt(String(ridRaw), 10);
+    if (Number.isNaN(rid)) {
+      res.status(400).json({ error: "routerId invalide" });
+      return;
+    }
+    const ok = await assertRouterScope(rid, scope, res);
+    if (!ok) return;
+    voucherConds.push(eq(vouchersTable.routerId, rid));
+  }
+
+  const rows = await db
+    .select({
+      username: vouchersTable.username,
+      routerId: vouchersTable.routerId,
+    })
+    .from(vouchersTable)
+    .where(and(...voucherConds));
+
+  const byRouter = new Map<number, string[]>();
+  for (const r of rows) {
+    if (r.routerId == null) continue;
+    const list = byRouter.get(r.routerId) ?? [];
+    list.push(r.username);
+    byRouter.set(r.routerId, list);
+  }
+
+  const groups = [...byRouter.entries()].map(([routerId, usernames]) => ({ routerId, usernames }));
+  res.json({ groups });
+});
+
 router.put("/vendors/:id", async (req, res): Promise<void> => {
   const scope = getAdminScopeOptional(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, phone, email, username, password, isActive, isDemo, commentSuffix, commentSuffix2, commissionRate, ticketLetter } = req.body as {
+  const { name, phone, email, username, password, isActive, isDemo, commentSuffix, commentSuffix2, commissionRate, ticketLetter, deferHotspotUserToggle } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -244,6 +304,8 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     commentSuffix2?: string;
     commissionRate?: number;
     ticketLetter?: string;
+    /** Si true, ne pas basculer les hotspot users en tâche de fond — l’app admin le fait par paquets avec progression. */
+    deferHotspotUserToggle?: boolean;
   };
 
   // Fetch current vendor early (needed for username fallback)
@@ -314,8 +376,9 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     if (suffixes.length > 0) void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes, true); // force on update
   }
 
-  // If isActive changed, enable/disable all vouchers on MikroTik (background)
-  if (isActive !== undefined && isActive !== current.isActive) {
+  // If isActive changed, enable/disable all vouchers on MikroTik (background),
+  // sauf si l’interface admin prend en charge les paquets (deferHotspotUserToggle).
+  if (isActive !== undefined && isActive !== current.isActive && !deferHotspotUserToggle) {
     const enable = isActive;
     (async () => {
       try {
