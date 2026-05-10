@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { CalendarDays, Loader2, CreditCard, CheckCircle2, ChevronDown, ChevronUp, Users, AlertTriangle, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -274,13 +275,13 @@ export default function DailyPayments() {
 
   const { data, isLoading, isFetching } = useQuery<DailyArrearsResponse>({
     queryKey: ["vendor-daily-arrears", selectedRouterId, queryDate],
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       if (!selectedRouterId) return { arrears: {} };
       const params = new URLSearchParams({ date: queryDate, routerId: String(selectedRouterId) });
       const res = await fetch(`${BASE}/api/vendors/daily-arrears?${params}`, { signal });
       if (!res.ok) return { arrears: {} };
       return res.json() as Promise<DailyArrearsResponse>;
-    },
+    }),
     enabled: !!selectedRouterId,
     staleTime: 60_000,
   });

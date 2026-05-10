@@ -484,6 +484,36 @@
   animation: shimmer-sweep 1.6s ease-in-out infinite;
 }
 
+/* ── Titres « … » animés (réactivation / désactivation tickets) ───────── */
+@keyframes ellipsis-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+  70% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+}
+.animate-ellipsis-dots .animate-ellipsis-dot {
+  display: inline-block;
+  animation: ellipsis-dot-pulse 1.15s ease-in-out infinite;
+}
+.animate-ellipsis-dots .animate-ellipsis-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.animate-ellipsis-dots .animate-ellipsis-dot:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.animate-ellipsis-dots .animate-ellipsis-dot:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Mobile compact mode  — s'applique sur tous les écrans < 640 px
    (navigateurs mobiles ET APK Expo dont le viewport est toujours petit)

@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -404,12 +405,12 @@ function WeekCard({
 
   const { data, isLoading, isError } = useQuery<WeeklySummaryResponse>({
     queryKey: qk,
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const params = new URLSearchParams({ routerId: String(routerId), weekStart });
       const res = await fetch(`${BASE}/api/vendors/weekly-summary?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
-    },
+    }),
     staleTime: 30_000,
   });
 
@@ -560,12 +561,12 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
 
   const { data = [], isLoading } = useQuery<DailyPaymentWithVendor[]>({
     queryKey: qk,
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const params = new URLSearchParams({ routerId: String(routerId), from: monday, to: today });
       const res = await fetch(`${BASE}/api/vendors/daily-payments?${params}`, { signal });
       if (!res.ok) return [];
       return res.json() as Promise<DailyPaymentWithVendor[]>;
-    },
+    }),
     staleTime: 30_000,
   });
 
@@ -712,12 +713,12 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
 
   const { data, isLoading } = useQuery<DailyArrearsResponse>({
     queryKey: qk,
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const params = new URLSearchParams({ date: tomorrowStr(), routerId: String(routerId) });
       const res = await fetch(`${BASE}/api/vendors/daily-arrears?${params}`, { signal });
       if (!res.ok) return { arrears: {} };
       return res.json();
-    },
+    }),
     staleTime: 30_000,
   });
 

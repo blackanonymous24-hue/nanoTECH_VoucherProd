@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getListRouterProfilesQueryKey, useListRouterProfiles } from "@workspace/api-client-react";
+import { getListRouterProfilesQueryKey, useListRouterProfiles, listRouterProfiles } from "@workspace/api-client-react";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -90,6 +91,9 @@ export default function Forfaits() {
         staleTime: 5 * 60_000,
         gcTime: 10 * 60_000,
         refetchOnWindowFocus: false,
+        queryFn: withApiPauseCacheFallback((ctx) =>
+          listRouterProfiles(selectedRouterId ?? 0, undefined, ctx.signal),
+        ),
       },
     },
   );

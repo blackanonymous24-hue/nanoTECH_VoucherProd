@@ -6,12 +6,20 @@ import {
   useListRouterProfiles,
   getListRouterUsersQueryKey,
   getListRouterProfilesQueryKey,
+  listRouterUsers,
+  listRouterProfiles,
 } from "@workspace/api-client-react";
-import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
+import type { HotspotUser, HotspotUserListResponse, HotspotProfile } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
+import { useAuthQueryScope, withAuthQueryScope } from "@/lib/auth-query-scope";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
+import {
+  pickHotspotCommentDateFormat,
+  formatHotspotCommentDateByFormat,
+} from "@/lib/routeros-hotspot-comment-date";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -77,20 +85,136 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale, saveSmallScale, saveMobileScale } from "@/pages/TicketTemplate";
-import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
+import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, printTickets } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 import {
   runHotspotUserToggleBatches,
+  runHotspotUserToggleWithPriority,
   TOGGLE_BATCH_THRESHOLD,
-  TOGGLE_BATCH_SIZE,
+  type HotspotBulkProgressState,
 } from "@/lib/hotspot-bulk-toggle";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
+
+function TicketsProgressTitle({ enable }: { enable: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-0 min-w-0">
+      <span className="truncate">{enable ? "Activation des tickets en cours" : "Désactivation des tickets en cours"}</span>
+      <span className="animate-ellipsis-dots inline-flex shrink-0 ml-px" aria-hidden>
+        <span className="animate-ellipsis-dot">.</span>
+        <span className="animate-ellipsis-dot">.</span>
+        <span className="animate-ellipsis-dot">.</span>
+      </span>
+    </span>
+  );
+}
+
+function HotspotBulkProgressPanel({
+  progress,
+  paused,
+  className,
+}: {
+  progress: HotspotBulkProgressState;
+  paused: boolean;
+  className?: string;
+}) {
+  const pct = Math.round((progress.done / Math.max(1, progress.total)) * 100);
+  return (
+    <div
+      className={cn(
+        "rounded-lg border px-3 py-2.5 shadow-sm",
+        progress.enable ? "border-green-200 bg-green-50/90" : "border-orange-200 bg-orange-50/90",
+        className,
+      )}
+    >
+      <div
+        className={cn(
+          "relative h-2 bg-white/80 rounded-full overflow-hidden border mb-1.5",
+          progress.enable ? "border-green-100" : "border-orange-100",
+        )}
+      >
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 rounded-full transition-all duration-500",
+            paused ? "bg-amber-400" : progress.enable ? "bg-green-600" : "bg-orange-500",
+          )}
+          style={{ width: `${pct}%` }}
+        />
+        {!paused && (
+          <div
+            className="absolute inset-0 animate-shimmer"
+            style={{
+              background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
+              backgroundSize: "200% 100%",
+            }}
+          />
+        )}
+      </div>
+      <div
+        className={cn(
+          "flex items-center gap-2 min-w-0 text-[11px]",
+          progress.enable ? "text-green-900/80" : "text-orange-900/80",
+        )}
+      >
+        {paused ? (
+          <>
+            <span className="flex items-center gap-1 min-w-0 flex-1 text-amber-700 font-medium">
+              <WifiOff className="h-3 w-3 shrink-0" />
+              <span className="truncate">Routeur inaccessible — reprise automatique…</span>
+            </span>
+            <span className="tabular-nums font-medium shrink-0 whitespace-nowrap">
+              {progress.done} / {progress.total}
+              <span className="font-normal ml-1 text-amber-800/80">({pct}%)</span>
+            </span>
+          </>
+        ) : (
+          <>
+            <Loader2
+              className={cn(
+                "h-3 w-3 animate-spin shrink-0",
+                progress.enable ? "text-green-600" : "text-orange-600",
+              )}
+              aria-hidden
+            />
+            <span
+              className={cn(
+                "text-xs font-semibold min-w-0 flex-1 truncate",
+                progress.enable ? "text-green-900" : "text-orange-900",
+              )}
+            >
+              <TicketsProgressTitle enable={progress.enable} />
+            </span>
+            <span className="tabular-nums font-medium shrink-0 whitespace-nowrap">
+              {progress.done} / {progress.total}
+              <span
+                className={cn(
+                  "font-normal ml-1",
+                  progress.enable ? "text-green-800/70" : "text-orange-700/70",
+                )}
+              >
+                ({pct}%)
+              </span>
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const showHotspotBulkProgressInLotStrip = (
+  view: "list" | "lots",
+  filterComment: string,
+  selectedSize: number,
+) => view === "list" && filterComment !== "all" && selectedSize === 0;
 
 type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
 type VendorAliasRow = { name: string; commentSuffix?: string | null; commentSuffix2?: string | null };
 
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+/** Unité « Mois » pour prolongation : N × 30 jours (forfaits admin), pas mois calendaires. */
+const VOUCHER_EXTEND_DAYS_PER_MONTH = 30;
 
 // Module-level cache — persists across component unmount/remount (tab navigation).
 // Provides instant display on re-visit without waiting for React Query to refetch.
@@ -103,13 +227,19 @@ const _vouchersCache: Record<number, {
 // ── Optimistic update helpers ──────────────────────────────────────────────────
 // Instantly flip the `disabled` field for a set of usernames in ALL React Query
 // caches for this router, returning a snapshot for rollback on error.
-function optimisticSetDisabled(routerId: number, usernames: Set<string>, disabled: boolean) {
+function optimisticSetDisabled(
+  scope: readonly unknown[],
+  routerId: number,
+  usernames: Set<string>,
+  disabled: boolean,
+) {
+  const userKeyPrefix = withAuthQueryScope(scope, [`/routers/${routerId}/users`]);
   const snapshot = queryClient.getQueriesData<HotspotUserListResponse>({
-    queryKey: [`/routers/${routerId}/users`],
+    queryKey: userKeyPrefix,
     exact: false,
   });
   queryClient.setQueriesData<HotspotUserListResponse>(
-    { queryKey: [`/routers/${routerId}/users`], exact: false },
+    { queryKey: userKeyPrefix, exact: false },
     (old) => {
       if (!old) return old;
       return { ...old, users: old.users.map((u) => usernames.has(u.username) ? { ...u, disabled } : u) };
@@ -166,6 +296,7 @@ function makeClientBatchId(mode: "vc" | "up"): string {
 
 export default function Vouchers() {
   const { selectedRouterId, routers, selectedRouter } = useRouterContext();
+  const authScope = useAuthQueryScope();
   const { toast } = useToast();
 
   const [view, setView] = useState<"list" | "lots">("list");
@@ -180,6 +311,10 @@ export default function Vouchers() {
   const [isDeletingLot, setIsDeletingLot] = useState(false);
   const [deletingLotName, setDeletingLotName] = useState<string | null>(null);
   const [isDisabling, setIsDisabling] = useState(false);
+  /** Barre lot : après confirmation — désactivation / activation MikroTik en cours */
+  const [lotTogglePhase, setLotTogglePhase] = useState<"disabling" | "enabling" | null>(null);
+  /** null = fermé ; boolean = activer (true) / désactiver (false) tout le lot */
+  const [confirmLotToggle, setConfirmLotToggle] = useState<boolean | null>(null);
   const [hotspotBulkProgress, setHotspotBulkProgress] = useState<{ done: number; total: number; enable: boolean } | null>(null);
   const [hotspotBulkPaused, setHotspotBulkPaused] = useState(false);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
@@ -208,6 +343,8 @@ export default function Vouchers() {
   const [extendAmount, setExtendAmount] = useState("1");
   const [extendUnit, setExtendUnit] = useState<"Heure" | "Jour" | "Mois">("Mois");
   const [isExtending, setIsExtending] = useState(false);
+  /** Cache RouterOS version par routeur pour le format de date dans les commentaires hotspot */
+  const routerOsVersionCacheRef = useRef<Map<number, string | null>>(new Map());
   const [editUserNow, setEditUserNow] = useState(Date.now());
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
@@ -224,6 +361,9 @@ export default function Vouchers() {
     setFilterStatus("all");
     setPage(0);
     setSelectedUsernames(new Set());
+    setConfirmLotToggle(null);
+    setLotTogglePhase(null);
+    setConfirmToggleSelected(null);
     setLotsSearch("");
     setLotsFilterProfile("all");
     setLotsFilterVendor("all");
@@ -260,8 +400,8 @@ export default function Vouchers() {
     isLoading: lotsLoading,
     refetch: refetchLots,
   } = useQuery({
-    queryKey: ["router-lots", activeRouterId],
-    queryFn: async ({ signal }) => {
+    queryKey: withAuthQueryScope(authScope, ["router-lots", activeRouterId]),
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const r = await fetch(`${BASE}/api/routers/${activeRouterId}/lots`, { signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const result = await r.json() as { lots: LotSummary[]; total: number };
@@ -269,7 +409,7 @@ export default function Vouchers() {
         _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], lots: result, lotsTs: Date.now() };
       }
       return result;
-    },
+    }),
     enabled: !!activeRouterId,
     // staleTime:0 → background-refetch déclenché à chaque montage ; comme /lots utilise
     // getCachedUsers (MikroTik, TTL 5 min serveur), un lot supprimé disparaît dès que le
@@ -285,13 +425,13 @@ export default function Vouchers() {
   const totalUsers = lotsData?.total ?? 0;
   useRefetchOnEmpty(lots, lotsLoading, () => void refetchLots(), (d) => !!activeRouterId && (!d || d.length === 0));
   const { data: vendorsAlias = [] } = useQuery<VendorAliasRow[]>({
-    queryKey: ["vendors-aliases", activeRouterId],
+    queryKey: withAuthQueryScope(authScope, ["vendors-aliases", activeRouterId]),
     enabled: !!activeRouterId,
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/vendors?routerId=${activeRouterId}`);
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/vendors?routerId=${activeRouterId}`, { signal });
       if (!res.ok) return [];
       return await res.json() as VendorAliasRow[];
-    },
+    }),
     staleTime: 60_000,
   });
   const vendorAliasMap = useMemo(() => {
@@ -389,7 +529,7 @@ export default function Vouchers() {
     usersParams,
     {
       query: {
-        queryKey: getListRouterUsersQueryKey(activeRouterId ?? 0, usersParams),
+        queryKey: withAuthQueryScope(authScope, getListRouterUsersQueryKey(activeRouterId ?? 0, usersParams)),
         enabled: !!activeRouterId && view === "list",
         // staleTime:0 → React Query déclenche TOUJOURS un background-refetch au montage,
         // même si initialData est présent. Un utilisateur supprimé de MikroTik disparaît
@@ -399,6 +539,9 @@ export default function Vouchers() {
         gcTime: 30 * 60_000,
         initialData: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.users : undefined,
         initialDataUpdatedAt: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.usersTs : undefined,
+        queryFn: withApiPauseCacheFallback((ctx) =>
+          listRouterUsers(activeRouterId ?? 0, usersParams, undefined, ctx.signal),
+        ),
       },
     },
   );
@@ -421,7 +564,14 @@ export default function Vouchers() {
   const refetch = () => { void refetchLots(); void refetchUsers(); };
 
   const { data: profilesList = [], isLoading: isProfilesLoading } = useListRouterProfiles(activeRouterId ?? 0, {
-    query: { queryKey: getListRouterProfilesQueryKey(activeRouterId ?? 0), enabled: !!activeRouterId, staleTime: 120_000 },
+    query: {
+      queryKey: getListRouterProfilesQueryKey(activeRouterId ?? 0),
+      enabled: !!activeRouterId,
+      staleTime: 120_000,
+      queryFn: withApiPauseCacheFallback((ctx) =>
+        listRouterProfiles(activeRouterId ?? 0, undefined, ctx.signal),
+      ),
+    },
   });
   useProfileAutoResync(activeRouterId, { intervalMs: 5 * 60_000, refreshProfiles: true, syncNames: true });
   const profileExpiryModeByName = useMemo(() => {
@@ -483,18 +633,28 @@ export default function Vouchers() {
   }, [allUsersData?.users, filterVendor, filterStatus, profileExpiryModeByName, vendorAliasMap, lotVendorByComment]);
   const filteredTotal = filtered.length;
 
+  /** Filtre lot : masquer Désactiver si tout est déjà désactivé, masquer Activer si tout est déjà actif. */
+  const lotStripAllShownDisabled =
+    filterComment !== "all" &&
+    filtered.length > 0 &&
+    filtered.every((u) => !!u.disabled);
+  const lotStripAllShownActive =
+    filterComment !== "all" &&
+    filtered.length > 0 &&
+    filtered.every((u) => !u.disabled);
+
   // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageUsers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const { data: bypassBindings = [] } = useQuery({
-    queryKey: ["router-ip-bindings", activeRouterId],
+    queryKey: withAuthQueryScope(authScope, ["router-ip-bindings", activeRouterId]),
     enabled: !!activeRouterId && !!editingUser && linkBypass,
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/ip-bindings`);
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/routers/${activeRouterId}/ip-bindings`, { signal });
       if (!res.ok) return [] as Array<{ id: string; macAddress: string; comment: string; type: string }>;
       const data = await res.json() as { bindings?: Array<{ id: string; macAddress: string; comment: string; type: string }> };
       return (data.bindings ?? []).filter((b) => (b.type ?? "").toLowerCase() === "bypassed");
-    },
+    }),
     staleTime: 30_000,
   });
 
@@ -512,9 +672,10 @@ export default function Vouchers() {
       (allUsersData?.users ?? []).filter((u) => u.comment === comment).map((u) => u.username),
     );
     const snapshot = usersInLot.size > 0
-      ? optimisticSetDisabled(activeRouterId, usersInLot, !enable)
+      ? optimisticSetDisabled(authScope, activeRouterId, usersInLot, !enable)
       : [];
 
+    setLotTogglePhase(enable ? "enabling" : "disabling");
     setIsDisabling(true);
     try {
       const listRes = await fetch(
@@ -536,7 +697,7 @@ export default function Vouchers() {
 
       toast({
         title: enable
-          ? `${list.length} voucher(s) réactivé(s)`
+          ? `${list.length} voucher(s) activé(s)`
           : `${list.length} voucher(s) désactivé(s)`,
         description: `Lot : ${comment}`,
       });
@@ -546,6 +707,7 @@ export default function Vouchers() {
       for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
     } finally {
+      setLotTogglePhase(null);
       setIsDisabling(false);
     }
   };
@@ -578,14 +740,7 @@ export default function Vouchers() {
     const count = usernamesArr.length;
     const useBatch = count >= TOGGLE_BATCH_THRESHOLD;
 
-    const snapshot = optimisticSetDisabled(activeRouterId, selectedUsernames, !enable);
-
-    setConfirmToggleSelected(null);
-
-    if (!useBatch) {
-      setSelectedUsernames(new Set());
-      toast({ title: enable ? `${count} voucher(s) réactivé(s)` : `${count} voucher(s) désactivé(s)` });
-    }
+    const snapshot = optimisticSetDisabled(authScope, activeRouterId, selectedUsernames, !enable);
 
     setIsTogglingSelected(true);
     try {
@@ -597,16 +752,13 @@ export default function Vouchers() {
         });
         setSelectedUsernames(new Set());
         toast({
-          title: enable ? `${count} voucher(s) réactivé(s)` : `${count} voucher(s) désactivé(s)`,
+          title: enable ? `${count} voucher(s) activé(s)` : `${count} voucher(s) désactivé(s)`,
           description: "Synchronisation MikroTik terminée.",
         });
       } else {
-        const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ routerId: activeRouterId, usernames: usernamesArr, enable }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await runHotspotUserToggleWithPriority(BASE, activeRouterId, usernamesArr, enable);
+        setSelectedUsernames(new Set());
+        toast({ title: enable ? `${count} voucher(s) activé(s)` : `${count} voucher(s) désactivé(s)` });
       }
       void refetchLots();
       void refetchUsers();
@@ -614,6 +766,7 @@ export default function Vouchers() {
       for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       toast({ title: "Erreur", description: String(err), variant: "destructive" });
     } finally {
+      setConfirmToggleSelected(null);
       setIsTogglingSelected(false);
     }
   };
@@ -622,17 +775,12 @@ export default function Vouchers() {
     if (!activeRouterId || !editingUser || isTogglingEditUserDisabled || isSavingRename) return;
     const u = editingUser.username;
     const enable = !!editingUser.disabled;
-    const snapshot = optimisticSetDisabled(activeRouterId, new Set([u]), !enable);
+    const snapshot = optimisticSetDisabled(authScope, activeRouterId, new Set([u]), !enable);
     setIsTogglingEditUserDisabled(true);
     try {
-      const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routerId: activeRouterId, usernames: [u], enable }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await runHotspotUserToggleWithPriority(BASE, activeRouterId, [u], enable);
       setEditingUser((prev) => (prev && prev.username === u ? { ...prev, disabled: !enable } : prev));
-      toast({ title: enable ? "Utilisateur réactivé" : "Utilisateur désactivé", description: u });
+      toast({ title: enable ? "Utilisateur activé" : "Utilisateur désactivé", description: u });
       void refetchLots();
       void refetchUsers();
     } catch (err) {
@@ -732,7 +880,10 @@ export default function Vouchers() {
 
 
   const handlePrintSmallLot = async (lot: LotSummary) => {
-    const preWin: Window | null = window.open("", "_blank");
+    const isNativeWV = typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView !== "undefined";
+    const isMobileBrowser = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    /* Ancien comportement : pas de window.open sur APK (inutile ; évite onglet vide). Chargement seulement navigateur. */
+    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -779,19 +930,17 @@ export default function Vouchers() {
       const data = await resp.json() as { html: string[] };
       if (!data.html?.length) { preWin?.close(); toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" }); return; }
       const title = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean).join("-");
-      const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-      const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       if (isNativeWV) {
-        // APK : pont natif, pas de window.open
+        // APK : échelle « Mobile » uniquement (voir print.printTickets + JSDoc buildSmallModePrintHtml)
         printTickets(data.html, title, capturedMobileScale);
       } else if (isMobileBrowser) {
-        // Mobile browser : zoom + page-breaks (anti-coupure)
+        // Navigateur mobile : même HTML Small ; zoom = curseur « Mobile » du modèle de ticket (≠ « Small » bureau)
         if (preWin) {
-          const html = buildTicketPrintHtml(data.html, title, capturedMobileScale, true);
+          const html = buildSmallModePrintHtml(data.html, title, capturedMobileScale / 100);
           preWin.document.open(); preWin.document.write(html); preWin.document.close();
         }
       } else {
-        // Desktop : 2 colonnes Small
+        // Bureau web : zoom = curseur « Small » du modèle de ticket
         if (preWin) {
           const html = buildSmallModePrintHtml(data.html, title, capturedSmallScale);
           preWin.document.open(); preWin.document.write(html); preWin.document.close();
@@ -899,7 +1048,10 @@ export default function Vouchers() {
       nextPassword === editingUser.password &&
       nextProfile === editingUser.profile &&
       (!linkBypass || nextBypassMac === (editingUser.macAddress ?? ""));
-    if (nothingChanged) { setEditingUser(null); return; }
+    if (nothingChanged) {
+      setEditingUser(null);
+      return;
+    }
 
     const previousUsername = editingUser.username;
     const payload = {
@@ -910,30 +1062,29 @@ export default function Vouchers() {
       bypassMacAddress: linkBypass ? nextBypassMac : undefined,
       bypassComment: linkBypass ? editBypassComment.trim() : undefined,
     };
-    setEditingUser(null);
-    setIsSavingRename(false);
-    toast({ title: "Modification lancée", description: `${previousUsername} → ${nextUsername}` });
-    void (async () => {
-      try {
-        const res = await fetch(
-          `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(previousUsername)}`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          },
-        );
-        if (!res.ok) {
-          const err = await res.json() as { error?: string };
-          throw new Error(err.error ?? `HTTP ${res.status}`);
-        }
-        toast({ title: "Utilisateur modifié", description: `${previousUsername} mis à jour.` });
-      } catch (err) {
-        toast({ title: "Erreur modification", description: String(err), variant: "destructive" });
-      } finally {
-        void Promise.all([refetchUsers(), refetchLots()]);
+
+    setIsSavingRename(true);
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(previousUsername)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
       }
-    })();
+      toast({ title: "Utilisateur modifié", description: `${previousUsername} mis à jour.` });
+      setEditingUser(null);
+    } catch (err) {
+      toast({ title: "Erreur modification", description: String(err), variant: "destructive" });
+    } finally {
+      setIsSavingRename(false);
+      void Promise.all([refetchUsers(), refetchLots()]);
+    }
   };
 
 
@@ -959,7 +1110,6 @@ export default function Vouchers() {
       }
     }
 
-    setExtendUser(null);
     setIsExtending(true);
     try {
       if (isExpired) {
@@ -983,8 +1133,25 @@ export default function Vouchers() {
         const next = new Date(base);
         if (extendUnit === "Heure") next.setHours(next.getHours() + n);
         else if (extendUnit === "Jour") next.setDate(next.getDate() + n);
-        else next.setMonth(next.getMonth() + n);
-        const newComment = formatMikrotikDate(next);
+        else next.setDate(next.getDate() + n * VOUCHER_EXTEND_DAYS_PER_MONTH);
+
+        let rosVersion = routerOsVersionCacheRef.current.get(activeRouterId);
+        if (rosVersion === undefined) {
+          try {
+            const infoRes = await fetch(`${BASE}/api/routers/${activeRouterId}/info`);
+            if (infoRes.ok) {
+              const info = await infoRes.json() as { routerOsVersion?: string | null };
+              rosVersion = info.routerOsVersion ?? null;
+            } else {
+              rosVersion = null;
+            }
+          } catch {
+            rosVersion = null;
+          }
+          routerOsVersionCacheRef.current.set(activeRouterId, rosVersion);
+        }
+        const dateFmt = pickHotspotCommentDateFormat(user.comment, rosVersion ?? undefined);
+        const newComment = formatHotspotCommentDateByFormat(next, dateFmt);
 
         const patchRes = await fetch(
           `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}`,
@@ -1000,6 +1167,7 @@ export default function Vouchers() {
         });
       }
       void Promise.all([refetchUsers(), refetchLots()]);
+      setExtendUser(null);
     } catch (err) {
       toast({
         title: isExpired ? "Échec de la réinitialisation" : "Échec de la prolongation",
@@ -1114,7 +1282,9 @@ export default function Vouchers() {
       setAddDialogMode("recap");
       void refetchUsers();
       void refetchLots();
-      void queryClient.invalidateQueries({ queryKey: [`/routers/${activeRouterId}/users/count`] });
+      void queryClient.invalidateQueries({
+        queryKey: withAuthQueryScope(authScope, [`/routers/${activeRouterId}/users/count`]),
+      });
     } catch (e) {
       toast({
         title: "Échec de la création",
@@ -1218,85 +1388,20 @@ export default function Vouchers() {
             <Ticket className="h-12 w-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 font-medium">Aucun routeur sélectionné</p>
             <p className="text-sm text-gray-400 mt-1">
-              Choisissez un routeur dans "ROUTEUR ACTIF" dans la barre de gauche
+              Choisissez un routeur dans "Routeurs" dans la barre de gauche
             </p>
           </CardContent>
         </Card>
       ) : (
         <>
-          {hotspotBulkProgress && (
-            <div
-              className={`mb-4 rounded-lg border px-3 py-2.5 shadow-sm ${
-                hotspotBulkProgress.enable
-                  ? "border-green-200 bg-green-50/90"
-                  : "border-orange-200 bg-orange-50/90"
-              }`}
-            >
-              <p
-                className={`text-xs font-semibold mb-1.5 ${
-                  hotspotBulkProgress.enable ? "text-green-900" : "text-orange-900"
-                }`}
-              >
-                {hotspotBulkProgress.enable ? "Réactivation des vouchers…" : "Désactivation des vouchers…"}
-              </p>
-              <div
-                className={`relative h-2 bg-white/80 rounded-full overflow-hidden border ${
-                  hotspotBulkProgress.enable ? "border-green-100" : "border-orange-100"
-                }`}
-              >
-                <div
-                  className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
-                    hotspotBulkPaused
-                      ? "bg-amber-400"
-                      : hotspotBulkProgress.enable
-                        ? "bg-green-600"
-                        : "bg-orange-500"
-                  }`}
-                  style={{
-                    width: `${Math.round((hotspotBulkProgress.done / Math.max(1, hotspotBulkProgress.total)) * 100)}%`,
-                  }}
-                />
-                {!hotspotBulkPaused && (
-                  <div
-                    className="absolute inset-0 animate-shimmer"
-                    style={{
-                      background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
-                      backgroundSize: "200% 100%",
-                    }}
-                  />
-                )}
-              </div>
-              <div
-                className={`flex items-center justify-between text-[11px] mt-1.5 ${
-                  hotspotBulkProgress.enable ? "text-green-900/80" : "text-orange-900/80"
-                }`}
-              >
-                {hotspotBulkPaused ? (
-                  <span className="flex items-center gap-1 text-amber-700 font-medium">
-                    <WifiOff className="h-3 w-3" />
-                    Routeur inaccessible — reprise automatique…
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1">
-                    <Loader2
-                      className={`h-3 w-3 animate-spin ${hotspotBulkProgress.enable ? "text-green-600" : "text-orange-600"}`}
-                    />
-                    {hotspotBulkProgress.enable ? "Réactivation" : "Désactivation"} sur MikroTik — lots de {TOGGLE_BATCH_SIZE}…
-                  </span>
-                )}
-                <span className="tabular-nums font-medium">
-                  {hotspotBulkProgress.done} / {hotspotBulkProgress.total}
-                  <span
-                    className={`font-normal ml-1 ${
-                      hotspotBulkProgress.enable ? "text-green-800/70" : "text-orange-700/70"
-                    }`}
-                  >
-                    ({Math.round((hotspotBulkProgress.done / Math.max(1, hotspotBulkProgress.total)) * 100)}%)
-                  </span>
-                </span>
-              </div>
-            </div>
-          )}
+          {hotspotBulkProgress &&
+            (filterComment === "all" || selectedUsernames.size > 0) && (
+              <HotspotBulkProgressPanel
+                progress={hotspotBulkProgress}
+                paused={hotspotBulkPaused}
+                className="mb-4"
+              />
+            )}
 
           {/* Tab toggle */}
           <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
@@ -1533,47 +1638,126 @@ export default function Vouchers() {
                 </CardContent>
               </Card>
 
-              {filterComment !== "all" && (
-                <div className="flex items-center justify-between mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 gap-3 flex-wrap">
-                  <span className="text-sm text-amber-800 font-medium flex items-center gap-2">
-                    <Package className="h-4 w-4" />
-                    Lot&nbsp;: <span className="font-mono">{filterComment}</span>
-                    &nbsp;—&nbsp;{filteredTotal.toLocaleString("fr")} affiché(s)
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={isDisabling || isTogglingSelected}
-                      onClick={() => handleDisableLot(filterComment, false)}
-                      className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
-                    >
-                      <PowerOff className="h-3.5 w-3.5" />
-                      {isDisabling ? "En cours..." : "Désactiver"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={isDisabling || isTogglingSelected}
-                      onClick={() => handleDisableLot(filterComment, true)}
-                      className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
-                    >
-                      <PowerOff className="h-3.5 w-3.5 rotate-180" />
-                      {isDisabling ? "En cours..." : "Réactiver"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setDeletingLot(filterComment)}
-                      disabled={isDeletingLot}
-                      className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
-                    >
-                      {isDeletingLot && deletingLotName === filterComment
-                        ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        : <Trash2 className="h-3.5 w-3.5" />}
-                      Supprimer
-                    </Button>
-                  </div>
+              {filterComment !== "all" && selectedUsernames.size === 0 && (
+                <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+                  {lotTogglePhase ||
+                  (hotspotBulkProgress &&
+                    showHotspotBulkProgressInLotStrip(view, filterComment, selectedUsernames.size)) ? (
+                    <>
+                      <div className="flex items-center gap-2 min-w-0 mb-2">
+                        <Package className="h-4 w-4 flex-shrink-0 text-amber-800" />
+                        <span className="text-sm text-amber-800 font-medium truncate">
+                          Lot&nbsp;: <span className="font-mono">{filterComment}</span>
+                          &nbsp;—&nbsp;
+                          <span className="italic font-normal">
+                            ({filteredTotal === 1
+                              ? "contient 1 ticket"
+                              : `contient ${filteredTotal.toLocaleString("fr")} tickets`})
+                          </span>
+                        </span>
+                      </div>
+                      {hotspotBulkProgress &&
+                      showHotspotBulkProgressInLotStrip(view, filterComment, selectedUsernames.size) ? (
+                        <HotspotBulkProgressPanel
+                          progress={hotspotBulkProgress}
+                          paused={hotspotBulkPaused}
+                          className="border-amber-200/80 bg-white/70"
+                        />
+                      ) : (
+                        <div className="space-y-1.5 py-0.5">
+                          <Skeleton className="h-2 w-full rounded-full" />
+                          <div className="flex items-center gap-2 min-w-0 text-[11px] text-amber-900/90">
+                            <Loader2 className="h-3 w-3 shrink-0 text-amber-700 animate-spin" aria-hidden />
+                            <span className="text-xs font-semibold min-w-0 flex-1 truncate text-amber-900">
+                              <TicketsProgressTitle enable={lotTogglePhase === "enabling"} />
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <span className="text-sm text-amber-800 font-medium flex items-center gap-2 min-w-0">
+                        <Package className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">
+                          Lot&nbsp;: <span className="font-mono">{filterComment}</span>
+                          &nbsp;—&nbsp;
+                          <span className="italic font-normal">
+                            ({filteredTotal === 1
+                              ? "contient 1 ticket"
+                              : `contient ${filteredTotal.toLocaleString("fr")} tickets`})
+                          </span>
+                        </span>
+                      </span>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={isDisabling || isTogglingSelected || printingLot === filterComment}
+                            onClick={async () => {
+                              const lot =
+                                lots.find((l) => l.name === filterComment) ?? {
+                                  name: filterComment,
+                                  count: Math.max(filteredTotal, 1),
+                                  profile: null,
+                                  preview: [] as HotspotUser[],
+                                };
+                              await handlePrintSmallLot(lot);
+                            }}
+                            className="gap-1.5 text-purple-600 hover:text-purple-800 hover:bg-purple-50"
+                          >
+                            {printingLot === filterComment ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Printer className="h-3.5 w-3.5" />
+                            )}
+                            {printingLot === filterComment ? "Impression…" : "Imprimer le lot"}
+                          </Button>
+                          {!lotStripAllShownDisabled && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={isDisabling || isTogglingSelected}
+                              onClick={() => setConfirmLotToggle(false)}
+                              className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
+                            >
+                              <PowerOff className="h-3.5 w-3.5" />
+                              Désactiver
+                            </Button>
+                          )}
+                          {!lotStripAllShownActive && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={isDisabling || isTogglingSelected}
+                              onClick={() => setConfirmLotToggle(true)}
+                              className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
+                            >
+                              <Power className="h-3.5 w-3.5" />
+                              Activer
+                            </Button>
+                          )}
+                        </div>
+                        <div className="flex items-center border-l border-amber-300/80 pl-3 sm:pl-4 ml-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDeletingLot(filterComment)}
+                            disabled={isDeletingLot}
+                            className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          >
+                            {isDeletingLot && deletingLotName === filterComment ? (
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                            Supprimer
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1703,29 +1887,116 @@ export default function Vouchers() {
                 </div>
               )}
 
-              {/* Confirmation dialog — activate/deactivate selected */}
-              <AlertDialog open={confirmToggleSelected !== null} onOpenChange={(open) => { if (!open) setConfirmToggleSelected(null); }}>
+              {/* Confirmation — activer / désactiver tout le lot (filtre lot) */}
+              <AlertDialog
+                open={confirmLotToggle !== null}
+                onOpenChange={(open) => {
+                  if (!open && !isDisabling) setConfirmLotToggle(null);
+                }}
+              >
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>
-                      {confirmToggleSelected ? "Activer" : "Désactiver"} {selectedUsernames.size} voucher(s) ?
+                      {confirmLotToggle ? "Activer" : "Désactiver"} tout le lot&nbsp;?
                     </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {confirmToggleSelected
-                        ? `${selectedUsernames.size} voucher(s) seront réactivés sur MikroTik.`
-                        : `${selectedUsernames.size} voucher(s) seront désactivés sur MikroTik. Les sessions actives seront coupées.`}
+                    <AlertDialogDescription asChild>
+                      <div className="text-sm text-muted-foreground space-y-2">
+                        <p>
+                          {confirmLotToggle
+                            ? "Tous les vouchers de ce lot en base seront activés sur MikroTik."
+                            : "Tous les vouchers de ce lot en base seront désactivés sur MikroTik. Les sessions actives concernées seront coupées."}
+                        </p>
+                        <p className="font-mono text-xs bg-amber-50 border border-amber-100 rounded px-2 py-1.5 break-all text-foreground">
+                          {filterComment}
+                        </p>
+                      </div>
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Annuler</AlertDialogCancel>
+                    <AlertDialogCancel disabled={isDisabling}>Annuler</AlertDialogCancel>
                     <AlertDialogAction
-                      onClick={() => confirmToggleSelected !== null && void handleToggleSelected(confirmToggleSelected)}
-                      disabled={isTogglingSelected}
-                      className={confirmToggleSelected ? "bg-green-600 hover:bg-green-700" : "bg-orange-600 hover:bg-orange-700"}
+                      disabled={isDisabling}
+                      className={confirmLotToggle ? "bg-green-600 hover:bg-green-700" : "bg-orange-600 hover:bg-orange-700"}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (confirmLotToggle === null || filterComment === "all") return;
+                        const enable = confirmLotToggle;
+                        setConfirmLotToggle(null);
+                        void handleDisableLot(filterComment, enable);
+                      }}
                     >
-                      {isTogglingSelected ? "En cours..." : confirmToggleSelected ? "Activer" : "Désactiver"}
+                      {confirmLotToggle ? "Activer le lot" : "Désactiver le lot"}
                     </AlertDialogAction>
                   </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              {/* Confirmation dialog — activate/deactivate selected */}
+              <AlertDialog
+                open={confirmToggleSelected !== null}
+                onOpenChange={(open) => {
+                  if (!open && !isTogglingSelected) setConfirmToggleSelected(null);
+                }}
+              >
+                <AlertDialogContent>
+                  {isTogglingSelected ? (
+                    <>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          {confirmToggleSelected ? "Activation en cours…" : "Désactivation en cours…"}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                          <div className="space-y-3 pt-1">
+                            <div className="space-y-2">
+                              <Skeleton className="h-4 w-full" />
+                              <Skeleton className="h-4 w-[85%] max-w-sm" />
+                              <Skeleton className="h-10 w-full max-w-md" />
+                            </div>
+                            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                              <Loader2
+                                className={`h-5 w-5 animate-spin shrink-0 ${confirmToggleSelected ? "text-green-600" : "text-orange-600"}`}
+                              />
+                              <span>
+                                {confirmToggleSelected
+                                  ? "Activation des tickets en cours…"
+                                  : "Désactivation des tickets en cours…"}
+                              </span>
+                            </div>
+                          </div>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                    </>
+                  ) : (
+                    <>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          {confirmToggleSelected ? "Activer" : "Désactiver"} {selectedUsernames.size} voucher(s) ?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {confirmToggleSelected
+                            ? `${selectedUsernames.size} voucher(s) seront activés sur MikroTik.`
+                            : `${selectedUsernames.size} voucher(s) seront désactivés sur MikroTik. Les sessions actives seront coupées.`}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Annuler</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (confirmToggleSelected === null) return;
+                            void handleToggleSelected(confirmToggleSelected);
+                          }}
+                          className={
+                            confirmToggleSelected
+                              ? "bg-green-600 hover:bg-green-700"
+                              : "bg-orange-600 hover:bg-orange-700"
+                          }
+                        >
+                          {confirmToggleSelected ? "Activer" : "Désactiver"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </>
+                  )}
                 </AlertDialogContent>
               </AlertDialog>
 
@@ -2095,6 +2366,16 @@ export default function Vouchers() {
                         : <span className="italic">aucune date</span>}
                     </p>
                   </div>
+                  {isExtending && (
+                    <div className="flex items-center gap-2 rounded-md border border-border bg-muted/60 px-3 py-2.5 text-xs text-muted-foreground">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-600" />
+                      <span>
+                        {alreadyExpired
+                          ? "Réinitialisation en cours…"
+                          : "Prolongation en cours…"}
+                      </span>
+                    </div>
+                  )}
                   {!alreadyExpired && (
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Durée à ajouter</Label>
@@ -2120,6 +2401,9 @@ export default function Vouchers() {
                           <option value="Mois">Mois</option>
                         </select>
                       </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Un mois ajoute toujours 30 jours (comme les forfaits administrateur).
+                      </p>
                     </div>
                   )}
                   <div className="flex gap-2 pt-1">
@@ -2283,6 +2567,12 @@ export default function Vouchers() {
             </div>
           </div>
           <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto px-6 py-4">
+            {isSavingRename && (
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/60 px-3 py-2.5 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-600" />
+                <span>Enregistrement en cours…</span>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="edit-username" className="text-xs text-muted-foreground">Identifiant</Label>
               <Input
@@ -2652,18 +2942,6 @@ export default function Vouchers() {
       <div id="voucher-print-section" style={{ display: "none" }} />
     </div>
   );
-}
-
-// Format a Date as MikroTik hotspot comment date: "mmm/dd/yyyy HH:mm:ss"
-const MK_MONTHS_OUT = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-function formatMikrotikDate(d: Date): string {
-  const mon = MK_MONTHS_OUT[d.getMonth()];
-  const day = String(d.getDate()).padStart(2, "0");
-  const yr = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${mon}/${day}/${yr} ${hh}:${mm}:${ss}`;
 }
 
 // Parse a MikroTik comment that may contain an expiration date set by the

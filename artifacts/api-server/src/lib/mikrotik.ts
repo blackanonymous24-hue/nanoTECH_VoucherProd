@@ -397,6 +397,8 @@ export interface RouterInfo {
   firmwareVersion: string | null;
   cpu: string | null;
   cpuCount: string | null;
+  /** Pourcentage charge CPU (RouterOS `cpu-load`) */
+  cpuLoad: string | null;
   totalMemory: string | null;
   freeMemory: string | null;
   uptime: string | null;
@@ -430,6 +432,7 @@ export async function getRouterInfo(conn: RouterConnection): Promise<RouterInfo>
       routerOsVersion:(res["version"]             as string) ?? null,
       cpu:            (res["cpu"]                 as string) ?? null,
       cpuCount:       (res["cpu-count"]           as string) ?? null,
+      cpuLoad:        (res["cpu-load"]            as string) ?? null,
       totalMemory:    (res["total-memory"]        as string) ?? null,
       freeMemory:     (res["free-memory"]         as string) ?? null,
       uptime:         (res["uptime"]              as string) ?? null,
@@ -1242,18 +1245,28 @@ export async function addHotspotUser(conn: RouterConnection, opts: AddHotspotUse
 }
 
 export async function listSessions(conn: RouterConnection): Promise<HotspotSession[]> {
-  return withRouter(conn, async (api) => {
-    const sessions = await api.write("/ip/hotspot/active/print");
-    return sessions.map((s) => ({
-      user: decodeRouterText((s["user"] as string) ?? ""),
-      address: (s["address"] as string) ?? "",
-      macAddress: (s["mac-address"] as string) || null,
-      uptime: (s["uptime"] as string) ?? "00:00:00",
-      bytesIn: (s["bytes-in"] as string) || null,
-      bytesOut: (s["bytes-out"] as string) || null,
-      server: decodeRouterText((s["server"] as string) || "") || null,
-    }));
-  });
+  // Proplist aligné sur countSessionsFast : même jeu de lignes, payload bien plus léger
+  // qu’un print complet — évite les réponses tronquées sur les routeurs très chargés
+  // (écart type dashboard 160 vs page Sessions 144).
+  return withRouter(
+    conn,
+    async (api) => {
+      const sessions = await api.write("/ip/hotspot/active/print", [
+        "=.proplist=user,address,mac-address,uptime,bytes-in,bytes-out,server",
+      ]);
+      return sessions.map((s) => ({
+        user: decodeRouterText((s["user"] as string) ?? ""),
+        address: (s["address"] as string) ?? "",
+        macAddress: (s["mac-address"] as string) || null,
+        uptime: (s["uptime"] as string) ?? "00:00:00",
+        bytesIn: (s["bytes-in"] as string) || null,
+        bytesOut: (s["bytes-out"] as string) || null,
+        server: decodeRouterText((s["server"] as string) || "") || null,
+      }));
+    },
+    25_000,
+    "high",
+  );
 }
 
 export async function listHotspotCookies(conn: RouterConnection): Promise<HotspotCookie[]> {

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -56,22 +57,22 @@ export default function Managers() {
 
   const { data: managers = [], isLoading, refetch } = useQuery<Manager[]>({
     queryKey: ["managers"],
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const r = await fetch(`${BASE}/api/managers`, { headers, signal });
       if (!r.ok) throw new Error("Erreur chargement");
       return r.json();
-    },
+    }),
   });
 
   useRefetchOnEmpty(managers, isLoading, () => void refetch(), (d) => !d || d.length === 0);
 
   const { data: routers = [] } = useQuery<RouterInfo[]>({
     queryKey: ["routers-list"],
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const r = await fetch(`${BASE}/api/routers`, { signal });
       if (!r.ok) throw new Error("Erreur chargement routeurs");
       return r.json();
-    },
+    }),
   });
 
   const createMutation = useMutation({

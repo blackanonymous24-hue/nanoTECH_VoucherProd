@@ -402,6 +402,8 @@ export default function TicketTemplate() {
   const [serverPresetId, setServerPresetId] = useState<number | null>(null);
   const [pendingPresetId, setPendingPresetId] = useState<number | null>(null);
   const hasUnsavedPresetChange = pendingPresetId !== serverPresetId;
+  const isCustomMode = pendingPresetId === null;
+  const showPrintSettings = isSuperAdmin && isCustomMode;
 
   // ── Paramètres d'impression
   const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
@@ -733,8 +735,6 @@ export default function TicketTemplate() {
   }, [pendingPresetId, refreshPresets, toast]);
 
   const hasSaved = (() => { try { return localStorage.getItem(PHP_KEY) !== null; } catch { return false; } })();
-  const isCustomMode = pendingPresetId === null;
-  const showPrintSettings = isSuperAdmin && isCustomMode;
   const presetSelectValue = isSuperAdmin
     ? (isCustomMode ? "custom" : String(pendingPresetId))
     : pendingPresetId != null

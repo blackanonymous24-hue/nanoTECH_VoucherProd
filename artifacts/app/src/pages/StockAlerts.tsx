@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { Bell, PackageOpen, AlertTriangle, RefreshCw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -44,7 +45,7 @@ export default function StockAlerts() {
     alerts: Alert[];
   }>({
     queryKey: ["stock-alerts", selectedRouterId],
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const params = selectedRouterId ? `?routerId=${selectedRouterId}` : "";
       const res = await fetch(`${BASE}/api/vendors/stock-alerts${params}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -52,7 +53,7 @@ export default function StockAlerts() {
       });
       if (!res.ok) throw new Error("stock-alerts failed");
       return res.json();
-    },
+    }),
     staleTime: 60_000,
     enabled: !!token && isVisible,
     refetchInterval: isVisible ? 120_000 : false,

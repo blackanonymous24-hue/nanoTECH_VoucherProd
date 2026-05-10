@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Link } from "wouter";
 import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer, BarChart3 } from "lucide-react";
@@ -70,11 +71,11 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
   const isVisible = usePageVisibility();
   const { data, isLoading, error } = useQuery<PeriodSalesData>({
     queryKey: ["vendor-period-sales", vendorId, period],
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=${period}`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
-    },
+    }),
     staleTime: 8_000,
     refetchInterval: isVisible ? LIVE_SALES_POLL_MS : false,
     refetchIntervalInBackground: false,
@@ -333,14 +334,14 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
 
   const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery<VendorSummary[]>({
     queryKey: ["vendors-summary", selectedRouterId],
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const url = selectedRouterId
         ? `${BASE}/api/vendors/reports/summary?routerId=${selectedRouterId}`
         : `${BASE}/api/vendors/reports/summary`;
       const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<VendorSummary[]>;
-    },
+    }),
     refetchInterval: isVisible ? LIVE_SALES_POLL_MS : false,
     refetchIntervalInBackground: false,
     staleTime: 8_000,
@@ -355,11 +356,11 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
       const vendorId = entry.vendor.id;
       queryClient.prefetchQuery({
         queryKey: ["vendor-period-sales", vendorId, reportPeriod],
-        queryFn: async ({ signal }) => {
+        queryFn: withApiPauseCacheFallback(async ({ signal }) => {
           const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=${reportPeriod}`, { signal });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json() as Promise<PeriodSalesData>;
-        },
+        }),
         staleTime: 8_000,
       });
     }

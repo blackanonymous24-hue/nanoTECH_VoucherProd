@@ -11,14 +11,14 @@ const router = Router();
 const BASE_ROUTER_SLOTS = 5;
 const CREDITS_PER_EXTRA_ROUTER = 10;
 
-// Allowed forfait durations, in months. Maps the user-facing labels
-// (1 mois … 6 mois, 1 an) to a single integer.
+// Allowed forfait durations, in "platform months". Maps the user-facing labels
+// (1 mois … 6 mois, 1 an) to a single integer. Each unit = 30 days (not calendar months).
 const VALID_MONTHS = new Set<number>([1, 2, 3, 4, 5, 6, 12]);
+const ADMIN_FORFAIT_DAYS_PER_MONTH = 30;
 
-function addMonths(date: Date, months: number): Date {
-  const d = new Date(date.getTime());
-  d.setMonth(d.getMonth() + months);
-  return d;
+function addAdminForfaitMonths(date: Date, months: number): Date {
+  const ms = months * ADMIN_FORFAIT_DAYS_PER_MONTH * 24 * 60 * 60 * 1000;
+  return new Date(date.getTime() + ms);
 }
 
 function addHours(date: Date, hours: number): Date {
@@ -129,7 +129,7 @@ router.post("/super/admins", async (req, res): Promise<void> => {
       return;
     }
     forfaitStartedAt = new Date();
-    forfaitEndsAt = addMonths(forfaitStartedAt, forfaitMonths);
+    forfaitEndsAt = addAdminForfaitMonths(forfaitStartedAt, forfaitMonths);
   }
 
   const initialCredits = Math.max(0, Number.isFinite(credits) ? Math.trunc(credits as number) : 0);
@@ -247,7 +247,7 @@ router.delete("/super/admins/:id", async (req, res): Promise<void> => {
 // ---------------------------------------------------------------------------
 // POST /api/super/admins/:id/forfait — set / reset a forfait.
 // Body: { months: 1|2|3|4|5|6|12 } OR { test24h: true }
-// Replaces any existing forfait. Starts now, ends now + N months.
+// Replaces any existing forfait. Starts now, ends now + N × 30 days per "month".
 // ---------------------------------------------------------------------------
 router.post("/super/admins/:id/forfait", async (req, res): Promise<void> => {
   if (!requireSuperAdminScope(req, res)) return;
@@ -272,7 +272,7 @@ router.post("/super/admins/:id/forfait", async (req, res): Promise<void> => {
     ? null
     : duration.kind === "test24h"
     ? addHours(start, 24)
-    : addMonths(start, duration.months);
+    : addAdminForfaitMonths(start, duration.months);
   const [updated] = await db
     .update(adminSettingsTable)
     .set({ forfaitStartedAt: start, forfaitEndsAt: end })
@@ -287,7 +287,7 @@ router.post("/super/admins/:id/forfait", async (req, res): Promise<void> => {
 
 // ---------------------------------------------------------------------------
 // POST /api/super/admins/:id/forfait/extend — extend an active or expired
-// forfait by N months. If the current forfait is already expired (or never
+// forfait by N × 30 days per chosen "month". If the current forfait is already expired (or never
 // existed) we extend from "now"; otherwise we extend from the existing end
 // date so days don't get lost.
 // Body: { months: 1|2|3|4|5|6|12 } OR { test24h: true }
@@ -327,7 +327,7 @@ router.post("/super/admins/:id/forfait/extend", async (req, res): Promise<void> 
   const baseEnd  = target.forfaitEndsAt && target.forfaitEndsAt.getTime() > now.getTime()
     ? target.forfaitEndsAt
     : now;
-  const newEnd = duration.kind === "test24h" ? addHours(baseEnd, 24) : addMonths(baseEnd, duration.months);
+  const newEnd = duration.kind === "test24h" ? addHours(baseEnd, 24) : addAdminForfaitMonths(baseEnd, duration.months);
   // forfaitStartedAt stays as-is if the forfait is still active; otherwise
   // we reset it to "now" so the next billing window has a sane start.
   const newStart = target.forfaitStartedAt && target.forfaitEndsAt && target.forfaitEndsAt.getTime() > now.getTime()

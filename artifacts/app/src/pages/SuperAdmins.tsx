@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
@@ -174,13 +175,13 @@ export default function SuperAdmins() {
   const { data: admins = [], isLoading } = useQuery<AdminRow[]>({
     queryKey: ["super", "admins"],
     enabled: !!token && isSuperAdmin,
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/super/admins`, { headers });
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+      const r = await fetch(`${BASE}/api/super/admins`, { headers, signal });
       if (!r.ok) throw new Error((await r.json()).error ?? "Erreur de chargement");
       const data = await r.json();
       // Endpoint returns { admins: [...] }; tolerate either shape.
       return Array.isArray(data) ? data : (data?.admins ?? []);
-    },
+    }),
   });
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["super", "admins"] });
@@ -635,11 +636,11 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const { data: routers = [], isLoading } = useQuery<RouterRow[]>({
     queryKey: qk,
     enabled: !!token,
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, { headers });
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, { headers, signal });
       if (!r.ok) throw new Error("Chargement des routeurs impossible");
       return r.json();
-    },
+    }),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: qk });
@@ -891,11 +892,11 @@ function CopyRouterDialog({
   const { data: allRouters = [], isLoading } = useQuery<AllRouterRow[]>({
     queryKey: ["super", "all-routers"],
     enabled: !!token,
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/super/all-routers`, { headers });
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+      const r = await fetch(`${BASE}/api/super/all-routers`, { headers, signal });
       if (!r.ok) throw new Error("Impossible de charger les routeurs");
       return r.json();
-    },
+    }),
   });
 
   const filtered = useMemo(() => {
@@ -1085,11 +1086,11 @@ function CopyVendorsDialog({
   const { data: ownRouters = [], isLoading: loadingOwn } = useQuery<SlimRouter[]>({
     queryKey: ["super", "own-routers"],
     enabled: !!token,
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/super/own-routers`, { headers });
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+      const r = await fetch(`${BASE}/api/super/own-routers`, { headers, signal });
       if (!r.ok) throw new Error("Chargement impossible");
       return r.json();
-    },
+    }),
   });
 
   const canSubmit = !!fromRouterId && !!toRouterId && !copying;
@@ -1305,11 +1306,14 @@ function CreateDialog({ open, onClose, onSubmit, pending }: {
                 <SelectItem value="24h">Test 24 heures</SelectItem>
                 {VALID_MONTHS.map((m) => (
                   <SelectItem key={m} value={String(m)}>
-                    {m === 12 ? "1 an" : `${m} mois`}
+                    {m === 12 ? "1 an (12×30 j)" : `${m} mois (${m}×30 j)`}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Chaque « mois » = 30 jours (durée plateforme), pas un mois calendaire.
+            </p>
           </div>
         </div>
         <DialogFooter>
@@ -1615,8 +1619,8 @@ function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
           </DialogTitle>
           <DialogDescription>
             {isExtend
-              ? "L'extension repart de la date de fin actuelle (ou de maintenant si expiré)."
-              : "Le forfait sera redéfini à compter de maintenant."}
+              ? "L'extension repart de la date de fin actuelle (ou de maintenant si expiré). Chaque « mois » ajoute 30 jours."
+              : "Le forfait sera redéfini à compter de maintenant. Chaque « mois » = 30 jours (pas calendaires)."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -1638,7 +1642,7 @@ function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
                 <SelectItem value="24h">Test 24 heures</SelectItem>
                 {VALID_MONTHS.map((m) => (
                   <SelectItem key={m} value={String(m)}>
-                    {m === 12 ? "1 an" : `${m} mois`}
+                    {m === 12 ? "1 an (12×30 j)" : `${m} mois (${m}×30 j)`}
                   </SelectItem>
                 ))}
               </SelectContent>

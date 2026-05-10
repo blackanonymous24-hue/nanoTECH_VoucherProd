@@ -3,9 +3,18 @@ import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
-import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRouterLogsQueryKey } from "@workspace/api-client-react";
+import {
+  useGetDashboard,
+  useListRouterLogs,
+  getGetDashboardQueryKey,
+  getListRouterLogsQueryKey,
+  getDashboard,
+  listRouterLogs,
+} from "@workspace/api-client-react";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAuthQueryScope, withAuthQueryScope } from "@/lib/auth-query-scope";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,6 +73,7 @@ interface RouterInfo {
   firmwareVersion: string | null;
   cpu: string | null;
   cpuCount: string | null;
+  cpuLoad: string | null;
   totalMemory: string | null;
   freeMemory: string | null;
   uptime: string | null;
@@ -93,19 +103,6 @@ interface PrioritySnapshot {
 }
 
 const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
-
-function readPriorityCache(routerId: number | null): PrioritySnapshot | null {
-  if (!routerId) return null;
-  try {
-    const raw = localStorage.getItem(`${PRIORITY_CACHE_KEY}:${routerId}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as PrioritySnapshot;
-    if (!parsed || typeof parsed.serverTs !== "number") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
 
 function writePriorityCache(routerId: number | null, snapshot: PrioritySnapshot | null) {
   if (!routerId || !snapshot) return;
@@ -154,6 +151,58 @@ function formatMemory(bytes: string | null): string | null {
   if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(0)} MiB`;
   if (n >= 1024) return `${(n / 1024).toFixed(0)} KiB`;
   return `${n} B`;
+}
+
+/** Charge CPU RouterOS (ex. "38", "38%") → nombre pour seuils d’alerte. */
+function parseCpuLoadPercent(raw: string | null | undefined): number | null {
+  if (raw == null || String(raw).trim() === "") return null;
+  const n = parseFloat(String(raw).replace(/%/g, "").replace(/,/g, ".").trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatCpuLoadDisplay(raw: string): string {
+  const s = String(raw).trim();
+  if (s.endsWith("%")) return s;
+  return `${s}%`;
+}
+
+/** Couleur du % selon l’impact : confort → vigilance → stress → critique. */
+function cpuLoadPercentClass(percent: number): string {
+  if (percent < 30) return "text-emerald-600";
+  if (percent < 50) return "text-lime-700";
+  if (percent < 70) return "text-amber-600";
+  if (percent < 85) return "text-orange-600";
+  return "text-red-600 font-semibold";
+}
+
+function RouterCpuChip({ info }: { info: RouterInfo }) {
+  if (!info.cpu && !info.cpuLoad) return null;
+  const loadPct = parseCpuLoadPercent(info.cpuLoad);
+  const loadClass = loadPct != null ? cpuLoadPercentClass(loadPct) : "text-amber-700";
+  const loadLabel = info.cpuLoad ? formatCpuLoadDisplay(info.cpuLoad) : "";
+  return (
+    <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 border border-amber-100 text-[10px] sm:text-xs font-medium overflow-hidden">
+      <Cpu className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0 text-amber-800" />
+      <span className="truncate min-w-0">
+        {info.cpu ? (
+          <>
+            <span className="text-amber-900">
+              {info.cpu}
+              {info.cpuCount && info.cpuCount !== "1" ? ` ×${info.cpuCount}` : ""}
+            </span>
+            {loadLabel ? (
+              <>
+                <span className="text-amber-800/45"> · </span>
+                <span className={loadClass}>{loadLabel}</span>
+              </>
+            ) : null}
+          </>
+        ) : loadLabel ? (
+          <span className={loadClass}>{loadLabel}</span>
+        ) : null}
+      </span>
+    </span>
+  );
 }
 
 function formatAmount(amount: number): string {
@@ -279,19 +328,25 @@ function yTickFmt(v: number) {
 function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | null; enabled?: boolean }) {
   const isVisible = usePageVisibility();
   const { token: authToken } = useAuth();
+  const authScope = useAuthQueryScope();
   const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
   const [selectedIface, setSelectedIface] = useState<string>("");
 
-  const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  const authHeaders: Record<string, string> | undefined = authToken
+    ? { Authorization: `Bearer ${authToken}` }
+    : undefined;
 
   // Fetch interface list when router changes — gated on tab visibility
   const { data: ifaceList } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
-    queryKey: ["interfaces", routerId],
-    queryFn: async ({ signal }) => {
-      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`, { signal, headers: authHeaders });
+    queryKey: withAuthQueryScope(authScope, ["interfaces", routerId]),
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`, {
+        signal,
+        ...(authHeaders && { headers: authHeaders }),
+      });
       if (!res.ok) throw new Error("interfaces unavailable");
       return res.json();
-    },
+    }),
     enabled: isVisible && !!routerId && enabled,
     staleTime: 60_000,
     retry: false,
@@ -314,12 +369,15 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     : "";
 
   const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
-    queryKey: ["traffic", routerId, selectedIface],
-    queryFn: async ({ signal }) => {
-      const res = await fetch(trafficUrl, { signal, headers: authHeaders });
+    queryKey: withAuthQueryScope(authScope, ["traffic", routerId, selectedIface]),
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+      const res = await fetch(trafficUrl, {
+        signal,
+        ...(authHeaders && { headers: authHeaders }),
+      });
       if (!res.ok) throw new Error("traffic unavailable");
       return res.json();
-    },
+    }),
     // Gated sur la visibilité : pause quand onglet caché / navigateur minimisé.
     enabled: isVisible && !!routerId && enabled,
     refetchInterval: isVisible ? 3_000 : false,
@@ -451,6 +509,7 @@ export default function Dashboard() {
   const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: {
       queryKey: getGetDashboardQueryKey(),
+      queryFn: withApiPauseCacheFallback(({ signal }) => getDashboard(undefined, signal)),
       // DB-only, pas de MikroTik — on garde le polling mais on le stoppe si onglet caché.
       refetchInterval: isVisible ? 10_000 : false,
       staleTime: 9_000,
@@ -469,6 +528,7 @@ export default function Dashboard() {
   const data: any = _freshData ?? _dashboardCache.data;
   const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity, isPingFailed, setIsPingFailed } = useRouterContext();
   const { token: authToken } = useAuth();
+  const authScope = useAuthQueryScope();
   const [enableSecondaries, setEnableSecondaries] = useState(false);
   const [ssePriority, setSsePriority] = useState<PrioritySnapshot | null>(null);
   const [sseConnected, setSseConnected] = useState(false);
@@ -496,12 +556,12 @@ export default function Dashboard() {
     refetch: refetchPriority,
     dataUpdatedAt: priorityUpdatedAt,
   } = useQuery<PrioritySnapshot>({
-    queryKey: ["router-dashboard-priority", selectedRouterId],
-    queryFn: async ({ signal }) => {
+    queryKey: withAuthQueryScope(authScope, ["router-dashboard-priority", selectedRouterId]),
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority`, { signal });
       if (!res.ok) throw new Error("dashboard priority unavailable");
       return res.json() as Promise<PrioritySnapshot>;
-    },
+    }),
     // Gated sur visibilité + token : aucune requête MikroTik si onglet caché ou déconnecté.
     enabled: isVisible && !!selectedRouterId,
     // Fallback poll — désactivé si SSE actif OU onglet caché (le SSE suffit quand visible).
@@ -510,8 +570,9 @@ export default function Dashboard() {
     staleTime: 10_000,
     retry: false,
     throwOnError: false,
-    initialData: readPriorityCache(selectedRouterId) ?? undefined,
-    initialDataUpdatedAt: readPriorityCache(selectedRouterId)?.serverTs ?? undefined,
+    // Pas d’initialData depuis localStorage : un snapshot avec salesKnown déjà vrai
+    // mais montants encore à 0 faisait disparaître le skeleton avant le vrai refetch.
+    refetchOnMount: "always",
   });
 
   // Stable callback — uses refs to avoid stale closures
@@ -608,28 +669,28 @@ export default function Dashboard() {
   const usersStats = livePriority?.users;
   const hotspotUserCount = usersStats?.available ?? usersStats?.total;
   const sales = livePriority?.sales;
-  const salesFresh = !!sales && sales._cachedAt != null;
+  const avail = livePriority?.availability;
+  /** KPI prêt : uniquement si l’API confirme (jamais afficher 0 pendant chargement / cache ambigu). */
+  const sessionsKpiReady =
+    !!selectedRouterId && !!livePriority && avail?.sessionsKnown === true;
+  const usersKpiReady =
+    !!selectedRouterId && !!livePriority && avail?.usersKnown === true;
+  const salesKpiReady =
+    !!selectedRouterId &&
+    !!sales &&
+    sales._cachedAt != null &&
+    (avail?.salesKnown === true || avail == null);
+  const infoKpiReady =
+    !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
   const routerInfo = livePriority?.info ?? null;
   const infoLoading = !!selectedRouterId && !livePriority && priorityLoading;
   const sessionsFetching = !sseConnected && priorityQueryFetching;
   const usersFetching = !sseConnected && priorityQueryFetching;
   const salesFetching = !sseConnected && priorityQueryFetching;
-  // Stale-while-revalidate : dès qu'on a un snapshot (cache localStorage ou SSE/polling),
-  // on affiche la valeur immédiatement — jamais de skeleton si une donnée est disponible.
-  // Le skeleton n'apparaît QUE si aucune donnée n'existe encore (première visite sur ce routeur).
-  const sessionsKnown = !!livePriority;
-  const usersKnown    = !!livePriority;
-  const infoKnown     = !!livePriority;
 
-  // Mikhmon-style: fire every dashboard fetch in parallel immediately, no
-  // gating. Priority cards (info / sessions / sales / tickets) are served
-  // stale-while-revalidate by the API so they paint instantly from the last
-  // known value, exactly like Mikhmon v3.
-  const priorityReady = !!selectedRouterId
-    && sessionsKnown
-    && usersKnown
-    && salesFresh
-    && infoKnown;
+  // Secondaires (logs, trafic) une fois les indicateurs critiques connus côté API.
+  const priorityReady =
+    !!selectedRouterId && sessionsKpiReady && usersKpiReady && salesKpiReady && infoKpiReady;
 
   useEffect(() => {
     if (!selectedRouterId) {
@@ -655,7 +716,10 @@ export default function Dashboard() {
     DASH_LOGS_PARAMS,
     {
       query: {
-        queryKey: getListRouterLogsQueryKey(selectedRouterId ?? 0, DASH_LOGS_PARAMS),
+        queryKey: withAuthQueryScope(authScope, getListRouterLogsQueryKey(selectedRouterId ?? 0, DASH_LOGS_PARAMS)),
+        queryFn: withApiPauseCacheFallback((ctx) =>
+          listRouterLogs(selectedRouterId ?? 0, DASH_LOGS_PARAMS, undefined, ctx.signal),
+        ),
         // Gated : aucune requête logs si onglet caché, pas de routeur, ou pas encore prêt.
         enabled: isVisible && !!selectedRouterId && enableSecondaries,
         // Logs live : 10s — serveur cache à 4s (MIK_TTL.logs), polling plus fréquent = inutile.
@@ -811,12 +875,7 @@ export default function Dashboard() {
                   <span className="truncate min-w-0">ROS {routerInfo.routerOsVersion}</span>
                 </span>
               )}
-              {routerInfo.cpu && (
-                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 border border-amber-100 text-[10px] sm:text-xs font-medium text-amber-700 overflow-hidden">
-                  <Cpu className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
-                  <span className="truncate min-w-0">{routerInfo.cpu}{routerInfo.cpuCount && routerInfo.cpuCount !== "1" ? ` ×${routerInfo.cpuCount}` : ""}</span>
-                </span>
-              )}
+              {(routerInfo.cpu || routerInfo.cpuLoad) && <RouterCpuChip info={routerInfo} />}
               {(routerInfo.freeMemory || routerInfo.totalMemory) && (
                 <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-100 text-[10px] sm:text-xs font-medium text-green-700 overflow-hidden">
                   <HardDrive className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
@@ -824,14 +883,14 @@ export default function Dashboard() {
                 </span>
               )}
               {routerInfo.uptime && (
-                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 border border-gray-200 text-[10px] sm:text-xs font-medium text-gray-600 overflow-hidden">
-                  <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-teal-50 border border-teal-200 text-[10px] sm:text-xs font-semibold text-teal-900 overflow-hidden">
+                  <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0 text-teal-600" />
                   <span className="truncate min-w-0">{formatUptime(routerInfo.uptime)}</span>
                 </span>
               )}
               {(routerInfo.clockDate || routerInfo.clockTime) && (
-                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-gray-50 border border-gray-200 text-[10px] sm:text-xs font-medium text-gray-600 overflow-hidden">
-                  <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0" />
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-sky-50 border border-sky-200 text-[10px] sm:text-xs font-semibold text-sky-900 overflow-hidden">
+                  <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 flex-shrink-0 text-sky-600" />
                   <span className="truncate min-w-0">{formatClockDateTime(routerInfo.clockDate, routerInfo.clockTime)}</span>
                 </span>
               )}
@@ -849,49 +908,65 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_300px] gap-1 sm:gap-4 lg:gap-2 mb-3">
         <StatCard
           title="Clients actifs"
-          value={selectedRouterId ? activeSessions : 0}
+          value={
+            selectedRouterId && sessionsKpiReady && typeof activeSessions === "number"
+              ? activeSessions
+              : undefined
+          }
           live={!!selectedRouterId}
           fetching={sessionsFetching}
           icon={<Wifi className="h-5 w-5 text-purple-500" />}
           iconBg="bg-purple-100"
-          loading={!!selectedRouterId && !sessionsKnown}
+          loading={
+            !!selectedRouterId &&
+            (!sessionsKpiReady || typeof activeSessions !== "number")
+          }
           href="/sessions"
         />
         <StatCard
           title="Vendu aujourd'hui"
-          label={salesFresh ? formatAmount(sales!.dailyAmount) : undefined}
-          amountValue={salesFresh ? sales!.dailyAmount : undefined}
+          label={salesKpiReady ? formatAmount(sales!.dailyAmount) : undefined}
+          amountValue={salesKpiReady ? sales!.dailyAmount : undefined}
           currency="FCFA"
-          sub={salesFresh ? `${sales!.dailyCount.toLocaleString()} tickets vendus` : undefined}
+          sub={salesKpiReady ? `${sales!.dailyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
           iconBg="bg-orange-100"
-          loading={!!selectedRouterId && !salesFresh}
+          loading={!!selectedRouterId && !salesKpiReady}
           href="/sales/daily"
         />
         <StatCard
           title="Vente mensuelle"
-          label={salesFresh ? formatAmount(sales!.monthlyAmount) : undefined}
-          amountValue={salesFresh ? sales!.monthlyAmount : undefined}
+          label={salesKpiReady ? formatAmount(sales!.monthlyAmount) : undefined}
+          amountValue={salesKpiReady ? sales!.monthlyAmount : undefined}
           currency="FCFA"
-          sub={salesFresh ? `${sales!.monthlyCount.toLocaleString()} tickets vendus` : undefined}
+          sub={salesKpiReady ? `${sales!.monthlyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
           iconBg="bg-green-100"
-          loading={!!selectedRouterId && !salesFresh}
+          loading={!!selectedRouterId && !salesKpiReady}
           href="/sales/monthly"
           className="order-4 lg:order-3"
         />
         <StatCard
           title="Tickets disponibles"
-          value={selectedRouterId ? hotspotUserCount : (data?.totalVouchers ?? 0)}
+          value={
+            selectedRouterId && usersKpiReady && typeof hotspotUserCount === "number"
+              ? hotspotUserCount
+              : selectedRouterId
+                ? undefined
+                : (data?.totalVouchers ?? 0)
+          }
           live={!!selectedRouterId}
           fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
           iconBg="bg-blue-100"
-          loading={!!selectedRouterId && !usersKnown}
+          loading={
+            !!selectedRouterId &&
+            (!usersKpiReady || typeof hotspotUserCount !== "number")
+          }
           className="order-3 lg:order-4"
           href="/vouchers"
         />
@@ -1186,52 +1261,64 @@ function StatCard({
   className?: string;
 }) {
   const inner = (
-    <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <div className="flex-1 flex p-2.5 sm:p-6 lg:px-4 lg:py-2.5 gap-2 sm:gap-3 lg:gap-2.5">
-        {/* Icône — alignée avec le titre */}
-        <div className={`p-1.5 rounded-xl flex-shrink-0 self-center ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
-        {/* Colonne texte : titre en haut, montant centré, sous-titre en bas */}
-        <div className="min-w-0 flex-1 flex flex-col">
-          {/* Titre */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
-            {live && (
-              <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
-              </span>
-            )}
-            {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
-          </div>
-          {/* Montant / valeur — centré verticalement */}
-          <div className="flex-1 flex items-center min-h-0">
-            {loading ? (
-              <div className="h-6 w-24 bg-gray-200 rounded animate-pulse" />
-            ) : label !== undefined ? (
-              amountValue !== undefined ? (
-                <p
-                  className="amount-fill font-bold text-gray-900 leading-tight tracking-tight"
-                  style={amountTextStyle(amountValue, currency || "FCFA")}
-                >
-                  {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
-                </p>
+    <Card
+      aria-busy={loading}
+      className={`relative h-[4.75rem] sm:h-full flex flex-col overflow-hidden ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}
+    >
+      {loading ? (
+        <div className="absolute inset-0 skeleton rounded-xl" aria-hidden />
+      ) : (
+        <div className="flex-1 flex p-2.5 sm:p-6 lg:px-4 lg:py-2.5 gap-2 sm:gap-3 lg:gap-2.5">
+          {/* Icône — alignée avec le titre */}
+          <div className={`p-1.5 rounded-xl flex-shrink-0 self-center ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
+          {/* Colonne texte : titre en haut, montant centré, sous-titre en bas */}
+          <div className="min-w-0 flex-1 flex flex-col">
+            {/* Titre */}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
+              {live && (
+                <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+                </span>
+              )}
+              {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
+            </div>
+            {/* Montant / valeur — centré verticalement */}
+            <div className="flex-1 flex items-center min-h-0">
+              {label !== undefined ? (
+                amountValue !== undefined ? (
+                  <p
+                    className="amount-fill font-bold text-gray-900 leading-tight tracking-tight"
+                    style={amountTextStyle(amountValue, currency || "FCFA")}
+                  >
+                    {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
+                  </p>
+                ) : (
+                  <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "—"}</p>
+                )
+              ) : value === undefined ? (
+                live ? (
+                  <div className="skeleton h-6 w-24 rounded-md" />
+                ) : (
+                  <p
+                    className="amount-fill font-bold text-gray-900 leading-none"
+                    style={{ '--awv': '4.83vw', lineHeight: 1.15, minWidth: 0 } as React.CSSProperties}
+                  >
+                    —
+                  </p>
+                )
               ) : (
-                <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
-              )
-            ) : (
-              <p className="amount-fill font-bold text-gray-900 leading-none" style={{ '--awv': '4.83vw', lineHeight: 1.15, minWidth: 0 } as React.CSSProperties}>{value === undefined ? "—" : value.toLocaleString()}</p>
-            )}
-          </div>
-          {/* Sous-titre — collé en bas */}
-          <div className="flex-shrink-0 min-h-[0.875rem]">
-            {loading ? (
-              <div className="h-3 w-16 bg-gray-100 rounded animate-pulse" />
-            ) : (
-              sub && <p className="text-xs text-gray-400 truncate">{sub}</p>
-            )}
+                <p className="amount-fill font-bold text-gray-900 leading-none" style={{ '--awv': '4.83vw', lineHeight: 1.15, minWidth: 0 } as React.CSSProperties}>{value.toLocaleString()}</p>
+              )}
+            </div>
+            {/* Sous-titre — collé en bas */}
+            <div className="flex-shrink-0 min-h-[0.875rem]">
+              {sub && <p className="text-xs text-gray-400 truncate">{sub}</p>}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </Card>
   );
   if (href) return <Link href={href} className={`block${className ? ` ${className}` : ""}`}>{inner}</Link>;

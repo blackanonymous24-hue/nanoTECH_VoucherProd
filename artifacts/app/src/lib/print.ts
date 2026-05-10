@@ -59,6 +59,73 @@ const REPORT_CSS = `
   }
 `;
 
+/**
+ * Bloc `<style>` inline de Mikhmon v3 (`hotspot/print.php`), copie littérale.
+ * Réf. dépôt : `attached_assets/print_1778220636691.php` (l. 117–156).
+ */
+const MIKHMON_V3_PRINT_PHP_INLINE_CSS = `
+body {
+  color: #000000;
+  background-color: #FFFFFF;
+  font-size: 14px;
+  font-family:  'Helvetica', arial, sans-serif;
+  margin: 0px;
+  -webkit-print-color-adjust: exact;
+}
+table.voucher {
+  display: inline-block;
+  border: 2px solid black;
+  margin: 2px;
+}
+@page
+{
+  size: auto;
+  margin-left: 7mm;
+  margin-right: 3mm;
+  margin-top: 9mm;
+  margin-bottom: 3mm;
+}
+@media print
+{
+  table { page-break-after:auto }
+  tr    { page-break-inside:avoid; page-break-after:auto }
+  td    { page-break-inside:avoid; page-break-after:auto }
+  thead { display:table-header-group }
+  tfoot { display:table-footer-group }
+}
+#num {
+  float:right;
+  display:inline-block;
+}
+.qrc {
+  width:30px;
+  height:30px;
+  margin-top:1px;
+}
+`;
+
+/**
+ * À **100 %** : aucune règle → même rendu que Mikhmon (`print.php` sans zoom navigateur).
+ *
+ * Sinon : reproduit l’effet du **zoom document** dans Edge / Chrome (Chromium) avant
+ * « Imprimer » ou « Enregistrer au format PDF » — zoom menu ⋮, Ctrl+molette, etc. :
+ * la mise en page est recalculée comme avec ce zoom (proche du moteur Blink), pas un simple `transform` décoratif.
+ * Firefox gère `zoom` différemment ; le référencement cible Edge / Chrome comme demandé.
+ */
+function tenantDocumentZoomCss(scale: number): string {
+  const s = Number(scale);
+  if (!Number.isFinite(s) || (s >= 0.999 && s <= 1.001)) return "";
+  const percent = Math.round(s * 1000) / 10;
+  return `
+/* nanoTECH : équivalent zoom page Edge/Chrome ; omis à 100 % (Mikhmon typique) */
+html {
+  zoom: ${percent}%;
+  margin: 0;
+  padding: 0;
+}
+`;
+}
+
 declare global {
   interface Window {
     ReactNativeWebView?: { postMessage(data: string): void };
@@ -446,122 +513,61 @@ function printWithNativeBridge(html: string, title: string): void {
 }
 
 /**
- * Construit le HTML pour le mode Small MikHmon.
- * CSS identique à print.php?small=yes (Mikhmon v3).
- * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
- * ce mode ne l'impose pas, contrairement au mode regular.
+ * ── Échelles vouchers (page **Modèle de ticket**) ────────────────────────────
+ * Deux curseurs distincts → deux `html { zoom }` via {@link tenantDocumentZoomCss} :
+ *
+ * - **Web bureau** : `scaleSmall` (fraction 0–1, ex. serveur `scaleSmall / 100`) → passer à cette fonction en **troisième argument**.
+ * - **Mobile** : `scaleMobile` (pourcent entier, ex. `85`) → passer **`scaleMobile / 100`** en troisième argument (navigateur mobile, `window.open`).
+ * - **APK** : même réglage **Mobile** (%), via {@link printTickets} uniquement (pont natif).
+ *
+ * Document « small » : CSS = bloc `<style>` de Mikhmon v3 `print.php` (inchangé).
+ * À 100 %, aucun `html { zoom }` — comportement Mikhmon natif ; sinon zoom façon Edge/Chrome (voir `tenantDocumentZoomCss`).
+ * Le corps des tickets vient du preset PHP (`template-small.php` équivalent).
+ *
+ * @param defaultScale Facteur 0–1 : **Small** sur desktop web, **Mobile/100** sur mobile ou dans `printTickets`.
+ * @param autoprint Si false, pas de `body onload` (iframe bureau / APK ; expo-print ne s’appuie pas sur ce script).
  */
-export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85): string {
-  const css = `
-    @page {
-      size: auto;
-      margin-left: 7mm;
-      margin-right: 3mm;
-      margin-top: 9mm;
-      margin-bottom: 3mm;
-    }
+export function buildSmallModePrintHtml(
+  htmlItems: string[],
+  title: string,
+  defaultScale = 1,
+  opts?: { autoprint?: boolean },
+): string {
+  const autoprint = opts?.autoprint !== false;
+  const safeTitle = title.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const css = `${tenantDocumentZoomCss(defaultScale)}
+${MIKHMON_V3_PRINT_PHP_INLINE_CSS}`;
 
-    /* zoom sur html = redéfinit le layout (unlike transform:scale qui est visuel uniquement).
-       Résultat : plus l'échelle est petite, plus les tickets sont petits, plus il en tient par page A4. */
-    html {
-      zoom: ${defaultScale};
-      margin: 0;
-      padding: 0;
-    }
+  const bodyOpen = autoprint ? `<body onload="window.print()">` : "<body>";
 
-    body {
-      color: #000;
-      background-color: #fff;
-      font-size: 14px;
-      font-family: Helvetica, Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-
-    /* ── Layout small — 2 tickets par ligne (48 % chacun) ────────────── */
-    table.voucher {
-      display: inline-block !important;
-      vertical-align: top;
-      width: 48%;
-      border: 2px solid #000;
-      margin: 2px;
-      padding: 3px;
-      box-sizing: border-box;
-      overflow: hidden;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-    table.voucher * {
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-
-    @media print {
-      table  { page-break-after: auto; }
-      tr     { page-break-inside: avoid; page-break-after: auto; }
-      td     { page-break-inside: avoid; page-break-after: auto; }
-      thead  { display: table-header-group; }
-      tfoot  { display: table-footer-group; }
-      table.voucher {
-        display: inline-block !important;
-        width: 48%;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-      }
-    }
-
-    #num, span#num {
-      float: right !important;
-      display: inline-block;
-      margin-left: 4px !important;
-      clear: none !important;
-    }
-  `;
-
-  const js = `
-    window.onload = function() {
-      window.focus();
-      window.print();
-    };
-  `;
-
-  return `<!doctype html>
+  return `<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title}</title>
+  <title>${safeTitle}</title>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta http-equiv="pragma" content="no-cache" />
   <style>${css}</style>
-  <script>${js}<\/script>
 </head>
-<body>${htmlItems.join("\n")}</body>
+${bodyOpen}${htmlItems.join("\n")}</body>
 </html>`;
 }
 
 /**
- * Imprime des tickets HTML.
- * — APK WebView : pont natif via postMessage → expo-print.
- * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
- * — Desktop     : utilise un <iframe> invisible.
+ * Impression vouchers **depuis l’APK uniquement** (React Native WebView → postMessage → expo-print).
+ * Utilise le curseur **« Mobile »** du modèle de ticket (`scaleMobile`, en pourcent : `85` → zoom 85 %).
+ *
+ * Ne pas utiliser pour le web : le bureau utilise `buildSmallModePrintHtml(..., scaleSmall)` ; le navigateur mobile,
+ * `buildSmallModePrintHtml(..., scaleMobile / 100)` dans une fenêtre dédiée — ce sont des `html { zoom }` différents.
  */
-export function printTickets(htmlItems: string[], title: string, scale = 85): void {
-  let html = buildHtml(htmlItems, title, false, scale, false);
-
-  if (isNativeWebView()) {
-    printWithNativeBridge(html, title);
+export function printTickets(htmlItems: string[], title: string, scaleMobilePercent = 100): void {
+  if (!isNativeWebView()) {
+    console.warn(
+      "[printTickets] réservé au WebView natif (APK). Côté web, utilisez buildSmallModePrintHtml avec scaleSmall (bureau) ou scaleMobile/100 (mobile).",
+    );
     return;
   }
-
-  if (isMobile()) {
-    if (!/<script[^>]*>[\s\S]*window\.print\s*\(/i.test(html)) {
-      html = html.replace(/<\/body>/i, `<script>window.onload=function(){window.print();}<\/script></body>`);
-    }
-    openPrintHtmlWindow(html, title);
-  } else {
-    printWithIframe(html, title);
-  }
+  const html = buildSmallModePrintHtml(htmlItems, title, scaleMobilePercent / 100, { autoprint: false });
+  printWithNativeBridge(html, title);
 }
 
 /**

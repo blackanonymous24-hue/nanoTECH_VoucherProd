@@ -46,6 +46,100 @@ const _dc: {
 } = { token: null, data: null, versData: null, arrearsData: null };
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+/** Dernier tableau de bord vendeur — survivant au reload / WebView (onglet session). */
+const VENDOR_PORTAL_SESSION_KEY = "vendor-portal-bundle:v1";
+/** Même contenu en localStorage (survit fermeture onglet) — clé par vendeur. */
+const vendorPortalLocalKey = (vendorId: number) => `vendor-portal-bundle-local:v1:${vendorId}`;
+
+function parsePortalBundleJson(raw: string | null, vendorId: number): {
+  data: PortalData | null;
+  versData: VersementData | null;
+  arrearsData: DailyArrearsData | null;
+} {
+  if (!raw) return { data: null, versData: null, arrearsData: null };
+  try {
+    const o = JSON.parse(raw) as {
+      vendorId?: number;
+      data?: PortalData;
+      versData?: VersementData;
+      arrearsData?: DailyArrearsData;
+    };
+    if (o.vendorId !== vendorId || !o.data?.vendor || typeof o.data.totalAvailable !== "number") {
+      return { data: null, versData: null, arrearsData: null };
+    }
+    if (!Array.isArray(o.data.availableVouchers)) o.data.availableVouchers = [];
+    if (!Array.isArray(o.data.recentSales)) o.data.recentSales = [];
+    if (!Array.isArray(o.data.byProfile)) o.data.byProfile = [];
+    return {
+      data: o.data,
+      versData: o.versData ?? null,
+      arrearsData: o.arrearsData ?? null,
+    };
+  } catch {
+    return { data: null, versData: null, arrearsData: null };
+  }
+}
+
+function loadPortalSessionBundle(vendorId: number): {
+  data: PortalData | null;
+  versData: VersementData | null;
+  arrearsData: DailyArrearsData | null;
+} {
+  if (typeof sessionStorage !== "undefined") {
+    const fromSession = parsePortalBundleJson(sessionStorage.getItem(VENDOR_PORTAL_SESSION_KEY), vendorId);
+    if (fromSession.data) return fromSession;
+  }
+  if (typeof localStorage !== "undefined") {
+    try {
+      return parsePortalBundleJson(localStorage.getItem(vendorPortalLocalKey(vendorId)), vendorId);
+    } catch {
+      return { data: null, versData: null, arrearsData: null };
+    }
+  }
+  return { data: null, versData: null, arrearsData: null };
+}
+
+function savePortalSessionBundle(
+  vendorId: number,
+  data: PortalData,
+  versData: VersementData | null,
+  arrearsData: DailyArrearsData | null,
+) {
+  const payload = JSON.stringify({
+    vendorId,
+    data,
+    versData: versData ?? undefined,
+    arrearsData: arrearsData ?? undefined,
+    savedAt: Date.now(),
+  });
+  if (typeof sessionStorage !== "undefined") {
+    try {
+      sessionStorage.setItem(VENDOR_PORTAL_SESSION_KEY, payload);
+    } catch {
+      /* quota / navigation privée */
+    }
+  }
+  if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem(vendorPortalLocalKey(vendorId), payload);
+    } catch {
+      /* quota */
+    }
+  }
+}
+
+/** Premier rendu : cache mémoire onglet puis session / disque (dernières données connues). */
+function readInitialPortalBundle(token: string, vendorId: number): {
+  data: PortalData | null;
+  versData: VersementData | null;
+  arrearsData: DailyArrearsData | null;
+} {
+  if (_dc.token === token && _dc.data !== null) {
+    return { data: _dc.data, versData: _dc.versData, arrearsData: _dc.arrearsData };
+  }
+  return loadPortalSessionBundle(vendorId);
+}
+
 type VendorInfo = { id: number; name: string; email: string | null; username: string | null };
 type SalesStats = {
   todaySold: number; todayAmount: number;
@@ -81,6 +175,64 @@ type PortalData = {
   availableVouchers: Voucher[];
 };
 type ReportData = { date: string; total: number; revenue: number; vouchers: Voucher[] };
+
+const VENDOR_DAY_REPORT_PREFIX = "vendor-day-report:v1";
+
+function dayReportStorageSuffix(token: string): string {
+  const t = String(token);
+  return `${t.length}:${t.slice(-18)}`;
+}
+
+function dayReportCacheKey(token: string, day: string, month: string, year: string): string {
+  return `${VENDOR_DAY_REPORT_PREFIX}:${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}:${dayReportStorageSuffix(token)}`;
+}
+
+function loadDayReportFromStorage(token: string, day: string, month: string, year: string): ReportData | null {
+  const read = (store: Storage | undefined) => {
+    if (!store) return null;
+    try {
+      const raw = store.getItem(dayReportCacheKey(token, day, month, year));
+      if (!raw) return null;
+      const o = JSON.parse(raw) as ReportData;
+      if (!o || typeof o.date !== "string" || typeof o.total !== "number" || typeof o.revenue !== "number" || !Array.isArray(o.vouchers)) {
+        return null;
+      }
+      return o;
+    } catch {
+      return null;
+    }
+  };
+  return read(typeof sessionStorage !== "undefined" ? sessionStorage : undefined)
+    ?? read(typeof localStorage !== "undefined" ? localStorage : undefined);
+}
+
+function saveDayReportToStorage(token: string, day: string, month: string, year: string, d: ReportData) {
+  const key = dayReportCacheKey(token, day, month, year);
+  const payload = JSON.stringify(d);
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(key, payload);
+  } catch { /* quota */ }
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(key, payload);
+  } catch { /* quota */ }
+}
+
+function clearVendorDayReportCaches() {
+  const wipe = (store: Storage | undefined) => {
+    if (!store) return;
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < store.length; i++) {
+        const k = store.key(i);
+        if (k && k.startsWith(VENDOR_DAY_REPORT_PREFIX)) keys.push(k);
+      }
+      keys.forEach((k) => store.removeItem(k));
+    } catch { /* noop */ }
+  };
+  wipe(typeof sessionStorage !== "undefined" ? sessionStorage : undefined);
+  wipe(typeof localStorage !== "undefined" ? localStorage : undefined);
+}
+
 type VersementWeek = {
   weekStart: string;
   label: string;
@@ -361,25 +513,79 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
   onBack: () => void;
   hotspotName?: string | null;
 }) {
-  const [data, setData] = useState<ReportData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const bootRef = useRef<{ d: ReportData | null } | null>(null);
+  if (bootRef.current === null) {
+    bootRef.current = { d: loadDayReportFromStorage(token, day, month, year) };
+  }
+  const ic = bootRef.current.d;
+  const hadDataRef = useRef(!!ic);
+  const [data, setData] = useState<ReportData | null>(ic);
+  const [loading, setLoading] = useState(!ic);
   const [error, setError] = useState("");
   const [vSearch, setVSearch] = useState("");
+  /** Rafraîchissement en cours alors qu’on affiche déjà un jeu de données (cache ou précédent). */
+  const [liveSync, setLiveSync] = useState(false);
+  const [syncIssue, setSyncIssue] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
-    setError("");
     setVSearch("");
-    api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
-        return res.json();
-      })
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    const ac = new AbortController();
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    const inFlightRef = { current: false };
+    const pollMs = 4_000;
+
+    const pull = async () => {
+      if (cancelled || inFlightRef.current) return;
+      inFlightRef.current = true;
+      if (hadDataRef.current) setLiveSync(true);
+      try {
+        const res = await api(`/vendor-portal/me/report?day=${day}&month=${month}&year=${year}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
+        const d = (await res.json()) as ReportData;
+        if (cancelled) return;
+        hadDataRef.current = true;
+        setData(d);
+        saveDayReportToStorage(token, day, month, year, d);
+        setError("");
+        setSyncIssue(false);
+      } catch (e) {
+        if (cancelled || (e instanceof DOMException && e.name === "AbortError")) return;
+        if (!hadDataRef.current) {
+          setError(e instanceof Error ? e.message : "Erreur");
+        } else {
+          setSyncIssue(true);
+        }
+        if (hadDataRef.current && retryTimer == null) {
+          retryTimer = window.setTimeout(() => {
+            retryTimer = undefined;
+            void pull();
+          }, 650);
+        }
+      } finally {
+        inFlightRef.current = false;
+        if (!cancelled) {
+          setLoading(false);
+          setLiveSync(false);
+        }
+      }
+    };
+
+    void pull();
+    const pollId = window.setInterval(() => { void pull(); }, pollMs);
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+      window.clearInterval(pollId);
+    };
   }, [token, day, month, year]);
 
   const dateLabel = data
@@ -397,15 +603,22 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
           <p className="text-sm font-semibold text-gray-900 capitalize">{dateLabel}</p>
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
-        {data && (
-          <Button size="sm" variant="outline" onClick={() => printReport("Rapport de ventes")} className="gap-1.5">
-            <Printer className="h-4 w-4" /> Imprimer
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {liveSync && (
+            <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5 no-print">
+              Mise à jour…
+            </span>
+          )}
+          {data && (
+            <Button size="sm" variant="outline" onClick={() => printReport("Rapport de ventes")} className="gap-1.5">
+              <Printer className="h-4 w-4" /> Imprimer
+            </Button>
+          )}
+        </div>
       </header>
 
       <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        {loading && (
+        {loading && !data && (
           <div className="py-6 space-y-2">
             <Skeleton className="h-6 w-44 mx-auto" />
             <Skeleton className="h-8 w-full" />
@@ -413,7 +626,12 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
             <Skeleton className="h-8 w-10/12" />
           </div>
         )}
-        {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
+        {error && !data && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
+        {syncIssue && data && (
+          <div className="no-print bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 text-xs">
+            Connexion instable — affichage des dernières données. Nouvelle tentative automatique.
+          </div>
+        )}
 
         {data && (() => {
           const byProfile = data.vouchers.reduce((acc, v) => {
@@ -637,29 +855,82 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState("");
   const [vSearch, setVSearch] = useState("");
+  const [liveSync, setLiveSync] = useState(false);
+  const [syncIssue, setSyncIssue] = useState(false);
+  const hadDataRef = useRef(!!initialData);
 
   useEffect(() => {
     setVSearch("");
   }, [period]);
 
   useEffect(() => {
-    // If we already have data from the prefetch cache, show it instantly.
-    // A background refresh will happen on the next prefetch cycle (every 15 s).
-    if (initialData) return;
+    const ac = new AbortController();
     let cancelled = false;
-    setLoading(true);
-    setError("");
-    api(`/vendor-portal/me/period-sales?period=${period}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json()).error ?? "Erreur");
-        return res.json();
-      })
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setError(e.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    let retryTimer: number | undefined;
+    const inFlightRef = { current: false };
+    const pollMs = 4_000;
+
+    if (initialData) {
+      setData(initialData);
+      setError("");
+      setLoading(false);
+      hadDataRef.current = true;
+    } else {
+      setLoading(true);
+      setError("");
+      hadDataRef.current = false;
+    }
+
+    const pull = async () => {
+      if (cancelled || inFlightRef.current) return;
+      inFlightRef.current = true;
+      if (hadDataRef.current) setLiveSync(true);
+      try {
+        const res = await api(`/vendor-portal/me/period-sales?period=${period}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(body.error ?? "Erreur");
+        }
+        const d = (await res.json()) as PeriodSalesData;
+        if (cancelled) return;
+        hadDataRef.current = true;
+        setData(d);
+        setError("");
+        setSyncIssue(false);
+      } catch (e) {
+        if (cancelled || (e instanceof DOMException && e.name === "AbortError")) return;
+        if (!hadDataRef.current) {
+          setError(e instanceof Error ? e.message : "Erreur");
+        } else {
+          setSyncIssue(true);
+        }
+        if (hadDataRef.current && retryTimer == null) {
+          retryTimer = window.setTimeout(() => {
+            retryTimer = undefined;
+            void pull();
+          }, 650);
+        }
+      } finally {
+        inFlightRef.current = false;
+        if (!cancelled) {
+          setLoading(false);
+          setLiveSync(false);
+        }
+      }
+    };
+
+    void pull();
+    const pollId = window.setInterval(() => { void pull(); }, pollMs);
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+      window.clearInterval(pollId);
+    };
   }, [token, period, initialData]);
 
   return (
@@ -673,15 +944,22 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
           <p className="text-sm font-semibold text-gray-900">{data?.label ?? "..."}</p>
           <p className="text-xs text-gray-500">Rapport de ventes</p>
         </div>
-        {data && (
-          <Button size="sm" variant="outline" onClick={() => printReport("Rapport de ventes")} className="gap-1.5">
-            <Printer className="h-4 w-4" /> Imprimer
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {liveSync && (
+            <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5 no-print">
+              Mise à jour…
+            </span>
+          )}
+          {data && (
+            <Button size="sm" variant="outline" onClick={() => printReport("Rapport de ventes")} className="gap-1.5">
+              <Printer className="h-4 w-4" /> Imprimer
+            </Button>
+          )}
+        </div>
       </header>
 
       <main id="report-print-section" className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        {loading && (
+        {loading && !data && (
           <div className="py-6 space-y-2">
             <Skeleton className="h-6 w-44 mx-auto" />
             <Skeleton className="h-8 w-full" />
@@ -689,7 +967,12 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
             <Skeleton className="h-8 w-10/12" />
           </div>
         )}
-        {error && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
+        {error && !data && <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>}
+        {syncIssue && data && (
+          <div className="no-print bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800 text-xs">
+            Connexion instable — affichage des dernières données. Nouvelle tentative automatique.
+          </div>
+        )}
 
         {data && (
           <>
@@ -915,13 +1198,34 @@ function Dashboard({ token, vendor, onLogout }: {
   vendor: VendorInfo;
   onLogout: () => void;
 }) {
-  // ── Use module-level cache for instant display on mount ─────────────────
-  // hadCacheRef stays stable so fetchData dependency array never changes.
-  const hadCacheRef = useRef(_dc.token === token && _dc.data !== null);
-  const [data, setData] = useState<PortalData | null>(hadCacheRef.current ? _dc.data : null);
-  const [versData, setVersData] = useState<VersementData | null>(hadCacheRef.current ? _dc.versData : null);
-  const [arrearsData, setArrearsData] = useState<DailyArrearsData | null>(hadCacheRef.current ? _dc.arrearsData : null);
-  const [loading, setLoading] = useState(!hadCacheRef.current);
+  // ── Un seul chargement disque / mémoire au montage (session + localStorage) ──
+  const initialBundleRef = useRef<ReturnType<typeof readInitialPortalBundle> | null>(null);
+  if (initialBundleRef.current === null) {
+    initialBundleRef.current = readInitialPortalBundle(token, vendor.id);
+  }
+  const ib = initialBundleRef.current;
+  // Après le premier GET /me réussi, reste true pour ne plus bloquer l’UI au pull-to-refresh / intervalle.
+  const hadCacheRef = useRef(!!ib.data);
+  const [data, setData] = useState<PortalData | null>(ib.data);
+  const [versData, setVersData] = useState<VersementData | null>(ib.versData);
+  const [arrearsData, setArrearsData] = useState<DailyArrearsData | null>(ib.arrearsData);
+  const [loading, setLoading] = useState(!ib.data);
+
+  useEffect(() => {
+    const sameLiveSession = _dc.token === token && _dc.data !== null;
+    if (sameLiveSession) return;
+    const b = loadPortalSessionBundle(vendor.id);
+    if (!b.data) return;
+    _dc.token = token;
+    _dc.data = b.data;
+    _dc.versData = b.versData;
+    _dc.arrearsData = b.arrearsData;
+    hadCacheRef.current = true;
+    setData(b.data);
+    setVersData(b.versData);
+    setArrearsData(b.arrearsData);
+    setLoading(false);
+  }, [token, vendor.id]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [showAvailable, setShowAvailable] = useState(false);
@@ -968,12 +1272,24 @@ function Dashboard({ token, vendor, onLogout }: {
   const [clockTick, setClockTick] = useState(Date.now());
   const notifiedProfilesRef = useRef<Set<string>>(new Set());
   const periodCacheRef = useRef<Map<string, PeriodSalesData>>(new Map());
+  const fetchDataRef = useRef<(showLoading?: boolean) => Promise<void>>(async () => {});
+  const silentResyncTimerRef = useRef<number | undefined>(undefined);
 
   const fetchData = useCallback(async (showLoading = true) => {
-    // Spinner skeleton uniquement si on n'a aucune donnée à afficher
+    const bumpSilentResync = () => {
+      if (!hadCacheRef.current) return;
+      if (silentResyncTimerRef.current != null) window.clearTimeout(silentResyncTimerRef.current);
+      silentResyncTimerRef.current = window.setTimeout(() => {
+        silentResyncTimerRef.current = undefined;
+        void fetchDataRef.current(false);
+      }, 750);
+    };
+
+    // Skeleton plein écran seulement si aucune donnée locale / session à montrer
     if (showLoading && !hadCacheRef.current) setLoading(true);
     setError("");
-    setIsRefreshing(true);
+    // Rafraîchissement auto : pas d’indicateur global (mise à jour silencieuse des listes / compteurs).
+    if (showLoading) setIsRefreshing(true);
     const headers = { Authorization: `Bearer ${token}` };
     let logoutTriggered = false;
 
@@ -988,14 +1304,20 @@ function Dashboard({ token, vendor, onLogout }: {
         }
         if (!res.ok) throw new Error("dashboard");
         const d = await res.json() as PortalData;
+        if (silentResyncTimerRef.current != null) {
+          window.clearTimeout(silentResyncTimerRef.current);
+          silentResyncTimerRef.current = undefined;
+        }
+        hadCacheRef.current = true;
         setData(d);
         _dc.token = token;
         _dc.data  = d;
-        // Dès que le coeur du dashboard arrive, on cache la skeleton
+        savePortalSessionBundle(vendor.id, d, _dc.versData, _dc.arrearsData);
         setLoading(false);
       })
       .catch(() => {
         if (!hadCacheRef.current) setError("Erreur lors du chargement des données");
+        else bumpSilentResync();
       });
 
     const paymentsPromise = api("/vendor-portal/me/payments", { headers })
@@ -1004,8 +1326,9 @@ function Dashboard({ token, vendor, onLogout }: {
         const v = await res.json() as VersementData;
         setVersData(v);
         _dc.versData = v;
+        if (_dc.data) savePortalSessionBundle(vendor.id, _dc.data, v, _dc.arrearsData);
       })
-      .catch(() => { /* non-bloquant */ });
+      .catch(() => { bumpSilentResync(); });
 
     const arrearsPromise = api("/vendor-portal/me/daily-arrears", { headers })
       .then(async (res) => {
@@ -1013,8 +1336,9 @@ function Dashboard({ token, vendor, onLogout }: {
         const a = await res.json() as DailyArrearsData;
         setArrearsData(a);
         _dc.arrearsData = a;
+        if (_dc.data) savePortalSessionBundle(vendor.id, _dc.data, _dc.versData, a);
       })
-      .catch(() => { /* non-bloquant */ });
+      .catch(() => { bumpSilentResync(); });
 
     try {
       await Promise.allSettled([dashPromise, paymentsPromise, arrearsPromise]);
@@ -1022,7 +1346,16 @@ function Dashboard({ token, vendor, onLogout }: {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [token, onLogout]);
+  }, [token, vendor.id, onLogout]);
+
+  fetchDataRef.current = fetchData;
+
+  useEffect(() => () => {
+    if (silentResyncTimerRef.current != null) {
+      window.clearTimeout(silentResyncTimerRef.current);
+      silentResyncTimerRef.current = undefined;
+    }
+  }, []);
 
   const prefetchPeriods = useCallback(() => {
     const periods = ["today", "yesterday", "week", "month"] as const;
@@ -1038,13 +1371,19 @@ function Dashboard({ token, vendor, onLogout }: {
 
   useEffect(() => {
     fetchData(true).then(() => { prefetchPeriods(); });
-    // Refresh discret toutes les 5 s pour afficher les nouvelles ventes en temps réel.
-    // Côté serveur, le cache TTL=5 s garantit des données fraîches à chaque cycle.
-    const id = setInterval(() => { fetchData(false); }, 5_000);
-    // Le prefetch des rapports périodes reste à 30 s (plus lourd, change peu).
+    // Refresh silencieux toutes les 5 s (données déjà affichées depuis cache / dernière réponse).
+    const id = setInterval(() => { void fetchData(false); }, 5_000);
     const idPeriod = setInterval(() => { prefetchPeriods(); }, 30_000);
     return () => { clearInterval(id); clearInterval(idPeriod); };
   }, [fetchData, prefetchPeriods]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void fetchData(false);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [fetchData]);
 
   useEffect(() => {
     if (!data?.lastFreshAt) return;
@@ -1077,12 +1416,22 @@ function Dashboard({ token, vendor, onLogout }: {
   }, [data]);
 
   if (periodView) {
-    return <PeriodReport token={token} period={periodView} onBack={() => setPeriodView(null)} hotspotName={data?.hotspotName} initialData={periodCacheRef.current.get(periodView)} />;
+    return (
+      <PeriodReport
+        key={periodView}
+        token={token}
+        period={periodView}
+        onBack={() => setPeriodView(null)}
+        hotspotName={data?.hotspotName}
+        initialData={periodCacheRef.current.get(periodView)}
+      />
+    );
   }
 
   if (reportView) {
     return (
       <DayReport
+        key={`${reportView.year}-${reportView.month}-${reportView.day}`}
         token={token}
         day={reportView.day}
         month={reportView.month}
@@ -1156,7 +1505,11 @@ function Dashboard({ token, vendor, onLogout }: {
           <p className="text-sm text-gray-500">Bienvenue, {vendor.name}</p>
           {freshAt && (
             <p className="text-xs text-gray-400 mt-0.5">
-              Donnees a jour a {freshAt.toLocaleTimeString("fr-FR")} ({freshAgeSeconds}s)
+              Donnees a jour a {freshAt.toLocaleTimeString("fr-FR")}
+              {freshAgeSeconds != null ? ` (${freshAgeSeconds}s)` : ""}
+              {isRefreshing && (
+                <span className="text-blue-600 ml-1.5">· synchronisation manuelle…</span>
+              )}
             </p>
           )}
         </div>
@@ -1650,7 +2003,7 @@ function Dashboard({ token, vendor, onLogout }: {
             <Card className="flex flex-col overflow-hidden">
               <CardHeader className="pb-2 flex-shrink-0">
                 <div className="flex items-center justify-between mb-2">
-                  <CardTitle className="text-base">Ventes récentes</CardTitle>
+                  <CardTitle className="text-base">Mes tickets</CardTitle>
                   {data.recentSales.length > 0 && (
                     <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full tabular-nums">
                       {recentSearch.trim()
@@ -1838,6 +2191,13 @@ export default function VendorPortal() {
   };
 
   const handleLogout = () => {
+    try {
+      sessionStorage.removeItem(VENDOR_PORTAL_SESSION_KEY);
+      localStorage.removeItem(vendorPortalLocalKey(vendorInfo.id));
+      clearVendorDayReportCaches();
+    } catch {
+      /* noop */
+    }
     logout();
     appNavigate("/vendeur");
   };

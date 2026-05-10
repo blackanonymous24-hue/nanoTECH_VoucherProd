@@ -4,6 +4,7 @@ import {
   getListVouchersQueryKey,
   getListRouterProfilesQueryKey,
 } from "@workspace/api-client-react";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import type { HotspotProfile } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
@@ -30,7 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale, saveSmallScale, saveMobileScale } from "@/pages/TicketTemplate";
-import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
+import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, printTickets } from "@/lib/print";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -354,14 +355,14 @@ export default function GenerateVouchers() {
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null; ticketLetter?: string | null }[]>({
     queryKey: ["vendors", selectedRouterId],
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const url = selectedRouterId
         ? `${GEN_BASE}/api/vendors?routerId=${selectedRouterId}`
         : `${GEN_BASE}/api/vendors`;
       const res = await fetch(url, { signal });
       if (!res.ok) return [];
       return res.json() as Promise<{ id: number; name: string }[]>;
-    },
+    }),
     staleTime: 60_000,
   });
 
@@ -684,7 +685,9 @@ export default function GenerateVouchers() {
   };
 
   const handlePrintSmall = async (lot: LastLot) => {
-    const preWin: Window | null = window.open("", "_blank");
+    const isNativeWV = typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView !== "undefined";
+    const isMobileBrowser = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -746,21 +749,19 @@ export default function GenerateVouchers() {
       if (data.error) throw new Error(data.error);
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const title = ["Voucher", toSlug(hotspotName), lot.comment].filter(Boolean).join("-");
-      const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-      const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       if (isNativeWV) {
-        // APK : pont natif, pas de window.open
+        // APK : échelle « Mobile » uniquement (voir print.printTickets + JSDoc buildSmallModePrintHtml)
         printTickets(data.html as string[], title, capturedMobileScale);
       } else if (isMobileBrowser) {
-        // Mobile browser : zoom + page-breaks (anti-coupure)
+        // Navigateur mobile : zoom = curseur « Mobile » du modèle de ticket (≠ « Small » bureau)
         if (preWin) {
-          const html = buildTicketPrintHtml(data.html as string[], title, capturedMobileScale, true);
+          const html = buildSmallModePrintHtml(data.html as string[], title, capturedMobileScale / 100);
           preWin.document.open();
           preWin.document.write(html);
           preWin.document.close();
         }
       } else {
-        // Desktop : 2 colonnes Small
+        // Bureau web : zoom = curseur « Small » du modèle de ticket
         if (preWin) {
           const html = buildSmallModePrintHtml(data.html as string[], title, capturedSmallScale);
           preWin.document.open();

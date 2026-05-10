@@ -1,5 +1,6 @@
 import { useState, useMemo, useDeferredValue, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -103,7 +104,7 @@ export default function SellingReport() {
 
   const { data, isLoading, isError, error } = useQuery<SaleEntry[]>({
     queryKey,
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       if (!selectedRouterId) return [];
       const params = new URLSearchParams();
       if (appliedYear)  params.set("year",  appliedYear);
@@ -112,7 +113,7 @@ export default function SellingReport() {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
-    },
+    }),
     enabled: !!selectedRouterId,
     staleTime: 0,
     refetchInterval: 30_000,

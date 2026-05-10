@@ -8,7 +8,9 @@ import {
   useDeleteVendor,
   useGetVendorReportsSummary,
   getGetVendorReportsSummaryQueryKey,
+  getVendorReportsSummary,
 } from "@workspace/api-client-react";
+import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import type { Vendor, VendorSummary } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -30,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { runHotspotUserToggleBatches, TOGGLE_BATCH_SIZE } from "@/lib/hotspot-bulk-toggle";
+import { useAuthQueryScope, withAuthQueryScope } from "@/lib/auth-query-scope";
 
 export type PersonFormData = {
   name: string;
@@ -342,6 +345,7 @@ export default function Vendors() {
   const updateMutation = useUpdateVendor();
   const deleteMutation = useDeleteVendor();
   const queryClient = useQueryClient();
+  const authScope = useAuthQueryScope();
   const { toast } = useToast();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -373,20 +377,26 @@ export default function Vendors() {
 
   const { data: vendors = [], isLoading, refetch: refetchVendors } = useQuery<Vendor[]>({
     queryKey: ["vendors", selectedRouterId],
-    queryFn: async ({ signal }) => {
+    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
       const url = selectedRouterId
         ? `${BASE}/api/vendors?routerId=${selectedRouterId}`
         : `${BASE}/api/vendors`;
       const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<Vendor[]>;
-    },
+    }),
     staleTime: 30_000,
   });
 
   useRefetchOnEmpty(vendors, isLoading, () => void refetchVendors(), (d) => !d || d.length === 0);
 
-  const { data: summaries = [] } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), staleTime: 60_000 } });
+  const { data: summaries = [] } = useGetVendorReportsSummary({
+    query: {
+      queryKey: getGetVendorReportsSummaryQueryKey(),
+      staleTime: 60_000,
+      queryFn: withApiPauseCacheFallback(({ signal }) => getVendorReportsSummary(undefined, signal)),
+    },
+  });
   const summaryMap = useMemo(
     () => new Map<number, VendorSummary>(summaries.map((s) => [s.vendor.id, s])),
     [summaries],
@@ -495,7 +505,10 @@ export default function Vendors() {
       });
 
       for (const g of plans) {
-        void queryClient.invalidateQueries({ queryKey: [`/routers/${g.routerId}/users`], exact: false });
+        void queryClient.invalidateQueries({
+          queryKey: withAuthQueryScope(authScope, [`/routers/${g.routerId}/users`]),
+          exact: false,
+        });
       }
 
       toast({

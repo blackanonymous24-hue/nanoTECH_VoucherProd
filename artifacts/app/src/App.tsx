@@ -1,13 +1,15 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { getListRouterLogsQueryKey, listRouterLogs } from "@workspace/api-client-react";
+import { isDashboardPath } from "@/lib/route-query-policy";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RouterProvider } from "@/contexts/RouterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
+import { buildAuthQueryScope, withAuthQueryScope } from "@/lib/auth-query-scope";
 import Layout from "@/components/Layout";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 
@@ -80,10 +82,17 @@ function PageSkeleton() {
 
 function AppRoutes() {
   const [location] = useLocation();
-  const { isAuthenticated, role, isSuperAdmin } = useAuth();
+  const {
+    isAuthenticated,
+    role,
+    isSuperAdmin,
+    vendorInfo,
+    managerRouterId,
+    collaborateurRouterIds,
+    connectedUsername,
+  } = useAuth();
   const [routeReloadToken, setRouteReloadToken] = useState(0);
   const qc = useQueryClient();
-  const prevLocationRef = useRef(location);
   useEffect(() => {
     const onForceRemount = (event: Event) => {
       const customEvent = event as CustomEvent<{ path?: string }>;
@@ -99,44 +108,58 @@ function AppRoutes() {
   }, [location]);
 
   useEffect(() => {
-    prevLocationRef.current = location;
-  }, [location]);
-
-  useEffect(() => {
     if (!isAuthenticated) return;
-    const normalized = location.toLowerCase();
-    const isDashboardish =
-      normalized === "/" ||
-      normalized.startsWith("/admin") ||
-      normalized.startsWith("/dashboard");
+    const path = location.split("?")[0] || "/";
+    if (!isDashboardPath(path)) return;
     const routerRaw = localStorage.getItem("vouchernet_router_id");
     const routerId = routerRaw ? Number.parseInt(routerRaw, 10) : NaN;
-    if (!Number.isFinite(routerId) || !isDashboardish) return;
+    if (!Number.isFinite(routerId)) return;
 
-    // Pre-warm dashboard hotspot logs cache so the first paint can be instant.
-    // Must match Dashboard.tsx `useListRouterLogs` params + query key.
-    const LS_KEY = "vouchernet-dashboard-logs-cache:v2";
-    const dashLogsParams = {
-      limit: 120,
-      topics: "hotspot",
-      live: "1" as const,
-      hotspotUsers: "1" as const,
-    };
-    const qk = getListRouterLogsQueryKey(routerId, dashLogsParams);
-    void (async () => {
-      try {
-        const logs = await listRouterLogs(routerId, dashLogsParams);
-        qc.setQueryData(qk, logs);
+    // Laisser passer les KPI (priority / dashboard) avant le pré-chauffage des logs.
+    const t = window.setTimeout(() => {
+      const LS_KEY = "vouchernet-dashboard-logs-cache:v2";
+      const dashLogsParams = {
+        limit: 120,
+        topics: "hotspot",
+        live: "1" as const,
+        hotspotUsers: "1" as const,
+      };
+      const scope = buildAuthQueryScope({
+        role,
+        isSuperAdmin,
+        vendorInfo,
+        managerRouterId,
+        collaborateurRouterIds,
+        connectedUsername,
+      });
+      const qk = withAuthQueryScope(scope, getListRouterLogsQueryKey(routerId, dashLogsParams));
+      void (async () => {
         try {
-          localStorage.setItem(`${LS_KEY}:${routerId}`, JSON.stringify({ ts: Date.now(), logs }));
+          const logs = await listRouterLogs(routerId, dashLogsParams);
+          qc.setQueryData(qk, logs);
+          try {
+            localStorage.setItem(`${LS_KEY}:${routerId}`, JSON.stringify({ ts: Date.now(), logs }));
+          } catch {
+            // ignore quota / private mode
+          }
         } catch {
-          // ignore quota / private mode
+          // ignore — dashboard will still fetch normally
         }
-      } catch {
-        // ignore — dashboard will still fetch normally
-      }
-    })();
-  }, [isAuthenticated, location, qc]);
+      })();
+    }, 450);
+
+    return () => window.clearTimeout(t);
+  }, [
+    isAuthenticated,
+    location,
+    qc,
+    isSuperAdmin,
+    vendorInfo,
+    managerRouterId,
+    collaborateurRouterIds,
+    connectedUsername,
+    role,
+  ]);
 
   if (location.startsWith("/vendor-portal")) {
     return (

@@ -2,7 +2,7 @@
  * Désactivation / réactivation hotspot par paquets HTTP (verrou routeur, pause API, reprise auto).
  * Utilisé par la page Vouchers et par l’activation / désactivation des vendeurs.
  */
-import { setApiRequestPause } from "@/lib/installAuthFetch";
+import { HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS, setApiRequestPause } from "@/lib/installAuthFetch";
 
 export const TOGGLE_BATCH_THRESHOLD = 50;
 export const TOGGLE_BATCH_SIZE = 150;
@@ -76,14 +76,7 @@ export async function runHotspotUserToggleBatches(
   const onPaused = options?.onPaused ?? (() => {});
 
   setApiRequestPause(true, {
-    allowPathPatterns: [
-      /\/api\/vouchers\/users-toggle(?:$|[/?#])/,
-      /\/api\/vouchers\/lot-usernames(?:$|[/?#])/,
-      /\/api\/vouchers\/lot-disable(?:$|[/?#])/,
-      /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
-      /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
-      /\/api\/routers\/\d+\/users(?:$|[/?#])/,
-    ],
+    allowPathPatterns: [...HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS],
   });
 
   if (showProgress) {
@@ -156,5 +149,47 @@ export async function runHotspotUserToggleBatches(
       onProgress?.(null);
       onPaused(false);
     }
+  }
+}
+
+/**
+ * Bascule « petite » (< {@link TOGGLE_BATCH_THRESHOLD} usernames) : même principe que la génération —
+ * pause du trafic API parasite (fetch + Axios) + verrou routeur + un seul POST users-toggle.
+ */
+export async function runHotspotUserToggleWithPriority(
+  base: string,
+  routerId: number,
+  usernames: string[],
+  enable: boolean,
+): Promise<void> {
+  const list = usernames.map((u) => u?.trim()).filter(Boolean);
+  if (list.length === 0) return;
+  if (list.length >= TOGGLE_BATCH_THRESHOLD) {
+    await runHotspotUserToggleBatches(base, [{ routerId, usernames: list }], enable, {
+      showProgress: true,
+    });
+    return;
+  }
+
+  setApiRequestPause(true, { allowPathPatterns: [...HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS] });
+  let lockAcquired = false;
+  try {
+    const lockResp = await fetch(`${base}/api/routers/${routerId}/generation-lock`, { method: "POST" });
+    if (!lockResp.ok) {
+      const reason = await lockResp.text().catch(() => "");
+      throw new Error(reason || "Impossible d'obtenir le verrou routeur (opération en cours ?).");
+    }
+    lockAcquired = true;
+    const res = await fetch(`${base}/api/vouchers/users-toggle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routerId, usernames: list, enable }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } finally {
+    if (lockAcquired) {
+      void fetch(`${base}/api/routers/${routerId}/generation-lock`, { method: "DELETE" });
+    }
+    setApiRequestPause(false);
   }
 }
