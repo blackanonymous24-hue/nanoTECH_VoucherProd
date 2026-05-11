@@ -1,6 +1,5 @@
 import { useState, useMemo, useRef, useCallback, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -846,13 +845,13 @@ export default function VendorTracking() {
 
   const { data, isLoading, isError, error } = useQuery<DailyTrackingResponse>({
     queryKey: ["vendor-tracking", selectedRouterId, applied],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       if (!selectedRouterId) return { date: applied, summary: [], vouchers: [], weekSummary: [] };
       const params = new URLSearchParams({ date: applied, routerId: String(selectedRouterId) });
       const res = await fetch(`${BASE}/api/vendors/daily-tracking?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
-    }),
+    },
     enabled: !!selectedRouterId,
     staleTime: 60_000,
   });
@@ -860,13 +859,13 @@ export default function VendorTracking() {
   const prevWeekDate = prevWeekSundayLocal();
   const { data: prevWeekData, isLoading: prevWeekLoading } = useQuery<DailyTrackingResponse>({
     queryKey: ["vendor-tracking-prevweek", selectedRouterId, prevWeekDate],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       if (!selectedRouterId) return { date: prevWeekDate, summary: [], vouchers: [], weekSummary: [] };
       const params = new URLSearchParams({ date: prevWeekDate, routerId: String(selectedRouterId) });
       const res = await fetch(`${BASE}/api/vendors/daily-tracking?${params}`, { signal });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
-    }),
+    },
     enabled: !!selectedRouterId,
     staleTime: 5 * 60_000,
   });
@@ -878,13 +877,13 @@ export default function VendorTracking() {
   const arrearsQueryDate = applied;
   const { data: arrearsData } = useQuery<DailyArrearsResponse>({
     queryKey: ["vendor-daily-arrears", selectedRouterId, arrearsQueryDate],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       if (!selectedRouterId) return { arrears: {} };
       const params = new URLSearchParams({ date: arrearsQueryDate, routerId: String(selectedRouterId) });
       const res = await fetch(`${BASE}/api/vendors/daily-arrears?${params}`, { signal });
       if (!res.ok) return { arrears: {} };
       return res.json();
-    }),
+    },
     enabled: !!selectedRouterId,
     staleTime: 60_000,
   });

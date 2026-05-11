@@ -9,9 +9,7 @@ import {
   useUpdateRouter,
   useTestRouterConnection,
   getListRoutersQueryKey,
-  listRouters,
 } from "@workspace/api-client-react";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import type { Router as RouterType } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,15 +63,14 @@ function normalizeRouterCurrency(raw: string): string {
 }
 
 function parseAddress(address: string): { host: string; port: number } {
-  const trimmed = address.trim();
-  const colonIdx = trimmed.lastIndexOf(":");
+  const colonIdx = address.lastIndexOf(":");
   if (colonIdx > 0) {
-    const portStr = trimmed.slice(colonIdx + 1);
+    const portStr = address.slice(colonIdx + 1);
     if (/^\d+$/.test(portStr)) {
-      return { host: trimmed.slice(0, colonIdx).trim(), port: parseInt(portStr, 10) };
+      return { host: address.slice(0, colonIdx), port: parseInt(portStr, 10) };
     }
   }
-  return { host: trimmed, port: 8728 };
+  return { host: address, port: 8728 };
 }
 
 function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -170,12 +167,7 @@ function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => vo
 }
 
 export default function Routers() {
-  const { data: routers = [], isLoading, isError, error, refetch, isFetching } = useListRouters({
-    query: {
-      queryKey: getListRoutersQueryKey(),
-      queryFn: withApiPauseCacheFallback(({ signal }) => listRouters(undefined, signal)),
-    },
-  });
+  const { data: routers = [], isLoading, isError, error, refetch, isFetching } = useListRouters();
   useRefetchOnEmpty(routers, isLoading, () => void refetch(), (d) => !d || d.length === 0);
   const createMutation = useCreateRouter();
   const deleteMutation = useDeleteRouter();
@@ -203,14 +195,11 @@ export default function Routers() {
   const { data: adminMe } = useQuery<AdminMe>({
     queryKey: ["admin", "me"],
     enabled: !!token && role === "admin",
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
-      const r = await fetch(`${BASE}/api/admin/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal,
-      });
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/admin/me`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error("Échec de chargement du profil");
       return r.json();
-    }),
+    },
   });
   const adminCredits = Math.max(0, adminMe?.credits ?? 0);
   const adminUsedRouters = adminMe?.routerCount ?? routers.length;

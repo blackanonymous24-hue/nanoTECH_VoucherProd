@@ -3,9 +3,7 @@ import {
   useListRouterSessions,
   useDisconnectRouterSession,
   getListRouterSessionsQueryKey,
-  listRouterSessions,
 } from "@workspace/api-client-react";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +23,6 @@ import { Activity, RefreshCw, Wifi, Users, Search, Trash2, Loader2 } from "lucid
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAuthQueryScope, withAuthQueryScope } from "@/lib/auth-query-scope";
 
 // Module-level cache — persists across component unmount/remount (navigating away and back).
 // Provides instant display via initialData so the session list never shows a loading skeleton on re-visit.
@@ -48,7 +45,6 @@ export default function Sessions() {
   const isVisible = usePageVisibility();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const authScope = useAuthQueryScope();
   const lastSyncedCountRef = useRef<number>(-1);
 
   const [search, setSearch] = useState("");
@@ -71,17 +67,10 @@ export default function Sessions() {
         queryKey: getListRouterSessionsQueryKey(selectedRouterId ?? 0),
         enabled: !!selectedRouterId,
         refetchInterval: isVisible ? 30_000 : false,
-        // Toujours reconcilier avec le serveur à l’entrée sur la page : sinon initialData
-        // (cache module / localStorage) peut afficher un ancien décompte alors que le dashboard
-        // SSE utilise déjà un snapshot plus récent (ex. 144 vs 160).
-        refetchOnMount: "always",
         staleTime: 14_000,       // juste sous le TTL serveur (15s) → pas de double-fetch inutile
         gcTime: 30 * 60_000,     // garde les données 30 min en mémoire React Query
         initialData: cachedSnapshot?.sessions,
         initialDataUpdatedAt: cachedSnapshot?.ts,
-        queryFn: withApiPauseCacheFallback((ctx) =>
-          listRouterSessions(selectedRouterId ?? 0, undefined, ctx.signal),
-        ),
       },
     },
   );
@@ -110,9 +99,9 @@ export default function Sessions() {
     if (sessions.length === lastSyncedCountRef.current) return;
     lastSyncedCountRef.current = sessions.length;
     void queryClient.invalidateQueries({
-      queryKey: withAuthQueryScope(authScope, ["router-dashboard-priority", selectedRouterId]),
+      queryKey: ["router-dashboard-priority", selectedRouterId],
     });
-  }, [sessions.length, isLoading, error, selectedRouterId, queryClient, authScope]);
+  }, [sessions.length, isLoading, error, selectedRouterId, queryClient]);
 
   const disconnectMutation = useDisconnectRouterSession();
 

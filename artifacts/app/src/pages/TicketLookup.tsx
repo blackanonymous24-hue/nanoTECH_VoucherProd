@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useDebounce } from "@/hooks/use-debounce";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,15 +53,15 @@ export default function TicketLookup() {
 
   const { data, isFetching, isError } = useQuery<{ tickets: SoldTicket[]; total: number }>({
     queryKey: ["sold-lookup", selectedRouterId, debouncedSearch],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async () => {
       const params = new URLSearchParams({
         routerId: String(selectedRouterId),
         q: debouncedSearch.trim(),
       });
-      const res = await fetch(`${BASE}/api/vouchers/sold-lookup?${params}`, { signal });
+      const res = await fetch(`${BASE}/api/vouchers/sold-lookup?${params}`);
       if (!res.ok) throw new Error("Erreur serveur");
       return res.json();
-    }),
+    },
     enabled,
     staleTime: 0,
     gcTime: 2 * 60 * 1000,

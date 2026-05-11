@@ -16,8 +16,7 @@ Ne PAS se fier à `break-inside:avoid` seul (non fiable sur Safari iOS print).
 
 ```ts
 const MOBILE_COLS = 4;        // 4 colonnes (zoom compense le débordement)
-const rowsPerPage = 8;        // base 100 % — 4×8 = 32 tickets par bloc (9 coupe la dernière rangée)
-// (ROWS_BASE / s → plus l'échelle est petite, plus de rangées tiennent)
+const rowsPerPage = 6;        // fixe — 4×6 = 24 tickets par bloc
 const perPage = MOBILE_COLS * rowsPerPage;
 
 for (let p = 0; p < htmlItems.length; p += perPage) {
@@ -152,7 +151,7 @@ Utiliser `display:table` + `display:table-cell` au lieu de `display:flex` :
   <script>window.onload=function(){setTimeout(function(){window.print();},500);}</script>
 </head>
 <body>
-  <!-- Bloc 1 (tickets 1–32), page-break-after:always -->
+  <!-- Bloc 1 (tickets 1–24), page-break-after:always -->
   <div class="ticket-page-wrap" style="page-break-after:always;break-after:page;">
     <table class="ticket-page">
       <tbody>
@@ -162,11 +161,11 @@ Utiliser `display:table` + `display:table-cell` au lieu de `display:flex` :
           <td><div class="ticket">...</div></td>
           <td><div class="ticket">...</div></td>
         </tr>
-        <!-- 7 autres lignes (8 total à 100 % — 9 coupe la dernière) -->
+        <!-- 5 autres lignes -->
       </tbody>
     </table>
   </div>
-  <!-- Bloc 2 (tickets 33–64), dernier bloc sans break -->
+  <!-- Bloc 2 (tickets 25–48), dernier bloc sans break -->
   <div class="ticket-page-wrap">...</div>
 </body>
 </html>

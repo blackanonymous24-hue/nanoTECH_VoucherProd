@@ -2,14 +2,10 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders, Settings2, Plus, Pencil, Trash2 } from "lucide-react";
+import { FileCode, RotateCcw, Save, Eye, Code2, Upload, BookMarked, Sliders } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { PrintScaleDialog } from "@/components/PrintScaleDialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
 export const SMALL_SCALE_KEY   = "vn_small_scale";
 export const MOBILE_SCALE_KEY  = "vn_print_scale_mobile";
 
@@ -20,9 +16,6 @@ export function readSmallScale(): number {
   } catch { return 1; }
 }
 export function saveSmallScale(v: number) { try { localStorage.setItem(SMALL_SCALE_KEY, String(v)); } catch {} }
-export function hasExplicitSmallScale(): boolean {
-  try { return localStorage.getItem(SMALL_SCALE_KEY) !== null; } catch { return false; }
-}
 
 export function readMobileScale(def = 100): number {
   try {
@@ -31,13 +24,14 @@ export function readMobileScale(def = 100): number {
   } catch { return def; }
 }
 export function saveMobileScale(v: number) { try { localStorage.setItem(MOBILE_SCALE_KEY, String(v)); } catch {} }
-export function hasExplicitMobileScale(): boolean {
-  try { return localStorage.getItem(MOBILE_SCALE_KEY) !== null; } catch { return false; }
-}
 
 const TEMPLATE_KEY = "voucher-ticket-template";
 
-// ─── Template par défaut ────────────────────────────────────────────────────
+// ─── Template par défaut — reproduction fidèle du PHP fourni ─────────────────
+// Variables : {{hotspotname}} {{dnsname}} {{color}} {{price}} {{currency}}
+//             {{codeblock}} {{validity}} {{timelimit}} {{datalimit}}
+//             {{qrcode}} {{num}}
+// {{codeblock}} est pré-calculé selon le mode (Voucher ou Compte) avant rendu.
 export const DEFAULT_TEMPLATE = `<!--mks-mulai--><div style="display:inline-block;width:135px;overflow:hidden;position:relative;">
 <table style="border-collapse:collapse;border:1px solid #444;margin:0px;width:135px;padding:1px;font-family:Arial,sans-serif;vertical-align:top;">
 <tbody>
@@ -102,7 +96,7 @@ Veuillez conserver ce ticket jusqu'à l'épuisement du forfait.
 </table>
 </div><!--mks-akhir-->`;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function applyVars(tpl: string, vars: Record<string, string>): string {
   return Object.entries(vars).reduce(
@@ -115,26 +109,34 @@ export function getStoredTemplate(): string {
   try { return localStorage.getItem(TEMPLATE_KEY) ?? DEFAULT_TEMPLATE; } catch { return DEFAULT_TEMPLATE; }
 }
 
-// ─── Parseur PHP → Template HTML ─────────────────────────────────────────────
+// ─── Parseur PHP → Template HTML ──────────────────────────────────────────────
+// Convertit un fichier template PHP de MikHmon en template {{variable}}.
+// Supporte template.php, template-small.php et template-thermal.php.
 export function parsePHPTemplate(raw: string): string {
   let s = raw;
 
+  // 1. Extraire uniquement la section entre les marqueurs MikHmon
   const mStart = s.indexOf("<!--mks-mulai-->");
   const mEnd   = s.indexOf("<!--mks-akhir-->");
   if (mStart !== -1 && mEnd !== -1) {
     s = s.slice(mStart, mEnd + "<!--mks-akhir-->".length);
   }
 
+  // 2. Remplacer le bloc conditionnel usermode (vc/up) par {{codeblock}}
+  //    Pattern: <?php if($usermode == "vc"){?> ... <?php }elseif($usermode == "up"){?> ... <?php }?>
   s = s.replace(
     /<\?php[^?]*if\s*\(\s*\$usermode\s*==\s*["']vc["']\s*\)\s*\{[^?]*\?>([\s\S]*?)<\?php[^?]*\}(?:else\s*if|elseif)\s*\(\s*\$usermode\s*==\s*["']up["']\s*\)\s*\{[^?]*\?>([\s\S]*?)<\?php[^?]*\}\s*\?>/,
     "{{codeblock}}"
   );
   s = s.replace(/<!--mks-voucher-akhir-->/g, "");
 
+  // 3. Remplacer <?= $qrcode ?> par un img avec src="{{qrcode}}"
+  //    Dans le PHP original, $qrcode est un bloc <canvas> — on le remplace par un <img>
   s = s.replace(/<img([^>]*)>\s*<\?=\s*\$qrcode\s*\?>/g, '<img$1 src="{{qrcode}}">');
   s = s.replace(/<\?=\s*\$qrcode\s*\?>/g, '<img src="{{qrcode}}" style="width:32px;height:32px;" alt="QR">');
   s = s.replace(/<\?php\s+echo\s+\$qrcode\s*;?\s*\?>/g, '<img src="{{qrcode}}" style="width:32px;height:32px;" alt="QR">');
 
+  // 4. Correspondances PHP var → template var (ordre important : getprice avant price)
   const varMap: [string, string][] = [
     ["hotspotname", "hotspotname"],
     ["dnsname",     "dnsname"],
@@ -154,6 +156,7 @@ export function parsePHPTemplate(raw: string): string {
     ["price",       "price"],
   ];
 
+  // Helper : substituer les variables PHP dans une expression
   const subVars = (expr: string): string => {
     let r = expr.trim().replace(/;$/, "").trim();
     for (const [pv, tv] of varMap) {
@@ -162,15 +165,19 @@ export function parsePHPTemplate(raw: string): string {
     return r;
   };
 
+  // 5. <?= expr ?> → évaluer et substituer
   s = s.replace(/<\?=([\s\S]*?)\?>/g, (_, inner) => {
     let r = subVars(inner);
+    // Concaténation PHP : "User: ".$username."<br>Pass: ".$password → User: {{username}}<br>Pass: {{password}}
     r = r.replace(/"([^"]*)"\s*\.\s*/g, "$1").replace(/\.\s*"([^"]*)"/g, "$1");
     r = r.replace(/^["']|["']$/g, "");
+    // " [$num]" → [{{num}}]
     r = r.replace(/"([^"]*)"/g, "$1");
     r = r.replace(/^'|'$/g, "");
     return r.trim();
   });
 
+  // 6. <?php echo expr; ?> → substituer
   s = s.replace(/<\?php\s+echo\s+([\s\S]*?);?\s*\?>/g, (_, inner) => {
     let r = subVars(inner);
     r = r.replace(/"([^"]*)"\s*\.\s*/g, "$1").replace(/\.\s*"([^"]*)"/g, "$1");
@@ -178,18 +185,21 @@ export function parsePHPTemplate(raw: string): string {
     return r.trim();
   });
 
+  // 7. Remplacer les $var restants (dans les attributs style inline etc.)
   for (const [pv, tv] of varMap) {
     s = s.replace(new RegExp(`\\$${pv}\\b`, "g"), `{{${tv}}}`);
   }
 
+  // 8. Supprimer les blocs PHP de logique restants (<?php ... ?> et <?= ... ?>)
   s = s.replace(/<\?php[\s\S]*?\?>/g, "");
   s = s.replace(/<\?[\s\S]*?\?>/g, "");
 
+  // 9. Nettoyage final
   s = s.replace(/\n{3,}/g, "\n\n");
   return s.trim();
 }
 
-// ─── PHP mode helpers ─────────────────────────────────────────────────────────
+// ─── Helpers PHP mode ──────────────────────────────────────────────────────────
 
 export const PHP_KEY = "voucher-ticket-php";
 export const CUSTOM_DEFAULT_KEY = "voucher-ticket-custom-default";
@@ -202,38 +212,42 @@ export function getStoredPHP(): string {
   try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault() ?? DEFAULT_MIKHMON_PHP; } catch { return DEFAULT_MIKHMON_PHP; }
 }
 
+
+/**
+ * Charge le template depuis le serveur (source de vérité cross-device).
+ * Met à jour le cache localStorage si un template serveur existe.
+ * Fallback : localStorage → DEFAULT_MIKHMON_PHP.
+ * Appelé avant chaque impression et au montage de la page Template.
+ */
 const _TOKEN_KEY = "vouchernet_admin_token";
 function _readAuthToken(): string | null {
   try { return localStorage.getItem(_TOKEN_KEY) ?? sessionStorage.getItem(_TOKEN_KEY); } catch { return null; }
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type Preset = {
-  id: number;
-  name: string;
-  html: string;
-  scaleSmall: number;
-  scaleMobile: number;
-  position: number;
-};
-
 export type ServerTemplateResult = {
   template: string;
+  /**
+   * true  → aucun template enregistré nulle part (DB ni localStorage)
+   *          → DEFAULT_MIKHMON_PHP utilisé en dernier recours → layout 4×9 mobile.
+   * false → template explicitement enregistré (DB ou cache localStorage)
+   *          → ne JAMAIS appliquer le layout 4×9, même contenu similaire au modèle.
+   */
   isDefault: boolean;
-  serverScaleSmall:  number | null;
-  serverScaleMobile: number | null;
-  selectedPresetId:  number | null;
 };
 
-// ─── Template cache ──────────────────────────────────────────────────────────
+// ── Cache mémoire — évite un aller-retour réseau à chaque clic Imprimer ────────
 let _templateCache: { result: ServerTemplateResult; expiresAt: number } | null = null;
-const TEMPLATE_CACHE_TTL_MS = 0;
+const TEMPLATE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+/** Invalide le cache (à appeler après toute modification du template). */
 export function invalidateTemplateCache(): void {
   _templateCache = null;
 }
 
+/**
+ * Charge le template avec métadonnée isDefault pour choisir le layout mobile.
+ * Priorité : cache mémoire (5 min) → serveur DB → cache localStorage → DEFAULT_MIKHMON_PHP.
+ */
 export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResult> {
   if (_templateCache && Date.now() < _templateCache.expiresAt) {
     return _templateCache.result;
@@ -249,34 +263,33 @@ export async function fetchServerTemplateWithMeta(): Promise<ServerTemplateResul
     const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
     const r = await fetch(`${BASE}/api/tenant/ticket-template`, { headers });
     if (r.ok) {
-      const data = (await r.json()) as { template: string | null; scaleSmall?: number; scaleMobile?: number; selectedPresetId?: number | null };
-      const serverScaleSmall  = typeof data.scaleSmall  === "number" ? data.scaleSmall  : null;
-      const serverScaleMobile = typeof data.scaleMobile === "number" ? data.scaleMobile : null;
-      const selectedPresetId  = data.selectedPresetId ?? null;
+      const data = (await r.json()) as { template: string | null; scaleSmall?: number; scaleMobile?: number };
+      // Appliquer les échelles serveur en localStorage (synchronisation cross-device)
+      if (typeof data.scaleSmall === "number") saveSmallScale(data.scaleSmall / 100);
+      if (typeof data.scaleMobile === "number") saveMobileScale(data.scaleMobile);
       if (data.template && data.template.trim().length > 0) {
         try { localStorage.setItem(PHP_KEY, data.template); } catch {}
-        return _cache({ template: data.template, isDefault: false, serverScaleSmall, serverScaleMobile, selectedPresetId });
+        return _cache({ template: data.template, isDefault: false });
       }
-      const cached = (() => {
-        try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault(); } catch { return null; }
-      })();
-      if (cached && cached.trim().length > 0) {
-        return _cache({ template: cached, isDefault: false, serverScaleSmall, serverScaleMobile, selectedPresetId });
-      }
-      return _cache({ template: DEFAULT_MIKHMON_PHP, isDefault: true, serverScaleSmall, serverScaleMobile, selectedPresetId });
+      // Serveur joignable, aucun template en DB — vérifier localStorage
     }
-  } catch { /* réseau indisponible */ }
+  } catch { /* réseau indisponible — utiliser cache local */ }
 
   const cached = (() => {
     try { return localStorage.getItem(PHP_KEY) ?? getCustomDefault(); } catch { return null; }
   })();
   if (cached && cached.trim().length > 0) {
-    return _cache({ template: cached, isDefault: false, serverScaleSmall: null, serverScaleMobile: null, selectedPresetId: null });
+    return _cache({ template: cached, isDefault: false });
   }
 
-  return _cache({ template: DEFAULT_MIKHMON_PHP, isDefault: true, serverScaleSmall: null, serverScaleMobile: null, selectedPresetId: null });
+  // Dernier recours : DEFAULT_MIKHMON_PHP (rien enregistré nulle part)
+  return _cache({ template: DEFAULT_MIKHMON_PHP, isDefault: true });
 }
 
+/**
+ * Compatibilité pour les appelants qui n'ont besoin que de la chaîne template.
+ * Pour les impressions, utiliser fetchServerTemplateWithMeta().
+ */
 export async function fetchServerTemplate(): Promise<string> {
   return (await fetchServerTemplateWithMeta()).template;
 }
@@ -285,7 +298,7 @@ export function isPHPMode(): boolean {
   return true;
 }
 
-// ─── Données exemple ──────────────────────────────────────────────────────────
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 const CODEBLOCK_VC = (color: string, username: string) =>
   `<div style="padding:0px;border-bottom:1px solid;text-align:center;font-weight:bold;font-size:9px;color:#444;">Code Ticket</div>` +
@@ -326,8 +339,6 @@ const SAMPLE_VARS_2: Record<string, string> = {
 };
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-// ─── Default Mikhmon PHP template ─────────────────────────────────────────────
 
 export const DEFAULT_MIKHMON_PHP = `<table class="voucher" style=" width: 160px;">
   <tbody>
@@ -380,134 +391,38 @@ export const DEFAULT_MIKHMON_PHP = `<table class="voucher" style=" width: 160px;
   </tbody>
 </table>`;
 
-// ─── Helper token ─────────────────────────────────────────────────────────────
-
-function _getToken(): string {
-  return localStorage.getItem("vouchernet_admin_token") ?? sessionStorage.getItem("vouchernet_admin_token") ?? "";
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function TicketTemplate() {
-  const { role, isSuperAdmin } = useAuth();
+  const { role } = useAuth();
   const isManager = role === "manager";
-  const isSimplified = !isSuperAdmin; // admin/gérant/collaborateur → UI simplifiée (sélecteur preset uniquement)
   const { toast } = useToast();
 
-  // ── PHP code (contenu de l'éditeur)
+  // ── Contenu PHP brut — initialisé depuis le cache local, puis mis à jour depuis le serveur
   const [phpCode, setPhpCode] = useState<string>(() => getStoredPHP());
 
-  // ── Presets
-  const [presets, setPresets] = useState<Preset[]>([]);
-  const [serverPresetId, setServerPresetId] = useState<number | null>(null);
-  const [pendingPresetId, setPendingPresetId] = useState<number | null>(null);
-  const hasUnsavedPresetChange = pendingPresetId !== serverPresetId;
-  const isCustomMode = pendingPresetId === null;
-  const showPrintSettings = isSuperAdmin && isCustomMode;
+  // Chargement depuis le serveur au montage (source de vérité cross-device)
+  useEffect(() => {
+    fetchServerTemplateWithMeta().then(({ template }) => {
+      setPhpCode(template);
+      // fetchServerTemplateWithMeta a déjà persisté les échelles en localStorage via
+      // saveSmallScale / saveMobileScale — synchronise maintenant le state React
+      setSmallScale(readSmallScale());
+      setScaleMobile(readMobileScale());
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── Paramètres d'impression
-  const [smallScale,   setSmallScale]   = useState(() => readSmallScale());
-  const [scaleMobile,  setScaleMobile]  = useState(() => readMobileScale());
-  const [showScaleDialog, setShowScaleDialog] = useState(false);
-
-  // ── UI state
   const [tab, setTab] = useState<"code" | "preview">("code");
   const [saved, setSaved] = useState(false);
   const [previewHtmls, setPreviewHtmls] = useState<string[]>([]);
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Dialog gérer modèles (super-admin)
-  const [showManageDialog, setShowManageDialog] = useState(false);
-  const [editingPreset, setEditingPreset] = useState<Preset | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [editForm, setEditForm] = useState({ name: "", html: "", scaleSmall: 85, scaleMobile: 100 });
-  const [savingPreset, setSavingPreset] = useState(false);
+  // ── Paramètres d'impression
+  const [showScaleDialog, setShowScaleDialog] = useState(false);
+  const [smallScale,  setSmallScale]  = useState(() => readSmallScale());
+  const [scaleMobile,  setScaleMobile]  = useState(() => readMobileScale());
 
-  // ── Chargement initial depuis le serveur
-  useEffect(() => {
-    // Charger les presets
-    const tok = _getToken();
-    if (tok) {
-      fetch(`${BASE}/api/tenant/preset-templates`, { headers: { Authorization: `Bearer ${tok}` } })
-        .then(r => r.ok ? r.json() : null)
-        .then((data: { presets: Preset[] } | null) => {
-          if (data?.presets) setPresets(data.presets);
-        })
-        .catch(() => {});
-    }
-
-    // Charger le template + preset sélectionné
-    fetchServerTemplateWithMeta().then(({ template, serverScaleSmall, serverScaleMobile, selectedPresetId }) => {
-      setPhpCode(template);
-      setServerPresetId(selectedPresetId);
-      setPendingPresetId(selectedPresetId);
-      if (serverScaleSmall !== null) {
-        const v = serverScaleSmall / 100;
-        saveSmallScale(v);
-        setSmallScale(v);
-      } else {
-        setSmallScale(readSmallScale());
-      }
-      if (serverScaleMobile !== null) {
-        saveMobileScale(serverScaleMobile);
-        setScaleMobile(serverScaleMobile);
-      } else {
-        setScaleMobile(readMobileScale());
-      }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!showPrintSettings) setShowScaleDialog(false);
-  }, [showPrintSettings]);
-
-  // ── Sélectionner un preset
-  const handleSelectPreset = useCallback((presetId: number | null) => {
-    setPendingPresetId(presetId);
-    if (presetId === null) {
-      // Mode personnalisé — restaurer le template custom stocké
-      const custom = getStoredPHP();
-      setPhpCode(custom);
-    } else {
-      const preset = presets.find(p => p.id === presetId);
-      if (preset) {
-        setPhpCode(preset.html);
-        const v = preset.scaleSmall / 100;
-        setSmallScale(v);
-        saveSmallScale(v);
-        setScaleMobile(preset.scaleMobile);
-        saveMobileScale(preset.scaleMobile);
-      }
-    }
-  }, [presets]);
-
-  // ── Enregistrer la sélection de preset
-  const handleSavePreset = useCallback(async () => {
-    const tok = _getToken();
-    try {
-      const resp = await fetch(`${BASE}/api/tenant/ticket-template`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-        body: JSON.stringify({ presetId: pendingPresetId }),
-      });
-      if (resp.ok) {
-        invalidateTemplateCache();
-        setServerPresetId(pendingPresetId);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2500);
-        const name = pendingPresetId === null ? "Modèle personnalisé" : (presets.find(p => p.id === pendingPresetId)?.name ?? "Modèle");
-        toast({ title: "Modèle appliqué", description: `« ${name} » actif sur tous les appareils.` });
-      } else {
-        toast({ title: "Erreur", description: "Impossible de sauvegarder le modèle.", variant: "destructive" });
-      }
-    } catch {
-      toast({ title: "Erreur réseau", description: "Impossible de joindre le serveur.", variant: "destructive" });
-    }
-  }, [pendingPresetId, presets, toast]);
-
-  // ── Importer un fichier .php (super-admin uniquement)
+  // ── Importer un fichier .php (charge + sauvegarde locale et serveur immédiatement)
   const handleImportPHP = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -521,30 +436,38 @@ export default function TicketTemplate() {
         localStorage.removeItem(TEMPLATE_KEY);
       } catch { /* ignore */ }
       setPhpCode(raw);
-      setPendingPresetId(null);
       setTab("code");
-      const tok = _getToken();
+      // Sauvegarde serveur immédiate — pas besoin de cliquer "Sauvegarder" séparément
       let serverSynced = false;
       try {
-        const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
+        const _tok = localStorage.getItem("vouchernet_admin_token") ?? sessionStorage.getItem("vouchernet_admin_token") ?? "";
+      const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+          headers: { "Content-Type": "application/json", ...(_tok ? { Authorization: `Bearer ${_tok}` } : {}) },
           body: JSON.stringify({ template: raw, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
         });
         serverSynced = resp.ok;
-        if (resp.ok) { setServerPresetId(null); }
-      } catch { serverSynced = false; }
+      } catch {
+        serverSynced = false;
+      }
       if (serverSynced) {
-        toast({ title: "Fichier PHP importé et sauvegardé", description: `« ${file.name} » actif sur tous les appareils.` });
+        toast({
+          title: "Fichier PHP importé et sauvegardé",
+          description: `« ${file.name} » actif sur tous les appareils (APK inclus).`,
+        });
       } else {
-        toast({ title: "Fichier PHP chargé", description: `« ${file.name} » chargé localement.`, variant: "destructive" });
+        toast({
+          title: "Fichier PHP chargé",
+          description: `« ${file.name} » chargé localement. Cliquez Sauvegarder pour synchroniser sur mobile.`,
+          variant: "destructive",
+        });
       }
     };
     reader.readAsText(file, "UTF-8");
     e.target.value = "";
   }, [toast, smallScale, scaleMobile]);
 
-  // ── Sauvegarder template personnalisé (super-admin)
+  // ── Sauvegarder — local + serveur (source de vérité cross-device)
   const handleSave = useCallback(async () => {
     invalidateTemplateCache();
     try {
@@ -552,55 +475,41 @@ export default function TicketTemplate() {
       localStorage.setItem(CUSTOM_DEFAULT_KEY, phpCode);
       localStorage.removeItem(TEMPLATE_KEY);
     } catch { /* ignore */ }
-    const tok = _getToken();
+    // Sauvegarde serveur : synchronise mobile, APK et tous les appareils
     let serverSynced = false;
     try {
+      const _tok = localStorage.getItem("vouchernet_admin_token") ?? sessionStorage.getItem("vouchernet_admin_token") ?? "";
       const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        headers: { "Content-Type": "application/json", ...(_tok ? { Authorization: `Bearer ${_tok}` } : {}) },
         body: JSON.stringify({ template: phpCode, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
       });
       serverSynced = resp.ok;
-      if (resp.ok) { setServerPresetId(null); setPendingPresetId(null); }
-    } catch { serverSynced = false; }
+    } catch {
+      serverSynced = false;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
     if (serverSynced) {
-      toast({ title: "Modèle sauvegardé", description: "Synchronisé sur le serveur." });
+      toast({ title: "Modèle sauvegardé", description: "Synchronisé sur le serveur — l'APK mobile utilisera ce modèle." });
     } else {
-      toast({ title: "Modèle sauvegardé localement", description: "Serveur non synchronisé.", variant: "destructive" });
-    }
-  }, [phpCode, toast, smallScale, scaleMobile]);
-
-  // ── Sauvegarder échelles seulement
-  const handleSaveScalesOnly = useCallback(async () => {
-    const tok = _getToken();
-    try {
-      const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-        body: JSON.stringify({ template: phpCode, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
+      toast({
+        title: "Modèle sauvegardé localement",
+        description: "Le serveur n'a pas été synchronisé. Ce modèle reste le défaut sur cet appareil.",
+        variant: "destructive",
       });
-      if (resp.ok) {
-        toast({ title: "Paramètres d'impression enregistrés", description: "Échelles synchronisées." });
-      } else {
-        toast({ title: "Échelles sauvegardées localement", description: "Synchronisation échouée.", variant: "destructive" });
-      }
-    } catch {
-      toast({ title: "Échelles sauvegardées localement", description: "Impossible de joindre le serveur.", variant: "destructive" });
     }
   }, [phpCode, toast, smallScale, scaleMobile]);
 
-  // ── Réinitialiser
+  // ── Réinitialiser (vers le custom default s'il existe, sinon vers DEFAULT_MIKHMON_PHP)
   const handleReset = useCallback(() => {
     const base = getCustomDefault() ?? DEFAULT_MIKHMON_PHP;
     setPhpCode(base);
-    setPendingPresetId(null);
     try { localStorage.setItem(PHP_KEY, base); } catch { /* ignore */ }
     toast({ title: "Modèle réinitialisé", description: "Le modèle de base a été restauré." });
   }, [toast]);
 
-  // ── Définir par défaut
+  // ── Définir comme modèle de base (local + serveur)
   const handleSetAsDefault = useCallback(async () => {
     if (!phpCode.trim()) return;
     invalidateTemplateCache();
@@ -609,32 +518,40 @@ export default function TicketTemplate() {
       localStorage.setItem(PHP_KEY, phpCode);
       localStorage.removeItem(TEMPLATE_KEY);
     } catch { /* ignore */ }
-    const tok = _getToken();
+    // Synchronise sur le serveur pour que l'APK mobile l'utilise aussi
     let serverSynced = false;
     try {
+      const _tok = localStorage.getItem("vouchernet_admin_token") ?? sessionStorage.getItem("vouchernet_admin_token") ?? "";
       const resp = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        headers: { "Content-Type": "application/json", ...(_tok ? { Authorization: `Bearer ${_tok}` } : {}) },
         body: JSON.stringify({ template: phpCode, scaleSmall: Math.round(smallScale * 100), scaleMobile }),
       });
       serverSynced = resp.ok;
-    } catch { serverSynced = false; }
+    } catch {
+      serverSynced = false;
+    }
     if (serverSynced) {
-      toast({ title: "Modèle de base défini", description: "Synchronisé sur tous les appareils." });
+      toast({ title: "Modèle de base défini", description: "Synchronisé sur le serveur — tous les appareils (APK, mobile) utiliseront ce modèle." });
     } else {
-      toast({ title: "Modèle de base défini localement", description: "Serveur non synchronisé.", variant: "destructive" });
+      toast({
+        title: "Modèle de base défini localement",
+        description: "Le serveur n'a pas été synchronisé. Ce modèle reste le défaut sur cet appareil uniquement.",
+        variant: "destructive",
+      });
     }
   }, [phpCode, toast, smallScale, scaleMobile]);
 
-  // ── Coller Mikhmon
   const handleUseDefaultMikhmon = useCallback(() => {
     setTab("code");
     setPhpCode(DEFAULT_MIKHMON_PHP);
-    setPendingPresetId(null);
-    toast({ title: "Modèle Mikhmon chargé", description: "Cliquez Sauvegarder pour l'activer." });
+    toast({
+      title: "Modèle Mikhmon chargé",
+      description: "Le template PHP par défaut est prêt. Clique sur Sauvegarder pour l'activer.",
+    });
   }, [toast]);
 
-  // ── Aperçu PHP
+  // ── Aperçu PHP — appel serveur avec données d'exemple
   const handlePhpPreview = useCallback(async () => {
     if (!phpCode.trim()) return;
     setPreviewing(true);
@@ -643,7 +560,10 @@ export default function TicketTemplate() {
       const resp = await fetch(`${BASE}/api/render-tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ php: phpCode, vouchers: [SAMPLE_VARS, SAMPLE_VARS_2] }),
+        body: JSON.stringify({
+          php: phpCode,
+          vouchers: [SAMPLE_VARS, SAMPLE_VARS_2],
+        }),
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.error);
@@ -656,203 +576,57 @@ export default function TicketTemplate() {
     }
   }, [phpCode, toast]);
 
-  // ═══ Super-admin: CRUD modèles ════════════════════════════════════════════
-
-  const refreshPresets = useCallback(async () => {
-    const tok = _getToken();
-    const resp = await fetch(`${BASE}/api/super/preset-templates`, { headers: { Authorization: `Bearer ${tok}` } });
-    if (resp.ok) {
-      const data = await resp.json() as { presets: Preset[] };
-      setPresets(data.presets);
-    }
-  }, []);
-
-  const handleOpenManage = useCallback(() => {
-    setEditingPreset(null);
-    setShowAddForm(false);
-    setShowManageDialog(true);
-  }, []);
-
-  const handleEditPreset = useCallback((p: Preset) => {
-    setEditingPreset(p);
-    setEditForm({ name: p.name, html: p.html, scaleSmall: p.scaleSmall, scaleMobile: p.scaleMobile });
-    setShowAddForm(false);
-  }, []);
-
-  const handleAddPreset = useCallback(() => {
-    setEditingPreset(null);
-    setEditForm({ name: "", html: "", scaleSmall: 85, scaleMobile: 100 });
-    setShowAddForm(true);
-  }, []);
-
-  const handleSavePresetEdit = useCallback(async () => {
-    if (!editForm.name.trim() || !editForm.html.trim()) {
-      toast({ title: "Nom et HTML requis", variant: "destructive" }); return;
-    }
-    setSavingPreset(true);
-    try {
-      const tok = _getToken();
-      const url = editingPreset
-        ? `${BASE}/api/super/preset-templates/${editingPreset.id}`
-        : `${BASE}/api/super/preset-templates`;
-      const method = editingPreset ? "PUT" : "POST";
-      const resp = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
-        body: JSON.stringify(editForm),
-      });
-      if (resp.ok) {
-        await refreshPresets();
-        invalidateTemplateCache();
-        setEditingPreset(null);
-        setShowAddForm(false);
-        toast({ title: editingPreset ? "Modèle mis à jour" : "Modèle ajouté", description: `« ${editForm.name} » sauvegardé.` });
-      } else {
-        toast({ title: "Erreur", description: "Impossible de sauvegarder.", variant: "destructive" });
-      }
-    } catch {
-      toast({ title: "Erreur réseau", variant: "destructive" });
-    } finally {
-      setSavingPreset(false);
-    }
-  }, [editForm, editingPreset, refreshPresets, toast]);
-
-  const handleDeletePreset = useCallback(async (p: Preset) => {
-    if (!confirm(`Supprimer le modèle « ${p.name} » ? Cette action est irréversible.`)) return;
-    const tok = _getToken();
-    const resp = await fetch(`${BASE}/api/super/preset-templates/${p.id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${tok}` },
-    });
-    if (resp.ok) {
-      await refreshPresets();
-      invalidateTemplateCache();
-      if (pendingPresetId === p.id) { setPendingPresetId(null); setServerPresetId(null); }
-      toast({ title: "Modèle supprimé" });
-    } else {
-      toast({ title: "Erreur lors de la suppression", variant: "destructive" });
-    }
-  }, [pendingPresetId, refreshPresets, toast]);
-
   const hasSaved = (() => { try { return localStorage.getItem(PHP_KEY) !== null; } catch { return false; } })();
-  const presetSelectValue = isSuperAdmin
-    ? (isCustomMode ? "custom" : String(pendingPresetId))
-    : pendingPresetId != null
-      ? String(pendingPresetId)
-      : "";
-  const selectControlledValue = presetSelectValue === "" ? undefined : presetSelectValue;
-
-  // ═══ Rendu ════════════════════════════════════════════════════════════════
 
   return (
     <div>
-      {/* ── En-tête ── */}
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <FileCode className="h-6 w-6 text-blue-500" />
             Modèle de ticket
           </h1>
         </div>
-
-        {/* Boutons barre d'actions (super-admin uniquement pour la plupart) */}
         <div className="flex flex-wrap items-center gap-2">
-          {isSuperAdmin && hasSaved && isCustomMode && (
+          {hasSaved && !isManager && (
             <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50" title="Réinitialiser">
               <RotateCcw className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Réinitialiser</span>
             </Button>
           )}
-          {isSuperAdmin && isCustomMode && (
-            <>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleUseDefaultMikhmon} title="Coller modèle Mikhmon">
-                <FileCode className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Coller Mikhmon</span>
-              </Button>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fileRef.current?.click()} title="Importer .php">
-                <Upload className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Importer .php</span>
-              </Button>
-              <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
-              <Button variant="outline" size="sm" className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50" onClick={handleSetAsDefault} title="Définir comme modèle de base">
-                <BookMarked className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Définir par défaut</span>
-              </Button>
-            </>
-          )}
-          {showPrintSettings && (
-            <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
-              <Sliders className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden sm:inline text-[11px]">Imprimer {Math.round(smallScale * 100)}% · Mob {scaleMobile}%</span>
+          <>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleUseDefaultMikhmon} title="Coller modèle Mikhmon">
+              <FileCode className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Coller modèle Mikhmon</span>
             </Button>
-          )}
-          {isSuperAdmin && (
-            <Button variant="outline" size="sm" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={handleOpenManage} title="Gérer les modèles prédéfinis de la plateforme (super-admin)">
-              <Settings2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Modèles plateforme</span>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fileRef.current?.click()} title="Importer .php">
+              <Upload className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Importer .php</span>
             </Button>
-          )}
-          {isSuperAdmin && isCustomMode && (
-            <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
-              <Save className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{saved ? "Sauvegardé ✓" : "Sauvegarder"}</span>
+            <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
+            <Button variant="outline" size="sm" className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50" onClick={handleSetAsDefault} title="Définir comme modèle de base">
+              <BookMarked className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Définir par défaut</span>
             </Button>
-          )}
-          {hasUnsavedPresetChange && (
-            <Button size="sm" onClick={handleSavePreset} className="gap-1.5 bg-blue-600 hover:bg-blue-700">
-              <Save className="h-3.5 w-3.5" />
-              <span>Enregistrer</span>
-            </Button>
-          )}
+          </>
+          <Button variant="outline" size="sm" className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowScaleDialog(true)} title="Paramètres d'impression">
+            <Sliders className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline text-[11px]">Imprimer {Math.round(smallScale * 100)}% · Mob {scaleMobile}%</span>
+          </Button>
+          <Button size="sm" onClick={handleSave} className="gap-1.5" disabled={saved} title={saved ? "Sauvegardé" : "Sauvegarder"}>
+            <Save className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{saved ? "Sauvegardé ✓" : "Sauvegarder"}</span>
+          </Button>
         </div>
       </div>
 
-      {/* ── Liste déroulante : modèles prédéfinis ── */}
-      {presets.length > 0 && (
-        <Card className="mb-5">
-          <CardContent className="py-4 space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <span className="text-xs font-semibold text-gray-600 shrink-0">Modèle de ticket</span>
-              <Select
-                value={selectControlledValue}
-                onValueChange={(v) => {
-                  if (v === "custom") handleSelectPreset(null);
-                  else handleSelectPreset(Number(v));
-                }}
-              >
-                <SelectTrigger className="w-full sm:max-w-3xl text-left h-auto min-h-9 py-2">
-                  <SelectValue placeholder="Choisir un modèle prédéfini…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {presets.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                  {isSuperAdmin && (
-                    <SelectItem value="custom">Personnalisé (édition PHP / échelles)</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              {hasUnsavedPresetChange && (
-                <span className="text-xs text-amber-600 font-medium sm:ml-1">Non enregistré</span>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 max-w-3xl">
-              Chaque modèle impose des échelles d&apos;impression fixes : mode Small (premier pourcentage) et Mobile / APK (second). Elles ne sont pas modifiables pour les modèles prédéfinis.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
       <PrintScaleDialog
-        open={showPrintSettings && showScaleDialog}
+        open={showScaleDialog}
         onOpenChange={setShowScaleDialog}
         scaleSmall={Math.round(smallScale * 100)}
         scaleMobile={scaleMobile}
         onScaleSmallChange={(n) => { const v = n / 100; setSmallScale(v); saveSmallScale(v); }}
         onScaleMobileChange={(n) => { setScaleMobile(n); saveMobileScale(n); }}
-        onSave={handleSaveScalesOnly}
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
@@ -861,12 +635,7 @@ export default function TicketTemplate() {
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold">
-                  {isSimplified
-                    ? (pendingPresetId !== null ? `Aperçu — ${presets.find(p => p.id === pendingPresetId)?.name ?? "Modèle"}` : "Code PHP du template")
-                    : "Code PHP du template"
-                  }
-                </CardTitle>
+                <CardTitle className="text-sm font-semibold">Code PHP du template</CardTitle>
                 <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
                   <button onClick={() => setTab("code")} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${tab === "code" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
                     <Code2 className="h-3 w-3" /> Code
@@ -886,10 +655,9 @@ export default function TicketTemplate() {
                   className="w-full font-mono text-xs p-4 resize-none focus:outline-none rounded-b-xl leading-relaxed bg-gray-950 text-purple-300"
                   style={{ minHeight: "520px" }}
                   value={phpCode}
-                  onChange={(e) => { if (!isSimplified) setPhpCode(e.target.value); }}
-                  readOnly={isSimplified}
+                  onChange={(e) => setPhpCode(e.target.value)}
                   spellCheck={false}
-                  placeholder="Collez ici le code PHP complet du template Mikhmon v3…"
+                  placeholder="Collez ici le code PHP complet du template Mikhmon v3 (template.php / template-small.php / template-thermal.php)…"
                 />
               ) : (
                 <div className="p-6 bg-gray-50 rounded-b-xl min-h-64 flex flex-wrap gap-3 items-start justify-center">
@@ -904,38 +672,36 @@ export default function TicketTemplate() {
 
         {/* ── Panneau de référence ── */}
         <div className="xl:col-span-2 space-y-4">
-          {!isManager && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Variables PHP disponibles</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-xs text-gray-600">
-                <p>Les variables suivantes sont injectées automatiquement à chaque impression :</p>
-                <div className="bg-gray-950 text-purple-300 font-mono p-3 rounded-lg text-xs space-y-0.5">
-                  {[
-                    ["$hotspotname", "Nom du routeur"],
-                    ["$dnsname",     "Contact/pied"],
-                    ["$getprice",    "Prix (nombre)"],
-                    ["$currency",    "FCFA"],
-                    ["$username",    "Identifiant"],
-                    ["$password",    "Mot de passe"],
-                    ["$usermode",    "vc ou up"],
-                    ["$validity",    "ex: 1d"],
-                    ["$timelimit",   "ex: 6h"],
-                    ["$datalimit",   "octets bruts"],
-                    ["$num",         "numéro ticket"],
-                    ["$qrcode",      "<img src=...>"],
-                    ["$color",       "couleur par prix"],
-                  ].map(([v, d]) => (
-                    <div key={v} className="flex gap-2">
-                      <span className="text-purple-400 w-28 flex-shrink-0">{v}</span>
-                      <span className="text-gray-500">{d}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Mode Mikhmon v3 — Collage direct PHP</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs text-gray-600">
+              <p>Collez/importez le template PHP brut de Mikhmon v3. Il est exécuté <strong>côté serveur</strong> à chaque impression, avec variables injectées automatiquement :</p>
+              <div className="bg-gray-950 text-purple-300 font-mono p-3 rounded-lg text-xs space-y-0.5">
+                {[
+                  ["$hotspotname", "Nom du routeur"],
+                  ["$dnsname",     "Contact/pied"],
+                  ["$getprice",    "Prix (nombre)"],
+                  ["$currency",    "FCFA"],
+                  ["$username",    "Identifiant"],
+                  ["$password",    "Mot de passe"],
+                  ["$usermode",    "vc ou up"],
+                  ["$validity",    "ex: 1d"],
+                  ["$timelimit",   "ex: 6h"],
+                  ["$datalimit",   "octets bruts"],
+                  ["$num",         "numéro ticket"],
+                  ["$qrcode",      "<img src=...>"],
+                ].map(([v, d]) => (
+                  <div key={v} className="flex gap-2">
+                    <span className="text-purple-400 w-28 flex-shrink-0">{v}</span>
+                    <span className="text-gray-500">{d}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-gray-400">Tu peux coller le code complet tel quel. Les marqueurs <code>&lt;!--mks-mulai--&gt;</code> / <code>&lt;!--mks-akhir--&gt;</code> sont pris en charge. Si absents, le rendu complet est tout de même utilisé.</p>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader className="pb-3">
@@ -961,137 +727,6 @@ export default function TicketTemplate() {
           </Card>
         </div>
       </div>
-
-      {/* ═══ Dialog : Gérer les modèles prédéfinis (super-admin) ═══ */}
-      <Dialog open={showManageDialog} onOpenChange={(open) => { setShowManageDialog(open); if (!open) { setEditingPreset(null); setShowAddForm(false); } }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Settings2 className="h-5 w-5 text-emerald-600" />
-              Modèles prédéfinis (plateforme)
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {/* Liste des presets */}
-            {presets.map(p => (
-              <div key={p.id} className={`border rounded-lg p-3 transition-colors ${editingPreset?.id === p.id ? "border-blue-400 bg-blue-50" : "border-gray-200 bg-white"}`}>
-                {editingPreset?.id === p.id ? (
-                  /* Formulaire d'édition inline */
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-semibold text-blue-700">Modifier « {p.name} »</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Nom</Label>
-                        <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="h-8 text-xs" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Échelle Small (%)</Label>
-                          <Input type="number" min={50} max={100} value={editForm.scaleSmall} onChange={e => setEditForm(f => ({ ...f, scaleSmall: Number(e.target.value) }))} className="h-8 text-xs" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Échelle Mobile/APK (%)</Label>
-                          <Input type="number" min={50} max={100} value={editForm.scaleMobile} onChange={e => setEditForm(f => ({ ...f, scaleMobile: Number(e.target.value) }))} className="h-8 text-xs" />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">HTML / PHP</Label>
-                      <textarea
-                        value={editForm.html}
-                        onChange={e => setEditForm(f => ({ ...f, html: e.target.value }))}
-                        className="w-full font-mono text-xs p-2 border rounded-md resize-none bg-gray-950 text-purple-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        style={{ minHeight: "140px" }}
-                        spellCheck={false}
-                      />
-                    </div>
-                    <div className="flex gap-2 justify-end">
-                      <Button variant="outline" size="sm" onClick={() => setEditingPreset(null)}>Annuler</Button>
-                      <Button size="sm" onClick={handleSavePresetEdit} disabled={savingPreset} className="gap-1.5">
-                        <Save className="h-3.5 w-3.5" />
-                        {savingPreset ? "Enregistrement..." : "Enregistrer"}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  /* Vue compacte */
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-medium text-sm text-gray-900">{p.name}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">Small {p.scaleSmall}% · Mobile/APK {p.scaleMobile}%</div>
-                    </div>
-                    <div className="flex gap-1 flex-shrink-0">
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-500 hover:text-blue-600" onClick={() => handleEditPreset(p)} title="Modifier">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-500 hover:text-red-600" onClick={() => handleDeletePreset(p)} title="Supprimer">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {/* Formulaire d'ajout */}
-            {showAddForm && (
-              <div className="border border-emerald-300 rounded-lg p-3 bg-emerald-50 space-y-3">
-                <div className="text-xs font-semibold text-emerald-700">Nouveau modèle</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Nom</Label>
-                    <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="h-8 text-xs" placeholder="Ex: Mon modèle" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Small (%)</Label>
-                      <Input type="number" min={50} max={100} value={editForm.scaleSmall} onChange={e => setEditForm(f => ({ ...f, scaleSmall: Number(e.target.value) }))} className="h-8 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Mobile/APK (%)</Label>
-                      <Input type="number" min={50} max={100} value={editForm.scaleMobile} onChange={e => setEditForm(f => ({ ...f, scaleMobile: Number(e.target.value) }))} className="h-8 text-xs" />
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">HTML / PHP</Label>
-                  <textarea
-                    value={editForm.html}
-                    onChange={e => setEditForm(f => ({ ...f, html: e.target.value }))}
-                    className="w-full font-mono text-xs p-2 border rounded-md resize-none bg-gray-950 text-purple-300 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                    style={{ minHeight: "140px" }}
-                    spellCheck={false}
-                    placeholder="<!--mks-mulai--><table>...</table><!--mks-akhir-->"
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="outline" size="sm" onClick={() => setShowAddForm(false)}>Annuler</Button>
-                  <Button size="sm" onClick={handleSavePresetEdit} disabled={savingPreset} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
-                    <Plus className="h-3.5 w-3.5" />
-                    {savingPreset ? "Création..." : "Créer"}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {!showAddForm && !editingPreset && (
-              <Button variant="outline" size="sm" className="gap-1.5 w-full text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={handleAddPreset}>
-                <Plus className="h-3.5 w-3.5" />
-                Ajouter un modèle
-              </Button>
-            )}
-          </div>
-
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Fermer</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

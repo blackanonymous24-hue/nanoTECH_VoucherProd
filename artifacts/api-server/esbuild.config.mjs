@@ -1,9 +1,4 @@
 import * as esbuild from "esbuild";
-import { cpSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 await esbuild.build({
   entryPoints: ["src/index.ts"],
@@ -23,8 +18,3 @@ await esbuild.build({
     js: `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`,
   },
 });
-
-const presetSrc = join(__dirname, "src/lib/default-presets");
-const presetDst = join(__dirname, "dist/default-presets");
-mkdirSync(presetDst, { recursive: true });
-cpSync(presetSrc, presetDst, { recursive: true });

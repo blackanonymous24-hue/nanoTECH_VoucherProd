@@ -7,10 +7,7 @@ import {
   useSyncVoucherUsage,
   getGetVendorReportQueryKey,
   getGetVendorReportsSummaryQueryKey,
-  getVendorReport,
-  getVendorReportsSummary,
 } from "@workspace/api-client-react";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import type { VendorSummary } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -117,13 +114,7 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
   const isVisible = usePageVisibility();
-  const { data, isLoading } = useGetVendorReport(vendorId, {
-    query: {
-      queryKey: getGetVendorReportQueryKey(vendorId),
-      refetchInterval: isVisible ? 60_000 : false,
-      queryFn: withApiPauseCacheFallback((ctx) => getVendorReport(vendorId, undefined, ctx.signal)),
-    },
-  });
+  const { data, isLoading } = useGetVendorReport(vendorId, { query: { queryKey: getGetVendorReportQueryKey(vendorId), refetchInterval: isVisible ? 60_000 : false } });
 
   if (isLoading || !data) {
     return (
@@ -553,16 +544,7 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 export default function Reports() {
   const isVisible = usePageVisibility();
   const { selectedRouterId: routerId } = useRouterContext();
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({
-    query: {
-      queryKey: [...getGetVendorReportsSummaryQueryKey(), routerId ?? "all"] as const,
-      refetchInterval: isVisible ? 60_000 : false,
-      queryFn: withApiPauseCacheFallback(({ signal }) =>
-        getVendorReportsSummary(routerId != null ? { params: { routerId } } : undefined, signal),
-      ),
-    },
-    request: routerId != null ? { params: { routerId } } : undefined,
-  });
+  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), refetchInterval: isVisible ? 60_000 : false } });
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
 
@@ -579,8 +561,11 @@ export default function Reports() {
     setSelectedVendorId(null);
   }, [routerId]);
 
-  // Données déjà filtrées côté API via ?routerId= quand un routeur est sélectionné
-  const filtered = summaries;
+  // Filter to only vendors of the active router
+  const filtered = useMemo(
+    () => routerId ? summaries.filter((s) => s.vendor.routerId === routerId) : summaries,
+    [summaries, routerId],
+  );
 
   const sorted = useMemo(() => sortSummaries(filtered, sortMode), [filtered, sortMode]);
 

@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { usePrefetchRouterProfiles } from "@/hooks/use-prefetch-router-profiles";
-import { useScopedRouteQueryCancel } from "@/hooks/use-scoped-route-query-cancel";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
@@ -18,8 +17,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { shouldFetchStockAlertsNav, shouldFetchVendorsNavCount } from "@/lib/route-query-policy";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -187,14 +184,13 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   /* ── Vendor count — masquer les items vendeur si aucun vendeur sur ce routeur ── */
   const { data: vendorsList } = useQuery<{ id: number }[]>({
     queryKey: ["vendors-nav-count", selectedRouterId],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
       const res = await fetch(`${BASE}/api/vendors?routerId=${selectedRouterId}`, { signal });
       if (!res.ok) return [];
       const data: unknown = await res.json();
       return Array.isArray(data) ? (data as { id: number }[]) : [];
-    }),
-    enabled: !!selectedRouterId && shouldFetchVendorsNavCount(location),
+    },
     staleTime: 60_000,
     retry: 1,
   });
@@ -243,17 +239,16 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     alerts: { vendorId: number | null; vendorName: string; profileName: string; available: number }[];
   }>({
     queryKey: ["stock-alerts", selectedRouterId],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       const params = selectedRouterId ? `?routerId=${selectedRouterId}` : "";
       const res = await fetch(`${BASE}/api/vendors/stock-alerts${params}`, { signal });
       if (!res.ok) throw new Error("stock-alerts failed");
       return res.json() as Promise<{ count: number; alerts: { vendorId: number | null; vendorName: string; profileName: string; available: number }[] }>;
-    }),
-    enabled: !!selectedRouterId && shouldFetchStockAlertsNav(location) && isVisible,
+    },
     staleTime: 60_000,
     // Ne jamais polluer l'onglet en arrière-plan : on suspend le polling
     // quand l'onglet est caché ou minimisé (Page Visibility API).
-    refetchInterval: isVisible && shouldFetchStockAlertsNav(location) ? 60_000 : false,
+    refetchInterval: isVisible ? 60_000 : false,
     refetchIntervalInBackground: false,
     retry: 2,
   });
@@ -300,7 +295,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     { name: string; price: string | null; validity: string | null; schedulerMonitorActive: boolean }[]
   >({
     queryKey: ["router-profiles-dialog", selectedRouterId],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/profiles`, { signal });
       if (!res.ok) return [];
@@ -318,19 +313,19 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         validity: p.validity ?? null,
         schedulerMonitorActive: p.schedulerMonitorActive === true,
       }));
-    }),
+    },
     enabled: showAddUser && !!selectedRouterId,
     staleTime: 60_000,
   });
   const { data: dialogServers } = useQuery<{ name: string; disabled?: boolean }[]>({
     queryKey: ["router-hotspot-servers-dialog", selectedRouterId],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/hotspot-servers`, { signal });
       if (!res.ok) return [];
       const data = await res.json() as { servers?: { name: string; disabled?: boolean }[] };
       return (data.servers ?? []).filter((s) => !!s.name && !s.disabled);
-    }),
+    },
     enabled: showAddUser && !!selectedRouterId,
     staleTime: 60_000,
   });
@@ -547,8 +542,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 
   const { data: voucherCount } = useQuery<number>({
     queryKey: ["router-users-count", selectedRouterId],
-    queryFn: withApiPauseCacheFallback(async ({ signal }): Promise<number> => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`, { signal });
+    queryFn: async (): Promise<number> => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/users`);
       if (!res.ok) return 0;
       const data: unknown = await res.json();
       if (Array.isArray(data)) return data.length;
@@ -558,7 +553,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         if (Array.isArray(d.users)) return d.users.length;
       }
       return 0;
-    }),
+    },
     enabled: isVisible && !!selectedRouterId && isVouchersPage,
     refetchInterval: isVisible ? 120_000 : false,
     staleTime: 115_000,
@@ -1399,8 +1394,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const isRoutersPage = location.startsWith("/routers");
   usePrefetchRouterProfiles();
-  /** Annulations ciblées uniquement sur le routeur sélectionné (pas les autres IDs / pas cross-appareil). */
-  useScopedRouteQueryCancel();
 
   return (
     <div className="flex h-svh bg-gray-100 dark:bg-gray-950 overflow-hidden">

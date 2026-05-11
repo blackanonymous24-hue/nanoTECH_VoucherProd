@@ -1,5 +1,4 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";
-import { VOUCHERNET_API_PAUSE_REASON } from "./apiPauseError";
 
 const TOKEN_KEY = "vouchernet_admin_token";
 
@@ -20,21 +19,6 @@ const apiClient = axios.create({
   baseURL: "",
 });
 
-/** Même état que `installAuthFetch` (artifacts/app) — pause sélective pendant génération / toggle hotspot. */
-function voucherNetApiPauseAllowsResolvedUrl(resolvedUrl: string): boolean {
-  try {
-    const w = window as Window & {
-      __vouchernetApiPause?: { paused: boolean; allowPathPatterns: RegExp[] };
-    };
-    const state = w.__vouchernetApiPause;
-    if (!state?.paused) return true;
-    const path = new URL(resolvedUrl, window.location.origin).pathname;
-    return state.allowPathPatterns.some((re) => re.test(path));
-  } catch {
-    return true;
-  }
-}
-
 /**
  * Inject the bearer token from localStorage/sessionStorage on every request
  * so the auto-generated React Query hooks honor the user's auth session.
@@ -44,16 +28,6 @@ function voucherNetApiPauseAllowsResolvedUrl(resolvedUrl: string): boolean {
 apiClient.interceptors.request.use((config) => {
   if (typeof config.url === "string") {
     config.url = rewriteApiUrl(config.url);
-  }
-  if (typeof window !== "undefined" && config.url) {
-    try {
-      const resolved = new URL(config.url, window.location.origin).href;
-      if (!voucherNetApiPauseAllowsResolvedUrl(resolved)) {
-        return Promise.reject(new DOMException(VOUCHERNET_API_PAUSE_REASON, "AbortError"));
-      }
-    } catch {
-      /* ignore malformed URL */
-    }
   }
   if (typeof window === "undefined") return config;
   const token =

@@ -12,7 +12,6 @@ import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
 import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
-import { normalizeRouterApiHost } from "../lib/router-address.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -324,12 +323,6 @@ router.post("/routers", async (req, res): Promise<void> => {
     return;
   }
 
-  const hostNorm = normalizeRouterApiHost(host);
-  if (!hostNorm) {
-    res.status(400).json({ error: "Adresse IP ou nom d'hôte du routeur invalide" });
-    return;
-  }
-
   // Quota enforcement (regular admins only). The super-admin bypasses the
   // limit because they manage all tenants.
   if (!scope.isSuperAdmin) {
@@ -383,7 +376,7 @@ router.post("/routers", async (req, res): Promise<void> => {
       hotspotName: hotspotName ?? null,
       contact: contact ?? null,
       currency: currencyNorm,
-      host: hostNorm,
+      host,
       port: port ?? 8728,
       username,
       password,
@@ -520,14 +513,7 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
     const c = currency.trim().slice(0, 24);
     updates.currency = c || "FCFA";
   }
-  if (host !== undefined) {
-    const h = normalizeRouterApiHost(host);
-    if (!h) {
-      res.status(400).json({ error: "Adresse IP ou nom d'hôte du routeur invalide" });
-      return;
-    }
-    updates.host = h;
-  }
+  if (host !== undefined) updates.host = host;
   if (port !== undefined) updates.port = port;
   if (username !== undefined) updates.username = username;
   // Chaîne vide = "ne pas changer le mot de passe" (cas édition sans modification)
@@ -672,30 +658,6 @@ router.get("/routers/:id/info", async (req, res): Promise<void> => {
   } catch (err) {
     res.status(503).json({ error: err instanceof Error ? err.message : "Erreur" });
   }
-});
-
-/**
- * GET /routers/:id/profiles/snapshot-meta
- * Indique si une liste de profils a déjà été persistée en SQL pour ce routeur.
- * Léger (une ligne) — utilisé par le client pour choisir préchargement complet vs. vérif. en arrière-plan.
- */
-router.get("/routers/:id/profiles/snapshot-meta", async (req, res): Promise<void> => {
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const id = parseInt(raw, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
-
-  const [row] = await db
-    .select({ updatedAt: routerProfilesSnapshotTable.updatedAt })
-    .from(routerProfilesSnapshotTable)
-    .where(eq(routerProfilesSnapshotTable.routerId, id));
-
-  res.json({
-    hasSnapshot: !!row,
-    updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
-  });
 });
 
 router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
@@ -2288,50 +2250,37 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const needInfoCold     = !infoFresh && !infoStale && !_infoRefreshing.has(id);
   const needUsersCold    = !usersCachedBefore && !_usersRefreshing.has(id);
 
-  const mikColdPromise =
-    needSessionsCold || needInfoCold || needUsersCold
-      ? Promise.all([
-          needSessionsCold
-            ? (async () => {
-                _sessionsFastRefreshing.add(id);
-                try {
-                  _sessionsFastCount.set(sc, { count: await countSessionsFast(conn), cachedAt: Date.now() });
-                } catch { /* keep 0 */ }
-                finally {
-                  _sessionsFastRefreshing.delete(id);
-                }
-              })()
-            : Promise.resolve(),
-          needInfoCold
-            ? (async () => {
-                _infoRefreshing.add(id);
-                try {
-                  mSet(infoKey, MIK_TTL.info, await getRouterInfo(conn));
-                } catch { /* keep null */ }
-                finally {
-                  _infoRefreshing.delete(id);
-                }
-              })()
-            : Promise.resolve(),
-          needUsersCold
-            ? (async () => {
-                _usersRefreshing.add(id);
-                try {
-                  const list = await listHotspotUsersFast(conn);
-                  _usersCountCache.set(sc, await computeUsersCount(id, conn, list));
-                } catch { /* keep zeros */ }
-                finally {
-                  _usersRefreshing.delete(id);
-                }
-              })()
-            : Promise.resolve(),
-        ])
-      : Promise.resolve();
-
-  // Ventes DB en parallèle du cold MikroTik — premier snapshot beaucoup plus rapide.
-  const [dbQuickSales] = await Promise.all([readSalesQuickFromDb(id), mikColdPromise]);
-
-  if (!(needSessionsCold || needInfoCold || needUsersCold)) {
+  if (needSessionsCold || needInfoCold || needUsersCold) {
+    // Cold start — lancer chaque fetch en arrière-plan (non-bloquant).
+    // La réponse est renvoyée immédiatement avec les valeurs vides/null ;
+    // le frontend affiche des skeletons puis se rafraîchit dès que les caches sont chauds.
+    if (needSessionsCold) {
+      _sessionsFastRefreshing.add(id);
+      setImmediate(async () => {
+        try { _sessionsFastCount.set(sc, { count: await countSessionsFast(conn), cachedAt: Date.now() }); }
+        catch { /* keep 0 */ }
+        finally { _sessionsFastRefreshing.delete(id); }
+      });
+    }
+    if (needInfoCold) {
+      _infoRefreshing.add(id);
+      setImmediate(async () => {
+        try { mSet(infoKey, MIK_TTL.info, await getRouterInfo(conn)); }
+        catch { /* keep null */ }
+        finally { _infoRefreshing.delete(id); }
+      });
+    }
+    if (needUsersCold) {
+      _usersRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const list = await listHotspotUsersFast(conn);
+          _usersCountCache.set(sc, await computeUsersCount(id, conn, list));
+        } catch { /* keep zeros */ }
+        finally { _usersRefreshing.delete(id); }
+      });
+    }
+  } else {
     // Cache chaud — refresh stale en arrière-plan (non-bloquant)
     if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
       _sessionsRefreshing.add(id);
@@ -2372,12 +2321,11 @@ async function buildDashboardPrioritySnapshot(id: number) {
     });
   }
 
-  // Lire les caches après les fetches éventuels (`now` début handler ; après await cold utiliser l’horloge actuelle pour le TTL fast-count)
-  const readNow = Date.now();
+  // Lire les caches après les fetches éventuels
   const sessionsFreshAfter = mGet(sessionsKey) as unknown[] | null;
   const sessionsStaleAfter = mGetStale(sessionsKey) as unknown[] | null;
   const fastEntryAfter     = _sessionsFastCount.get(sc);
-  const fastCountAfter     = fastEntryAfter && (readNow - fastEntryAfter.cachedAt) < 8_000 ? fastEntryAfter.count : null;
+  const fastCountAfter     = fastEntryAfter && (now - fastEntryAfter.cachedAt) < 8_000 ? fastEntryAfter.count : null;
   const sessionsCount = sessionsFreshAfter?.length ?? sessionsStaleAfter?.length ?? fastCountAfter ?? 0;
 
   const infoFreshAfter = mGet(infoKey);
@@ -2391,41 +2339,19 @@ async function buildDashboardPrioritySnapshot(id: number) {
 
   // Jour / mois : agrégation DB (alignée rapport local). Autres périodes : cache RAM live si dispo.
   const salesCached = salesCache.get(sc);
+  const dbQuickSales = await readSalesQuickFromDb(id);
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
   const d = String(new Date().getDate()).padStart(2, "0");
-  // Jour / mois : DB prioritaire, mais si agrégat DB encore à 0 alors que le cache
-  // scripts RAM a déjà des totaux (sync DB en retard), prendre le max pour éviter
-  // « 0 FCFA » fantôme sur le tableau de bord.
-  const dm = (() => {
-    const sc = salesCached?.data;
-    const db = dbQuickSales;
-    if (!db && !sc) {
-      return { dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0 };
-    }
-    if (!db) {
-      return {
-        dailyCount: sc!.dailyCount,
-        dailyAmount: sc!.dailyAmount,
-        monthlyCount: sc!.monthlyCount,
-        monthlyAmount: sc!.monthlyAmount,
-      };
-    }
-    if (!sc) {
-      return {
-        dailyCount: db.dailyCount,
-        dailyAmount: db.dailyAmount,
-        monthlyCount: db.monthlyCount,
-        monthlyAmount: db.monthlyAmount,
-      };
-    }
-    return {
-      dailyCount: Math.max(db.dailyCount, sc.dailyCount),
-      dailyAmount: Math.max(db.dailyAmount, sc.dailyAmount),
-      monthlyCount: Math.max(db.monthlyCount, sc.monthlyCount),
-      monthlyAmount: Math.max(db.monthlyAmount, sc.monthlyAmount),
-    };
-  })();
+  const dm = dbQuickSales
+    ?? (salesCached
+      ? {
+        dailyCount: salesCached.data.dailyCount,
+        dailyAmount: salesCached.data.dailyAmount,
+        monthlyCount: salesCached.data.monthlyCount,
+        monthlyAmount: salesCached.data.monthlyAmount,
+      }
+      : { dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0 });
   const sales: SalesReport & { _cachedAt: number | null } = {
     dailyCount: dm.dailyCount,
     dailyAmount: dm.dailyAmount,

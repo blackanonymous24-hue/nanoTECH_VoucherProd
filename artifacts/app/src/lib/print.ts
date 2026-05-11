@@ -59,73 +59,6 @@ const REPORT_CSS = `
   }
 `;
 
-/**
- * Bloc `<style>` inline de Mikhmon v3 (`hotspot/print.php`), copie littérale.
- * Réf. dépôt : `attached_assets/print_1778220636691.php` (l. 117–156).
- */
-const MIKHMON_V3_PRINT_PHP_INLINE_CSS = `
-body {
-  color: #000000;
-  background-color: #FFFFFF;
-  font-size: 14px;
-  font-family:  'Helvetica', arial, sans-serif;
-  margin: 0px;
-  -webkit-print-color-adjust: exact;
-}
-table.voucher {
-  display: inline-block;
-  border: 2px solid black;
-  margin: 2px;
-}
-@page
-{
-  size: auto;
-  margin-left: 7mm;
-  margin-right: 3mm;
-  margin-top: 9mm;
-  margin-bottom: 3mm;
-}
-@media print
-{
-  table { page-break-after:auto }
-  tr    { page-break-inside:avoid; page-break-after:auto }
-  td    { page-break-inside:avoid; page-break-after:auto }
-  thead { display:table-header-group }
-  tfoot { display:table-footer-group }
-}
-#num {
-  float:right;
-  display:inline-block;
-}
-.qrc {
-  width:30px;
-  height:30px;
-  margin-top:1px;
-}
-`;
-
-/**
- * À **100 %** : aucune règle → même rendu que Mikhmon (`print.php` sans zoom navigateur).
- *
- * Sinon : reproduit l’effet du **zoom document** dans Edge / Chrome (Chromium) avant
- * « Imprimer » ou « Enregistrer au format PDF » — zoom menu ⋮, Ctrl+molette, etc. :
- * la mise en page est recalculée comme avec ce zoom (proche du moteur Blink), pas un simple `transform` décoratif.
- * Firefox gère `zoom` différemment ; le référencement cible Edge / Chrome comme demandé.
- */
-function tenantDocumentZoomCss(scale: number): string {
-  const s = Number(scale);
-  if (!Number.isFinite(s) || (s >= 0.999 && s <= 1.001)) return "";
-  const percent = Math.round(s * 1000) / 10;
-  return `
-/* nanoTECH : équivalent zoom page Edge/Chrome ; omis à 100 % (Mikhmon typique) */
-html {
-  zoom: ${percent}%;
-  margin: 0;
-  padding: 0;
-}
-`;
-}
-
 declare global {
   interface Window {
     ReactNativeWebView?: { postMessage(data: string): void };
@@ -255,30 +188,42 @@ export function buildTicketHtmlForPdf(htmlItems: string[], title: string): strin
 
 function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
   const COLS = 4;
+  const ROWS = 6;
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ─── CHEMIN MOBILE — flux libre ───────────────────────────────────────────
+  // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
   if (mobile) {
     const s = scale / 100;
 
-    // Colonnes auto : on lit la largeur native du ticket (attribut width sur la <table>)
-    // pour calculer combien de colonnes tiennent sur une page A4 avec ce zoom.
-    // Chaque cellule prend exactement 1/cols × 100 % → ligne remplie à 100 %, aucune marge.
-    const firstItem = htmlItems[0] ?? "";
-    const tableWidthMatch = firstItem.match(/<table[^>]+width=['"]?(\d+)/i);
-    const ticketNativePx = tableWidthMatch ? parseInt(tableWidthMatch[1], 10) : 200;
-    // A4 print = ~794 CSS px. Avec zoom:s sur html, le contenu dispose de 794/s px.
-    const effectivePagePx = Math.round(794 / s);
-    const cols = Math.max(1, Math.floor(effectivePagePx / (ticketNativePx + 4)));
-    const cellWidthPct = (100 / cols).toFixed(4);
+    // Solution radicale anti-coupure :
+    // On ne s'appuie PAS sur break-inside:avoid du navigateur (trop peu fiable).
+    // On pré-calcule combien de rangées tiennent sur une page A4 à l'échelle donnée,
+    // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
+    // rien à calculer, chaque bloc est garantiellement complet.
 
-    const cells = htmlItems
-      .map(item => `<div class="ticket-cell"><div class="ticket">${item}</div></div>`)
-      .join("");
-    const tableHtml = `<div class="ticket-page">${cells}</div>`;
+    const perPage = COLS * ROWS;
 
-    // @page DOIT être à la racine (Safari iOS l'ignore dans @media print).
+    // Construction des blocs de page avec page-break-after:always explicite
+    const mobileBlocks: string[] = [];
+    for (let p = 0; p < htmlItems.length; p += perPage) {
+      const chunk = htmlItems.slice(p, p + perPage);
+      const rows: string[] = [];
+      for (let r = 0; r < chunk.length; r += COLS) {
+        const cells = chunk.slice(r, r + COLS)
+          .map(item => `<td style="padding:2px;vertical-align:top;"><div class="ticket">${item}</div></td>`)
+          .join("");
+        rows.push(`<tr class="ticket-row">${cells}</tr>`);
+      }
+      const isLast = p + perPage >= htmlItems.length;
+      // page-break-after:always sur chaque bloc sauf le dernier
+      const breakStyle = isLast ? "" : "page-break-after:always;break-after:page;";
+      mobileBlocks.push(
+        `<div class="ticket-page-wrap" style="${breakStyle}"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`,
+      );
+    }
+
+    // @page DOIT être à la racine, jamais dans @media print (Safari iOS l'ignore sinon).
     const mobilePageCss = `
       @page        { margin: 0; }
       @page :first { margin: 0; }
@@ -286,57 +231,40 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       @page :right { margin: 0; }
     `;
 
+    // CSS sans @media print : ce HTML est print-only (iframe + window.print()),
+    // donc les règles s'appliquent directement sans risque de conflit écran.
     // zoom sur html = dezoom sans stacking context (transform:scale le casse).
     const mobilePrintCss = `
       html { zoom: ${s}; margin: 0; padding: 0; }
       html, body { margin: 0; padding: 0; }
       body {
-        color: #000; background: #fff; text-align: center;
+        color: #000; background: #fff;
         font-size: 14px; font-family: Helvetica, Arial, sans-serif;
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
       }
       .doc-header { display: none !important; }
 
-      /* Conteneur global : font-size:0 supprime l'espace entre inline-blocks.
-         text-align:left — tickets partent du bord gauche, pas de marge centrée. */
-      .ticket-page {
-        display: block;
-        text-align: left;
-        font-size: 0;
-        overflow: visible !important;
-      }
+      /* Bloc de page : page-break-after forcé inline, mais on renforce ici */
+      .ticket-page-wrap { display: block; text-align: center; }
+      .ticket-page-wrap + .ticket-page-wrap { page-break-before: always; break-before: page; }
 
-      /* Cellule = ${cellWidthPct}% (calculé : 100 % / ${cols} colonnes).
-         Remplit exactement toute la largeur de la page — aucune marge résiduelle.
-         La largeur est fixe (pas auto) → width:100% sur la table fille ne crée
-         pas de référence circulaire. */
-      .ticket-cell {
-        display: inline-block;
-        width: ${cellWidthPct}%;
-        vertical-align: top;
-        padding: 1px;
-        box-sizing: border-box;
-        font-size: 14px;
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
-        -webkit-column-break-inside: avoid !important;
-        overflow: visible !important;
-      }
+      table.ticket-page { display: inline-table; border-collapse: collapse; margin: 0; }
+      table.ticket-page > tbody > tr > td { padding: 1px; vertical-align: top; }
 
-      /* .ticket = boîte clippante pour le contenu interne. */
+      /* Sécurité break-inside en plus du page-break-after (double protection) */
+      .ticket-row { break-inside: avoid; page-break-inside: avoid; }
       .ticket {
         display: block;
-        overflow: hidden !important;
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
 
-      /* Template PHP : force display:table, occupe toute la cellule (largeur fixe %),
-         position:relative + overflow:hidden clippent le triangle décoratif CSS. */
+      /* Template PHP : table avec display:inline-block → force display:table.
+         position:relative OBLIGATOIRE : sans lui, overflow:hidden ne clippe pas
+         les enfants position:absolute (le triangle décoratif CSS border-right:170px
+         déborde alors sur la bordure droite du ticket voisin). */
       .ticket > table {
         display: table !important;
-        width: 100% !important;
-        box-sizing: border-box !important;
         overflow: hidden !important;
         position: relative !important;
       }
@@ -347,13 +275,16 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
       /* float casse le flux d'impression */
       .ticket img { float: none !important; display: inline-block !important; }
 
-      /* overflow:visible sur les conteneurs de pagination (Safari page-break).
-         .ticket reste en overflow:hidden pour clipper son contenu. */
-      body, .ticket-page, .ticket-cell {
+      /* overflow:visible sur conteneurs pour fix Safari page-break,
+         MAIS overflow:hidden maintenu sur .ticket > table (triangle décoratif) */
+      body, .ticket-page-wrap, table.ticket-page, .ticket-row, .ticket-row > td {
         overflow: visible !important;
       }
 
-      /* Template MikHmon (class="voucher") */
+      /* Template MikHmon (class="voucher") : la table n'a pas de border par défaut.
+         On ajoute une bordure directement sur la table — cible uniquement les tickets
+         qui utilisent class="voucher", sans toucher aux templates personnalisés.
+         box-sizing:border-box garantit que la bordure reste dans la largeur déclarée. */
       table.voucher {
         border: 1px solid #444 !important;
         box-sizing: border-box !important;
@@ -372,7 +303,7 @@ function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale
     <style>${mobilePrintCss}</style>
     ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
   </head>
-  <body>${tableHtml}</body>
+  <body>${mobileBlocks.join("")}</body>
 </html>`;
   }
 
@@ -513,61 +444,117 @@ function printWithNativeBridge(html: string, title: string): void {
 }
 
 /**
- * ── Échelles vouchers (page **Modèle de ticket**) ────────────────────────────
- * Deux curseurs distincts → deux `html { zoom }` via {@link tenantDocumentZoomCss} :
- *
- * - **Web bureau** : `scaleSmall` (fraction 0–1, ex. serveur `scaleSmall / 100`) → passer à cette fonction en **troisième argument**.
- * - **Mobile** : `scaleMobile` (pourcent entier, ex. `85`) → passer **`scaleMobile / 100`** en troisième argument (navigateur mobile, `window.open`).
- * - **APK** : même réglage **Mobile** (%), via {@link printTickets} uniquement (pont natif).
- *
- * Document « small » : CSS = bloc `<style>` de Mikhmon v3 `print.php` (inchangé).
- * À 100 %, aucun `html { zoom }` — comportement Mikhmon natif ; sinon zoom façon Edge/Chrome (voir `tenantDocumentZoomCss`).
- * Le corps des tickets vient du preset PHP (`template-small.php` équivalent).
- *
- * @param defaultScale Facteur 0–1 : **Small** sur desktop web, **Mobile/100** sur mobile ou dans `printTickets`.
- * @param autoprint Si false, pas de `body onload` (iframe bureau / APK ; expo-print ne s’appuie pas sur ce script).
+ * Construit le HTML pour le mode Small MikHmon.
+ * CSS identique à print.php?small=yes (Mikhmon v3).
+ * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
+ * ce mode ne l'impose pas, contrairement au mode regular.
  */
-export function buildSmallModePrintHtml(
-  htmlItems: string[],
-  title: string,
-  defaultScale = 1,
-  opts?: { autoprint?: boolean },
-): string {
-  const autoprint = opts?.autoprint !== false;
-  const safeTitle = title.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const css = `${tenantDocumentZoomCss(defaultScale)}
-${MIKHMON_V3_PRINT_PHP_INLINE_CSS}`;
+export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85): string {
+  const css = `
+    @page {
+      size: auto;
+      margin-left: 7mm;
+      margin-right: 3mm;
+      margin-top: 9mm;
+      margin-bottom: 3mm;
+    }
 
-  const bodyOpen = autoprint ? `<body onload="window.print()">` : "<body>";
+    body {
+      color: #000;
+      background-color: #fff;
+      font-size: 14px;
+      font-family: Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      transform-origin: top left;
+    }
 
-  return `<!DOCTYPE html>
+    /* ── Layout small — 2 tickets par ligne (48 % chacun) ────────────── */
+    table.voucher {
+      display: inline-block !important;
+      vertical-align: top;
+      width: 48%;
+      border: 2px solid #000;
+      margin: 2px;
+      padding: 3px;
+      box-sizing: border-box;
+      overflow: hidden;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    table.voucher * {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+
+    @media print {
+      table  { page-break-after: auto; }
+      tr     { page-break-inside: avoid; page-break-after: auto; }
+      td     { page-break-inside: avoid; page-break-after: auto; }
+      thead  { display: table-header-group; }
+      tfoot  { display: table-footer-group; }
+      table.voucher {
+        display: inline-block !important;
+        width: 48%;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+    }
+
+    #num, span#num {
+      float: right !important;
+      display: inline-block;
+      margin-left: 4px !important;
+      clear: none !important;
+    }
+  `;
+
+  const js = `
+    window.onload = function() {
+      document.body.style.transform = 'scale(${defaultScale})';
+      document.body.style.width = '${Math.round(100 / defaultScale * 10000) / 10000}%';
+      window.focus();
+      window.print();
+    };
+  `;
+
+  return `<!doctype html>
 <html>
 <head>
-  <title>${safeTitle}</title>
-  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-  <meta http-equiv="pragma" content="no-cache" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
   <style>${css}</style>
+  <script>${js}<\/script>
 </head>
-${bodyOpen}${htmlItems.join("\n")}</body>
+<body>${htmlItems.join("\n")}</body>
 </html>`;
 }
 
 /**
- * Impression vouchers **depuis l’APK uniquement** (React Native WebView → postMessage → expo-print).
- * Utilise le curseur **« Mobile »** du modèle de ticket (`scaleMobile`, en pourcent : `85` → zoom 85 %).
- *
- * Ne pas utiliser pour le web : le bureau utilise `buildSmallModePrintHtml(..., scaleSmall)` ; le navigateur mobile,
- * `buildSmallModePrintHtml(..., scaleMobile / 100)` dans une fenêtre dédiée — ce sont des `html { zoom }` différents.
+ * Imprime des tickets HTML.
+ * — APK WebView : pont natif via postMessage → expo-print.
+ * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
+ * — Desktop     : utilise un <iframe> invisible.
  */
-export function printTickets(htmlItems: string[], title: string, scaleMobilePercent = 100): void {
-  if (!isNativeWebView()) {
-    console.warn(
-      "[printTickets] réservé au WebView natif (APK). Côté web, utilisez buildSmallModePrintHtml avec scaleSmall (bureau) ou scaleMobile/100 (mobile).",
-    );
+export function printTickets(htmlItems: string[], title: string, scale = 85): void {
+  let html = buildHtml(htmlItems, title, false, scale, false);
+
+  if (isNativeWebView()) {
+    printWithNativeBridge(html, title);
     return;
   }
-  const html = buildSmallModePrintHtml(htmlItems, title, scaleMobilePercent / 100, { autoprint: false });
-  printWithNativeBridge(html, title);
+
+  if (isMobile()) {
+    if (!/<script[^>]*>[\s\S]*window\.print\s*\(/i.test(html)) {
+      html = html.replace(/<\/body>/i, `<script>window.onload=function(){window.print();}<\/script></body>`);
+    }
+    openPrintHtmlWindow(html, title);
+  } else {
+    printWithIframe(html, title);
+  }
 }
 
 /**

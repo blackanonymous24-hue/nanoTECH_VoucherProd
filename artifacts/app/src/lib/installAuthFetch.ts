@@ -1,6 +1,5 @@
 const TOKEN_KEY = "vouchernet_admin_token";
 const API_FETCH_ABORT_REASON = "auth-logout";
-/** Même valeur que `VOUCHERNET_API_PAUSE_REASON` dans `@workspace/api-client-react` (apiPauseError). */
 const API_FETCH_PAUSED_REASON = "api-paused";
 
 function readToken(): string | null {
@@ -37,19 +36,6 @@ declare global {
     };
   }
 }
-
-/**
- * Requêtes API encore autorisées pendant enable/disable hotspot (fetch + Axios).
- * Ne pas inclure GET …/users ni autres lectures lourdes MikroTik — elles affament le routeur.
- * À garder aligné avec la logique dans lib/api-client-react mutator (lecture du même état pause).
- */
-export const HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS: RegExp[] = [
-  /\/api\/vouchers\/users-toggle(?:$|[/?#])/,
-  /\/api\/vouchers\/lot-usernames(?:$|[/?#])/,
-  /\/api\/vouchers\/lot-disable(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
-];
 
 function getApiControllers(): Set<AbortController> {
   if (!window.__vouchernetApiFetchControllers) {

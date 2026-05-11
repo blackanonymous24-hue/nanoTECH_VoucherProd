@@ -4,7 +4,6 @@ import {
   getListVouchersQueryKey,
   getListRouterProfilesQueryKey,
 } from "@workspace/api-client-react";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import type { HotspotProfile } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
@@ -30,8 +29,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale, saveSmallScale, saveMobileScale } from "@/pages/TicketTemplate";
-import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, printTickets } from "@/lib/print";
+import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale } from "@/pages/TicketTemplate";
+import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -355,14 +354,14 @@ export default function GenerateVouchers() {
   const GEN_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { data: vendors = [] } = useQuery<{ id: number; name: string; isActive?: boolean; phone?: string | null; ticketLetter?: string | null }[]>({
     queryKey: ["vendors", selectedRouterId],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       const url = selectedRouterId
         ? `${GEN_BASE}/api/vendors?routerId=${selectedRouterId}`
         : `${GEN_BASE}/api/vendors`;
       const res = await fetch(url, { signal });
       if (!res.ok) return [];
       return res.json() as Promise<{ id: number; name: string }[]>;
-    }),
+    },
     staleTime: 60_000,
   });
 
@@ -685,9 +684,7 @@ export default function GenerateVouchers() {
   };
 
   const handlePrintSmall = async (lot: LastLot) => {
-    const isNativeWV = typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView !== "undefined";
-    const isMobileBrowser = !isNativeWV && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const preWin: Window | null = isNativeWV ? null : window.open("", "_blank");
+    const preWin: Window | null = window.open("", "_blank");
     if (preWin) {
       preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -707,22 +704,9 @@ export default function GenerateVouchers() {
     }
     const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
     if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) { preWin?.close(); return; }
-    // Fallback localStorage si le serveur est injoignable
-    let capturedSmallScale  = readSmallScale();
-    let capturedMobileScale = readMobileScale();
     setIsPrintingSmall(true);
     try {
-      const { template: php, serverScaleSmall, serverScaleMobile } = await fetchServerTemplateWithMeta();
-      // Le serveur est toujours la source de vérité — tous les rôles utilisent
-      // l'échelle du tenant admin, corrige aussi les valeurs localStorage périmées.
-      if (serverScaleSmall !== null) {
-        capturedSmallScale = serverScaleSmall / 100;
-        saveSmallScale(capturedSmallScale);
-      }
-      if (serverScaleMobile !== null) {
-        capturedMobileScale = serverScaleMobile;
-        saveMobileScale(capturedMobileScale);
-      }
+      const { template: php } = await fetchServerTemplateWithMeta();
       const PRICE_COLORS: Record<string, string> = {
         "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
         "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
@@ -749,21 +733,23 @@ export default function GenerateVouchers() {
       if (data.error) throw new Error(data.error);
       const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
       const title = ["Voucher", toSlug(hotspotName), lot.comment].filter(Boolean).join("-");
+      const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
+      const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       if (isNativeWV) {
-        // APK : échelle « Mobile » uniquement (voir print.printTickets + JSDoc buildSmallModePrintHtml)
-        printTickets(data.html as string[], title, capturedMobileScale);
+        // APK : pont natif, pas de window.open
+        printTickets(data.html as string[], title, readMobileScale());
       } else if (isMobileBrowser) {
-        // Navigateur mobile : zoom = curseur « Mobile » du modèle de ticket (≠ « Small » bureau)
+        // Mobile browser : zoom + page-breaks (anti-coupure)
         if (preWin) {
-          const html = buildSmallModePrintHtml(data.html as string[], title, capturedMobileScale / 100);
+          const html = buildTicketPrintHtml(data.html as string[], title, readMobileScale(), true);
           preWin.document.open();
           preWin.document.write(html);
           preWin.document.close();
         }
       } else {
-        // Bureau web : zoom = curseur « Small » du modèle de ticket
+        // Desktop : 2 colonnes Small
         if (preWin) {
-          const html = buildSmallModePrintHtml(data.html as string[], title, capturedSmallScale);
+          const html = buildSmallModePrintHtml(data.html as string[], title, readSmallScale());
           preWin.document.open();
           preWin.document.write(html);
           preWin.document.close();

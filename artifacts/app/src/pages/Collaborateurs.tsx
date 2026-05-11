@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
 import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -107,22 +106,22 @@ export default function Collaborateurs() {
 
   const { data: collabs = [], isLoading, refetch } = useQuery<Collaborateur[]>({
     queryKey: ["collaborateurs"],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       const r = await fetch(`${BASE}/api/collaborateurs`, { headers, signal });
       if (!r.ok) throw new Error("Erreur chargement");
       return r.json();
-    }),
+    },
   });
 
   useRefetchOnEmpty(collabs, isLoading, () => void refetch(), (d) => !d || d.length === 0);
 
   const { data: routers = [] } = useQuery<RouterInfo[]>({
     queryKey: ["routers-list"],
-    queryFn: withApiPauseCacheFallback(async ({ signal }) => {
+    queryFn: async ({ signal }) => {
       const r = await fetch(`${BASE}/api/routers`, { signal });
       if (!r.ok) throw new Error("Erreur chargement routeurs");
       return r.json();
-    }),
+    },
   });
 
   const createMutation = useMutation({

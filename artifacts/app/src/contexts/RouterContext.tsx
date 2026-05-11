@@ -1,10 +1,8 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
-import { useListRouters, getListRoutersQueryKey, listRouters } from "@workspace/api-client-react";
-import { withApiPauseCacheFallback } from "@/lib/queryFnApiPauseCache";
+import { useListRouters, getListRoutersQueryKey } from "@workspace/api-client-react";
 import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
-import { queryKeyBelongsToRouterId } from "@/lib/router-query-key-belongs-to-router";
 
 export type BorrowedRouter = { id: number; name: string; ownerAdminId: number; hotspotName?: string | null; contact?: string | null };
 
@@ -57,12 +55,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const isRouterLocked = isManagerLocked;
 
   const { data: freshRouters, isLoading: routersQueryLoading, isFetched: routersFetched } = useListRouters({
-    query: {
-      queryKey: getListRoutersQueryKey(),
-      staleTime: 30_000,
-      gcTime: 5 * 60_000,
-      queryFn: withApiPauseCacheFallback(({ signal }) => listRouters(undefined, signal)),
-    },
+    query: { queryKey: getListRoutersQueryKey(), staleTime: 30_000, gcTime: 5 * 60_000 },
   });
 
   // Use freshRouters directly — no intermediate state — so that when
@@ -210,10 +203,9 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     const prevId = prevRouterIdRef.current;
     prevRouterIdRef.current = selectedRouterId;
     if (prevId === null || prevId === selectedRouterId) return;
-    // Annuler uniquement les requêtes **structurées** pour l’ancien routeur
-    // (évite `includes(prevId)` qui touchait aussi d’autres nombres : scope vendeur, etc.).
+    // Annuler toutes les queries dont la clé contient l'ancien router ID
     void queryClient.cancelQueries({
-      predicate: (query) => queryKeyBelongsToRouterId(query.queryKey, prevId),
+      predicate: (query) => query.queryKey.includes(prevId),
     });
   }, [selectedRouterId]);
 
