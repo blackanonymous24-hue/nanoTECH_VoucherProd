@@ -375,9 +375,9 @@ table.voucher {
 
 function wrapVoucherBodyWithPrintScale(bodyTicketsHtml: string, scalePercent: number): string {
   const pct = Math.max(0, Math.min(100, Math.round(scalePercent)));
-  if (pct >= 100) return bodyTicketsHtml;
-  const z = pct <= 0 ? 1 : pct;
-  return `<div class="vn-voucher-scale-wrap" style="zoom:${z}%;box-sizing:border-box">${bodyTicketsHtml}</div>`;
+  if (pct <= 0 || pct >= 100) return bodyTicketsHtml;
+  const f = pct / 100;
+  return `<div class="vn-voucher-scale-wrap" style="box-sizing:border-box;-webkit-transform-origin:top left;transform-origin:top left;-webkit-transform:scale(${f});transform:scale(${f});width:calc(100% / ${f});">${bodyTicketsHtml}</div>`;
 }
 
 export function buildStandaloneVoucherPrintHtml(

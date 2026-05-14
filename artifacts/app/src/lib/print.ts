@@ -62,13 +62,17 @@ function voucherPrintScalePercentForCurrentContext(): number {
   return getVoucherPrintScaleDesktop();
 }
 
-/** Applique un zoom type « mise à l’échelle » autour du HTML des tickets (navigateur / WebView). */
+/** Applique l’échelle d’impression autour du HTML des tickets. */
 export function wrapVoucherTicketsBodyForPrintScale(bodyHtml: string, scalePercent: number): string {
   const pct = clampVoucherPrintScale(scalePercent);
-  if (pct >= 100) return bodyHtml;
-  /** `zoom` est pris en charge à l’aperçu d’impression ; `transform: scale()` est souvent ignoré ou mal composé. */
-  const z = pct <= 0 ? 1 : pct;
-  return `<div class="vn-voucher-scale-wrap" style="zoom:${z}%;box-sizing:border-box">${bodyHtml}</div>`;
+  if (pct <= 0 || pct >= 100) return bodyHtml;
+  const f = pct / 100;
+  /**
+   * `zoom` est bien pris en charge à l’écran sur Chrome, mais l’aperçu / l’impression **mobile**
+   * (Safari iOS, WebView, souvent Firefox) l’ignore ou l’applique mal. `transform: scale` + largeur
+   * compensée est le contrepoids classique pour que l’échelle se voie aussi à l’impression.
+   */
+  return `<div class="vn-voucher-scale-wrap" style="box-sizing:border-box;-webkit-transform-origin:top left;transform-origin:top left;-webkit-transform:scale(${f});transform:scale(${f});width:calc(100% / ${f});">${bodyHtml}</div>`;
 }
 
 /**
