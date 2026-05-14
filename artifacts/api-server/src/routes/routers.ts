@@ -732,24 +732,6 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
     } catch { return null; }
   }
 
-  /** Impression tickets : attendre MikroTik pour prix / sellingPrice à jour (pas le cache « instantané »). */
-  const awaitLiveProfiles = String(req.query.awaitLive ?? "") === "1";
-  if (awaitLiveProfiles) {
-    try {
-      const fetched = await fetchProfilesWithCache(r.ownerAdminId, id, conn);
-      void saveSnapshot(fetched);
-      res.json(fetched);
-    } catch (err) {
-      const snapshot = await loadSnapshot();
-      if (snapshot) {
-        res.json(snapshot);
-        return;
-      }
-      res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
-    }
-    return;
-  }
-
   // Always return cached data immediately when available (even if ?refresh=1).
   // Refresh in background so the caller never has to wait for MikroTik.
   if (freshCached) {

@@ -6,7 +6,6 @@ import type { HotspotUser } from "../lib/mikrotik.js";
 import { invalidateUserCache, appendCachedUsers, resolveCallerScope } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { withRouterLock } from "../lib/router-lock.js";
-import { batchHotspotQrImgAttrs } from "../lib/voucher-qr-server.js";
 
 /**
  * After inserting vouchers, attribute any with vendorId=null to the matching
@@ -42,50 +41,6 @@ async function autoAttributeInserted(insertedIds: number[]) {
 }
 
 const router = Router();
-
-const MAX_HOTSPOT_QR = 5_000;
-
-/** QR PNG 64×64 (marge 1) côté Node — même principe que le batch MHM `render-tickets`. */
-router.post("/vouchers/hotspot-qr-attrs", async (req, res): Promise<void> => {
-  const scope = await resolveCallerScope(req);
-  if (!scope) {
-    res.status(401).json({ error: "Non authentifié" });
-    return;
-  }
-  const body = req.body as { loginHost?: unknown; items?: unknown };
-  const loginHost = typeof body.loginHost === "string" ? body.loginHost : "";
-  const rawItems = Array.isArray(body.items) ? body.items : null;
-  if (!rawItems || rawItems.length === 0) {
-    res.status(400).json({ error: "items requis (tableau non vide)" });
-    return;
-  }
-  if (rawItems.length > MAX_HOTSPOT_QR) {
-    res.status(400).json({ error: `Maximum ${MAX_HOTSPOT_QR} QR par requête` });
-    return;
-  }
-  const items: Array<{ username: string; password: string; usermode: "vc" | "up" }> = [];
-  for (const row of rawItems) {
-    if (!row || typeof row !== "object") {
-      res.status(400).json({ error: "item invalide" });
-      return;
-    }
-    const o = row as Record<string, unknown>;
-    const username = String(o.username ?? "");
-    const password = String(o.password ?? "");
-    const um = o.usermode === "vc" || o.usermode === "up" ? o.usermode : null;
-    if (!um) {
-      res.status(400).json({ error: "usermode requis (vc|up) par item" });
-      return;
-    }
-    items.push({ username, password, usermode: um });
-  }
-  try {
-    const attrs = await batchHotspotQrImgAttrs(loginHost, items);
-    res.json({ attrs });
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "QR" });
-  }
-});
 
 router.get("/vouchers", async (req, res): Promise<void> => {
   const { routerId, profile, printed, limit, offset } = req.query as {

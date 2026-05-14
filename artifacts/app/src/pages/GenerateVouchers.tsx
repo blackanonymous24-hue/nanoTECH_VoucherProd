@@ -29,7 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { openVoucherPrintPreparationWindow, printMikhmonSmallVouchers } from "@/lib/print";
+import { printMikhmonSmallVouchers } from "@/lib/print";
 import {
   formatMikhmonBytes,
   inferMikhmonUserMode,
@@ -41,12 +41,6 @@ import {
   ticketPriceColorKey,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
-import { fetchHotspotQrImgAttrsBatch } from "@/lib/voucher-hotspot-qr-api";
-import {
-  fetchProfilesSnap,
-  finalizeProfilesForPrint,
-} from "@/lib/fetch-router-profiles-live";
-import { buildVoucherPdfDocumentTitle } from "@/lib/voucher-print-filename";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -341,8 +335,6 @@ export default function GenerateVouchers() {
 
   const [copiedLot, setCopiedLot] = useState(false);
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
-  /** Impression tickets du dernier lot en cours (aperçu bouton). */
-  const [voucherPrintBusy, setVoucherPrintBusy] = useState(false);
   const [confirmDeleteLastLot, setConfirmDeleteLastLot] = useState<LastLot | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [genPaused, setGenPaused] = useState(false);
@@ -359,7 +351,6 @@ export default function GenerateVouchers() {
     // Réinitialise le vendeur et le profil sélectionnés (spécifiques à chaque routeur)
     setVendorId("");
     setProfile("");
-    setVoucherPrintBusy(false);
   }, [selectedRouterId, autoLoadAttempted]);
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
@@ -703,14 +694,8 @@ export default function GenerateVouchers() {
 
   const handlePrintSmall = async (lot: LastLot) => {
     if (!lot.routerId || !lot.comment) return;
-    const preWin = openVoucherPrintPreparationWindow();
-    setVoucherPrintBusy(true);
     try {
-      const [raw, template, profilesSnap] = await Promise.all([
-        fetchLotUsers(lot.routerId, lot.comment, GEN_BASE),
-        fetchEffectiveTicketTemplate(GEN_BASE),
-        fetchProfilesSnap(GEN_BASE, lot.routerId),
-      ]);
+      const raw = await fetchLotUsers(lot.routerId, lot.comment, GEN_BASE);
       const users = raw as Array<{
         username: string;
         password: string;
@@ -720,80 +705,52 @@ export default function GenerateVouchers() {
         limitBytesTotal?: string | null;
       }>;
       if (users.length === 0) {
-        preWin?.close();
         toast({ title: "Rien à imprimer", description: "Aucun voucher sur le routeur pour ce lot.", variant: "destructive" });
         return;
       }
       const r = selectedRouter as {
         hotspotName?: string | null;
-        contact?: string | null;
         name?: string;
         currency?: string | null;
         host?: string;
       } | undefined;
       const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || lot.routerName || "Hotspot";
       const currency = (r?.currency ?? "").trim() || "FCFA";
-      const qrHost = (r?.host ?? "").trim() || hotspotName;
-      const dnsname = (r?.contact ?? "").trim() || qrHost;
-      const needQr = /\$qrcode/i.test(template);
+      const dnsname = (r?.host ?? "").trim() || hotspotName;
+      const template = await fetchEffectiveTicketTemplate(GEN_BASE);
       const voucherByUser = new Map(lot.vouchers.map((v) => [v.username, v]));
-      const profilesForPrint = await finalizeProfilesForPrint(
-        GEN_BASE,
-        lot.routerId,
-        displayedProfilesSorted,
-        users,
-        profilesSnap,
-      );
-      const profByName = new Map(profilesForPrint.map((p) => [p.name, p]));
-      const qrItems = needQr
-        ? users.map((u) => {
-            const v = voucherByUser.get(u.username);
-            return {
-              username: u.username,
-              password: u.password,
-              usermode: inferMikhmonUserMode(u.comment ?? v?.comment ?? null, u.username, u.password),
-            };
-          })
-        : [];
-      const qrAttrsList =
-        needQr && qrItems.length > 0 ? await fetchHotspotQrImgAttrsBatch(GEN_BASE, qrHost, qrItems) : [];
+      const profByName = new Map(displayedProfilesSorted.map((p) => [p.name, p]));
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
-          const v = voucherByUser.get(u.username);
-          const p = profByName.get(u.profile);
-          const usermode = inferMikhmonUserMode(u.comment ?? v?.comment ?? null, u.username, u.password);
-          const priceStr = (v?.price ?? "").trim() || mikhmonProfilePriceLabel(p) || (lot.price ?? "").trim();
-          const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? v?.price ?? lot.price ?? "").trim();
-          const qrcode = needQr ? (qrAttrsList[i] ?? 'src="" alt=""') : "";
-          return {
-            hotspotName,
-            num: i + 1,
-            usermode,
-            username: u.username,
-            password: u.password,
-            validityRaw: String(v?.validity ?? p?.validity ?? lot.validity ?? "").trim(),
-            timelimitRaw: String(u.limitUptime ?? "").trim(),
-            datalimit: formatMikhmonBytes(u.limitBytesTotal),
-            priceDisplay: priceStr,
-            getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
-            currency,
-            dnsname,
-            qrcode,
-          };
-        });
+        const v = voucherByUser.get(u.username);
+        const p = profByName.get(u.profile);
+        const priceStr = (v?.price ?? "").trim() || mikhmonProfilePriceLabel(p) || (lot.price ?? "").trim();
+        const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? v?.price ?? lot.price ?? "").trim();
+        return {
+          hotspotName,
+          num: i + 1,
+          usermode: inferMikhmonUserMode(u.comment ?? v?.comment ?? null, u.username, u.password),
+          username: u.username,
+          password: u.password,
+          validityRaw: String(v?.validity ?? p?.validity ?? lot.validity ?? "").trim(),
+          timelimitRaw: String(u.limitUptime ?? "").trim(),
+          datalimit: formatMikhmonBytes(u.limitBytesTotal),
+          priceDisplay: priceStr,
+          getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
+          currency,
+          dnsname,
+          qrcode: "",
+        };
+      });
       printMikhmonSmallVouchers(
         renderVoucherTicketsBody(template, rows),
-        buildVoucherPdfDocumentTitle(hotspotName, lot.profileName, lot.comment),
-        preWin,
+        `Voucher-${hotspotName}-${lot.profileName}-${lot.comment}`,
       );
     } catch (err) {
-      preWin?.close();
       toast({
         title: "Impression impossible",
         description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
-    } finally {
-      setVoucherPrintBusy(false);
     }
   };
 
@@ -1202,19 +1159,10 @@ export default function GenerateVouchers() {
                     type="button"
                     className="w-full gap-1.5 h-9 text-sm bg-purple-600 hover:bg-purple-700 text-white"
                     onClick={() => void handlePrintSmall(lastLot)}
-                    disabled={!selectedRouterId || voucherPrintBusy}
+                    disabled={!selectedRouterId}
                   >
-                    {voucherPrintBusy ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                        <span className="italic">Impression en cours...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Printer className="h-3.5 w-3.5 shrink-0" />
-                        Imprimer
-                      </>
-                    )}
+                    <Printer className="h-3.5 w-3.5" />
+                    Imprimer
                   </Button>
                 ) : (
                   <Button
@@ -1327,19 +1275,9 @@ export default function GenerateVouchers() {
                   size="sm"
                   className="flex-1 gap-1.5 h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white"
                   onClick={() => void handlePrintSmall(lastLot)}
-                  disabled={voucherPrintBusy}
                 >
-                  {voucherPrintBusy ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                      <span className="italic">Impression en cours...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Printer className="h-3.5 w-3.5 shrink-0" />
-                      Imprimer
-                    </>
-                  )}
+                  <Printer className="h-3.5 w-3.5" />
+                  Imprimer
                 </Button>
                 <Button
                   size="sm"
@@ -1369,14 +1307,14 @@ export default function GenerateVouchers() {
               <div className="hidden sm:block max-h-[420px] overflow-y-auto">
                 <div className="divide-y divide-gray-50">
                   {lastLot.vouchers.map((v, i) => (
-                    <div key={v.id ?? i} className="flex items-center gap-3 px-4 py-1.5 hover:bg-gray-50 transition-colors text-xs font-sans">
-                      <span className="text-gray-400 w-6 text-right flex-shrink-0 tabular-nums">{i + 1}</span>
-                      <span className="font-semibold text-gray-900 flex-1 select-all min-w-0 break-all">{v.username}</span>
+                    <div key={v.id ?? i} className="flex items-center gap-3 px-4 py-1.5 hover:bg-gray-50 transition-colors">
+                      <span className="text-xs text-gray-300 w-6 text-right flex-shrink-0 tabular-nums">{i + 1}</span>
+                      <code className="font-mono text-sm font-semibold text-gray-900 flex-1 select-all">{v.username}</code>
                       {v.username !== v.password && (
-                        <span className="text-gray-500 flex-shrink-0 select-all tabular-nums">{v.password}</span>
+                        <code className="font-mono text-xs text-gray-400 flex-shrink-0 select-all">{v.password}</code>
                       )}
                       {v.validity && (
-                        <span className="text-blue-600 flex-shrink-0 tabular-nums">{v.validity}</span>
+                        <span className="text-xs text-blue-500 flex-shrink-0">{v.validity}</span>
                       )}
                     </div>
                   ))}

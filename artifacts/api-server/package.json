@@ -20,12 +20,10 @@
     "node-routeros": "^1.2.8",
     "pino": "^9.7.0",
     "pino-http": "^10.5.0",
-    "qrcode": "^1.5.4",
     "source-map-support": "^0.5.21",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/qrcode": "^1.5.5",
     "@types/express": "^5.0.2",
     "@types/node": "catalog:",
     "@types/source-map-support": "^0.5.10",

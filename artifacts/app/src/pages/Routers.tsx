@@ -631,10 +631,7 @@ export default function Routers() {
                   value={form.hotspotName}
                   onChange={(e) => setForm({ ...form, hotspotName: e.target.value })}
                 />
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Variable ticket <code className="rounded bg-gray-100 px-0.5 font-mono text-[11px]">$hotspotname</code>
-                  {" "}(= nom du Wi‑Fi sur le ticket). Facultatif.
-                </p>
+                <p className="text-xs text-gray-400 mt-0.5">Affiché comme titre dans les impressions de rapports (facultatif)</p>
               </div>
               <div>
                 <Label>Contact</Label>
@@ -644,10 +641,7 @@ export default function Routers() {
                   value={form.contact}
                   onChange={(e) => setForm({ ...form, contact: e.target.value })}
                 />
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Variable ticket <code className="rounded bg-gray-100 px-0.5 font-mono text-[11px]">$dnsname</code>
-                  {" "}(= contact en pied de ticket ; si vide, hôte API / nom Wi-Fi). Facultatif.
-                </p>
+                <p className="text-xs text-gray-400 mt-0.5">Affiché en bas de chaque ticket imprimé (facultatif)</p>
               </div>
               <div>
                 <Label>Devise</Label>

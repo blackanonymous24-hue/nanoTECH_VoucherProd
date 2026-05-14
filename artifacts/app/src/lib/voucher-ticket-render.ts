@@ -158,7 +158,6 @@ function substituteTicketVars(html: string, vars: Record<string, string>, qrcode
 }
 
 export type VoucherTicketPrintRow = {
-  /** Valeur de `<?= $hotspotname ?>` : champ « Nom du wifi » du routeur (sinon nom du routeur). */
   hotspotName: string;
   num: number;
   usermode: "vc" | "up";
@@ -173,7 +172,6 @@ export type VoucherTicketPrintRow = {
   /** Clé couleur nanoTECH (chiffres, ex. profil.price). */
   getpriceKey: string;
   currency: string;
-  /** Valeur de `<?= $dnsname ?>` sur le ticket : champ « Contact » du routeur si renseigné, sinon hôte API puis nom Wi-Fi. */
   dnsname: string;
   /** Fragment HTML attributs image QR (ex. `src="data:image/png;base64,..."`) ou vide. */
   qrcode: string;

@@ -1,7 +1,6 @@
 /**
- * Utilitaires alignés sur Mikhmon v3 pour les vouchers « small ».
- * Le HTML du ticket vient du fichier `ticket-templates/mikhmon-small.php.txt`
- * (template-small.php), rendu par `voucher-ticket-render.ts`.
+ * Rendu ticket « small » aligné sur Mikhmon v3 :
+ * `voucher/print.php` (styles + body) + `voucher/template-small.php` (table).
  */
 
 const UNITS = ["Byte", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"] as const;
@@ -51,4 +50,100 @@ export function inferMikhmonUserMode(
   if (first === "vc") return "vc";
   if (first === "up") return "up";
   return username === password ? "vc" : "up";
+}
+
+export type MikhmonSmallTicket = {
+  hotspotName: string;
+  /** 1-based, affiché comme dans Mikhmon : ` [n]` */
+  num: number;
+  usermode: "vc" | "up";
+  username: string;
+  password: string;
+  validity: string;
+  timelimit: string;
+  datalimit: string;
+  price: string;
+};
+
+/** Une table `.voucher` comme `template-small.php`. */
+export function buildMikhmonSmallTicketHtml(t: MikhmonSmallTicket): string {
+  const hs = escapeHtml(t.hotspotName);
+  const num = escapeHtml(String(t.num));
+  const u = escapeHtml(t.username);
+  const p = escapeHtml(t.password);
+  const v = escapeHtml(t.validity);
+  const time = escapeHtml(t.timelimit);
+  const data = escapeHtml(t.datalimit);
+  const price = escapeHtml(t.price);
+  const bottom = [v, time, data, price].filter(Boolean).join(" ");
+
+  if (t.usermode === "vc") {
+    return `<table class="voucher" style=" width: 160px;">
+  <tbody>
+    <tr>
+      <td style="text-align: left; font-size: 14px; font-weight:bold; border-bottom: 1px black solid;">${hs}<span id="num"> [${num}]</span></td>
+    </tr>
+    <tr>
+      <td>
+    <table style=" text-align: center; width: 150px;">
+  <tbody>
+    <tr style="color: black; font-size: 11px;">
+      <td>
+        <table style="width:100%;">
+        <tr>
+          <td style="font-size: 12px;">Kode Voucher</td>
+        </tr>
+        <tr style="color: black; font-size: 14px;">
+          <td style="width:100%; border: 1px solid black; font-weight:bold;">${u}</td>
+        </tr>
+        <tr>
+          <td colspan="2" style="border: 1px solid black; font-weight:bold;">${bottom}</td>
+        </tr>
+        </table>
+      </td>
+    </tr>
+  </tbody>
+    </table>
+      </td>
+    </tr>
+  </tbody>
+</table>`;
+  }
+
+  return `<table class="voucher" style=" width: 160px;">
+  <tbody>
+    <tr>
+      <td style="text-align: left; font-size: 14px; font-weight:bold; border-bottom: 1px black solid;">${hs}<span id="num"> [${num}]</span></td>
+    </tr>
+    <tr>
+      <td>
+    <table style=" text-align: center; width: 150px;">
+  <tbody>
+    <tr style="color: black; font-size: 11px;">
+      <td>
+        <table style="width:100%;">
+          <tr>
+          <td style="width: 50%">Username</td>
+          <td>Password</td>
+        </tr>
+        <tr style="color: black; font-size: 14px;">
+          <td style="border: 1px solid black; font-weight:bold;">${u}</td>
+          <td style="border: 1px solid black; font-weight:bold;">${p}</td>
+        </tr>
+        <tr>
+          <td colspan="2" style="border: 1px solid black; font-weight:bold;">${bottom}</td>
+        </tr>
+        </table>
+      </td>
+    </tr>
+  </tbody>
+    </table>
+      </td>
+    </tr>
+  </tbody>
+</table>`;
+}
+
+export function buildMikhmonSmallTicketsBody(tickets: MikhmonSmallTicket[]): string {
+  return tickets.map(buildMikhmonSmallTicketHtml).join("\n");
 }

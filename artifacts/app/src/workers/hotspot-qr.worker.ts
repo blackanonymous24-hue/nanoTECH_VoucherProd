@@ -2,7 +2,21 @@
 
 import QRCode from "qrcode";
 import { buildHotspotLoginUrl } from "@/lib/voucher-login-qr-url";
-import type { HotspotQrWorkerRequest, HotspotQrWorkerResponse } from "@/workers/hotspot-qr-worker-protocol";
+
+export type HotspotQrWorkerRequest = {
+  id: number;
+  loginHost: string;
+  username: string;
+  password: string;
+  pixelWidth: number;
+  margin: number;
+  errorCorrectionLevel: "L" | "M" | "Q" | "H";
+};
+
+export type HotspotQrWorkerResponse = {
+  id: number;
+  attrs: string;
+};
 
 function readBlobAsDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -15,17 +29,10 @@ function readBlobAsDataUrl(blob: Blob): Promise<string> {
 
 async function runJob(req: HotspotQrWorkerRequest): Promise<HotspotQrWorkerResponse> {
   const { id, loginHost, username, password, pixelWidth, margin, errorCorrectionLevel } = req;
-  const usermode = req.usermode ?? "up";
-  let qrPayload: string;
-  if (usermode === "vc") {
-    qrPayload = (username ?? "").trim() || " ";
-  } else {
-    const loginUrl = buildHotspotLoginUrl(loginHost, username, password);
-    if (!loginUrl) return { id, attrs: 'src="" alt=""' };
-    qrPayload = loginUrl;
-  }
+  const loginUrl = buildHotspotLoginUrl(loginHost, username, password);
+  if (!loginUrl) return { id, attrs: 'src="" alt=""' };
   try {
-    const svg = await QRCode.toString(qrPayload, {
+    const svg = await QRCode.toString(loginUrl, {
       type: "svg",
       width: pixelWidth,
       margin,

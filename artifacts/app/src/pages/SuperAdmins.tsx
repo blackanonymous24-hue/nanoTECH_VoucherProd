@@ -3,15 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save, ServerCog, RotateCcw, Copy, Wifi, Activity,
+  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Copy, Wifi, Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TicketTemplateCodeEditor } from "@/components/TicketTemplateCodeEditor";
-import { TicketTemplateVarLegend } from "@/components/TicketTemplateVarLegend";
-import { VoucherPrintScaleControl } from "@/components/VoucherPrintScaleControl";
 import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -38,7 +35,7 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -61,7 +58,6 @@ interface RouterRow {
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const TEMPLATE_CUSTOM_OPTION = "custom" as const;
 const VALID_MONTHS = [1, 2, 3, 4, 5, 6, 12] as const;
 type ForfaitChoice = "24h" | "unlimited" | `${(typeof VALID_MONTHS)[number]}`;
 type CreateForfaitChoice = "0" | ForfaitChoice;
@@ -1118,20 +1114,8 @@ function RouterFormDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div><Label>Nom <span className="text-red-500">*</span></Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mon routeur" /></div>
-          <div>
-            <Label>Nom du wifi</Label>
-            <Input value={hotspotName} onChange={(e) => setHotspotName(e.target.value)} placeholder="optionnel" />
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              Variable <code className="rounded bg-gray-100 px-0.5 font-mono">$hotspotname</code> sur les tickets.
-            </p>
-          </div>
-          <div>
-            <Label>Contact</Label>
-            <Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="optionnel" />
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              Variable <code className="rounded bg-gray-100 px-0.5 font-mono">$dnsname</code> sur les tickets (sinon hôte).
-            </p>
-          </div>
+          <div><Label>Nom du hotspot</Label><Input value={hotspotName} onChange={(e) => setHotspotName(e.target.value)} placeholder="optionnel" /></div>
+          <div><Label>Contact</Label><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="optionnel" /></div>
           <div>
             <Label>Adresse (hôte:port) <span className="text-red-500">*</span></Label>
             <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.88.1:8728" className="font-mono" />
@@ -1736,9 +1720,8 @@ function TemplateDialog({ admin, onClose }: {
   const [templateCode, setTemplateCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  const presetMatch = findMatchingPresetId(templateCode);
-  const showCustomSelectOption = presetMatch === TEMPLATE_CUSTOM_OPTION;
+  const [presetValue, setPresetValue] = useState<TicketTemplatePresetId | "custom">("mikhmon-small");
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -1748,13 +1731,16 @@ function TemplateDialog({ admin, onClose }: {
         const fromServer = data.template?.trim() ?? "";
         if (fromServer) {
           setTemplateCode(fromServer);
+          setPresetValue(findMatchingPresetId(fromServer));
         } else {
           const stored = getStoredTicketPresetId();
+          setPresetValue(stored);
           setTemplateCode(getCustomDefault() || getPresetBody(stored));
         }
       })
       .catch(() => {
         const stored = getStoredTicketPresetId();
+        setPresetValue(stored);
         setTemplateCode(getCustomDefault() || getPresetBody(stored));
       })
       .finally(() => setLoading(false));
@@ -1784,9 +1770,13 @@ function TemplateDialog({ admin, onClose }: {
   };
 
   const handlePresetChange = (v: string) => {
-    if (v === TEMPLATE_CUSTOM_OPTION) return;
+    if (v === "custom") {
+      setPresetValue("custom");
+      return;
+    }
     const id = v as TicketTemplatePresetId;
     setStoredTicketPresetId(id);
+    setPresetValue(id);
     const body = getPresetBody(id);
     setTemplateCode(body);
     try {
@@ -1797,128 +1787,132 @@ function TemplateDialog({ admin, onClose }: {
     toast({ title: "Modèle chargé", description: label });
   };
 
-  const handleResetToMikhmonSmall = () => {
+  const handleReset = () => {
+    const base = getCustomDefault() ?? DEFAULT_MIKHMON_PHP;
+    setTemplateCode(base);
+    const id = getStoredTicketPresetId();
+    setPresetValue(findMatchingPresetId(getCustomDefault() ?? getPresetBody(id)));
+    toast({ title: "Réinitialisé", description: "Modèle de base local ou préréglage Mikhmon (small)." });
+  };
+
+  const handleUseDefaultMikhmon = () => {
     setStoredTicketPresetId("mikhmon-small");
+    setPresetValue("mikhmon-small");
     const body = DEFAULT_MIKHMON_PHP;
     setTemplateCode(body);
     try {
       localStorage.setItem(PHP_KEY, body);
       localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
     } catch { /* ignore */ }
-    toast({
-      title: "Modèle réinitialisé",
-      description: "Modèle de ticket style Mikhmon (small). Sauvegardez pour l’appliquer à cet admin.",
-    });
+    toast({ title: "Mikhmon (small)", description: "Sauvegardez pour l’appliquer à cet admin." });
+  };
+
+  const handleImportPHP = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const raw = ev.target?.result as string;
+      setTemplateCode(raw);
+      setPresetValue(findMatchingPresetId(raw));
+      try { localStorage.setItem(PHP_KEY, raw); localStorage.setItem(CUSTOM_DEFAULT_KEY, raw); } catch { /* ignore */ }
+      toast({ title: "Fichier importé", description: `${file.name} — cliquez Sauvegarder pour le serveur.` });
+    };
+    reader.readAsText(file, "UTF-8");
+    e.target.value = "";
+  };
+
+  const handleSetAsDefault = () => {
+    if (!templateCode.trim()) return;
+    try { localStorage.setItem(CUSTOM_DEFAULT_KEY, templateCode); localStorage.setItem(PHP_KEY, templateCode); } catch { /* ignore */ }
+    toast({ title: "Modèle de base local", description: "Utilisé comme base sur cet appareil." });
   };
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-5xl gap-1.5 p-3 sm:p-4 sm:gap-2">
-        <DialogHeader className="space-y-0.5 pb-0">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <FileCode className="h-5 w-5 shrink-0 text-violet-600" />
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileCode className="h-5 w-5 text-violet-600" />
             Modèle de ticket — {admin.displayName || admin.login}
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            Modèle de ticket PHP pour {admin.displayName || admin.login}.
+          <DialogDescription>
+            Trois modèles intégrés — par défaut <strong>Mikhmon (small)</strong> si le serveur n’a pas encore de modèle pour cet admin.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(180px,220px)] lg:items-start min-w-0">
-          <div className="min-w-0 space-y-1">
-            <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-2">
-              <div className="flex min-w-0 flex-1 flex-col gap-1 lg:flex-row lg:items-center lg:gap-2 lg:max-w-[min(100%,14rem)] xl:max-w-[16rem]">
-                <Label className="flex shrink-0 items-center gap-1.5 text-xs font-medium whitespace-nowrap text-gray-700">
-                  <RouterIcon className="h-3.5 w-3.5 shrink-0 text-gray-500" />
-                  Modèle intégré
-                </Label>
-                <Select
-                  value={presetMatch}
-                  onValueChange={handlePresetChange}
-                  disabled={loading || saving}
-                >
-                  <SelectTrigger className="h-9 min-h-9 w-full min-w-0 flex-1 border-gray-200 bg-white text-sm max-w-md lg:h-8 lg:min-h-8 lg:max-w-full lg:text-xs lg:leading-snug [&>span]:block [&>span]:min-w-0 [&>span]:truncate [&>span]:text-left">
-                    <SelectValue placeholder="Choisir un modèle…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
-                      <SelectItem key={id} value={id} className="text-sm">
-                        {label}
-                      </SelectItem>
-                    ))}
-                    {showCustomSelectOption && (
-                      <SelectItem value={TEMPLATE_CUSTOM_OPTION} className="text-sm text-muted-foreground">
-                        Modèle de ticket personnalisé
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <VoucherPrintScaleControl />
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 max-lg:w-full max-lg:justify-between">
-                {showCustomSelectOption && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleResetToMikhmonSmall}
-                    className="h-8 gap-1.5 text-xs text-orange-600 border-orange-200 hover:bg-orange-50 lg:shrink-0"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5 shrink-0" />
-                    Réinitialiser
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  className="hidden h-8 gap-1.5 bg-violet-600 text-xs hover:bg-violet-700 lg:inline-flex"
-                  disabled={saving || loading}
-                  onClick={() => void handleSave()}
-                >
-                  {saving
-                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Sauvegarde…</>
-                    : <><Save className="h-3.5 w-3.5 shrink-0" />Sauvegarder</>
-                  }
-                </Button>
-              </div>
-            </div>
-            {showCustomSelectOption && (
-              <p className="text-[11px] leading-snug text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-0.5">
-                Le code a été modifié par rapport aux trois modèles intégrés — choisissez un modèle pour revenir à un
-                fichier fourni, ou gardez votre version personnalisée.
-              </p>
-            )}
-
-            {loading ? (
-              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Chargement…
-              </div>
-            ) : (
-              <TicketTemplateCodeEditor
-                value={templateCode}
-                onChange={setTemplateCode}
-                height="min(42vh, 340px)"
-                placeholder="Choisissez un modèle intégré ou éditez le code…"
-              />
-            )}
-          </div>
-
-          <Card className="h-fit shrink-0 lg:sticky lg:top-4">
-            <CardHeader className="p-3 sm:p-4 py-2 pb-1">
-              <CardTitle className="text-sm font-semibold">Variables</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 sm:p-4 pt-0">
-              <TicketTemplateVarLegend variant="plain" />
-            </CardContent>
-          </Card>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+            <RouterIcon className="h-3.5 w-3.5 text-gray-500" />
+            Modèle intégré
+          </Label>
+          <Select
+            value={presetValue}
+            onValueChange={handlePresetChange}
+            disabled={loading || saving}
+          >
+            <SelectTrigger className="h-9 text-sm w-full max-w-md bg-white border-gray-200">
+              <SelectValue placeholder="Choisir un modèle…" />
+            </SelectTrigger>
+            <SelectContent>
+              {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
+                <SelectItem key={id} value={id} className="text-sm">
+                  {label}
+                </SelectItem>
+              ))}
+              <SelectItem value="custom" className="text-sm text-muted-foreground">
+                Personnalisé (contenu hors modèles)
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          {presetValue === "custom" && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
+              Le texte ne correspond exactement à aucun des trois modèles — choisissez un modèle pour le remplacer, ou continuez à éditer à la main.
+            </p>
+          )}
         </div>
 
-        <DialogFooter className="gap-1.5 sm:gap-0 pt-1">
+        <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto">
+          <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50 shrink-0">
+            <RotateCcw className="h-3.5 w-3.5" />
+            Réinitialiser
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5 shrink-0">
+            <FileCode className="h-3.5 w-3.5" />
+            Coller modèle Mikhmon small
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5 shrink-0">
+            <Upload className="h-3.5 w-3.5" />
+            Importer .php
+          </Button>
+          <input ref={fileRef} type="file" accept=".php,.html,.txt" className="hidden" onChange={handleImportPHP} />
+          <Button variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50 shrink-0">
+            <BookMarked className="h-3.5 w-3.5" />
+            Définir par défaut (local)
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Chargement…
+          </div>
+        ) : (
+          <textarea
+            className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y min-h-[240px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={templateCode}
+            onChange={(e) => {
+              const next = e.target.value;
+              setTemplateCode(next);
+              setPresetValue(findMatchingPresetId(next));
+            }}
+            spellCheck={false}
+          />
+        )}
+
+        <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button
-            className="lg:hidden"
-            disabled={saving || loading}
-            onClick={() => void handleSave()}
-          >
+          <Button disabled={saving || loading} onClick={() => void handleSave()}>
             {saving
               ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sauvegarde…</>
               : <><Save className="h-4 w-4 mr-2" />Sauvegarder</>

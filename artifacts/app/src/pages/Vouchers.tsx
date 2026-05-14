@@ -9,7 +9,7 @@ import {
 } from "@workspace/api-client-react";
 import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
-import { openVoucherPrintPreparationWindow, printMikhmonSmallVouchers } from "@/lib/print";
+import { printMikhmonSmallVouchers } from "@/lib/print";
 import {
   formatMikhmonBytes,
   inferMikhmonUserMode,
@@ -21,12 +21,6 @@ import {
   ticketPriceColorKey,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
-import {
-  fetchProfilesSnap,
-  finalizeProfilesForPrint,
-} from "@/lib/fetch-router-profiles-live";
-import { fetchHotspotQrImgAttrsBatch } from "@/lib/voucher-hotspot-qr-api";
-import { buildVoucherPdfDocumentTitle } from "@/lib/voucher-print-filename";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -258,8 +252,6 @@ export default function Vouchers() {
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
   const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
   const [lotsVendorPopoverOpen, setLotsVendorPopoverOpen] = useState(false);
-  /** Lot en cours d’impression tickets (clé = nom du lot / commentaire). */
-  const [printingLotKey, setPrintingLotKey] = useState<string | null>(null);
 
   // Réinitialise tous les filtres et la sélection quand le routeur change
   useEffect(() => {
@@ -273,7 +265,6 @@ export default function Vouchers() {
     setLotsSearch("");
     setLotsFilterProfile("all");
     setLotsFilterVendor("all");
-    setPrintingLotKey(null);
   }, [selectedRouterId]);
 
   // ── Add User dialog (Mikhmon-style) ─────────────────────────────────────────
@@ -414,45 +405,17 @@ export default function Vouchers() {
     return result;
   }, [lots, lotsFilterProfile, lotsFilterVendor, debouncedLotsSearch, vendorAliasMap]);
 
-  // ── Users query — list view only ─────────────────────────────────────────────
-  // Sans filtre client (profil/lot/recherche + vendeur + statut) : pagination serveur
-  // par tranches de PAGE_SIZE, alignée sur le total hotspot (lots / API).
-  // Avec filtre vendeur/statut ou recherche : chargement bulk + pagination locale.
+  // ── Users query — list view only, server-side filters, limit 2000 ─────────────
+  // For the default (unfiltered) case, use module-level cache so list shows instantly on re-visit.
   const isDefaultFilter = !debouncedSearch && filterProfile === "all" && filterComment === "all";
-  const useServerPagePagination =
-    isDefaultFilter && filterVendor === "all" && filterStatus === "all";
-  const usersLimitBulk = filterVendor !== "all" ? 20_000 : 2_000;
-  const usersParams = useMemo(() => {
-    const commentPart = filterComment !== "all" ? { comment: filterComment } : {};
-    const base: Record<string, unknown> = {
-      search: debouncedSearch || undefined,
-      profile: filterProfile !== "all" ? filterProfile : undefined,
-      ...commentPart,
-    };
-    if (useServerPagePagination) {
-      base.limit = PAGE_SIZE;
-      base.offset = page * PAGE_SIZE;
-    } else {
-      base.limit = usersLimitBulk;
-    }
-    return base as Parameters<typeof useListRouterUsers>[1];
-  }, [
-    debouncedSearch,
-    filterProfile,
-    filterComment,
-    filterVendor,
-    filterStatus,
-    page,
-    useServerPagePagination,
-    usersLimitBulk,
-  ]);
-
-  const cachedUsersForInitial =
-    activeRouterId != null ? _vouchersCache[activeRouterId]?.users : undefined;
-  const usersCacheMatchesServerPaging =
-    !cachedUsersForInitial?.users ||
-    !useServerPagePagination ||
-    (Array.isArray(cachedUsersForInitial.users) && cachedUsersForInitial.users.length <= PAGE_SIZE);
+  const usersLimit = filterVendor !== "all" ? 20_000 : 2_000;
+  const usersParams = {
+    search: debouncedSearch || undefined,
+    profile: filterProfile !== "all" ? filterProfile : undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(filterComment !== "all" ? { comment: filterComment } : {}),
+    limit: usersLimit,
+  } as Parameters<typeof useListRouterUsers>[1];
   const {
     data: allUsersData,
     isLoading: usersLoading,
@@ -472,30 +435,18 @@ export default function Vouchers() {
         staleTime: 0,
         refetchInterval: 15_000,
         gcTime: 30 * 60_000,
-        initialData:
-          activeRouterId != null &&
-          isDefaultFilter &&
-          usersCacheMatchesServerPaging &&
-          (!useServerPagePagination || page === 0)
-            ? cachedUsersForInitial
-            : undefined,
-        initialDataUpdatedAt:
-          activeRouterId != null &&
-          isDefaultFilter &&
-          usersCacheMatchesServerPaging &&
-          (!useServerPagePagination || page === 0)
-            ? _vouchersCache[activeRouterId]?.usersTs
-            : undefined,
+        initialData: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.users : undefined,
+        initialDataUpdatedAt: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.usersTs : undefined,
       },
     },
   );
 
-  // Update module cache when unfiltered users data arrives (page 0 seulement en pagination serveur)
+  // Update module cache when unfiltered users data arrives
   useEffect(() => {
-    if (!isDefaultFilter || !activeRouterId || !allUsersData) return;
-    if (useServerPagePagination && page !== 0) return;
-    _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], users: allUsersData, usersTs: Date.now() };
-  }, [allUsersData, activeRouterId, isDefaultFilter, useServerPagePagination, page]);
+    if (isDefaultFilter && activeRouterId && allUsersData) {
+      _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], users: allUsersData, usersTs: Date.now() };
+    }
+  }, [allUsersData, activeRouterId, isDefaultFilter]);
 
   useEffect(() => {
     if (!editingUser) return;
@@ -569,31 +520,10 @@ export default function Vouchers() {
     return base.filter((u) => !u.disabled && userIsExpired(u));
   }, [allUsersData?.users, filterVendor, filterStatus, profileExpiryModeByName, vendorAliasMap, lotVendorByComment]);
   const filteredTotal = filtered.length;
-  const apiListTotal = allUsersData?.total ?? 0;
 
-  const paginationTotalCount = useMemo(() => {
-    if (useServerPagePagination) return Math.max(totalUsers, apiListTotal);
-    return filteredTotal;
-  }, [useServerPagePagination, totalUsers, apiListTotal, filteredTotal]);
-
-  const totalPages = Math.max(1, Math.ceil(paginationTotalCount / PAGE_SIZE));
-
-  useEffect(() => {
-    if (!activeRouterId || !useServerPagePagination) return;
-    const pt = paginationTotalCount;
-    if (pt <= 0) return;
-    const maxPage = Math.max(0, Math.ceil(pt / PAGE_SIZE) - 1);
-    if (page > maxPage) setPage(maxPage);
-  }, [activeRouterId, useServerPagePagination, paginationTotalCount, page]);
-
-  const pageUsers = useServerPagePagination
-    ? filtered
-    : filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  const listMatchCount = useServerPagePagination ? apiListTotal : filteredTotal;
-  /** Total affiché (en-tête / légende) : aligné sur paginationTotalCount en mode serveur. */
-  const displayTotalUsers = useServerPagePagination ? paginationTotalCount : totalUsers;
-  const showEmptyList = !usersLoading && (useServerPagePagination ? apiListTotal === 0 : filteredTotal === 0);
+  // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pageUsers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const { data: bypassBindings = [] } = useQuery({
     queryKey: ["router-ip-bindings", activeRouterId],
     enabled: !!activeRouterId && !!editingUser && linkBypass,
@@ -869,16 +799,9 @@ export default function Vouchers() {
 
   const handlePrintSmallLot = async (lot: LotSummary) => {
     if (!activeRouterId) return;
-    const preWin = openVoucherPrintPreparationWindow();
-    setPrintingLotKey(lot.name);
     try {
-      const [users, template, profilesSnap] = await Promise.all([
-        fetchLotUsers(lot),
-        fetchEffectiveTicketTemplate(BASE),
-        fetchProfilesSnap(BASE, activeRouterId),
-      ]);
+      const users = await fetchLotUsers(lot);
       if (users.length === 0) {
-        preWin?.close();
         toast({
           title: "Rien à imprimer",
           description: "Aucun utilisateur trouvé pour ce lot sur le routeur.",
@@ -888,69 +811,46 @@ export default function Vouchers() {
       }
       const r = activeRouter as {
         hotspotName?: string | null;
-        contact?: string | null;
         name?: string;
         currency?: string | null;
         host?: string;
       } | undefined;
       const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || "Hotspot";
       const currency = (r?.currency ?? "").trim() || "FCFA";
-      const qrHost = (r?.host ?? "").trim() || hotspotName;
-      const dnsname = (r?.contact ?? "").trim() || qrHost;
-      const needQr = /\$qrcode/i.test(template);
-      const profilesForPrint = await finalizeProfilesForPrint(
-        BASE,
-        activeRouterId,
-        sortedProfiles,
-        users,
-        profilesSnap,
-      );
-      const profByName = new Map(profilesForPrint.map((p) => [p.name, p]));
-      const qrItems = needQr
-        ? users.map((u) => ({
-            username: u.username,
-            password: u.password,
-            usermode: inferMikhmonUserMode(u.comment, u.username, u.password),
-          }))
-        : [];
-      const qrAttrsList = needQr && qrItems.length > 0 ? await fetchHotspotQrImgAttrsBatch(BASE, qrHost, qrItems) : [];
+      const dnsname = (r?.host ?? "").trim() || hotspotName;
+      const template = await fetchEffectiveTicketTemplate(BASE);
+      const profByName = new Map(sortedProfiles.map((p) => [p.name, p]));
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
-          const p = profByName.get(u.profile);
-          const usermode = inferMikhmonUserMode(u.comment, u.username, u.password);
-          const priceStr = mikhmonProfilePriceLabel(p);
-          const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? "").trim();
-          const qrcode = needQr ? (qrAttrsList[i] ?? 'src="" alt=""') : "";
-          return {
-            hotspotName,
-            num: i + 1,
-            usermode,
-            username: u.username,
-            password: u.password,
-            validityRaw: String(p?.validity ?? "").trim(),
-            timelimitRaw: String(u.limitUptime ?? "").trim(),
-            datalimit: formatMikhmonBytes(u.limitBytesTotal),
-            priceDisplay: priceStr,
-            getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
-            currency,
-            dnsname,
-            qrcode,
-          };
-        });
+        const p = profByName.get(u.profile);
+        const priceStr = mikhmonProfilePriceLabel(p);
+        const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? "").trim();
+        return {
+          hotspotName,
+          num: i + 1,
+          usermode: inferMikhmonUserMode(u.comment, u.username, u.password),
+          username: u.username,
+          password: u.password,
+          validityRaw: String(p?.validity ?? "").trim(),
+          timelimitRaw: String(u.limitUptime ?? "").trim(),
+          datalimit: formatMikhmonBytes(u.limitBytesTotal),
+          priceDisplay: priceStr,
+          getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
+          currency,
+          dnsname,
+          qrcode: "",
+        };
+      });
       const profile = lot.profile ?? users[0]?.profile ?? "";
       printMikhmonSmallVouchers(
         renderVoucherTicketsBody(template, rows),
-        buildVoucherPdfDocumentTitle(hotspotName, profile, lot.name),
-        preWin,
+        `Voucher-${hotspotName}-${profile}-${lot.name}`,
       );
     } catch (err) {
-      preWin?.close();
       toast({
         title: "Impression impossible",
         description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
-    } finally {
-      setPrintingLotKey(null);
     }
   };
 
@@ -1722,20 +1622,10 @@ export default function Vouchers() {
                           const lot = lots.find((l) => l.name === filterComment);
                           if (lot) await handlePrintSmallLot(lot);
                         }}
-                        disabled={printingLotKey !== null}
-                        className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors"
                       >
-                        {printingLotKey != null && filterComment && printingLotKey === filterComment ? (
-                          <>
-                            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-purple-600" aria-hidden />
-                            <span className="italic">Impression en cours...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Printer className="h-3 w-3 shrink-0" />
-                            <span>Imprimer</span>
-                          </>
-                        )}
+                        <Printer className="h-3 w-3" />
+                        <span>Imprimer</span>
                       </button>
 
                       <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
@@ -1862,9 +1752,9 @@ export default function Vouchers() {
                     </span>
                   </div>
                   <span className="text-xs text-gray-400">
-                    {listMatchCount !== displayTotalUsers && displayTotalUsers > 0
-                      ? `${listMatchCount.toLocaleString("fr")} affichés / ${displayTotalUsers.toLocaleString("fr")} total`
-                      : `${displayTotalUsers.toLocaleString("fr")} total`}
+                    {filteredTotal !== totalUsers
+                      ? `${filteredTotal.toLocaleString("fr")} affichés / ${totalUsers.toLocaleString("fr")} total`
+                      : `${totalUsers.toLocaleString("fr")} total`}
                   </span>
                 </div>
                 <CardContent className="p-0">
@@ -1873,7 +1763,7 @@ export default function Vouchers() {
                       <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
                       <p className="text-sm font-medium text-gray-400">Chargement depuis MikroTik…</p>
                     </div>
-                  ) : showEmptyList ? (
+                  ) : filteredTotal === 0 ? (
                     <div className="py-8 text-center text-gray-400 text-sm">
                       Aucun voucher trouvé.
                     </div>
@@ -1909,7 +1799,7 @@ export default function Vouchers() {
                       <ChevronLeft className="h-4 w-4" /> Précédent
                     </Button>
                     <span className="text-xs text-gray-500">
-                      Page {page + 1} / {totalPages} ({displayTotalUsers.toLocaleString("fr")} résultats)
+                      Page {page + 1} / {totalPages} ({filteredTotal.toLocaleString("fr")} résultats)
                     </span>
                     <Button
                       variant="outline"
@@ -2117,22 +2007,12 @@ export default function Vouchers() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:min-w-0 sm:px-2.5 sm:gap-1.5 sm:text-xs text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
-                            onClick={() => void handlePrintSmallLot(lot)}
-                            disabled={printingLotKey !== null}
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                            onClick={() => handlePrintSmallLot(lot)}
                             title="Imprimer"
                           >
-                            {printingLotKey === lot.name ? (
-                              <>
-                                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                                <span className="hidden sm:inline italic">Impression en cours...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Printer className="h-3.5 w-3.5 shrink-0" />
-                                <span className="hidden sm:inline">Imprimer</span>
-                              </>
-                            )}
+                            <Printer className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Imprimer</span>
                           </Button>
                           <Button
                             size="sm"

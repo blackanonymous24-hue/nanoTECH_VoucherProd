@@ -91,9 +91,6 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:3001",
         changeOrigin: true,
-        /** Évite les 504 du proxy Vite sur les requêtes longues (ex. lots de QR). */
-        timeout: 180_000,
-        proxyTimeout: 180_000,
       },
     },
     fs: {
