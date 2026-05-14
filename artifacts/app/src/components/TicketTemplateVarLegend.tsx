@@ -12,7 +12,7 @@ type TicketTemplateVarLegendProps = {
 
 /** Liste variables : hauteur max = zone scroll (carte sans vide sous la barre). */
 const VAR_LEGEND_SCROLL =
-  "max-h-[min(48vh,22rem)] overflow-y-auto overscroll-contain pr-0.5 [scrollbar-gutter:stable]";
+  "max-h-[min(65vh,30rem)] overflow-y-auto overscroll-contain pr-0.5 [scrollbar-gutter:stable]";
 
 function CodeBlock({ children, className }: { children: string; className?: string }) {
   return (

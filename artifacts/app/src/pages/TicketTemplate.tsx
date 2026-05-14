@@ -216,7 +216,7 @@ export default function TicketTemplate() {
           </CardContent>
         </Card>
 
-        <Card className="flex h-fit shrink-0 flex-col self-stretch lg:self-start lg:sticky lg:top-4">
+        <Card className="flex min-h-[22rem] shrink-0 flex-col self-stretch lg:sticky lg:top-4">
           <CardHeader className="shrink-0 p-3 sm:p-4 py-2 pb-1">
             <CardTitle className="text-sm font-semibold">Variables</CardTitle>
           </CardHeader>

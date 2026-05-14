@@ -98,7 +98,9 @@ export function openVoucherPrintPreparationWindow(): Window | null {
 }
 
 export function isMobileUserAgent(): boolean {
-  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+  if (typeof navigator !== "undefined" && navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return true;
+  return false;
 }
 
 /**
