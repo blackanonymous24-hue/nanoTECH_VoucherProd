@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, listHotspotUsersByExactComment, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -1269,6 +1269,7 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
  * GET /routers/:id/voucher-print-small?comment=…&token=…
  * Document HTML complet + `window.print()` au chargement — même chaîne que Mikhmon v3 (`voucher/print.php`).
  * Auth : `Authorization: Bearer` ou `token` en query (navigation `window.open` sans en-têtes custom).
+ * Utilisateurs : requête MikroTik ciblée `?comment=…` (pas toute la table). `refresh=1` : repli liste complète si le lot ne remonte pas (encodage / cache).
  */
 router.get("/routers/:id/voucher-print-small", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -1301,8 +1302,21 @@ router.get("/routers/:id/voucher-print-small", async (req, res): Promise<void> =
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
-    let users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: refresh });
-    users = users.filter((u) => (u.comment ?? "") === comment);
+    const [settingsRows, profilesRaw, usersDirect] = await Promise.all([
+      db
+        .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+        .from(adminSettingsTable)
+        .where(eq(adminSettingsTable.id, ownerId)),
+      listProfiles(conn),
+      listHotspotUsersByExactComment(conn, comment),
+    ]);
+
+    let users = usersDirect;
+    if (users.length === 0) {
+      users = (await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: refresh })).filter(
+        (u) => (u.comment ?? "") === comment,
+      );
+    }
 
     if (users.length === 0) {
       res
@@ -1314,14 +1328,8 @@ router.get("/routers/:id/voucher-print-small", async (req, res): Promise<void> =
       return;
     }
 
-    const [settings] = await db
-      .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
-      .from(adminSettingsTable)
-      .where(eq(adminSettingsTable.id, ownerId));
-
+    const settings = settingsRows[0];
     const template = resolveEffectiveTicketTemplate(settings?.ticketTemplate ?? null);
-
-    const profilesRaw = await listProfiles(conn);
     const profByName = new Map(
       profilesRaw
         .filter((p) => !SYSTEM_PROFILE_NAMES.has(p.name.toLowerCase()))

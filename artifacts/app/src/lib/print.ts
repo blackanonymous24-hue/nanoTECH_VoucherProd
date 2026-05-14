@@ -48,6 +48,8 @@ function readAdminAuthToken(): string | null {
 /**
  * Mikhmon v3 : `window.open(URL)` → GET → document HTML avec `onload` → `print()`.
  * Retourne `false` si WebView native (pont d’impression requis) ou jeton absent.
+ * Par défaut pas de `refresh=1` : le serveur interroge le lot via `?comment=` sur MikroTik (rapide).
+ * Passer `refresh: true` seulement si un lot récent n’apparaît pas (repli cache liste complète).
  */
 export function openMikhmonVoucherPrintByUrl(
   baseUrl: string,
@@ -64,7 +66,7 @@ export function openMikhmonVoucherPrintByUrl(
   const u = new URL(path, window.location.origin);
   u.searchParams.set("comment", comment);
   u.searchParams.set("token", token);
-  if (opts?.refresh !== false) u.searchParams.set("refresh", "1");
+  if (opts?.refresh === true) u.searchParams.set("refresh", "1");
 
   const win = window.open(u.toString(), "_blank");
   try {
