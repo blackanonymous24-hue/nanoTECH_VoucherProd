@@ -63,30 +63,23 @@ function voucherPrintScalePercentForCurrentContext(): number {
 }
 
 /**
- * Attributs `style` pour `<body>` afin d’appliquer l’échelle d’impression de façon fiable sur mobile.
- * Les navigateurs mobiles ignorent souvent `zoom` / `@media print` sur un conteneur interne au moment
- * de l’aperçu ; un `transform: scale` sur `<body>` (fenêtre dédiée à l’impression) peint déjà la page
- * à la bonne taille pour l’aperçu et la sortie.
+ * Échelle document sur `<html>` via `zoom` — même principe que `tenantDocumentZoomCss` dans
+ * mikrotik-hotspot-manager (zoom navigateur façon Edge/Chrome, pas `transform` sur `body` qui casse
+ * la pagination / le contexte d’empilement sur mobile).
  */
-export function buildVoucherPrintScaleBodyAttrs(scalePercent: number): string | undefined {
+export function buildVoucherPrintZoomCssForHead(scalePercent: number): string {
   const pct = clampVoucherPrintScale(scalePercent);
-  if (pct <= 0 || pct >= 100) return undefined;
-  const f = pct / 100;
-  const fs = f.toFixed(6);
-  const w = (100 / f).toFixed(6);
-  return [
-    "margin:0",
-    "box-sizing:border-box",
-    `-webkit-transform:scale(${fs})`,
-    `transform:scale(${fs})`,
-    "-webkit-transform-origin:0 0",
-    "transform-origin:0 0",
-    `width:${w}%`,
-    "max-width:none",
-    "overflow:visible",
-    "-webkit-print-color-adjust:exact",
-    "print-color-adjust:exact",
-  ].join(";");
+  if (pct <= 0 || pct >= 100) return "";
+  const factor = pct / 100;
+  if (factor >= 0.999 && factor <= 1.001) return "";
+  const percent = Math.round(factor * 1000) / 10;
+  return `
+html {
+  zoom: ${percent}%;
+  margin: 0;
+  padding: 0;
+}
+`;
 }
 
 /**
@@ -170,12 +163,11 @@ export function buildStandalonePrintHtml(
   title: string,
   styleCss: string,
   bodyHtml: string,
-  opts?: { deferPrintMs?: number; autoprint?: boolean; bodyAttrs?: string },
+  opts?: { deferPrintMs?: number; autoprint?: boolean },
 ): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
   const autoprint = opts?.autoprint !== false;
-  const bodyExtra = opts?.bodyAttrs?.trim() ? ` ${opts.bodyAttrs.trim()}` : "";
   const printScript =
     defer > 0
       ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
@@ -190,7 +182,7 @@ export function buildStandalonePrintHtml(
     <style>${styleCss}</style>
 ${scriptTag}
   </head>
-  <body${bodyExtra}>${bodyHtml}</body>
+  <body>${bodyHtml}</body>
 </html>`;
 }
 
@@ -242,11 +234,11 @@ function buildMikhmonVoucherPrintDocumentHtml(
   documentTitle: string,
   opts?: { autoprint?: boolean },
 ): string {
-  const scaleAttrs = buildVoucherPrintScaleBodyAttrs(voucherPrintScalePercentForCurrentContext());
-  return buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, bodyTicketsHtml, {
+  const zoomCss = buildVoucherPrintZoomCssForHead(voucherPrintScalePercentForCurrentContext());
+  const styleCss = zoomCss ? `${zoomCss}\n${MIKHMON_VOUCHER_PRINT_CSS}` : MIKHMON_VOUCHER_PRINT_CSS;
+  return buildStandalonePrintHtml(documentTitle, styleCss, bodyTicketsHtml, {
     deferPrintMs: 150,
     autoprint: opts?.autoprint !== false,
-    bodyAttrs: scaleAttrs ? `style="${scaleAttrs}"` : undefined,
   });
 }
 

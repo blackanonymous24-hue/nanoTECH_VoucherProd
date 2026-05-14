@@ -369,26 +369,20 @@ table.voucher {
 }
 `;
 
-/** Même règle que le client `buildVoucherPrintScaleBodyAttrs` : échelle sur `<body>` (mobile). */
-function voucherPrintScaleBodyStyleValue(scalePercent: number): string | undefined {
+/** Aligné sur le client : `html { zoom }` (mikrotik-hotspot-manager `tenantDocumentZoomCss`). */
+function voucherPrintZoomCssForHead(scalePercent: number): string {
   const pct = Math.max(0, Math.min(100, Math.round(scalePercent)));
-  if (pct <= 0 || pct >= 100) return undefined;
-  const f = pct / 100;
-  const fs = f.toFixed(6);
-  const w = (100 / f).toFixed(6);
-  return [
-    "margin:0",
-    "box-sizing:border-box",
-    `-webkit-transform:scale(${fs})`,
-    `transform:scale(${fs})`,
-    "-webkit-transform-origin:0 0",
-    "transform-origin:0 0",
-    `width:${w}%`,
-    "max-width:none",
-    "overflow:visible",
-    "-webkit-print-color-adjust:exact",
-    "print-color-adjust:exact",
-  ].join(";");
+  if (pct <= 0 || pct >= 100) return "";
+  const factor = pct / 100;
+  if (factor >= 0.999 && factor <= 1.001) return "";
+  const percent = Math.round(factor * 1000) / 10;
+  return `
+html {
+  zoom: ${percent}%;
+  margin: 0;
+  padding: 0;
+}
+`;
 }
 
 export function buildStandaloneVoucherPrintHtml(
@@ -397,8 +391,8 @@ export function buildStandaloneVoucherPrintHtml(
   opts?: { deferPrintMs?: number; scalePercent?: number },
 ): string {
   const scale = opts?.scalePercent ?? 100;
-  const bodyStyle = voucherPrintScaleBodyStyleValue(scale);
-  const bodyOpen = bodyStyle ? `<body style="${bodyStyle}">` : "<body>";
+  const zoomCss = voucherPrintZoomCssForHead(scale);
+  const styleCss = zoomCss ? `${zoomCss}\n${MIKHMON_VOUCHER_PRINT_CSS}` : MIKHMON_VOUCHER_PRINT_CSS;
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
   const printScript =
@@ -411,10 +405,10 @@ export function buildStandaloneVoucherPrintHtml(
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${safeTitle}</title>
-    <style>${MIKHMON_VOUCHER_PRINT_CSS}</style>
+    <style>${styleCss}</style>
     <script>${printScript}<\/script>
   </head>
-  ${bodyOpen}${bodyTicketsHtml}</body>
+  <body>${bodyTicketsHtml}</body>
 </html>`;
 }
 
