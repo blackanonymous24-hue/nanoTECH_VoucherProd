@@ -1,36 +1,7 @@
-/* @page DOIT être au niveau racine — imbriqué dans @media print = CSS invalide ignoré par Safari */
-const PRINT_PAGE_CSS = `
-  @page         { margin:4mm 0 0 0; }
-  @page :first  { margin:4mm 0 0 0; }
-  @page :left   { margin:4mm 0 0 0; }
-  @page :right  { margin:4mm 0 0 0; }
-`;
-
-const PRINT_CSS = `
-  body { color:#000; background:#fff; font-size:14px; font-family:Helvetica, Arial, sans-serif; margin:0; padding:0; padding-bottom:env(safe-area-inset-bottom,0); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  table.voucher { display:inline-block; margin:0; }
-  .doc-header { display:none !important; }
-  /* Grille 4 colonnes — chaque .ticket-page = 1 page imprimée (32 tickets max) */
-  table.ticket-page { border-collapse:collapse; margin-bottom:2px; }
-  /* > tbody > tr > td : cible uniquement les td directs du wrapper, pas les td internes du ticket */
-  table.ticket-page > tbody > tr > td { padding:1px; vertical-align:top; }
-  @media screen {
-    body { padding-bottom:100px; }
-  }
-  @media print {
-    body { padding:3mm 1mm 1mm !important; }
-    /* inline-table + div wrapper text-align:center = centrage sans flex (flex casse break-inside) */
-    .ticket-page-wrap { display:block; text-align:center; }
-    table.ticket-page { display:inline-table; margin:0; }
-    /* Empêche une rangée de 4 tickets d'être coupée entre deux pages */
-    table.ticket-page tr { page-break-inside:avoid; break-inside:avoid; }
-    /* Empêche chaque ticket individuel d'être coupé */
-    table.ticket-page td > table,
-    table.ticket-page td > table * { page-break-inside:avoid; break-inside:avoid; }
-    /* Numéro de ticket MikHmon — float fiable en print desktop (flex ne l'est pas) */
-    span#num { float:right !important; margin-left:4px !important; clear:none !important; }
-  }
-`;
+import {
+  getVoucherPrintScaleDesktop,
+  getVoucherPrintScaleMobile,
+} from "@/lib/voucher-print-scale";
 
 const REPORT_CSS = `
   body {
@@ -69,45 +40,71 @@ function isNativeWebView(): boolean {
   return typeof window !== "undefined" && !!window.ReactNativeWebView;
 }
 
-function isMobile(): boolean {
+/**
+ * Onglet mobile ouvert au clic (avant les fetch) : page blanche comme l’attente sur
+ * `mikhmonv3/voucher/print.php`, sans UI supplémentaire.
+ */
+const VOUCHER_PRINT_BLANK_PRELOAD_HTML = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Impression</title>
+<style>html,body{height:100%;margin:0;background:#fff}</style>
+</head><body></body></html>`;
+
+/**
+ * Page de chargement **uniquement** lorsque l’impression diffère du flux MikHmon par défaut
+ * (ici : mise à l’échelle mobile ≠ 100 % — le document final applique `zoom`, préparation plus longue).
+ */
+const VOUCHER_PRINT_LOADING_HTML = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chargement…</title>
+<style>
+  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
+    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
+  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#7c3aed;
+    border-radius:50%;animation:spin 0.9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
+</style></head>
+<body><div class="spinner"></div>
+<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
+</body></html>`;
+
+/**
+ * Flux aligné sur MikHmon `print.php` : **pas** d’onglet intermédiaire sur desktop
+ * (l’impression passe par un iframe, comme une fenêtre d’impression sans page « chargement »).
+ * Sur **mobile**, ouverture au geste utilisateur avant les requêtes async : document blanc minimal ;
+ * page avec spinner seulement si la mise à l’échelle mobile ≠ 1 (paramètre hors flux d’origine).
+ */
+export function openVoucherPrintPreparationWindow(): Window | null {
+  if (isNativeWebView()) return null;
+  /** Desktop : même logique que print.php ouvert depuis le navigateur — pas de pré-onglet. */
+  if (!isMobileUserAgent()) return null;
+  const w = window.open("", "_blank");
+  if (!w) return null;
+  const preloadHtml =
+    getVoucherPrintScaleMobile() !== 1 ? VOUCHER_PRINT_LOADING_HTML : VOUCHER_PRINT_BLANK_PRELOAD_HTML;
+  try {
+    w.document.write(preloadHtml);
+    w.document.close();
+  } catch {
+    try {
+      w.close();
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+  return w;
+}
+
+export function isMobileUserAgent(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
-function normalizeSessionName(raw: string): string {
-  const normalized = raw
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[^A-Za-z0-9_]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toUpperCase();
-  return normalized || "WIFI_SESSION";
-}
-
-function buildVoucherPrintUrl(voucherId: string, sessionName: string): string | null {
-  const base = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
-  if (!base) return null;
-  return `${base}/voucher/print.php?id=${encodeURIComponent(voucherId)}&small=yes&session=${encodeURIComponent(sessionName)}`;
-}
-
 /**
- * Mobile flow for Mikhmon print page:
- * open /voucher/print.php?id=...&small=yes&session=...
- * Returns true when URL flow is used; false means fallback to HTML printing.
- */
-export async function tryOpenVoucherPrintPage(_voucherId: string, _hotspotOrSessionName: string): Promise<boolean> {
-  // This app does not host a Mikhmon print.php server.
-  // The SPA Vite fallback always returns HTTP 200 for any URL, which would fool a
-  // HEAD probe and trigger an unwanted navigation. All printing goes through the
-  // HTML bridge (postMessage on native WebView, window.open on mobile browsers,
-  // hidden iframe on desktop).
-  return false;
-}
-
-/**
- * Impression depuis une page HTML complète (comme « Imprimer Hebdo » : write + print).
- * — APK (React Native WebView) : envoi au natif → expo-print (`Print.printAsync`) — `window.open` est souvent bloqué.
- * — Navigateur mobile : nouvel onglet + document.write.
+ * Impression depuis une page HTML complète (rapports vendeur, etc.).
+ * — APK (React Native WebView) : postMessage → expo-print
+ * — Navigateur mobile : nouvel onglet + document.write
  */
 export function openPrintHtmlWindow(html: string, title: string): void {
   if (isNativeWebView()) {
@@ -122,222 +119,9 @@ export function openPrintHtmlWindow(html: string, title: string): void {
   win.document.close();
   try {
     win.document.title = title;
-  } catch (_) {
+  } catch {
     /* ignore */
   }
-}
-
-/**
- * Construit le HTML complet pour l'impression de tickets (avec autoprint).
- * Exposé pour permettre la pré-ouverture de fenêtre avant tout `await`.
- */
-export function buildTicketPrintHtml(htmlItems: string[], title: string, scale = 85, mobile = false): string {
-  return buildHtml(htmlItems, title, true, scale, mobile);
-}
-
-/**
- * Construit le HTML pour la génération PDF Puppeteer.
- *
- * Correctifs spécifiques PDF (distincts de l'impression navigateur) :
- * - Pas de blocs de 32 ni de 4 colonnes forcées : tickets inline-block,
- *   flux libre, Puppeteer pagine selon ce qui tient à l'échelle choisie.
- * - @page { margin:0 } : marges gérées par le lecteur PDF.
- * - Pas de zoom CSS : l'échelle est gérée par page.pdf({ scale }).
- * - text-align:left sur chaque ticket : évite que text-align:center du body
- *   cascade dans les cellules du template PHP et provoque des retours à la ligne.
- * - Pas de règle * { box-sizing } : n'interfère pas avec les largeurs du template.
- */
-export function buildTicketHtmlForPdf(htmlItems: string[], title: string): string {
-  const items = htmlItems
-    .map(item =>
-      `<div style="display:block;width:80mm;text-align:left;page-break-inside:avoid;break-inside:avoid;padding:0;margin:0;">${item}</div>`,
-    )
-    .join("");
-
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>
-      /* Ticket thermique 80mm — rendu identique Edge Ctrl+P 85% */
-      @page {
-        size: 80mm auto;
-        margin: 0;
-      }
-      @page :first { margin: 0; }
-      @page :left  { margin: 0; }
-      @page :right { margin: 0; }
-
-      html, body {
-        margin: 0;
-        padding: 0;
-        width: 80mm;
-        background: #fff;
-        color: #000;
-        font-size: 14px;
-        font-family: Helvetica, Arial, sans-serif;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-    </style>
-  </head>
-  <body>${items}</body>
-</html>`;
-}
-
-function buildHtml(htmlItems: string[], title: string, autoprint: boolean, scale = 85, mobile = false): string {
-  const COLS = 4;
-  const ROWS = 6;
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ─── CHEMIN MOBILE ────────────────────────────────────────────────────────
-  // ═══════════════════════════════════════════════════════════════════════════
-  if (mobile) {
-    const s = scale / 100;
-
-    // Solution radicale anti-coupure :
-    // On ne s'appuie PAS sur break-inside:avoid du navigateur (trop peu fiable).
-    // On pré-calcule combien de rangées tiennent sur une page A4 à l'échelle donnée,
-    // et on force page-break-after:always entre chaque bloc — le navigateur n'a plus
-    // rien à calculer, chaque bloc est garantiellement complet.
-
-    const perPage = COLS * ROWS;
-
-    // Construction des blocs de page avec page-break-after:always explicite
-    const mobileBlocks: string[] = [];
-    for (let p = 0; p < htmlItems.length; p += perPage) {
-      const chunk = htmlItems.slice(p, p + perPage);
-      const rows: string[] = [];
-      for (let r = 0; r < chunk.length; r += COLS) {
-        const cells = chunk.slice(r, r + COLS)
-          .map(item => `<td style="padding:2px;vertical-align:top;"><div class="ticket">${item}</div></td>`)
-          .join("");
-        rows.push(`<tr class="ticket-row">${cells}</tr>`);
-      }
-      const isLast = p + perPage >= htmlItems.length;
-      // page-break-after:always sur chaque bloc sauf le dernier
-      const breakStyle = isLast ? "" : "page-break-after:always;break-after:page;";
-      mobileBlocks.push(
-        `<div class="ticket-page-wrap" style="${breakStyle}"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`,
-      );
-    }
-
-    // @page DOIT être à la racine, jamais dans @media print (Safari iOS l'ignore sinon).
-    const mobilePageCss = `
-      @page        { margin: 0; }
-      @page :first { margin: 0; }
-      @page :left  { margin: 0; }
-      @page :right { margin: 0; }
-    `;
-
-    // CSS sans @media print : ce HTML est print-only (iframe + window.print()),
-    // donc les règles s'appliquent directement sans risque de conflit écran.
-    // zoom sur html = dezoom sans stacking context (transform:scale le casse).
-    const mobilePrintCss = `
-      html { zoom: ${s}; margin: 0; padding: 0; }
-      html, body { margin: 0; padding: 0; }
-      body {
-        color: #000; background: #fff;
-        font-size: 14px; font-family: Helvetica, Arial, sans-serif;
-        -webkit-print-color-adjust: exact; print-color-adjust: exact;
-      }
-      .doc-header { display: none !important; }
-
-      /* Bloc de page : page-break-after forcé inline, mais on renforce ici */
-      .ticket-page-wrap { display: block; text-align: center; }
-      .ticket-page-wrap + .ticket-page-wrap { page-break-before: always; break-before: page; }
-
-      table.ticket-page { display: inline-table; border-collapse: collapse; margin: 0; }
-      table.ticket-page > tbody > tr > td { padding: 1px; vertical-align: top; }
-
-      /* Sécurité break-inside en plus du page-break-after (double protection) */
-      .ticket-row { break-inside: avoid; page-break-inside: avoid; }
-      .ticket {
-        display: block;
-        break-inside: avoid;
-        page-break-inside: avoid;
-      }
-
-      /* Template PHP : table avec display:inline-block → force display:table.
-         position:relative OBLIGATOIRE : sans lui, overflow:hidden ne clippe pas
-         les enfants position:absolute (le triangle décoratif CSS border-right:170px
-         déborde alors sur la bordure droite du ticket voisin). */
-      .ticket > table {
-        display: table !important;
-        overflow: hidden !important;
-        position: relative !important;
-      }
-
-      /* Numéro de ticket MikHmon — forcé à droite même en mobile */
-      span#num { float:right !important; margin-left:4px !important; clear:none !important; }
-
-      /* float casse le flux d'impression */
-      .ticket img { float: none !important; display: inline-block !important; }
-
-      /* overflow:visible sur conteneurs pour fix Safari page-break,
-         MAIS overflow:hidden maintenu sur .ticket > table (triangle décoratif) */
-      body, .ticket-page-wrap, table.ticket-page, .ticket-row, .ticket-row > td {
-        overflow: visible !important;
-      }
-
-      /* Template MikHmon (class="voucher") : la table n'a pas de border par défaut.
-         On ajoute une bordure directement sur la table — cible uniquement les tickets
-         qui utilisent class="voucher", sans toucher aux templates personnalisés.
-         box-sizing:border-box garantit que la bordure reste dans la largeur déclarée. */
-      table.voucher {
-        border: 1px solid #444 !important;
-        box-sizing: border-box !important;
-      }
-
-      @media screen { body { padding-bottom: 100px; } }
-    `;
-
-    return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>${title}</title>
-    <style>${mobilePageCss}</style>
-    <style>${mobilePrintCss}</style>
-    ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
-  </head>
-  <body>${mobileBlocks.join("")}</body>
-</html>`;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ─── CHEMIN DESKTOP ───────────────────────────────────────────────────────
-  // ═══════════════════════════════════════════════════════════════════════════
-  const PER_PAGE = COLS * 8;
-  const pageBlocks: string[] = [];
-  for (let p = 0; p < htmlItems.length; p += PER_PAGE) {
-    const page = htmlItems.slice(p, p + PER_PAGE);
-    const rows: string[] = [];
-    for (let r = 0; r < page.length; r += COLS) {
-      const cells = page.slice(r, r + COLS)
-        .map(item => `<td style="padding:2px;vertical-align:top;">${item}</td>`)
-        .join("");
-      rows.push(`<tr>${cells}</tr>`);
-    }
-    pageBlocks.push(`<div class="ticket-page-wrap"><table class="ticket-page"><tbody>${rows.join("")}</tbody></table></div>`);
-  }
-
-  // ─── CSS desktop (inchangé) ──────────────────────────────────────────────
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>${title}</title>
-    <style>${PRINT_PAGE_CSS}</style>
-    <style>${PRINT_CSS}</style>
-    <style>@media print { body { zoom:${scale / 100}; } }</style>
-    ${autoprint ? `<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},500);}<\/script>` : ""}
-  </head>
-  <body>${pageBlocks.join("")}</body>
-</html>`;
 }
 
 function buildReportHtml(bodyHtml: string, title: string, autoprint = true): string {
@@ -355,22 +139,164 @@ function buildReportHtml(bodyHtml: string, title: string, autoprint = true): str
 }
 
 /**
- * Document HTML autonome pour l’impression (suivi vendeurs, hebdo, etc.) :
- * même en-tête viewport + onload que les rapports, pour Safari iOS / WebView.
+ * Document HTML autonome pour l’impression (suivi vendeurs, hebdo, etc.).
  */
-export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHtml: string): string {
+export type BuildStandalonePrintHtmlOptions = {
+  /**
+   * Facteur d’échelle « page entière », comme le réglage **Mise à l’échelle** du dialogue
+   * d’impression des navigateurs (Chrome, Edge, Safari) : propriété CSS `zoom` sur `html`.
+   */
+  printScale?: number;
+  /**
+   * Comme `print.php` Mikhmon : meta viewport simple, sans `viewport-fit` (ajout hors flux d’origine).
+   */
+  mikhmonCompatibleViewport?: boolean;
+};
+
+export function buildStandalonePrintHtml(
+  title: string,
+  styleCss: string,
+  bodyHtml: string,
+  options?: BuildStandalonePrintHtmlOptions,
+): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const raw = options?.printScale;
+  const scale =
+    raw != null && Number.isFinite(raw) && raw > 0 ? Math.min(1.25, Math.max(0.5, raw)) : 1;
+  /** Même effet visuel que la mise à l’échelle du dialogue d’impression (zoom document). */
+  const scaleCss =
+    scale !== 1
+      ? `
+  html {
+    zoom: ${scale};
+  }
+`
+      : "";
+  const viewportContent = options?.mikhmonCompatibleViewport
+    ? "width=device-width, initial-scale=1"
+    : "width=device-width, initial-scale=1, viewport-fit=cover";
   return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="${viewportContent}" />
     <title>${safeTitle}</title>
-    <style>${styleCss}</style>
+    <style>${styleCss}${scaleCss}</style>
     <script>window.onload=function(){window.focus();window.print();}<\/script>
   </head>
   <body>${bodyHtml}</body>
 </html>`;
+}
+
+/** Feuille de styles de `mikhmonv3/voucher/print.php` (bloc &lt;style&gt; du &lt;head&gt;). */
+export const MIKHMON_VOUCHER_PRINT_CSS = `
+body {
+  color: #000000;
+  background-color: #FFFFFF;
+  font-size: 14px;
+  font-family:  'Helvetica', arial, sans-serif;
+  margin: 0px;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+table.voucher {
+  display: inline-block;
+  border: 2px solid black;
+  margin: 2px;
+}
+@page
+{
+  size: auto;
+  margin-left: 7mm;
+  margin-right: 3mm;
+  margin-top: 9mm;
+  margin-bottom: 3mm;
+}
+@media print
+{
+  table { page-break-after:auto }
+  tr    { page-break-inside:avoid; page-break-after:auto }
+  td    { page-break-inside:avoid; page-break-after:auto }
+  thead { display:table-header-group }
+  tfoot { display:table-footer-group }
+}
+#num {
+  float:right;
+  display:inline-block;
+}
+.qrc {
+  width:30px;
+  height:30px;
+  margin-top:1px;
+}
+`;
+
+/**
+ * HTML complet du document d’impression vouchers (Mikhmon small + zoom tenant).
+ */
+export function buildMikhmonSmallVouchersPrintHtml(bodyTicketsHtml: string, documentTitle: string): string {
+  const printScale = isMobileUserAgent()
+    ? getVoucherPrintScaleMobile()
+    : getVoucherPrintScaleDesktop();
+  return buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, bodyTicketsHtml, {
+    printScale,
+    mikhmonCompatibleViewport: true,
+  });
+}
+
+function dispatchVoucherPrintHtml(html: string, documentTitle: string, preOpenedWindow: Window | null | undefined): void {
+  const w = preOpenedWindow;
+  if (w && !w.closed) {
+    try {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    } catch {
+      try {
+        w.close();
+      } catch {
+        /* ignore */
+      }
+      dispatchVoucherPrintHtml(html, documentTitle, null);
+      return;
+    }
+    try {
+      w.document.title = documentTitle;
+      const te = w.document.querySelector("title");
+      if (te) te.textContent = documentTitle;
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  if (isNativeWebView()) {
+    printWithNativeBridge(html, documentTitle);
+    return;
+  }
+
+  if (isMobileUserAgent()) {
+    openPrintHtmlWindow(html, documentTitle);
+  } else {
+    printWithIframe(html, documentTitle);
+  }
+}
+
+/**
+ * Impression navigateur / WebView mobile / APK — même stratégie que les rapports,
+ * avec le document Mikhmon « small » (print.php + template-small).
+ *
+ * @param preOpenedWindow Sur **mobile**, onglet ouvert au clic avec {@link openVoucherPrintPreparationWindow}
+ *                        (évite le blocage popup) ; le HTML d’impression y remplace la page blanche.
+ *                        Sur **desktop**, laisser `undefined` : iframe caché, comme sans pré-onglet MikHmon.
+ */
+export function printMikhmonSmallVouchers(
+  bodyTicketsHtml: string,
+  documentTitle: string,
+  preOpenedWindow?: Window | null,
+): void {
+  const html = buildMikhmonSmallVouchersPrintHtml(bodyTicketsHtml, documentTitle);
+  dispatchVoucherPrintHtml(html, documentTitle, preOpenedWindow);
 }
 
 function printWithIframe(html: string, title: string): void {
@@ -381,7 +307,11 @@ function printWithIframe(html: string, title: string): void {
 
   const doc = iframe.contentDocument;
   if (!doc) {
-    try { document.body.removeChild(iframe); } catch (_) {}
+    try {
+      document.body.removeChild(iframe);
+    } catch {
+      /* ignore */
+    }
     throw new Error("iframe document indisponible");
   }
 
@@ -389,44 +319,93 @@ function printWithIframe(html: string, title: string): void {
   doc.write(html);
   doc.close();
   doc.title = title;
+  const te = doc.querySelector("title");
+  if (te) te.textContent = title;
 
-  const cleanup = () => {
-    try { document.body.removeChild(iframe); } catch (_) {}
+  const prevTitle = document.title;
+  let parentTitleRestored = false;
+  const restoreParentTitleOnce = () => {
+    if (parentTitleRestored) return;
+    parentTitleRestored = true;
+    try {
+      document.title = prevTitle;
+    } catch {
+      /* ignore */
+    }
   };
-  iframe.contentWindow?.addEventListener("afterprint", cleanup, { once: true });
-  const safetyTimeout = window.setTimeout(cleanup, 60_000);
 
-  setTimeout(() => {
-    const prevTitle = document.title;
-    document.title = title;
+  let safetyId: ReturnType<typeof setTimeout> | null = null;
+  let printed = false;
+  const cleanup = () => {
+    if (safetyId != null) {
+      window.clearTimeout(safetyId);
+      safetyId = null;
+    }
+    try {
+      document.body.removeChild(iframe);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  iframe.contentWindow?.addEventListener(
+    "afterprint",
+    () => {
+      restoreParentTitleOnce();
+      cleanup();
+    },
+    { once: true },
+  );
+  safetyId = window.setTimeout(() => {
+    restoreParentTitleOnce();
+    cleanup();
+  }, 60_000);
+
+  const runPrint = () => {
+    if (printed) return;
+    printed = true;
+    try {
+      document.title = title;
+    } catch {
+      /* ignore */
+    }
     try {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
     } catch (_) {
-      window.clearTimeout(safetyTimeout);
+      if (safetyId != null) {
+        window.clearTimeout(safetyId);
+        safetyId = null;
+      }
+      restoreParentTitleOnce();
       cleanup();
-      document.title = prevTitle;
       throw _;
     }
-    document.title = prevTitle;
-  }, 600);
+    /* Ne pas restaurer document.title ici : sur Chrome le dialogue « En-têtes et pieds de page »
+     * lit parfois le titre après le retour de print() ; une restauration immédiate masquait l’en-tête. */
+  };
+
+  const schedulePrint = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(runPrint);
+    });
+  };
+
+  const cw = iframe.contentWindow;
+  if (cw?.document.readyState === "complete") {
+    schedulePrint();
+  } else {
+    cw?.addEventListener("load", schedulePrint, { once: true });
+    window.setTimeout(schedulePrint, 1500);
+  }
 }
 
-/**
- * Envoie le HTML au pont natif React Native WebView pour impression via
- * le dialogue Android/iOS natif (expo-print).
- * Pour les gros payloads (> 500 KB), découpe en chunks pour contourner la
- * limite de taille de postMessage sur Android WebView.
- */
 function printWithNativeBridge(html: string, title: string): void {
-  const MAX_CHUNK = 500_000; // 500 KB de HTML par message
+  const MAX_CHUNK = 500_000;
   if (html.length <= MAX_CHUNK) {
-    window.ReactNativeWebView!.postMessage(
-      JSON.stringify({ type: "print", html, title })
-    );
+    window.ReactNativeWebView!.postMessage(JSON.stringify({ type: "print", html, title }));
     return;
   }
-  // Payload trop grand : envoi découpé en chunks
   const chunkId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const total = Math.ceil(html.length / MAX_CHUNK);
   for (let i = 0; i < total; i++) {
@@ -438,136 +417,19 @@ function printWithNativeBridge(html: string, title: string): void {
         total,
         title,
         data: html.slice(i * MAX_CHUNK, (i + 1) * MAX_CHUNK),
-      })
+      }),
     );
   }
 }
 
 /**
- * Construit le HTML pour le mode Small MikHmon.
- * CSS identique à print.php?small=yes (Mikhmon v3).
- * Le QR n'est inclus QUE si le template PHP lui-même contient $qrcode —
- * ce mode ne l'impose pas, contrairement au mode regular.
- */
-export function buildSmallModePrintHtml(htmlItems: string[], title: string, defaultScale = 0.85): string {
-  const css = `
-    @page {
-      size: auto;
-      margin-left: 7mm;
-      margin-right: 3mm;
-      margin-top: 9mm;
-      margin-bottom: 3mm;
-    }
-
-    body {
-      color: #000;
-      background-color: #fff;
-      font-size: 14px;
-      font-family: Helvetica, Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-      transform-origin: top left;
-    }
-
-    /* ── Layout small — 2 tickets par ligne (48 % chacun) ────────────── */
-    table.voucher {
-      display: inline-block !important;
-      vertical-align: top;
-      width: 48%;
-      border: 2px solid #000;
-      margin: 2px;
-      padding: 3px;
-      box-sizing: border-box;
-      overflow: hidden;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-    table.voucher * {
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-
-    @media print {
-      table  { page-break-after: auto; }
-      tr     { page-break-inside: avoid; page-break-after: auto; }
-      td     { page-break-inside: avoid; page-break-after: auto; }
-      thead  { display: table-header-group; }
-      tfoot  { display: table-footer-group; }
-      table.voucher {
-        display: inline-block !important;
-        width: 48%;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-      }
-    }
-
-    #num, span#num {
-      float: right !important;
-      display: inline-block;
-      margin-left: 4px !important;
-      clear: none !important;
-    }
-  `;
-
-  const js = `
-    window.onload = function() {
-      document.body.style.transform = 'scale(${defaultScale})';
-      document.body.style.width = '${Math.round(100 / defaultScale * 10000) / 10000}%';
-      window.focus();
-      window.print();
-    };
-  `;
-
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title}</title>
-  <style>${css}</style>
-  <script>${js}<\/script>
-</head>
-<body>${htmlItems.join("\n")}</body>
-</html>`;
-}
-
-/**
- * Imprime des tickets HTML.
- * — APK WebView : pont natif via postMessage → expo-print.
- * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
- * — Desktop     : utilise un <iframe> invisible.
- */
-export function printTickets(htmlItems: string[], title: string, scale = 85): void {
-  let html = buildHtml(htmlItems, title, false, scale, false);
-
-  if (isNativeWebView()) {
-    printWithNativeBridge(html, title);
-    return;
-  }
-
-  if (isMobile()) {
-    if (!/<script[^>]*>[\s\S]*window\.print\s*\(/i.test(html)) {
-      html = html.replace(/<\/body>/i, `<script>window.onload=function(){window.print();}<\/script></body>`);
-    }
-    openPrintHtmlWindow(html, title);
-  } else {
-    printWithIframe(html, title);
-  }
-}
-
-/**
  * Imprime un rapport de ventes depuis le portail vendeur.
- * — APK WebView : pont natif via postMessage → expo-print.
- * — Mobile web  : nouvel onglet + document.write (comme « Imprimer Hebdo »).
- * — Desktop     : utilise un <iframe> invisible.
  */
 export function printReport(title: string): void {
   const section = document.getElementById("report-print-section");
 
   if (!section) {
-    if (isMobile() && !isNativeWebView()) {
+    if (isMobileUserAgent() && !isNativeWebView()) {
       const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const html =
         `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>` +
@@ -593,7 +455,7 @@ export function printReport(title: string): void {
     return;
   }
 
-  if (isMobile()) {
+  if (isMobileUserAgent()) {
     openPrintHtmlWindow(html, title);
   } else {
     printWithIframe(html, title);

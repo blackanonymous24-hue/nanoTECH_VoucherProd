@@ -1,7 +1,8 @@
 import "source-map-support/register.js";
+import "./load-env.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
-import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureTicketTemplateColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn } from "./lib/ensure-router-currency-column.js";
+import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn } from "./lib/ensure-router-currency-column.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
@@ -31,17 +32,11 @@ process.on("SIGTERM", () => {
 });
 
 async function start() {
-  // Open the port first so health checks pass immediately.
-  await new Promise<void>((resolve) => {
-    app.listen(port, "0.0.0.0", () => {
-      logger.info({ port }, "API server started");
-      resolve();
-    });
-  });
-
-  // DB compat migrations (idempotent, fast on subsequent startups).
+  // DB compat migrations first — otherwise early /api/login can SELECT admin_settings
+  // before missing columns exist (race) or fail permanently on older DBs.
   await ensureRouterCurrencyColumn();
   await ensureRouterAutoDeleteSalesScriptsColumn();
+  await ensureDropAdminSettingsVoucherPrintColumns();
   await ensureTicketTemplateColumn();
   await ensurePasswordPlainColumn();
   await ensureVendorPasswordPlainColumn();
@@ -50,6 +45,13 @@ async function start() {
   await ensureVerificationCodeColumn();
   await ensureVendorTicketLetterColumn();
   await ensureSuperAdminPasswordPlainBackfill();
+
+  await new Promise<void>((resolve) => {
+    app.listen(port, "0.0.0.0", () => {
+      logger.info({ port }, "API server started");
+      resolve();
+    });
+  });
 
   startRealtimeVendorSync();
   setOnVendorSyncComplete(invalidateVendorPortalCache);

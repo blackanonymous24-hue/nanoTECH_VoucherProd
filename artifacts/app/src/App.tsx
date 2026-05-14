@@ -196,7 +196,7 @@ function AppRoutes() {
               <Route path="/vendors/tracking" component={VendorTracking} />
               <Route path="/vendors/versements" component={VendorPayments} />
               <Route path="/vendors/versement-du-jour" component={DailyPayments} />
-              <Route path="/ticket-template" component={TicketTemplate} />
+              <Route path="/ticket-template" component={role === "admin" ? TicketTemplate : Dashboard} />
               <Route path="/managers" component={role === "admin" ? Managers : Dashboard} />
               <Route path="/collaborateurs" component={role === "admin" ? Collaborateurs : Dashboard} />
               <Route path="/stock-alerts" component={StockAlerts} />

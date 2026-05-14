@@ -201,6 +201,17 @@ function decodeRouterText(str: string | null | undefined): string {
   return fromWin1252(fixEncoding(str));
 }
 
+/** Raw RouterOS `comment` vs valeur canonique cache/UI ({@link decodeRouterText}). */
+function hotspotUserCommentMatches(rawFromApi: string | undefined, canonicalComment: string): boolean {
+  const want = (canonicalComment ?? "").trim();
+  if (!want) return false;
+  const raw = rawFromApi ?? "";
+  if (decodeRouterText(raw) === want) return true;
+  if (fixEncoding(raw) === want) return true;
+  if (raw.trim() === want) return true;
+  return false;
+}
+
 // MikhMon expmode values stored at index [1] in the original format
 const MIKHMON_EXPMODES = new Set(["rem", "ntf", "remc", "ntfc", "0", ""]);
 
@@ -472,6 +483,9 @@ export async function listHotspotUsersFast(conn: RouterConnection): Promise<Hots
       limitUptime:     null,
       limitBytesTotal: null,
       macAddress:      (u["mac-address"] as string) || null,
+      uptime:          null,
+      bytesIn:         null,
+      bytesOut:        null,
       server:          null,
       disabled:        (u["disabled"]    as string) === "true",
     }));
@@ -1193,6 +1207,10 @@ export interface HotspotUser {
   limitUptime: string | null;
   limitBytesTotal: string | null;
   macAddress: string | null;
+  /** Session uptime from hotspot user row (RouterOS), when present. */
+  uptime: string | null;
+  bytesIn: string | null;
+  bytesOut: string | null;
   server: string | null;
   disabled: boolean;
 }
@@ -1208,6 +1226,9 @@ export async function listHotspotUsers(conn: RouterConnection, timeout = 15000):
       limitUptime: (u["limit-uptime"] as string) || null,
       limitBytesTotal: (u["limit-bytes-total"] as string) || null,
       macAddress: (u["mac-address"] as string) || null,
+      uptime: (u["uptime"] as string) || null,
+      bytesIn: (u["bytes-in"] as string) || null,
+      bytesOut: (u["bytes-out"] as string) || null,
       server: (u["server"] as string) || null,
       disabled: (u["disabled"] as string) === "true",
     }));
@@ -1916,6 +1937,91 @@ export async function enableDisableHotspotUsers(
 }
 
 /**
+ * Active/désactive tous les hotspot users dont le commentaire correspond exactement
+ * à `comment` — **une** requête print ciblée (ou repli scan), puis sets, sans second
+ * print complet comme {@link enableDisableHotspotUsers} sur une longue liste de noms.
+ */
+export async function enableDisableHotspotUsersByComment(
+  conn: RouterConnection,
+  comment: string,
+  enable: boolean,
+): Promise<{ done: number; notFound: string[]; sessionsKicked: number; cookiesRemoved: number }> {
+  return withRouter(conn, async (api) => {
+    const rows: Record<string, unknown>[] = [];
+
+    for (const variant of [comment, toWin1252(comment)]) {
+      const filtered = await api.write("/ip/hotspot/user/print", [`?comment=${variant}`]);
+      if (filtered.length > 0) {
+        rows.push(...filtered);
+        break;
+      }
+    }
+
+    if (rows.length === 0) {
+      const all = await api.write("/ip/hotspot/user/print");
+      for (const u of all) {
+        if (hotspotUserCommentMatches(u["comment"] as string | undefined, comment)) rows.push(u);
+      }
+    }
+
+    const toSet: string[] = [];
+    const foundNames: string[] = [];
+    for (const u of rows) {
+      const id = (u[".id"] as string) ?? "";
+      const raw = (u["name"] as string) ?? "";
+      if (!id) continue;
+      toSet.push(id);
+      foundNames.push(fixEncoding(raw));
+    }
+
+    if (toSet.length === 0) {
+      return { done: 0, notFound: [], sessionsKicked: 0, cookiesRemoved: 0 };
+    }
+
+    const disabledVal = enable ? "no" : "yes";
+    for (const id of toSet) {
+      await api.write("/ip/hotspot/user/set", [
+        `=.id=${id}`,
+        `=disabled=${disabledVal}`,
+      ]);
+    }
+
+    let sessionsKicked = 0;
+    let cookiesRemoved = 0;
+
+    if (!enable && foundNames.length > 0) {
+      const disabledSet = new Set(foundNames.map((u) => u.toLowerCase()));
+
+      const sessions = await api.write("/ip/hotspot/active/print");
+      for (const s of sessions) {
+        const rawUser = fixEncoding((s["user"] as string) ?? "").trim();
+        if (disabledSet.has(rawUser.toLowerCase())) {
+          const sid = (s[".id"] as string) ?? "";
+          if (sid) {
+            await api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]);
+            sessionsKicked++;
+          }
+        }
+      }
+
+      const cookies = await api.write("/ip/hotspot/cookie/print");
+      for (const c of cookies) {
+        const rawUser = fixEncoding((c["user"] as string) ?? "").trim();
+        if (disabledSet.has(rawUser.toLowerCase())) {
+          const cid = (c[".id"] as string) ?? "";
+          if (cid) {
+            await api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]);
+            cookiesRemoved++;
+          }
+        }
+      }
+    }
+
+    return { done: toSet.length, notFound: [], sessionsKicked, cookiesRemoved };
+  }, 240_000, "high");
+}
+
+/**
  * Delete all hotspot users whose comment exactly matches the given string.
  */
 export async function deleteHotspotUsersByComment(
@@ -1942,7 +2048,7 @@ export async function deleteHotspotUsersByComment(
     if (toDelete.length === 0) {
       const all = await api.write("/ip/hotspot/user/print");
       for (const u of all) {
-        if (fixEncoding((u["comment"] as string) ?? "") === comment) {
+        if (hotspotUserCommentMatches(u["comment"] as string | undefined, comment)) {
           const id = u[".id"] as string | undefined;
           if (id) toDelete.push(id);
         }

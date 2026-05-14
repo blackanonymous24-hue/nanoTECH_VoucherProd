@@ -41,8 +41,8 @@ export default defineConfig({
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
+    // Optional Vite tooling plugins (npm scope `@replit/*`); only when REPL_ID is set.
+    ...(process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined
       ? [
           await import("@replit/vite-plugin-cartographer").then((m) =>
             m.cartographer({
@@ -91,6 +91,9 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:3001",
         changeOrigin: true,
+        /** Évite les 504 du proxy Vite sur les requêtes longues (ex. lots de QR). */
+        timeout: 180_000,
+        proxyTimeout: 180_000,
       },
     },
     fs: {

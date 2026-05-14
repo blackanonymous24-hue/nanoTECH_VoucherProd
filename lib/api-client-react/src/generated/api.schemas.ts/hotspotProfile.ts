@@ -15,7 +15,7 @@ import type { HotspotProfileParentQueue } from './hotspotProfileParentQueue';
 
 export interface HotspotProfile {
   name: string;
-  /** RouterOS internal id (`.id` of the profile). */
+  /** Internal RouterOS id of the profile row */
   mikrotikId?: string;
   rateLimit?: HotspotProfileRateLimit;
   validity?: HotspotProfileValidity;
@@ -26,9 +26,6 @@ export interface HotspotProfile {
   lockMac?: boolean;
   expiredMode?: HotspotProfileExpiredMode;
   parentQueue?: HotspotProfileParentQueue;
-  /**
-   * True when a system scheduler named like the profile exists and is not disabled (Mikhmon monitor).
-   * Omitted in older cached payloads → treat as false (orange).
-   */
-  schedulerMonitorActive?: boolean;
+  /** True when a /system scheduler entry exists for this profile name and is enabled (Mikhmon-style monitor). */
+  schedulerMonitorActive: boolean;
 }

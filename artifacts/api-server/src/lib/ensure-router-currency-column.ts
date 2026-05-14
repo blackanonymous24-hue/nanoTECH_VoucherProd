@@ -42,9 +42,21 @@ export async function ensureRouterAutoDeleteSalesScriptsColumn(): Promise<void> 
 }
 
 /**
- * Ajoute la colonne ticket_template sur admin_settings si elle n'existe pas.
- * Stocke le template PHP Mikhmon v3 côté serveur pour synchronisation cross-device
- * (mobile web, APK WebView, desktop). null = template par défaut Mikhmon.
+ * Supprime les colonnes legacy d’échelle d’impression (non utilisées). Ne touche pas à
+ * `ticket_template` (modèle Mikhmon / page « Modèle de ticket »).
+ */
+export async function ensureDropAdminSettingsVoucherPrintColumns(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE admin_settings DROP COLUMN IF EXISTS print_scale_small`);
+    await db.execute(sql`ALTER TABLE admin_settings DROP COLUMN IF EXISTS print_scale_mobile`);
+    logger.info("DB compat: colonnes admin_settings.print_scale_* retirées si présentes");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible de retirer admin_settings.print_scale_*");
+  }
+}
+
+/**
+ * Colonne `ticket_template` pour la page Modèle de ticket (sync serveur).
  */
 export async function ensureTicketTemplateColumn(): Promise<void> {
   try {

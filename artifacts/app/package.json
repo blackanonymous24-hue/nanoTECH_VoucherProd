@@ -10,9 +10,17 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.7.1",
+    "@codemirror/lang-php": "^6.0.1",
+    "@codemirror/language": "^6.10.6",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.35.3",
+    "@lezer/highlight": "^1.2.1",
+    "@uiw/react-codemirror": "^4.23.6",
     "@workspace/api-client-react": "workspace:*",
     "axios": "^1.9.0",
-    "html2canvas": "^1.4.1"
+    "html2canvas": "^1.4.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

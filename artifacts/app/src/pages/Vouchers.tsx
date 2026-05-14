@@ -9,6 +9,24 @@ import {
 } from "@workspace/api-client-react";
 import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
+import { openVoucherPrintPreparationWindow, printMikhmonSmallVouchers } from "@/lib/print";
+import {
+  formatMikhmonBytes,
+  inferMikhmonUserMode,
+  mikhmonProfilePriceLabel,
+} from "@/lib/mikhmon-small-print";
+import {
+  fetchEffectiveTicketTemplate,
+  renderVoucherTicketsBody,
+  ticketPriceColorKey,
+  type VoucherTicketPrintRow,
+} from "@/lib/voucher-ticket-render";
+import {
+  fetchProfilesSnap,
+  finalizeProfilesForPrint,
+} from "@/lib/fetch-router-profiles-live";
+import { fetchHotspotQrImgAttrsBatch } from "@/lib/voucher-hotspot-qr-api";
+import { buildVoucherPdfDocumentTitle } from "@/lib/voucher-print-filename";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,7 +65,8 @@ import {
   ChevronsUpDown,
   Pencil,
   RotateCcw,
-  MoreHorizontal,
+  Lock,
+  Unlock,
   UserPlus,
   Eye,
   EyeOff,
@@ -56,7 +75,6 @@ import {
   CalendarPlus,
   FilePlus2,
   CheckCircle2,
-  Copy,
 } from "lucide-react";
 import { PasswordInput } from "@/components/ui/password-input";
 import {
@@ -67,21 +85,45 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale } from "@/pages/TicketTemplate";
-import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
-type LotSummary = { name: string; count: number; profile: string | null; preview: HotspotUser[] };
+/** Affichage des compteurs hotspot user (MikroTik `bytes-in` / `bytes-out`), aligné sur Sessions. */
+function formatUserTrafficBytes(bytes: string | null | undefined): string {
+  if (bytes == null || bytes === "") return "—";
+  const n = parseInt(bytes, 10);
+  if (Number.isNaN(n)) return bytes;
+  if (n < 1024) return `${n} o`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} Mo`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} Go`;
+}
+
+function hotspotUserUptimeIsMeaningful(uptime: string | null | undefined): boolean {
+  if (!uptime || !uptime.trim()) return false;
+  const t = uptime.trim();
+  if (t === "00:00:00") return false;
+  if (/^0+s?$/i.test(t)) return false;
+  return true;
+}
+
+function hotspotUserHasTraffic(bytesIn: string | null | undefined, bytesOut: string | null | undefined): boolean {
+  const a = parseInt(String(bytesIn ?? ""), 10);
+  const b = parseInt(String(bytesOut ?? ""), 10);
+  return (Number.isFinite(a) && a > 0) || (Number.isFinite(b) && b > 0);
+}
+
+type LotSummary = {
+  name: string;
+  count: number;
+  profile: string | null;
+  preview: HotspotUser[];
+  disabledCount?: number;
+  allDisabled?: boolean;
+};
 type VendorAliasRow = { name: string; commentSuffix?: string | null; commentSuffix2?: string | null };
 
 const PAGE_SIZE = 100;
@@ -170,11 +212,18 @@ export default function Vouchers() {
 
   const [page, setPage] = useState(0);
   const [selectedUsernames, setSelectedUsernames] = useState<Set<string>>(new Set());
-  const [printingLot, setPrintingLot] = useState<string | null>(null);
   const [deletingLot, setDeletingLot] = useState<string | null>(null);
   const [isDeletingLot, setIsDeletingLot] = useState(false);
   const [deletingLotName, setDeletingLotName] = useState<string | null>(null);
   const [isDisabling, setIsDisabling] = useState(false);
+  /** Lot dont Désactiver/Réactiver est en cours (liste ou onglet Lots). */
+  const [disablingLotComment, setDisablingLotComment] = useState<string | null>(null);
+  /** Confirmation avant Désactiver/Réactiver un lot (liste ou onglet Lots). */
+  const [confirmLotToggle, setConfirmLotToggle] = useState<{
+    comment: string;
+    enable: boolean;
+    previewUsers?: HotspotUser[];
+  } | null>(null);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
@@ -197,6 +246,8 @@ export default function Vouchers() {
   const [confirmDeleteEditUser, setConfirmDeleteEditUser] = useState<HotspotUser | null>(null);
   const [isDeletingEditUser, setIsDeletingEditUser] = useState(false);
   const [isTogglingEditUserDisabled, setIsTogglingEditUserDisabled] = useState(false);
+  /** Username du voucher en cours d’activation/désactivation MikroTik (ligne Mes tickets). */
+  const [userRowMikrotikToggle, setUserRowMikrotikToggle] = useState<string | null>(null);
   const [extendUser, setExtendUser] = useState<HotspotUser | null>(null);
   const [extendAmount, setExtendAmount] = useState("1");
   const [extendUnit, setExtendUnit] = useState<"Heure" | "Jour" | "Mois">("Mois");
@@ -207,6 +258,8 @@ export default function Vouchers() {
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
   const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
   const [lotsVendorPopoverOpen, setLotsVendorPopoverOpen] = useState(false);
+  /** Lot en cours d’impression tickets (clé = nom du lot / commentaire). */
+  const [printingLotKey, setPrintingLotKey] = useState<string | null>(null);
 
   // Réinitialise tous les filtres et la sélection quand le routeur change
   useEffect(() => {
@@ -220,6 +273,7 @@ export default function Vouchers() {
     setLotsSearch("");
     setLotsFilterProfile("all");
     setLotsFilterVendor("all");
+    setPrintingLotKey(null);
   }, [selectedRouterId]);
 
   // ── Add User dialog (Mikhmon-style) ─────────────────────────────────────────
@@ -360,17 +414,45 @@ export default function Vouchers() {
     return result;
   }, [lots, lotsFilterProfile, lotsFilterVendor, debouncedLotsSearch, vendorAliasMap]);
 
-  // ── Users query — list view only, server-side filters, limit 2000 ─────────────
-  // For the default (unfiltered) case, use module-level cache so list shows instantly on re-visit.
+  // ── Users query — list view only ─────────────────────────────────────────────
+  // Sans filtre client (profil/lot/recherche + vendeur + statut) : pagination serveur
+  // par tranches de PAGE_SIZE, alignée sur le total hotspot (lots / API).
+  // Avec filtre vendeur/statut ou recherche : chargement bulk + pagination locale.
   const isDefaultFilter = !debouncedSearch && filterProfile === "all" && filterComment === "all";
-  const usersLimit = filterVendor !== "all" ? 20_000 : 2_000;
-  const usersParams = {
-    search: debouncedSearch || undefined,
-    profile: filterProfile !== "all" ? filterProfile : undefined,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...(filterComment !== "all" ? { comment: filterComment } : {}),
-    limit: usersLimit,
-  } as Parameters<typeof useListRouterUsers>[1];
+  const useServerPagePagination =
+    isDefaultFilter && filterVendor === "all" && filterStatus === "all";
+  const usersLimitBulk = filterVendor !== "all" ? 20_000 : 2_000;
+  const usersParams = useMemo(() => {
+    const commentPart = filterComment !== "all" ? { comment: filterComment } : {};
+    const base: Record<string, unknown> = {
+      search: debouncedSearch || undefined,
+      profile: filterProfile !== "all" ? filterProfile : undefined,
+      ...commentPart,
+    };
+    if (useServerPagePagination) {
+      base.limit = PAGE_SIZE;
+      base.offset = page * PAGE_SIZE;
+    } else {
+      base.limit = usersLimitBulk;
+    }
+    return base as Parameters<typeof useListRouterUsers>[1];
+  }, [
+    debouncedSearch,
+    filterProfile,
+    filterComment,
+    filterVendor,
+    filterStatus,
+    page,
+    useServerPagePagination,
+    usersLimitBulk,
+  ]);
+
+  const cachedUsersForInitial =
+    activeRouterId != null ? _vouchersCache[activeRouterId]?.users : undefined;
+  const usersCacheMatchesServerPaging =
+    !cachedUsersForInitial?.users ||
+    !useServerPagePagination ||
+    (Array.isArray(cachedUsersForInitial.users) && cachedUsersForInitial.users.length <= PAGE_SIZE);
   const {
     data: allUsersData,
     isLoading: usersLoading,
@@ -390,18 +472,30 @@ export default function Vouchers() {
         staleTime: 0,
         refetchInterval: 15_000,
         gcTime: 30 * 60_000,
-        initialData: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.users : undefined,
-        initialDataUpdatedAt: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.usersTs : undefined,
+        initialData:
+          activeRouterId != null &&
+          isDefaultFilter &&
+          usersCacheMatchesServerPaging &&
+          (!useServerPagePagination || page === 0)
+            ? cachedUsersForInitial
+            : undefined,
+        initialDataUpdatedAt:
+          activeRouterId != null &&
+          isDefaultFilter &&
+          usersCacheMatchesServerPaging &&
+          (!useServerPagePagination || page === 0)
+            ? _vouchersCache[activeRouterId]?.usersTs
+            : undefined,
       },
     },
   );
 
-  // Update module cache when unfiltered users data arrives
+  // Update module cache when unfiltered users data arrives (page 0 seulement en pagination serveur)
   useEffect(() => {
-    if (isDefaultFilter && activeRouterId && allUsersData) {
-      _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], users: allUsersData, usersTs: Date.now() };
-    }
-  }, [allUsersData, activeRouterId, isDefaultFilter]);
+    if (!isDefaultFilter || !activeRouterId || !allUsersData) return;
+    if (useServerPagePagination && page !== 0) return;
+    _vouchersCache[activeRouterId] = { ..._vouchersCache[activeRouterId], users: allUsersData, usersTs: Date.now() };
+  }, [allUsersData, activeRouterId, isDefaultFilter, useServerPagePagination, page]);
 
   useEffect(() => {
     if (!editingUser) return;
@@ -475,10 +569,31 @@ export default function Vouchers() {
     return base.filter((u) => !u.disabled && userIsExpired(u));
   }, [allUsersData?.users, filterVendor, filterStatus, profileExpiryModeByName, vendorAliasMap, lotVendorByComment]);
   const filteredTotal = filtered.length;
+  const apiListTotal = allUsersData?.total ?? 0;
 
-  // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const pageUsers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const paginationTotalCount = useMemo(() => {
+    if (useServerPagePagination) return Math.max(totalUsers, apiListTotal);
+    return filteredTotal;
+  }, [useServerPagePagination, totalUsers, apiListTotal, filteredTotal]);
+
+  const totalPages = Math.max(1, Math.ceil(paginationTotalCount / PAGE_SIZE));
+
+  useEffect(() => {
+    if (!activeRouterId || !useServerPagePagination) return;
+    const pt = paginationTotalCount;
+    if (pt <= 0) return;
+    const maxPage = Math.max(0, Math.ceil(pt / PAGE_SIZE) - 1);
+    if (page > maxPage) setPage(maxPage);
+  }, [activeRouterId, useServerPagePagination, paginationTotalCount, page]);
+
+  const pageUsers = useServerPagePagination
+    ? filtered
+    : filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const listMatchCount = useServerPagePagination ? apiListTotal : filteredTotal;
+  /** Total affiché (en-tête / légende) : aligné sur paginationTotalCount en mode serveur. */
+  const displayTotalUsers = useServerPagePagination ? paginationTotalCount : totalUsers;
+  const showEmptyList = !usersLoading && (useServerPagePagination ? apiListTotal === 0 : filteredTotal === 0);
   const { data: bypassBindings = [] } = useQuery({
     queryKey: ["router-ip-bindings", activeRouterId],
     enabled: !!activeRouterId && !!editingUser && linkBypass,
@@ -496,19 +611,26 @@ export default function Vouchers() {
     [profilesList],
   );
 
-  // ── Lot disable/enable via vouchers/lot-disable ───────────────────────────────
-  const handleDisableLot = async (comment: string, enable: boolean) => {
-    if (!activeRouterId) return;
+  // ── Lot disable/enable — un seul appel serveur (MikroTik : print filtré par commentaire + sets) ──
+  const handleDisableLot = async (
+    comment: string,
+    enable: boolean,
+    opts?: { previewUsers?: HotspotUser[] },
+  ) => {
+    if (!activeRouterId || isDisabling) return;
 
-    // Optimistic update — flip users matching this lot comment in the cache
-    const usersInLot = new Set(
-      (allUsersData?.users ?? []).filter((u) => u.comment === comment).map((u) => u.username),
-    );
-    const snapshot = usersInLot.size > 0
-      ? optimisticSetDisabled(activeRouterId, usersInLot, !enable)
-      : [];
+    const namesInCache = (allUsersData?.users ?? [])
+      .filter((u) => u.comment === comment)
+      .map((u) => u.username);
+    const fromPreview = (opts?.previewUsers ?? []).map((u) => u.username);
+    const namesForOpt = new Set([...namesInCache, ...fromPreview]);
+    const snapshot =
+      namesForOpt.size > 0
+        ? optimisticSetDisabled(activeRouterId, namesForOpt, !enable)
+        : null;
 
     setIsDisabling(true);
+    setDisablingLotComment(comment);
     try {
       const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
         method: "POST",
@@ -516,20 +638,36 @@ export default function Vouchers() {
         body: JSON.stringify({ routerId: activeRouterId, comment, enable }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { done: number; notFound: string[] };
+      const data = (await res.json()) as { done: number; notFound: string[] };
+      if (data.done === 0) {
+        if (snapshot) {
+          for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
+        }
+        toast({
+          title: "Aucun compte sur MikroTik",
+          description: `Aucun utilisateur hotspot avec le commentaire de ce lot (${comment}).`,
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
-        title: enable
-          ? `${data.done} voucher(s) réactivé(s)`
-          : `${data.done} voucher(s) désactivé(s)`,
+        title: enable ? `${data.done} voucher(s) réactivé(s) sur MikroTik` : `${data.done} voucher(s) désactivé(s) sur MikroTik`,
         description: `Lot : ${comment}`,
       });
       void refetchLots();
       void refetchUsers();
     } catch {
-      for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
-      toast({ title: "Erreur lors de la désactivation", variant: "destructive" });
+      if (snapshot) {
+        for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
+      }
+      toast({
+        title: enable ? "Erreur réactivation" : "Erreur désactivation",
+        description: "Impossible d’appliquer sur MikroTik. Vérifiez la connexion au routeur.",
+        variant: "destructive",
+      });
     } finally {
       setIsDisabling(false);
+      setDisablingLotComment(null);
     }
   };
 
@@ -610,6 +748,34 @@ export default function Vouchers() {
       toast({ title: "Erreur", description: String(err), variant: "destructive" });
     } finally {
       setIsTogglingEditUserDisabled(false);
+    }
+  };
+
+  /** Active / désactive le compte hotspot sur MikroTik depuis une ligne Mes tickets. */
+  const handleUserRowMikrotikToggle = async (user: HotspotUser) => {
+    if (!activeRouterId || userRowMikrotikToggle !== null) return;
+    const u = user.username;
+    const enable = user.disabled;
+    const snapshot = optimisticSetDisabled(activeRouterId, new Set([u]), !user.disabled);
+    setUserRowMikrotikToggle(u);
+    try {
+      const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routerId: activeRouterId, usernames: [u], enable }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast({
+        title: enable ? "Réactivé sur MikroTik" : "Désactivé sur MikroTik",
+        description: u,
+      });
+      void refetchLots();
+      void refetchUsers();
+    } catch (err) {
+      for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
+      toast({ title: "Erreur MikroTik", description: String(err), variant: "destructive" });
+    } finally {
+      setUserRowMikrotikToggle(null);
     }
   };
 
@@ -702,67 +868,91 @@ export default function Vouchers() {
 
 
   const handlePrintSmallLot = async (lot: LotSummary) => {
-    const preWin: Window | null = window.open("", "_blank");
-    if (preWin) {
-      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chargement…</title>
-<style>
-  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
-    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
-  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#7c3aed;
-    border-radius:50%;animation:spin 0.9s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
-</style></head>
-<body><div class="spinner"></div>
-<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
-</body></html>`);
-      preWin.document.close();
-    }
-    const hotspotName = (activeRouter as { hotspotName?: string } | undefined)?.hotspotName || activeRouter?.name || "";
-    if (await tryOpenVoucherPrintPage(lot.name, hotspotName)) { preWin?.close(); return; }
-    setPrintingLot(lot.name);
+    if (!activeRouterId) return;
+    const preWin = openVoucherPrintPreparationWindow();
+    setPrintingLotKey(lot.name);
     try {
-      const [{ template: php }, users] = await Promise.all([fetchServerTemplateWithMeta(), fetchLotUsers(lot)]);
-      if (users.length === 0) { preWin?.close(); toast({ title: "Lot vide", description: "Aucun voucher dans ce lot.", variant: "destructive" }); return; }
-      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const vouchers = users.map((user, idx) => {
-        const profile = profilesList.find((p) => p.name === user.profile);
-        return { hotspotname: hotspotName, dnsname: (activeRouter as { contact?: string } | undefined)?.contact ?? "", username: user.username, password: user.password, price: profile?.price ?? "", currency: "FCFA", validity: profile?.validity ?? "", timelimit: user.limitUptime ?? "", datalimit: user.limitBytesTotal ?? "", num: idx + 1 };
-      });
-      const resp = await fetch(`${BASE}/api/render-tickets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ php, vouchers }) });
-      if (!resp.ok) { preWin?.close(); const err = await resp.json().catch(() => ({})) as { error?: string }; toast({ title: "Erreur rendu tickets", description: err.error ?? `HTTP ${resp.status}`, variant: "destructive" }); return; }
-      const data = await resp.json() as { html: string[] };
-      if (!data.html?.length) { preWin?.close(); toast({ title: "Aucun ticket généré", description: "Le modèle n'a rien retourné.", variant: "destructive" }); return; }
-      const title = ["Voucher", toSlug(hotspotName), lot.name].filter(Boolean).join("-");
-      const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-      const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (isNativeWV) {
-        // APK : pont natif, pas de window.open
-        printTickets(data.html, title, readMobileScale());
-      } else if (isMobileBrowser) {
-        // Mobile browser : zoom + page-breaks (anti-coupure)
-        if (preWin) {
-          const html = buildTicketPrintHtml(data.html, title, readMobileScale(), true);
-          preWin.document.open(); preWin.document.write(html); preWin.document.close();
-        }
-      } else {
-        // Desktop : 2 colonnes Small
-        if (preWin) {
-          const html = buildSmallModePrintHtml(data.html, title, readSmallScale());
-          preWin.document.open(); preWin.document.write(html); preWin.document.close();
-        }
+      const [users, template, profilesSnap] = await Promise.all([
+        fetchLotUsers(lot),
+        fetchEffectiveTicketTemplate(BASE),
+        fetchProfilesSnap(BASE, activeRouterId),
+      ]);
+      if (users.length === 0) {
+        preWin?.close();
+        toast({
+          title: "Rien à imprimer",
+          description: "Aucun utilisateur trouvé pour ce lot sur le routeur.",
+          variant: "destructive",
+        });
+        return;
       }
+      const r = activeRouter as {
+        hotspotName?: string | null;
+        contact?: string | null;
+        name?: string;
+        currency?: string | null;
+        host?: string;
+      } | undefined;
+      const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || "Hotspot";
+      const currency = (r?.currency ?? "").trim() || "FCFA";
+      const qrHost = (r?.host ?? "").trim() || hotspotName;
+      const dnsname = (r?.contact ?? "").trim() || qrHost;
+      const needQr = /\$qrcode/i.test(template);
+      const profilesForPrint = await finalizeProfilesForPrint(
+        BASE,
+        activeRouterId,
+        sortedProfiles,
+        users,
+        profilesSnap,
+      );
+      const profByName = new Map(profilesForPrint.map((p) => [p.name, p]));
+      const qrItems = needQr
+        ? users.map((u) => ({
+            username: u.username,
+            password: u.password,
+            usermode: inferMikhmonUserMode(u.comment, u.username, u.password),
+          }))
+        : [];
+      const qrAttrsList = needQr && qrItems.length > 0 ? await fetchHotspotQrImgAttrsBatch(BASE, qrHost, qrItems) : [];
+      const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
+          const p = profByName.get(u.profile);
+          const usermode = inferMikhmonUserMode(u.comment, u.username, u.password);
+          const priceStr = mikhmonProfilePriceLabel(p);
+          const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? "").trim();
+          const qrcode = needQr ? (qrAttrsList[i] ?? 'src="" alt=""') : "";
+          return {
+            hotspotName,
+            num: i + 1,
+            usermode,
+            username: u.username,
+            password: u.password,
+            validityRaw: String(p?.validity ?? "").trim(),
+            timelimitRaw: String(u.limitUptime ?? "").trim(),
+            datalimit: formatMikhmonBytes(u.limitBytesTotal),
+            priceDisplay: priceStr,
+            getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
+            currency,
+            dnsname,
+            qrcode,
+          };
+        });
+      const profile = lot.profile ?? users[0]?.profile ?? "";
+      printMikhmonSmallVouchers(
+        renderVoucherTicketsBody(template, rows),
+        buildVoucherPdfDocumentTitle(hotspotName, profile, lot.name),
+        preWin,
+      );
     } catch (err) {
       preWin?.close();
-      toast({ title: "Erreur impression Small", description: String(err), variant: "destructive" });
+      toast({
+        title: "Impression impossible",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
     } finally {
-      setPrintingLot(null);
+      setPrintingLotKey(null);
     }
   };
-
-  // ── Print ────────────────────────────────────────────────────────────────────
 
   // ── Export .txt / .csv — lazy-fetch users for the lot on demand ─────────────
   const fetchLotUsers = async (lot: LotSummary): Promise<HotspotUser[]> => {
@@ -1254,7 +1444,7 @@ export default function Vouchers() {
                             aria-expanded={profilePopoverOpen}
                             className="flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5"
                           >
-                            <span className="truncate">
+                            <span className="truncate text-[11px] font-sans">
                               {filterProfile === "all"
                                 ? <><span className="md:hidden">Forfaits</span><span className="hidden md:inline">Tous les forfaits</span></>
                                 : filterProfile}
@@ -1290,7 +1480,12 @@ export default function Vouchers() {
                             aria-expanded={commentPopoverOpen}
                             className="flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5"
                           >
-                            <span className="font-mono text-[11px] truncate">
+                            <span
+                              className={cn(
+                                "truncate text-[11px] font-sans",
+                                filterComment !== "all" && "font-mono",
+                              )}
+                            >
                               {filterComment === "all"
                                 ? <><span className="md:hidden">Lots</span><span className="hidden md:inline">Tous les lots</span></>
                                 : filterComment}
@@ -1334,7 +1529,7 @@ export default function Vouchers() {
                             aria-expanded={vendorPopoverOpen}
                             className={`flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5 ${filterVendor !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
-                            <span className="truncate">
+                            <span className="truncate text-[11px] font-sans">
                               {filterVendor === "all"
                                 ? <><span className="md:hidden">Vendeurs</span><span className="hidden md:inline">Tous les vendeurs</span></>
                                 : filterVendor}
@@ -1378,7 +1573,7 @@ export default function Vouchers() {
                             aria-expanded={statusPopoverOpen}
                             className={`flex-1 min-w-0 justify-between font-normal text-[11px] h-8 px-1.5 ${filterStatus !== "all" ? "border-blue-400 text-blue-700 bg-blue-50" : ""}`}
                           >
-                            <span className="truncate">
+                            <span className="truncate text-[11px] font-sans">
                               {filterStatus === "all"
                                 ? <><span className="md:hidden">Statut</span><span className="hidden md:inline">Tous statuts</span></>
                                 : filterStatus === "expired"
@@ -1428,21 +1623,41 @@ export default function Vouchers() {
                       size="sm"
                       variant="ghost"
                       disabled={isDisabling}
-                      onClick={() => handleDisableLot(filterComment, false)}
+                      onClick={() =>
+                        setConfirmLotToggle({
+                          comment: filterComment,
+                          enable: false,
+                          previewUsers: (allUsersData?.users ?? []).filter((u) => u.comment === filterComment),
+                        })
+                      }
                       className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
                     >
-                      <PowerOff className="h-3.5 w-3.5" />
-                      {isDisabling ? "En cours..." : "Désactiver"}
+                      {isDisabling && disablingLotComment === filterComment ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PowerOff className="h-3.5 w-3.5" />
+                      )}
+                      {isDisabling && disablingLotComment === filterComment ? "En cours..." : "Désactiver"}
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
                       disabled={isDisabling}
-                      onClick={() => handleDisableLot(filterComment, true)}
+                      onClick={() =>
+                        setConfirmLotToggle({
+                          comment: filterComment,
+                          enable: true,
+                          previewUsers: (allUsersData?.users ?? []).filter((u) => u.comment === filterComment),
+                        })
+                      }
                       className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
                     >
-                      <PowerOff className="h-3.5 w-3.5 rotate-180" />
-                      {isDisabling ? "En cours..." : "Réactiver"}
+                      {isDisabling && disablingLotComment === filterComment ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PowerOff className="h-3.5 w-3.5 rotate-180" />
+                      )}
+                      {isDisabling && disablingLotComment === filterComment ? "En cours..." : "Réactiver"}
                     </Button>
                     <Button
                       size="sm"
@@ -1507,11 +1722,20 @@ export default function Vouchers() {
                           const lot = lots.find((l) => l.name === filterComment);
                           if (lot) await handlePrintSmallLot(lot);
                         }}
-                        disabled={printingLot !== null}
-                        className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                        disabled={printingLotKey !== null}
+                        className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors disabled:opacity-50"
                       >
-                        {printingLot !== null ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
-                        <span>{printingLot !== null ? "Impression…" : "Imprimer"}</span>
+                        {printingLotKey != null && filterComment && printingLotKey === filterComment ? (
+                          <>
+                            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-purple-600" aria-hidden />
+                            <span className="italic">Impression en cours...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Printer className="h-3 w-3 shrink-0" />
+                            <span>Imprimer</span>
+                          </>
+                        )}
                       </button>
 
                       <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
@@ -1633,14 +1857,14 @@ export default function Vouchers() {
                       onChange={selectAll}
                       className="h-4 w-4 rounded"
                     />
-                    <span className="text-xs text-gray-500 font-medium uppercase tracking-wide">
-                      Voucher
+                    <span className="text-xs font-medium tracking-wide text-gray-500">
+                      Utilisateur(s) Hotspot
                     </span>
                   </div>
                   <span className="text-xs text-gray-400">
-                    {filteredTotal !== totalUsers
-                      ? `${filteredTotal.toLocaleString("fr")} filtrés / ${totalUsers.toLocaleString("fr")} total`
-                      : `${totalUsers.toLocaleString("fr")} total`}
+                    {listMatchCount !== displayTotalUsers && displayTotalUsers > 0
+                      ? `${listMatchCount.toLocaleString("fr")} affichés / ${displayTotalUsers.toLocaleString("fr")} total`
+                      : `${displayTotalUsers.toLocaleString("fr")} total`}
                   </span>
                 </div>
                 <CardContent className="p-0">
@@ -1649,23 +1873,24 @@ export default function Vouchers() {
                       <RefreshCw className="h-8 w-8 text-gray-300 mb-3 animate-spin" />
                       <p className="text-sm font-medium text-gray-400">Chargement depuis MikroTik…</p>
                     </div>
-                  ) : filteredTotal === 0 ? (
+                  ) : showEmptyList ? (
                     <div className="py-8 text-center text-gray-400 text-sm">
                       Aucun voucher trouvé.
                     </div>
                   ) : (
-                    <div className="divide-y divide-gray-100 print:block" id="voucher-print-area">
+                    <div className="divide-y divide-gray-100" id="voucher-list-area">
                       {pageUsers.map((user) => (
                         <UserRow
                           key={user.username}
                           user={user}
                           isExpired={userIsExpired(user)}
-                          isUnlimited={profileIsUnlimited(user.profile)}
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
-                          onExtend={() => openExtendUser(user)}
-                          onCopy={() => { void navigator.clipboard.writeText(user.username); }}
+                          onRequestDelete={() => setConfirmDeleteEditUser(user)}
+                          onMikrotikToggle={() => void handleUserRowMikrotikToggle(user)}
+                          mikrotikTogglingUser={userRowMikrotikToggle}
+                          deleteBusy={isDeletingEditUser}
                         />
                       ))}
                     </div>
@@ -1684,7 +1909,7 @@ export default function Vouchers() {
                       <ChevronLeft className="h-4 w-4" /> Précédent
                     </Button>
                     <span className="text-xs text-gray-500">
-                      Page {page + 1} / {totalPages} ({filteredTotal.toLocaleString("fr")} résultats)
+                      Page {page + 1} / {totalPages} ({displayTotalUsers.toLocaleString("fr")} résultats)
                     </span>
                     <Button
                       variant="outline"
@@ -1847,7 +2072,13 @@ export default function Vouchers() {
                 </Card>
               ) : (
                 <div className="space-y-3">
-                  {filteredLots.map((lot) => (
+                  {filteredLots.map((lot) => {
+                    const allDisabled =
+                      typeof lot.allDisabled === "boolean"
+                        ? lot.allDisabled
+                        : lot.preview.length > 0 && lot.preview.every((u) => u.disabled);
+                    const lotPowerBusy = isDisabling && disablingLotComment === lot.name;
+                    return (
                     <Card key={lot.name} className="overflow-hidden">
                       <div className="flex items-center justify-between px-3 py-2 sm:px-5 sm:py-4 gap-2">
                         {/* Info lot */}
@@ -1886,13 +2117,22 @@ export default function Vouchers() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
-                            onClick={() => handlePrintSmallLot(lot)}
-                            disabled={printingLot === lot.name}
-                            title="Imprimer (2 colonnes)"
+                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:min-w-0 sm:px-2.5 sm:gap-1.5 sm:text-xs text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                            onClick={() => void handlePrintSmallLot(lot)}
+                            disabled={printingLotKey !== null}
+                            title="Imprimer"
                           >
-                            {printingLot === lot.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
-                            <span className="hidden sm:inline">{printingLot === lot.name ? "Impression…" : "Imprimer"}</span>
+                            {printingLotKey === lot.name ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                                <span className="hidden sm:inline italic">Impression en cours...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Printer className="h-3.5 w-3.5 shrink-0" />
+                                <span className="hidden sm:inline">Imprimer</span>
+                              </>
+                            )}
                           </Button>
                           <Button
                             size="sm"
@@ -1913,6 +2153,36 @@ export default function Vouchers() {
                           >
                             <Table2 className="h-3.5 w-3.5" />
                             <span className="hidden sm:inline">.csv</span>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className={
+                              allDisabled
+                                ? "h-7 w-7 p-0 shrink-0 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
+                                : "h-7 w-7 p-0 shrink-0 text-green-600 hover:text-green-800 hover:bg-green-50"
+                            }
+                            disabled={isDisabling}
+                            title={
+                              allDisabled
+                                ? "Lot entièrement désactivé sur MikroTik — cliquer pour réactiver"
+                                : "Au moins un compte actif — cliquer pour tout désactiver sur MikroTik"
+                            }
+                            onClick={() =>
+                              setConfirmLotToggle({
+                                comment: lot.name,
+                                enable: allDisabled,
+                                previewUsers: lot.preview,
+                              })
+                            }
+                          >
+                            {lotPowerBusy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : allDisabled ? (
+                              <PowerOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Power className="h-3.5 w-3.5" />
+                            )}
                           </Button>
                           <Button
                             size="sm"
@@ -1941,7 +2211,8 @@ export default function Vouchers() {
                         )}
                       </div>
                     </Card>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
             </>
@@ -2519,6 +2790,66 @@ export default function Vouchers() {
         </DialogContent>
       </Dialog>
 
+      <AlertDialog
+        open={confirmLotToggle !== null}
+        onOpenChange={(open) => {
+          if (!open && !isDisabling) setConfirmLotToggle(null);
+        }}
+      >
+        <AlertDialogContent>
+          {confirmLotToggle && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {confirmLotToggle.enable ? "Réactiver le lot ?" : "Désactiver le lot ?"}
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="text-sm text-muted-foreground space-y-2">
+                    {confirmLotToggle.enable ? (
+                      <p>
+                        Tous les comptes du lot{" "}
+                        <strong className="font-mono text-foreground break-all">{confirmLotToggle.comment}</strong>{" "}
+                        seront réactivés sur MikroTik (propriété <span className="font-medium">disabled</span>).
+                      </p>
+                    ) : (
+                      <p>
+                        Tous les comptes du lot{" "}
+                        <strong className="font-mono text-foreground break-all">{confirmLotToggle.comment}</strong>{" "}
+                        seront désactivés sur MikroTik. Les sessions hotspot actives pour ces utilisateurs seront
+                        coupées.
+                      </p>
+                    )}
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annuler</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={isDisabling}
+                  className={
+                    confirmLotToggle.enable
+                      ? "bg-green-600 hover:bg-green-700 focus-visible:ring-green-600"
+                      : "bg-orange-600 hover:bg-orange-700 focus-visible:ring-orange-600"
+                  }
+                  onClick={() => {
+                    if (!confirmLotToggle || isDisabling) return;
+                    const t = confirmLotToggle;
+                    setConfirmLotToggle(null);
+                    void handleDisableLot(
+                      t.comment,
+                      t.enable,
+                      t.previewUsers?.length ? { previewUsers: t.previewUsers } : undefined,
+                    );
+                  }}
+                >
+                  {confirmLotToggle.enable ? "Réactiver" : "Désactiver"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
+
       <DeleteConfirmDialog
         open={!!deletingLot}
         onOpenChange={(o) => { if (!o && !isDeletingLot) setDeletingLot(null); }}
@@ -2531,8 +2862,6 @@ export default function Vouchers() {
       {/* Hidden download icon for accessibility */}
       <Download className="hidden" />
 
-      {/* ── Print section — hidden on screen, visible on print ── */}
-      <div id="voucher-print-section" style={{ display: "none" }} />
     </div>
   );
 }
@@ -2620,25 +2949,38 @@ function isUnlimitedProfile(profile: string | null | undefined): boolean {
   );
 }
 
+/**
+ * Ligne d’un utilisateur hotspot (Mes tickets) :
+ * - **Login** : pseudo (`user.username`) — `mes-tickets-username`. **Desktop** : si le user a une **MAC** renseignée sur l’entrée hotspot (`mac-address`, verrouillage MAC), elle s’affiche sous le login en **parenthèses** (`absolute`, sans augmenter la hauteur de flux de la ligne).
+ * - **Userinfo** : `mes-tickets-userinfo`. **`sm+`** : `mes-tickets-userinfo-columns` — une ligne (colonne MAC vide si MAC affichée sous le login ; sinon pastille MAC si présente), profil, uptime, bytes in, bytes out, commentaire.
+ * - **Cadenas** : activation / désactivation MikroTik. **Poubelle** : ouvre le dialogue de confirmation puis suppression sur le routeur (réutilise `DeleteConfirmDialog` / `DELETE /routers/:id/users`). Modifier / prolonger : clic sur la ligne ou modale d’édition.
+ */
 function UserRow({
   user,
   isExpired: expired,
-  isUnlimited,
   selected,
   onToggle,
   onEdit,
-  onExtend,
-  onCopy,
+  onRequestDelete,
+  onMikrotikToggle,
+  mikrotikTogglingUser,
+  deleteBusy,
 }: {
   user: HotspotUser;
   isExpired: boolean;
-  isUnlimited: boolean;
   selected: boolean;
   onToggle: () => void;
   onEdit: () => void;
-  onExtend: () => void;
-  onCopy: () => void;
+  onRequestDelete: () => void;
+  onMikrotikToggle: () => void;
+  mikrotikTogglingUser: string | null;
+  deleteBusy: boolean;
 }) {
+  const mikrotikBusyThis = mikrotikTogglingUser === user.username;
+  const mikrotikAnyBusy = mikrotikTogglingUser !== null;
+  const rowActionsDisabled = mikrotikAnyBusy || deleteBusy;
+  /** MAC renseignée sur l’utilisateur hotspot (= verrouillage MAC côté MikroTik). */
+  const hotspotUserMacLocked = Boolean(user.macAddress?.trim());
   return (
     <div
       role="button"
@@ -2650,100 +2992,216 @@ function UserRow({
           onEdit();
         }
       }}
-      className={`flex items-center justify-between px-3 sm:px-4 py-3 hover:bg-gray-50 group cursor-pointer ${selected ? "bg-blue-50" : ""}`}
+      className={`mes-tickets-row flex items-center justify-between gap-2 px-3 sm:px-4 py-3 hover:bg-gray-50 group cursor-pointer ${selected ? "bg-blue-50" : ""}`}
     >
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggle}
-          onClick={(e) => e.stopPropagation()}
-          className="h-4 w-4 rounded flex-shrink-0"
-        />
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1 sm:flex-nowrap sm:gap-x-3 sm:gap-y-0">
+        <div className="flex min-w-0 max-w-full shrink-0 items-center gap-2">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            onClick={(e) => e.stopPropagation()}
+            className="h-4 w-4 shrink-0 rounded"
+          />
+          <div className="mes-tickets-username relative flex min-w-0 max-w-[min(100%,11rem)] items-center gap-2 text-sm leading-tight sm:max-w-[14rem]">
             <button
               type="button"
               onClick={onEdit}
-              className="font-mono font-semibold text-sm text-left hover:text-blue-600 hover:underline underline-offset-2"
+              className="min-w-0 truncate font-mono font-semibold text-sm leading-tight text-left hover:text-blue-600 hover:underline underline-offset-2"
               title="Modifier cet utilisateur"
             >
               {user.username}
             </button>
             {expired && (
-              <span className="text-[10px] uppercase tracking-wide font-semibold bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+              <span className="shrink-0 text-[10px] font-semibold uppercase leading-none tracking-wide text-red-700 bg-red-100 px-1.5 py-0.5 rounded">
                 Expiré
               </span>
             )}
+            {hotspotUserMacLocked ? (
+              <span
+                className="pointer-events-none absolute left-0 top-full z-[1] mt-0.5 hidden max-w-[min(100%,14rem)] truncate font-mono text-[10px] leading-none text-gray-500 sm:block"
+                title={user.macAddress ?? undefined}
+              >
+                ({user.macAddress})
+              </span>
+            ) : null}
           </div>
-          <div className="text-xs text-gray-400 mt-0.5 flex flex-wrap gap-2">
-            <span>{user.profile}</span>
-            {user.comment && (
-              <>
-                <span>·</span>
-                <span className={`font-mono px-1 rounded ${expired ? "bg-red-50 text-red-600" : "bg-gray-100"}`}>
-                  {user.comment}
-                </span>
-              </>
-            )}
-            {user.limitUptime && (
-              <>
-                <span>·</span>
-                <span>{user.limitUptime}</span>
-              </>
-            )}
-            {user.macAddress && (
-              <>
-                <span>·</span>
-                <span className="font-mono">{user.macAddress}</span>
-              </>
-            )}
-            {user.disabled && (
-              <>
-                <span>·</span>
-                <span className="text-orange-400">désactivé</span>
-              </>
-            )}
+        </div>
+        {/* Sous sm : uptime/MAC empilés ; puis out/in et profil/comment. sm+ : une ligne (sans limit-uptime). */}
+        <div
+          className="mes-tickets-userinfo min-w-0 w-full basis-full sm:w-auto sm:basis-auto sm:flex-1"
+          data-userinfo
+        >
+          {/* —— sous sm —— */}
+          <div className="mes-tickets-userinfo-mobile flex min-w-0 w-full flex-col gap-1 sm:hidden">
+            {(user.macAddress || hotspotUserUptimeIsMeaningful(user.uptime)) ? (
+            <div className="flex min-w-0 flex-col items-end gap-0 text-[11px] leading-tight">
+                  {hotspotUserUptimeIsMeaningful(user.uptime) ? (
+                    <span
+                      className="max-w-[9rem] truncate rounded border border-emerald-200/35 bg-emerald-100/40 px-1 py-0.5 text-[11px] leading-tight text-emerald-700/70"
+                      title="Uptime session (routeur)"
+                    >
+                      {user.uptime}
+                    </span>
+                  ) : null}
+                  {user.macAddress ? (
+                    <span
+                      className="max-w-[9rem] truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 font-mono text-[11px] leading-tight text-violet-700/70"
+                      title="Adresse MAC"
+                    >
+                      {user.macAddress}
+                    </span>
+                  ) : null}
+            </div>
+            ) : null}
+            <div className="grid w-full min-w-0 grid-cols-2 gap-x-1">
+              <div className="flex min-w-0 flex-col items-end justify-end gap-0">
+                {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
+                  <span
+                    className="max-w-full truncate rounded border border-amber-200/35 bg-amber-100/40 px-1 py-0.5 text-[11px] leading-tight text-amber-800/65"
+                    title="Octets sortants (bytes-out)"
+                  >
+                    ↑ {formatUserTrafficBytes(user.bytesOut)}
+                  </span>
+                ) : null}
+                {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
+                  <span
+                    className="max-w-full truncate rounded border border-sky-200/35 bg-sky-100/40 px-1 py-0.5 text-[11px] leading-tight text-sky-700/70"
+                    title="Octets entrants (bytes-in)"
+                  >
+                    ↓ {formatUserTrafficBytes(user.bytesIn)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex min-w-0 flex-col items-end justify-end gap-0">
+                {user.profile ? (
+                  <span
+                    className="max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 text-center text-[11px] font-medium leading-tight text-violet-700/70"
+                    title={user.profile}
+                  >
+                    {user.profile}
+                  </span>
+                ) : null}
+                <div className="mes-tickets-comment flex w-full min-w-0 justify-end" data-userinfo-comment>
+                  {user.comment ? (
+                    <span
+                      className={`max-w-full truncate rounded border px-1 py-0.5 text-center font-mono text-[11px] leading-tight tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
+                      title={user.comment}
+                    >
+                      {user.comment}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* —— sm+ : colonnes alignées —— */}
+          <div className="mes-tickets-userinfo-columns hidden min-w-0 flex-nowrap items-center justify-end gap-x-0 overflow-x-auto text-xs leading-tight sm:flex">
+          <div className="flex w-[9.5rem] shrink-0 justify-end">
+            {!hotspotUserMacLocked && user.macAddress ? (
+              <span
+                className="max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 font-mono text-[11px] leading-tight text-violet-700/70"
+                title="Adresse MAC"
+              >
+                {user.macAddress}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex w-[7rem] shrink-0 justify-end">
+            {user.profile ? (
+              <span
+                className="max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 text-center text-[11px] font-medium leading-tight text-violet-700/70"
+                title={user.profile}
+              >
+                {user.profile}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex w-[8.5rem] shrink-0 justify-end">
+            {hotspotUserUptimeIsMeaningful(user.uptime) ? (
+              <span
+                className="max-w-full truncate rounded border border-emerald-200/35 bg-emerald-100/40 px-1 py-0.5 text-[11px] leading-tight text-emerald-700/70"
+                title="Uptime session (routeur)"
+              >
+                {user.uptime}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex w-24 shrink-0 justify-end">
+            {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
+              <span
+                className="max-w-full truncate rounded border border-sky-200/35 bg-sky-100/40 px-1 py-0.5 text-[11px] leading-tight text-sky-700/70"
+                title="Octets entrants (bytes-in)"
+              >
+                ↓ {formatUserTrafficBytes(user.bytesIn)}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex w-24 shrink-0 justify-end">
+            {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
+              <span
+                className="max-w-full truncate rounded border border-amber-200/35 bg-amber-100/40 px-1 py-0.5 text-[11px] leading-tight text-amber-800/65"
+                title="Octets sortants (bytes-out)"
+              >
+                ↑ {formatUserTrafficBytes(user.bytesOut)}
+              </span>
+            ) : null}
+          </div>
+          <div
+            className="mes-tickets-comment flex w-[19ch] min-w-[19ch] max-w-[19ch] shrink-0 justify-end"
+            data-userinfo-comment
+          >
+            {user.comment ? (
+              <span
+                className={`max-w-full truncate rounded border px-1 py-0.5 text-center font-mono text-[11px] leading-tight tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
+                title={user.comment}
+              >
+                {user.comment}
+              </span>
+            ) : null}
+          </div>
           </div>
         </div>
       </div>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            onClick={(e) => e.stopPropagation()}
-            className="ml-2 flex-shrink-0 p-1.5 rounded text-gray-300 hover:text-gray-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Actions"
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[160px]">
-          <DropdownMenuItem
-            onClick={(e) => { e.stopPropagation(); onCopy(); }}
-            className="gap-2 cursor-pointer"
-          >
-            <Copy className="h-3.5 w-3.5" />
-            Copier le code
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="gap-2 cursor-pointer"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Modifier utilisateur
-          </DropdownMenuItem>
-          {!isUnlimited && (
-            <DropdownMenuItem
-              onClick={(e) => { e.stopPropagation(); onExtend(); }}
-              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-600"
-            >
-              <CalendarPlus className="h-3.5 w-3.5" />
-              Prolonger
-            </DropdownMenuItem>
+      <div className="ml-2 flex flex-shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMikrotikToggle();
+          }}
+          disabled={rowActionsDisabled}
+          title={user.disabled ? "Réactiver ce compte sur MikroTik" : "Désactiver ce compte sur MikroTik"}
+          aria-label={user.disabled ? "Réactiver sur MikroTik" : "Désactiver sur MikroTik"}
+          className={`rounded p-1.5 hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-40 ${
+            user.disabled
+              ? "text-orange-400 hover:text-orange-600"
+              : "text-emerald-500/80 hover:text-emerald-700"
+          }`}
+        >
+          {mikrotikBusyThis ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : user.disabled ? (
+            <Lock className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <Unlock className="h-3.5 w-3.5" aria-hidden />
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRequestDelete();
+          }}
+          disabled={rowActionsDisabled}
+          title="Supprimer ce compte sur MikroTik"
+          aria-label="Supprimer sur MikroTik"
+          className="rounded p-1.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </div>
     </div>
   );
 }

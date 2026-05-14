@@ -3,38 +3,48 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Sliders, Copy, Wifi, Activity,
+  FileCode, Save, ServerCog, RotateCcw, Copy, Wifi, Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TicketTemplateCodeEditor } from "@/components/TicketTemplateCodeEditor";
+import { TicketTemplateVarLegend } from "@/components/TicketTemplateVarLegend";
+import { VoucherPrintScaleControl } from "@/components/VoucherPrintScaleControl";
 import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogFooter, DialogDescription, DialogClose,
 } from "@/components/ui/dialog";
-import { Slider } from "@/components/ui/slider";
 import {
   DEFAULT_MIKHMON_PHP,
   PHP_KEY,
   CUSTOM_DEFAULT_KEY,
   getCustomDefault,
-} from "@/pages/TicketTemplate";
+} from "@/lib/voucher-ticket-defaults";
+import {
+  TICKET_TEMPLATE_PRESETS,
+  type TicketTemplatePresetId,
+  getPresetBody,
+  getStoredTicketPresetId,
+  setStoredTicketPresetId,
+  findMatchingPresetId,
+} from "@/lib/voucher-ticket-presets";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
 import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
-import { PrintScaleDialog } from "@/components/PrintScaleDialog";
+import { getListRoutersQueryKey } from "@workspace/api-client-react";
 
 interface RouterRow {
   id: number;
@@ -51,6 +61,7 @@ interface RouterRow {
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const TEMPLATE_CUSTOM_OPTION = "custom" as const;
 const VALID_MONTHS = [1, 2, 3, 4, 5, 6, 12] as const;
 type ForfaitChoice = "24h" | "unlimited" | `${(typeof VALID_MONTHS)[number]}`;
 type CreateForfaitChoice = "0" | ForfaitChoice;
@@ -168,6 +179,7 @@ export default function SuperAdmins() {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "expired">("all");
   const [deletingAdminId, setDeletingAdminId] = useState<number | null>(null);
   const [templateTarget, setTemplateTarget] = useState<AdminRow | null>(null);
+  const [showCopyOwnVendors, setShowCopyOwnVendors] = useState(false);
 
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
@@ -182,6 +194,9 @@ export default function SuperAdmins() {
       return Array.isArray(data) ? data : (data?.admins ?? []);
     },
   });
+
+  const selfSuperAdmin = useMemo(() => admins.find((a) => a.isSuperAdmin), [admins]);
+  const canCopyVendorsBetweenOwnRouters = !!selfSuperAdmin && selfSuperAdmin.routerCount >= 2;
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["super", "admins"] });
 
@@ -350,6 +365,23 @@ export default function SuperAdmins() {
             <span className="hidden sm:inline">Mon compte</span>
           </Button>
           <Button
+            variant="outline"
+            className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+            disabled={!canCopyVendorsBetweenOwnRouters}
+            title={
+              !selfSuperAdmin
+                ? "Compte super-admin introuvable dans la liste"
+                : selfSuperAdmin.routerCount < 2
+                  ? "Au moins deux routeurs sur votre compte sont nécessaires pour copier des vendeurs."
+                  : "Copier les vendeurs d'un de vos routeurs vers un autre"
+            }
+            onClick={() => setShowCopyOwnVendors(true)}
+          >
+            <Users className="h-4 w-4" />
+            <span className="hidden sm:inline">Mes vendeurs</span>
+            <span className="sm:hidden">Vendeurs</span>
+          </Button>
+          <Button
             onClick={() => { setCreateSuperKey((k) => k + 1); setCreateSuperOpen(true); }}
             className="gap-2 bg-orange-500 hover:bg-orange-600 text-white"
           >
@@ -422,7 +454,14 @@ export default function SuperAdmins() {
                           )}
                           <div>
                             {a.isSuperAdmin ? (
-                              <p className="font-semibold text-gray-900">{a.displayName || a.login}</p>
+                              <button
+                                type="button"
+                                className="font-semibold text-amber-900 hover:text-amber-950 hover:underline text-left"
+                                onClick={() => setAdminRouterPanel(a)}
+                                title="Voir vos routeurs"
+                              >
+                                {a.displayName || a.login}
+                              </button>
                             ) : (
                               <button
                                 type="button"
@@ -467,6 +506,16 @@ export default function SuperAdmins() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
+                          {a.isSuperAdmin && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="Gérer mes routeurs"
+                              onClick={() => setAdminRouterPanel(a)}
+                            >
+                              <RouterIcon className="h-4 w-4 text-amber-700" />
+                            </Button>
+                          )}
                           {!a.isSuperAdmin && (
                             <>
                               <Button
@@ -576,11 +625,17 @@ export default function SuperAdmins() {
         />
       )}
 
-      {/* Template de ticket dialog */}
+      {showCopyOwnVendors && selfSuperAdmin && (
+        <CopyOwnVendorsDialog
+          myAdminId={selfSuperAdmin.id}
+          onClose={() => setShowCopyOwnVendors(false)}
+        />
+      )}
+
       {templateTarget && (
         <TemplateDialog
           admin={templateTarget}
-          onClose={() => setTemplateTarget(null)}
+          onClose={() => { setTemplateTarget(null); refresh(); }}
         />
       )}
 
@@ -605,8 +660,19 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const { toast } = useToast();
   const qc = useQueryClient();
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
-  const qk = ["super", "admin-routers", admin.id];
   const { selectWithPing, pingingId: connectingId } = useSelectRouterWithPing();
+
+  /** Identité JWT — pour le super-admin qui ouvre son propre compte, la liste = GET /api/routers (comme le reste de l’app). */
+  const { data: sessionMe, isFetched: sessionMeFetched } = useQuery<{ id: number; isSuperAdmin: boolean }>({
+    queryKey: ["admin", "me", "super-routers-panel"],
+    enabled: !!token && admin.isSuperAdmin,
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/admin/me`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error("Session introuvable");
+      return r.json();
+    },
+  });
+  const useSessionRouterList = !!(admin.isSuperAdmin && sessionMe && sessionMe.id === admin.id);
 
   const [formTarget, setFormTarget] = useState<RouterRow | "create" | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -632,17 +698,27 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     }
   };
 
+  const panelQueryKey = ["super", "admin-routers-panel", admin.id, useSessionRouterList ? "session" : "tenant"] as const;
+
   const { data: routers = [], isLoading } = useQuery<RouterRow[]>({
-    queryKey: qk,
-    enabled: !!token,
+    queryKey: panelQueryKey,
+    enabled: !!token && (!admin.isSuperAdmin || sessionMeFetched),
     queryFn: async () => {
+      if (useSessionRouterList) {
+        const r = await fetch(`${BASE}/api/routers`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!r.ok) throw new Error("Chargement des routeurs impossible");
+        return r.json();
+      }
       const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, { headers });
       if (!r.ok) throw new Error("Chargement des routeurs impossible");
       return r.json();
     },
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: qk });
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["super", "admin-routers-panel", admin.id] });
+    void qc.invalidateQueries({ queryKey: getListRoutersQueryKey() });
+  };
 
   const createM = useMutation({
     mutationFn: async (p: { name: string; hotspotName?: string; contact?: string; address: string; username: string; password: string }) => {
@@ -700,7 +776,8 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               <span className="truncate">Routeurs — {admin.displayName || admin.login}</span>
             </DialogTitle>
             <DialogDescription className="text-xs">
-              {routers.length} routeur{routers.length !== 1 ? "s" : ""} · Limite {5 + admin.extraRouterSlots}
+              {routers.length} routeur{routers.length !== 1 ? "s" : ""}
+              {admin.isSuperAdmin ? " · Limite illimitée" : ` · Limite ${5 + admin.extraRouterSlots}`}
             </DialogDescription>
           </DialogHeader>
 
@@ -710,7 +787,14 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               {isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}
             </span>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => setShowCopyVendors(true)}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                disabled={routers.length === 0}
+                title={routers.length === 0 ? "Ajoutez au moins un routeur à cet admin pour recevoir les vendeurs" : undefined}
+                onClick={() => setShowCopyVendors(true)}
+              >
                 <Users className="h-3 w-3" /> <span className="hidden xs:inline">Copier</span> vendeurs
               </Button>
               <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowCopyRouter(true)}>
@@ -732,7 +816,11 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               </div>
             )}
             {!isLoading && routers.length === 0 && (
-              <div className="py-10 text-center text-sm text-gray-400">Aucun routeur pour cet admin.</div>
+              <div className="py-10 text-center text-sm text-gray-400">
+                {admin.isSuperAdmin
+                  ? "Aucun routeur sur votre compte super-admin. Utilisez « Ajouter » pour en enregistrer un."
+                  : "Aucun routeur pour cet admin."}
+              </div>
             )}
             {routers.map((r) => {
               const pingOk = pingResults[r.id];
@@ -1030,8 +1118,20 @@ function RouterFormDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div><Label>Nom <span className="text-red-500">*</span></Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mon routeur" /></div>
-          <div><Label>Nom du hotspot</Label><Input value={hotspotName} onChange={(e) => setHotspotName(e.target.value)} placeholder="optionnel" /></div>
-          <div><Label>Contact</Label><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="optionnel" /></div>
+          <div>
+            <Label>Nom du wifi</Label>
+            <Input value={hotspotName} onChange={(e) => setHotspotName(e.target.value)} placeholder="optionnel" />
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              Variable <code className="rounded bg-gray-100 px-0.5 font-mono">$hotspotname</code> sur les tickets.
+            </p>
+          </div>
+          <div>
+            <Label>Contact</Label>
+            <Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="optionnel" />
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              Variable <code className="rounded bg-gray-100 px-0.5 font-mono">$dnsname</code> sur les tickets (sinon hôte).
+            </p>
+          </div>
           <div>
             <Label>Adresse (hôte:port) <span className="text-red-500">*</span></Label>
             <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.88.1:8728" className="font-mono" />
@@ -1081,7 +1181,8 @@ function CopyVendorsDialog({
   const [toRouterId,   setToRouterId]   = useState<string>("");
   const [copying, setCopying] = useState(false);
 
-  // Charger les routeurs du super-admin (source)
+  const adminLabel = admin.displayName || admin.login;
+
   const { data: ownRouters = [], isLoading: loadingOwn } = useQuery<SlimRouter[]>({
     queryKey: ["super", "own-routers"],
     enabled: !!token,
@@ -1092,7 +1193,28 @@ function CopyVendorsDialog({
     },
   });
 
-  const canSubmit = !!fromRouterId && !!toRouterId && !copying;
+  const adminOnlyRoutersDeduped = useMemo(
+    () => adminRouters.filter((r) => !ownRouters.some((o) => o.id === r.id)),
+    [adminRouters, ownRouters],
+  );
+
+  const destRouters = useMemo(
+    () => adminRouters.filter((r) => String(r.id) !== fromRouterId),
+    [adminRouters, fromRouterId],
+  );
+
+  useEffect(() => {
+    if (!toRouterId) return;
+    const stillValid = destRouters.some((r) => String(r.id) === toRouterId);
+    if (!stillValid || toRouterId === fromRouterId) setToRouterId("");
+  }, [fromRouterId, toRouterId, destRouters]);
+
+  const canSubmit =
+    !!fromRouterId
+    && !!toRouterId
+    && fromRouterId !== toRouterId
+    && !copying
+    && destRouters.some((r) => String(r.id) === toRouterId);
 
   const handleCopy = async () => {
     if (!canSubmit) return;
@@ -1121,6 +1243,8 @@ function CopyVendorsDialog({
     }
   };
 
+  const noSourceChoice = !loadingOwn && ownRouters.length === 0 && adminOnlyRoutersDeduped.length === 0;
+
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-md">
@@ -1130,46 +1254,93 @@ function CopyVendorsDialog({
             Copier les vendeurs
           </DialogTitle>
           <DialogDescription>
-            Attribuer les vendeurs d'un de vos routeurs comme base pour un routeur de <strong>{admin.displayName || admin.login}</strong>.
-            Les vendeurs dont l'identifiant existe déjà sur le routeur cible sont ignorés.
+            {admin.isSuperAdmin ? (
+              <>
+                Copiez les vendeurs d&apos;un <strong>de vos routeurs</strong> vers <strong>un autre de vos routeurs</strong>.
+                La source peut aussi être un routeur modèle listé en premier. Les identifiants déjà présents sur le routeur cible sont ignorés.
+              </>
+            ) : (
+              <>
+                Copiez les vendeurs du <strong>routeur source</strong> vers le <strong>routeur cible</strong> de <strong>{adminLabel}</strong>.
+                La source peut être l&apos;un de vos routeurs (modèle) ou un routeur de cet administrateur (copie A→B).
+                Les identifiants déjà présents sur le routeur cible sont ignorés.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          {/* Source — routeur du super-admin */}
           <div className="space-y-1.5">
-            <Label>Vendeurs du routeur</Label>
-            <Select value={fromRouterId} onValueChange={setFromRouterId} disabled={loadingOwn}>
+            <Label>Routeur source</Label>
+            <Select value={fromRouterId} onValueChange={setFromRouterId} disabled={loadingOwn || noSourceChoice}>
               <SelectTrigger>
-                <SelectValue placeholder={loadingOwn ? "Chargement…" : ownRouters.length === 0 ? "Aucun routeur disponible" : "Choisir un routeur source"} />
+                <SelectValue placeholder={
+                  loadingOwn
+                    ? "Chargement…"
+                    : noSourceChoice
+                      ? "Aucun routeur source disponible"
+                      : "Choisir le routeur A (vendeurs à copier)"
+                } />
               </SelectTrigger>
               <SelectContent>
-                {ownRouters.map((r) => (
-                  <SelectItem key={r.id} value={String(r.id)}>
-                    {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
-                  </SelectItem>
-                ))}
+                {ownRouters.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Mes routeurs (super-admin)</SelectLabel>
+                    {ownRouters.map((r) => (
+                      <SelectItem key={r.id} value={String(r.id)}>
+                        {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                {adminOnlyRoutersDeduped.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>{admin.isSuperAdmin ? "Vos autres routeurs" : `Routeurs de ${adminLabel}`}</SelectLabel>
+                    {adminOnlyRoutersDeduped.map((r) => (
+                      <SelectItem key={r.id} value={String(r.id)}>
+                        {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-400">Vos routeurs (super-admin) — source des vendeurs</p>
+            <p className="text-xs text-gray-400">
+              {admin.isSuperAdmin
+                ? "Vos routeurs en source ; vous pouvez aussi utiliser la section « Mes routeurs » comme modèle."
+                : "Modèle personnel ou routeur de l&apos;admin (copie entre deux de ses routeurs)."}
+            </p>
           </div>
 
-          {/* Cible — routeur de l'admin */}
           <div className="space-y-1.5">
-            <Label>Vers routeur</Label>
-            <Select value={toRouterId} onValueChange={setToRouterId} disabled={adminRouters.length === 0}>
+            <Label>Routeur cible</Label>
+            <Select
+              value={toRouterId}
+              onValueChange={setToRouterId}
+              disabled={destRouters.length === 0 || !fromRouterId}
+            >
               <SelectTrigger>
-                <SelectValue placeholder={adminRouters.length === 0 ? "Aucun routeur pour cet admin" : "Choisir un routeur cible"} />
+                <SelectValue placeholder={
+                  !fromRouterId
+                    ? "Choisissez d'abord une source"
+                    : destRouters.length === 0
+                      ? "Aucun autre routeur pour cet admin"
+                      : "Choisir le routeur B (destination)"
+                } />
               </SelectTrigger>
               <SelectContent>
-                {adminRouters.map((r) => (
+                {destRouters.map((r) => (
                   <SelectItem key={r.id} value={String(r.id)}>
                     {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-400">Routeurs de {admin.displayName || admin.login} — destination</p>
+            <p className="text-xs text-gray-400">
+              {admin.isSuperAdmin
+                ? "Destination : un autre de vos routeurs (le routeur source est exclu de la liste cible)."
+                : `Uniquement les routeurs de ${adminLabel} — le routeur source est exclu.`}
+            </p>
           </div>
         </div>
 
@@ -1183,6 +1354,157 @@ function CopyVendorsDialog({
             {copying
               ? <><Loader2 className="h-4 w-4 animate-spin" />Copie…</>
               : <><Users className="h-4 w-4" />Copier les vendeurs</>
+            }
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ════════════════════ CopyOwnVendorsDialog — entre deux routeurs du super-admin ════════════════════ */
+
+function CopyOwnVendorsDialog({ myAdminId, onClose }: { myAdminId: number; onClose: () => void }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+
+  const [fromRouterId, setFromRouterId] = useState("");
+  const [toRouterId, setToRouterId] = useState("");
+  const [copying, setCopying] = useState(false);
+
+  const { data: ownRouters = [], isLoading: loadingOwn } = useQuery<SlimRouter[]>({
+    queryKey: ["super", "own-routers"],
+    enabled: !!token,
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/super/own-routers`, { headers });
+      if (!r.ok) throw new Error("Chargement impossible");
+      return r.json();
+    },
+  });
+
+  const destRouters = useMemo(
+    () => ownRouters.filter((r) => String(r.id) !== fromRouterId),
+    [ownRouters, fromRouterId],
+  );
+
+  useEffect(() => {
+    if (!toRouterId) return;
+    const stillValid = destRouters.some((r) => String(r.id) === toRouterId);
+    if (!stillValid || toRouterId === fromRouterId) setToRouterId("");
+  }, [fromRouterId, toRouterId, destRouters]);
+
+  const canSubmit =
+    !!fromRouterId
+    && !!toRouterId
+    && fromRouterId !== toRouterId
+    && !copying
+    && destRouters.some((r) => String(r.id) === toRouterId);
+
+  const handleCopy = async () => {
+    if (!canSubmit) return;
+    setCopying(true);
+    try {
+      const r = await fetch(`${BASE}/api/super/copy-vendors`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          fromRouterId: Number(fromRouterId),
+          toRouterId: Number(toRouterId),
+          targetAdminId: myAdminId,
+        }),
+      });
+      const data = await r.json() as { copied?: number; skipped?: number; error?: string };
+      if (!r.ok) throw new Error(data.error ?? "Opération échouée");
+      toast({
+        title: "Vendeurs copiés",
+        description: `${data.copied} vendeur${(data.copied ?? 0) !== 1 ? "s" : ""} copié${(data.copied ?? 0) !== 1 ? "s" : ""}${(data.skipped ?? 0) > 0 ? ` · ${data.skipped} ignoré${(data.skipped ?? 0) !== 1 ? "s" : ""} (username déjà existant)` : ""}`,
+      });
+      onClose();
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof Error ? e.message : "Opération échouée", variant: "destructive" });
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  const needTwoRouters = !loadingOwn && ownRouters.length < 2;
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-emerald-600" />
+            Copier les vendeurs entre mes routeurs
+          </DialogTitle>
+          <DialogDescription>
+            Dupliquez les vendeurs d&apos;un routeur source vers un autre routeur <strong>de votre compte</strong>.
+            Les identifiants déjà présents sur le routeur cible sont ignorés.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <Label>Routeur source</Label>
+            <Select value={fromRouterId} onValueChange={setFromRouterId} disabled={loadingOwn || needTwoRouters}>
+              <SelectTrigger>
+                <SelectValue placeholder={
+                  loadingOwn
+                    ? "Chargement…"
+                    : needTwoRouters
+                      ? "Au moins deux routeurs requis"
+                      : "Choisir le routeur source"
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                {ownRouters.map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)}>
+                    {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Routeur cible</Label>
+            <Select
+              value={toRouterId}
+              onValueChange={setToRouterId}
+              disabled={destRouters.length === 0 || !fromRouterId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={
+                  !fromRouterId
+                    ? "Choisissez d'abord une source"
+                    : destRouters.length === 0
+                      ? "Aucun autre routeur"
+                      : "Choisir le routeur cible"
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                {destRouters.map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)}>
+                    {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">Le routeur source n&apos;apparaît pas dans la liste cible.</p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={copying}>Annuler</Button>
+          <Button
+            disabled={!canSubmit}
+            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+            onClick={() => void handleCopy()}
+          >
+            {copying
+              ? <><Loader2 className="h-4 w-4 animate-spin" />Copie…</>
+              : <><Users className="h-4 w-4" />Copier</>
             }
           </Button>
         </DialogFooter>
@@ -1404,19 +1726,6 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
   );
 }
 
-const SCALE_DESKTOP_KEY = "vn_print_scale_desktop";
-const SCALE_MOBILE_KEY  = "vn_print_scale_mobile";
-function readScale(key: string, def = 100): number {
-  try {
-    const stored = localStorage.getItem(key);
-    if (stored === "85") { localStorage.setItem(key, "100"); return 100; }
-    const v = parseInt(stored ?? String(def), 10); return isNaN(v) ? def : v;
-  } catch { return def; }
-}
-function saveScale(key: string, v: number) {
-  try { localStorage.setItem(key, String(v)); } catch { /* ignore */ }
-}
-
 function TemplateDialog({ admin, onClose }: {
   admin: AdminRow;
   onClose: () => void;
@@ -1427,23 +1736,27 @@ function TemplateDialog({ admin, onClose }: {
   const [templateCode, setTemplateCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [showScaleDialog, setShowScaleDialog] = useState(false);
-  const deskKey = `${SCALE_DESKTOP_KEY}_admin_${admin.id}`;
-  const mobKey  = `${SCALE_MOBILE_KEY}_admin_${admin.id}`;
-  const [scaleDesktop, setScaleDesktop] = useState(() => readScale(deskKey, 100));
-  const [scaleMobile,  setScaleMobile]  = useState(() => readScale(mobKey,  100));
-  const fileRef = useRef<HTMLInputElement>(null);
+
+  const presetMatch = findMatchingPresetId(templateCode);
+  const showCustomSelectOption = presetMatch === TEMPLATE_CUSTOM_OPTION;
 
   useEffect(() => {
     setLoading(true);
     fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, { headers: authHeaders })
-      .then((r) => r.ok ? r.json() : { template: null, scaleSmall: 100, scaleMobile: 100 })
-      .then((data: { template: string | null; scaleSmall?: number; scaleMobile?: number }) => {
-        setTemplateCode(data.template ?? "");
-        if (typeof data.scaleSmall === "number") setScaleDesktop(data.scaleSmall);
-        if (typeof data.scaleMobile === "number") setScaleMobile(data.scaleMobile);
+      .then((r) => (r.ok ? r.json() : { template: null }))
+      .then((data: { template: string | null }) => {
+        const fromServer = data.template?.trim() ?? "";
+        if (fromServer) {
+          setTemplateCode(fromServer);
+        } else {
+          const stored = getStoredTicketPresetId();
+          setTemplateCode(getCustomDefault() || getPresetBody(stored));
+        }
       })
-      .catch(() => setTemplateCode(""))
+      .catch(() => {
+        const stored = getStoredTicketPresetId();
+        setTemplateCode(getCustomDefault() || getPresetBody(stored));
+      })
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin.id]);
@@ -1454,133 +1767,166 @@ function TemplateDialog({ admin, onClose }: {
       const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ template: templateCode, scaleSmall: scaleDesktop, scaleMobile }),
+        body: JSON.stringify({ template: templateCode }),
       });
       if (r.ok) {
-        toast({ title: "Template sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
+        toast({ title: "Modèle sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
         onClose();
       } else {
         const err = await r.json().catch(() => ({})) as { error?: string };
-        toast({ title: "Erreur", description: err.error ?? "Impossible de sauvegarder le template.", variant: "destructive" });
+        toast({ title: "Erreur", description: err.error ?? "Impossible de sauvegarder.", variant: "destructive" });
       }
     } catch {
-      toast({ title: "Erreur réseau", description: "Vérifiez votre connexion.", variant: "destructive" });
+      toast({ title: "Erreur réseau", variant: "destructive" });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleReset = () => {
-    const base = getCustomDefault() ?? DEFAULT_MIKHMON_PHP;
-    setTemplateCode(base);
-    toast({ title: "Modèle réinitialisé", description: "Le modèle de base a été restauré." });
+  const handlePresetChange = (v: string) => {
+    if (v === TEMPLATE_CUSTOM_OPTION) return;
+    const id = v as TicketTemplatePresetId;
+    setStoredTicketPresetId(id);
+    const body = getPresetBody(id);
+    setTemplateCode(body);
+    try {
+      localStorage.setItem(PHP_KEY, body);
+      localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
+    } catch { /* ignore */ }
+    const label = TICKET_TEMPLATE_PRESETS.find((p) => p.id === id)?.label ?? id;
+    toast({ title: "Modèle chargé", description: label });
   };
 
-  const handleUseDefaultMikhmon = () => {
-    setTemplateCode(DEFAULT_MIKHMON_PHP);
-    toast({ title: "Modèle Mikhmon chargé", description: "Le template PHP par défaut est prêt. Cliquez Sauvegarder pour l'activer." });
-  };
-
-  const handleImportPHP = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const raw = ev.target?.result as string;
-      setTemplateCode(raw);
-      try { localStorage.setItem(PHP_KEY, raw); localStorage.setItem(CUSTOM_DEFAULT_KEY, raw); } catch { /* ignore */ }
-      toast({ title: "Fichier PHP importé", description: `« ${file.name} » chargé. Cliquez Sauvegarder pour l'activer.` });
-    };
-    reader.readAsText(file, "UTF-8");
-    e.target.value = "";
-  };
-
-  const handleSetAsDefault = () => {
-    if (!templateCode.trim()) return;
-    try { localStorage.setItem(CUSTOM_DEFAULT_KEY, templateCode); localStorage.setItem(PHP_KEY, templateCode); } catch { /* ignore */ }
-    toast({ title: "Modèle de base défini", description: "Ce modèle sera utilisé comme base locale sur cet appareil." });
+  const handleResetToMikhmonSmall = () => {
+    setStoredTicketPresetId("mikhmon-small");
+    const body = DEFAULT_MIKHMON_PHP;
+    setTemplateCode(body);
+    try {
+      localStorage.setItem(PHP_KEY, body);
+      localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
+    } catch { /* ignore */ }
+    toast({
+      title: "Modèle réinitialisé",
+      description: "Modèle de ticket style Mikhmon (small). Sauvegardez pour l’appliquer à cet admin.",
+    });
   };
 
   return (
-    <>
-      <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileCode className="h-5 w-5 text-violet-600" />
-              Modèle de ticket — {admin.displayName || admin.login}
-            </DialogTitle>
-            <DialogDescription>
-              Template PHP Mikhmon v3 appliqué à cet admin sur tous ses appareils (mobile, APK, desktop).
-              Laisser vide pour utiliser le template par défaut.
-            </DialogDescription>
-          </DialogHeader>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-5xl gap-1.5 p-3 sm:p-4 sm:gap-2">
+        <DialogHeader className="space-y-0.5 pb-0">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <FileCode className="h-5 w-5 shrink-0 text-violet-600" />
+            Modèle de ticket — {admin.displayName || admin.login}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Modèle de ticket PHP pour {admin.displayName || admin.login}.
+          </DialogDescription>
+        </DialogHeader>
 
-          {/* ── Barre d'outils ── */}
-          <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto">
-            <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50 shrink-0" title="Réinitialiser">
-              <RotateCcw className="h-3.5 w-3.5" />
-              Réinitialiser
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5 shrink-0" title="Coller modèle Mikhmon">
-              <FileCode className="h-3.5 w-3.5" />
-              Coller modèle Mikhmon
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5 shrink-0" title="Importer .php">
-              <Upload className="h-3.5 w-3.5" />
-              Importer .php
-            </Button>
-            <input ref={fileRef} type="file" accept=".php" className="hidden" onChange={handleImportPHP} />
-            <Button variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50 shrink-0" title="Définir comme modèle de base">
-              <BookMarked className="h-3.5 w-3.5" />
-              Définir par défaut
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowScaleDialog(true)} className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50 h-auto py-1 shrink-0" title="Échelle d'impression">
-              <Sliders className="h-3.5 w-3.5 shrink-0" />
-              <span className="leading-tight text-left">
-                <span className="block text-[11px]">📄 {scaleDesktop}%</span>
-                <span className="block text-[11px]">📱 {scaleMobile}%</span>
-              </span>
-            </Button>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(180px,220px)] lg:items-start min-w-0">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-2">
+              <div className="flex min-w-0 flex-1 flex-col gap-1 lg:flex-row lg:items-center lg:gap-2 lg:max-w-[min(100%,14rem)] xl:max-w-[16rem]">
+                <Label className="flex shrink-0 items-center gap-1.5 text-xs font-medium whitespace-nowrap text-gray-700">
+                  <RouterIcon className="h-3.5 w-3.5 shrink-0 text-gray-500" />
+                  Modèle intégré
+                </Label>
+                <Select
+                  value={presetMatch}
+                  onValueChange={handlePresetChange}
+                  disabled={loading || saving}
+                >
+                  <SelectTrigger className="h-9 min-h-9 w-full min-w-0 flex-1 border-gray-200 bg-white text-sm max-w-md lg:h-8 lg:min-h-8 lg:max-w-full lg:text-xs lg:leading-snug [&>span]:block [&>span]:min-w-0 [&>span]:truncate [&>span]:text-left">
+                    <SelectValue placeholder="Choisir un modèle…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
+                      <SelectItem key={id} value={id} className="text-sm">
+                        {label}
+                      </SelectItem>
+                    ))}
+                    {showCustomSelectOption && (
+                      <SelectItem value={TEMPLATE_CUSTOM_OPTION} className="text-sm text-muted-foreground">
+                        Modèle de ticket personnalisé
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <VoucherPrintScaleControl />
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 max-lg:w-full max-lg:justify-between">
+                {showCustomSelectOption && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResetToMikhmonSmall}
+                    className="h-8 gap-1.5 text-xs text-orange-600 border-orange-200 hover:bg-orange-50 lg:shrink-0"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                    Réinitialiser
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  className="hidden h-8 gap-1.5 bg-violet-600 text-xs hover:bg-violet-700 lg:inline-flex"
+                  disabled={saving || loading}
+                  onClick={() => void handleSave()}
+                >
+                  {saving
+                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Sauvegarde…</>
+                    : <><Save className="h-3.5 w-3.5 shrink-0" />Sauvegarder</>
+                  }
+                </Button>
+              </div>
+            </div>
+            {showCustomSelectOption && (
+              <p className="text-[11px] leading-snug text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-0.5">
+                Le code a été modifié par rapport aux trois modèles intégrés — choisissez un modèle pour revenir à un
+                fichier fourni, ou gardez votre version personnalisée.
+              </p>
+            )}
+
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Chargement…
+              </div>
+            ) : (
+              <TicketTemplateCodeEditor
+                value={templateCode}
+                onChange={setTemplateCode}
+                height="min(42vh, 340px)"
+                placeholder="Choisissez un modèle intégré ou éditez le code…"
+              />
+            )}
           </div>
 
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Chargement du template…
-            </div>
-          ) : (
-            <textarea
-              className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              rows={10}
-              value={templateCode}
-              onChange={(e) => setTemplateCode(e.target.value)}
-              placeholder="Collez ici le template PHP Mikhmon v3…"
-              spellCheck={false}
-            />
-          )}
+          <Card className="h-fit shrink-0 lg:sticky lg:top-4">
+            <CardHeader className="p-3 sm:p-4 py-2 pb-1">
+              <CardTitle className="text-sm font-semibold">Variables</CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 sm:p-4 pt-0">
+              <TicketTemplateVarLegend variant="plain" />
+            </CardContent>
+          </Card>
+        </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose}>Annuler</Button>
-            <Button disabled={saving || loading} onClick={handleSave}>
-              {saving
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sauvegarde…</>
-                : <><Save className="h-4 w-4 mr-2" />Sauvegarder</>
-              }
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <PrintScaleDialog
-        open={showScaleDialog}
-        onOpenChange={setShowScaleDialog}
-        scaleSmall={scaleDesktop}
-        scaleMobile={scaleMobile}
-        onScaleSmallChange={(n) => { setScaleDesktop(n); saveScale(deskKey, n); }}
-        onScaleMobileChange={(n) => { setScaleMobile(n); saveScale(mobKey, n); }}
-      />
-    </>
+        <DialogFooter className="gap-1.5 sm:gap-0 pt-1">
+          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button
+            className="lg:hidden"
+            disabled={saving || loading}
+            onClick={() => void handleSave()}
+          >
+            {saving
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sauvegarde…</>
+              : <><Save className="h-4 w-4 mr-2" />Sauvegarder</>
+            }
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

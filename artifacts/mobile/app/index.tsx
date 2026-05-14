@@ -16,7 +16,8 @@ import { Feather } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 
-const PROD_URL = "https://nanotech-voucher.replit.app";
+/** URL du front web (Vite) chargé dans la WebView. Définir `EXPO_PUBLIC_WEB_APP_URL` pour la prod ou un LAN (voir DEVELOPMENT.md). */
+const PROD_URL = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://127.0.0.1:4173";
 const RELOAD_SPINNER_TIMEOUT = 8000;
 
 export default function AppScreen() {
@@ -173,11 +174,11 @@ export default function AppScreen() {
           <View style={styles.logoRow}>
             <Feather name="wifi" size={18} color="#60a5fa" />
             <Text style={styles.titleText} numberOfLines={1}>
-              {isVendorPortal ? "Portail Vendeur" : "nanoTECH"}
+              {isVendorPortal ? "Portail Vendeur" : "nanoTECH Vouchers"}
             </Text>
           </View>
           {isVendorPortal && (
-            <Text style={styles.subtitleText}>Vouchers Bills</Text>
+            <Text style={styles.subtitleText}>Vouchers</Text>
           )}
         </TouchableOpacity>
 
@@ -217,7 +218,7 @@ export default function AppScreen() {
           thirdPartyCookiesEnabled
           cacheEnabled
           startInLoadingState={false}
-          userAgent="nanoTECH-VouchersBills-Mobile/1.0"
+          userAgent="nanoTECH-Vouchers-Mobile/1.0"
         />
       )}
 

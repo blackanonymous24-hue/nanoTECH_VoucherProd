@@ -207,6 +207,15 @@ function normalizeAction(action: string): string {
   return a;
 }
 
+/** Coupe `time` du routeur (ex. "05-12 23:16:32") sur le dernier espace pour tenir en colonne étroite sans chevauchement. */
+function splitLogTimeForDisplay(time: string): { first: string; second: string | null } {
+  const t = (time ?? "").trim();
+  if (!t) return { first: "", second: null };
+  const i = t.lastIndexOf(" ");
+  if (i <= 0 || i >= t.length - 1) return { first: t, second: null };
+  return { first: t.slice(0, i), second: t.slice(i + 1) };
+}
+
 function classifyLog(entry: LogEntry): {
   icon: React.ReactNode;
   rowClass: string;
@@ -608,28 +617,37 @@ export default function Dashboard() {
   const usersStats = livePriority?.users;
   const hotspotUserCount = usersStats?.available ?? usersStats?.total;
   const sales = livePriority?.sales;
-  const salesFresh = !!sales && sales._cachedAt != null;
+  const av = livePriority?.availability;
+  // Préférer les drapeaux API (cold-start MikroTik) ; sans `availability` (vieux cache) → comportement inchangé.
+  const sessionsDataKnown =
+    !!livePriority &&
+    (typeof av?.sessionsKnown === "boolean" ? av.sessionsKnown : true);
+  const usersDataKnown =
+    !!livePriority &&
+    (typeof av?.usersKnown === "boolean" ? av.usersKnown : true);
+  const salesReady =
+    !!livePriority &&
+    !!sales &&
+    (typeof av?.salesKnown === "boolean" ? av.salesKnown : sales._cachedAt != null);
+  const infoDataKnown =
+    !!livePriority &&
+    (typeof av?.infoKnown === "boolean" ? av.infoKnown : true);
   const routerInfo = livePriority?.info ?? null;
   const infoLoading = !!selectedRouterId && !livePriority && priorityLoading;
   const sessionsFetching = !sseConnected && priorityQueryFetching;
   const usersFetching = !sseConnected && priorityQueryFetching;
   const salesFetching = !sseConnected && priorityQueryFetching;
-  // Stale-while-revalidate : dès qu'on a un snapshot (cache localStorage ou SSE/polling),
-  // on affiche la valeur immédiatement — jamais de skeleton si une donnée est disponible.
-  // Le skeleton n'apparaît QUE si aucune donnée n'existe encore (première visite sur ce routeur).
-  const sessionsKnown = !!livePriority;
-  const usersKnown    = !!livePriority;
-  const infoKnown     = !!livePriority;
+  const dashStatsPending = isLoading && _freshData == null && _dashboardCache.data == null;
 
   // Mikhmon-style: fire every dashboard fetch in parallel immediately, no
-  // gating. Priority cards (info / sessions / sales / tickets) are served
+  // gating. Priority cards (info / sessions / sales / hotspot users) are served
   // stale-while-revalidate by the API so they paint instantly from the last
   // known value, exactly like Mikhmon v3.
   const priorityReady = !!selectedRouterId
-    && sessionsKnown
-    && usersKnown
-    && salesFresh
-    && infoKnown;
+    && sessionsDataKnown
+    && usersDataKnown
+    && salesReady
+    && infoDataKnown;
 
   useEffect(() => {
     if (!selectedRouterId) {
@@ -849,49 +867,56 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 lg:[grid-template-rows:4.75rem_4.75rem_300px] gap-1 sm:gap-4 lg:gap-2 mb-3">
         <StatCard
           title="Clients actifs"
-          value={selectedRouterId ? activeSessions : 0}
+          value={selectedRouterId ? activeSessions : undefined}
           live={!!selectedRouterId}
           fetching={sessionsFetching}
           icon={<Wifi className="h-5 w-5 text-purple-500" />}
           iconBg="bg-purple-100"
-          loading={!!selectedRouterId && !sessionsKnown}
+          loading={!!selectedRouterId ? !sessionsDataKnown : dashStatsPending}
           href="/sessions"
         />
         <StatCard
           title="Vendu aujourd'hui"
-          label={salesFresh ? formatAmount(sales!.dailyAmount) : undefined}
-          amountValue={salesFresh ? sales!.dailyAmount : undefined}
+          label={salesReady ? formatAmount(sales!.dailyAmount) : undefined}
+          amountValue={salesReady ? sales!.dailyAmount : undefined}
           currency="FCFA"
-          sub={salesFresh ? `${sales!.dailyCount.toLocaleString()} tickets vendus` : undefined}
+          sub={salesReady ? `${sales!.dailyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<CalendarDays className="h-5 w-5 text-orange-500" />}
           iconBg="bg-orange-100"
-          loading={!!selectedRouterId && !salesFresh}
+          loading={!!selectedRouterId ? !salesReady : dashStatsPending}
           href="/sales/daily"
         />
         <StatCard
           title="Vente mensuelle"
-          label={salesFresh ? formatAmount(sales!.monthlyAmount) : undefined}
-          amountValue={salesFresh ? sales!.monthlyAmount : undefined}
+          label={salesReady ? formatAmount(sales!.monthlyAmount) : undefined}
+          amountValue={salesReady ? sales!.monthlyAmount : undefined}
           currency="FCFA"
-          sub={salesFresh ? `${sales!.monthlyCount.toLocaleString()} tickets vendus` : undefined}
+          sub={salesReady ? `${sales!.monthlyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />}
           iconBg="bg-green-100"
-          loading={!!selectedRouterId && !salesFresh}
+          loading={!!selectedRouterId ? !salesReady : dashStatsPending}
           href="/sales/monthly"
           className="order-4 lg:order-3"
         />
         <StatCard
-          title="Tickets disponibles"
-          value={selectedRouterId ? hotspotUserCount : (data?.totalVouchers ?? 0)}
+          title="Utilisateurs hotspot"
+          sub={selectedRouterId ? "comptes sur le routeur (Mes tickets)" : "résumé — Mes tickets"}
+          value={
+            selectedRouterId
+              ? hotspotUserCount
+              : dashStatsPending
+                ? undefined
+                : (data?.totalVouchers ?? 0)
+          }
           live={!!selectedRouterId}
           fetching={usersFetching}
           icon={<Ticket className="h-5 w-5 text-blue-500" />}
           iconBg="bg-blue-100"
-          loading={!!selectedRouterId && !usersKnown}
+          loading={!!selectedRouterId ? !usersDataKnown : dashStatsPending}
           className="order-3 lg:order-4"
           href="/vouchers"
         />
@@ -1054,14 +1079,25 @@ export default function Dashboard() {
                       const { icon, rowClass, timeClass } = classifyLog(entry);
                       const isNew = entry.id ? newIds.has(entry.id) : false;
                       const { user, ip, action } = parseHotspotMessage(entry.message);
+                      const { first: timeLine1, second: timeLine2 } = splitLogTimeForDisplay(entry.time);
                       return (
                         <tr
                           key={entry.id || i}
                           className={`border-b border-gray-100 transition-colors duration-500 ${rowClass} ${isNew ? "bg-blue-50/60" : ""}`}
                           title={`[${entry.topics}]  ${entry.message}`}
                         >
-                          <td className={`px-3 py-2 align-top whitespace-nowrap font-mono ${timeClass}`}>
-                            {entry.time}
+                          <td
+                            className={`px-3 py-2 align-top font-mono leading-tight break-words overflow-hidden ${timeClass}`}
+                            title={entry.time}
+                          >
+                            {timeLine2 != null ? (
+                              <>
+                                <div>{timeLine1}</div>
+                                <div>{timeLine2}</div>
+                              </>
+                            ) : (
+                              entry.time
+                            )}
                           </td>
                           <td className="px-3 py-2 align-top">
                             {user ? (
@@ -1187,50 +1223,57 @@ function StatCard({
 }) {
   const inner = (
     <Card className={`h-[4.75rem] sm:h-full flex flex-col ${href ? "cursor-pointer hover:shadow-md transition-shadow" : ""}`}>
-      <div className="flex-1 flex p-2.5 sm:p-6 lg:px-4 lg:py-2.5 gap-2 sm:gap-3 lg:gap-2.5">
-        {/* Icône — alignée avec le titre */}
-        <div className={`p-1.5 rounded-xl flex-shrink-0 self-center ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
-        {/* Colonne texte : titre en haut, montant centré, sous-titre en bas */}
-        <div className="min-w-0 flex-1 flex flex-col">
-          {/* Titre */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
-            {live && (
-              <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
-              </span>
-            )}
-            {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
-          </div>
-          {/* Montant / valeur — centré verticalement */}
-          <div className="flex-1 flex items-center min-h-0">
-            {loading ? (
-              <div className="h-6 w-24 bg-gray-200 rounded animate-pulse" />
-            ) : label !== undefined ? (
-              amountValue !== undefined ? (
-                <p
-                  className="amount-fill font-bold text-gray-900 leading-tight tracking-tight"
-                  style={amountTextStyle(amountValue, currency || "FCFA")}
-                >
-                  {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
-                </p>
-              ) : (
-                <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
-              )
-            ) : (
-              <p className="amount-fill font-bold text-gray-900 leading-none" style={{ '--awv': '4.83vw', lineHeight: 1.15, minWidth: 0 } as React.CSSProperties}>{value === undefined ? "—" : value.toLocaleString()}</p>
-            )}
-          </div>
-          {/* Sous-titre — collé en bas */}
-          <div className="flex-shrink-0 min-h-[0.875rem]">
-            {loading ? (
-              <div className="h-3 w-16 bg-gray-100 rounded animate-pulse" />
-            ) : (
-              sub && <p className="text-xs text-gray-400 truncate">{sub}</p>
-            )}
-          </div>
-        </div>
+      <div className="flex-1 flex p-2.5 sm:p-6 lg:px-4 lg:py-2.5 gap-2 sm:gap-3 lg:gap-2.5 min-h-0">
+        {loading ? (
+          <>
+            <Skeleton className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl flex-shrink-0 self-center" aria-hidden />
+            <div className="min-w-0 flex-1 flex flex-col justify-center gap-2 py-0.5">
+              <Skeleton className="h-3 w-[45%] max-w-[8rem]" />
+              <Skeleton className={currency ? "h-8 w-[88%] max-w-[14rem]" : "h-7 w-[55%] max-w-[10rem]"} />
+              <Skeleton className="h-3 w-[38%] max-w-[7rem]" />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Icône — alignée avec le titre */}
+            <div className={`p-1.5 rounded-xl flex-shrink-0 self-center ${iconBg ?? "bg-gray-100"}`}>{icon}</div>
+            {/* Colonne texte : titre en haut, montant centré, sous-titre en bas */}
+            <div className="min-w-0 flex-1 flex flex-col">
+              {/* Titre */}
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <p className="text-xs text-gray-500 font-medium truncate">{title}</p>
+                {live && (
+                  <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+                  </span>
+                )}
+                {fetching && <RefreshCw className="h-2.5 w-2.5 text-gray-300 animate-spin flex-shrink-0" />}
+              </div>
+              {/* Montant / valeur — centré verticalement */}
+              <div className="flex-1 flex items-center min-h-0">
+                {label !== undefined ? (
+                  amountValue !== undefined ? (
+                    <p
+                      className="amount-fill font-bold text-gray-900 leading-tight tracking-tight"
+                      style={amountTextStyle(amountValue, currency || "FCFA")}
+                    >
+                      {amountValue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} {currency || "FCFA"}
+                    </p>
+                  ) : (
+                    <p className="fit-price font-bold text-gray-900 leading-tight truncate">{label || "0 FCFA"}</p>
+                  )
+                ) : (
+                  <p className="amount-fill font-bold text-gray-900 leading-none" style={{ '--awv': '4.83vw', lineHeight: 1.15, minWidth: 0 } as React.CSSProperties}>{value === undefined ? "—" : value.toLocaleString()}</p>
+                )}
+              </div>
+              {/* Sous-titre — collé en bas */}
+              <div className="flex-shrink-0 min-h-[0.875rem]">
+                {sub && <p className="text-xs text-gray-400 truncate">{sub}</p>}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </Card>
   );

@@ -1,6 +1,6 @@
 kind = "mobile"
 previewPath = "/mobile/"
-title = "nanoTECH Vouchers Bills"
+title = "nanoTECH Vouchers"
 version = "1.0.0"
 id = "artifacts/mobile"
 router = "expo-domain"

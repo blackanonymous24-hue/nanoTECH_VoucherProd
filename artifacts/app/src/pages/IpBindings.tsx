@@ -758,32 +758,6 @@ export default function IpBindings() {
         </div>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        {selectedRouterId && bindings && bindings.length > 0 && (
-          <div className="relative flex-1 min-w-48 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-            <Input
-              className="pl-9"
-              placeholder="Rechercher MAC, IP, commentaire…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-        )}
-        {selectedRouterId && bindings && (
-          <Badge variant="outline" className="gap-1.5 text-blue-600 border-blue-200">
-            <ShieldCheck className="h-3 w-3" />
-            {search ? `${filtered.length} / ${bindings.length}` : bindings.length} liaison(s)
-          </Badge>
-        )}
-        {selectedRouterId && isRefreshingList && (
-          <Badge variant="outline" className="gap-1.5 text-amber-700 border-amber-200 bg-amber-50">
-            <RefreshCw className="h-3 w-3 animate-spin" />
-            Mise à jour...
-          </Badge>
-        )}
-      </div>
-
       {!selectedRouterId && (
         <Card>
           <CardContent className="py-16 text-center">
@@ -824,28 +798,41 @@ export default function IpBindings() {
         </Card>
       )}
 
-      {selectedRouterId && bindings && bindings.length > 0 && filtered.length === 0 && (
+      {selectedRouterId && bindings && bindings.length > 0 && (
         <Card>
-          <CardContent className="py-10 text-center">
-            <Search className="h-8 w-8 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 font-medium">Aucun résultat pour « {search} »</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {selectedRouterId && filtered.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="space-y-1 pb-0 sm:pb-0">
             <CardTitle className="text-base flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-blue-500" />
               Liaisons MAC / IP
             </CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-48 max-w-sm">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                <Input
+                  className="h-7 min-h-7 sm:h-7 py-0 pl-8 pr-2 text-xs leading-none placeholder:text-xs"
+                  placeholder="Rechercher MAC, IP, commentaire…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <Badge variant="outline" className="h-7 gap-1 px-2 py-0 text-[11px] leading-none text-blue-600 border-blue-200 shrink-0">
+                <ShieldCheck className="h-3 w-3 shrink-0" />
+                {search ? `${filtered.length} / ${bindings.length}` : bindings.length} liaison(s)
+              </Badge>
+              {isRefreshingList && (
+                <Badge variant="outline" className="h-7 gap-1 px-2 py-0 text-[11px] leading-none text-amber-700 border-amber-200 bg-amber-50 shrink-0">
+                  <RefreshCw className="h-3 w-3 animate-spin shrink-0" />
+                  Mise à jour...
+                </Badge>
+              )}
+            </div>
           </CardHeader>
-          <CardContent className="p-0 overflow-x-auto">
-            <Table className="min-w-[720px]">
-              <TableHeader>
-                <TableRow className="bg-gray-50">
-                  <TableHead className="pl-6">MAC</TableHead>
+          <CardContent className="p-0 overflow-x-auto -mt-1">
+            {filtered.length > 0 ? (
+              <Table className="min-w-[720px]">
+                <TableHeader>
+                  <TableRow className="bg-gray-50 [&_th]:h-7 [&_th]:py-0 [&_th]:leading-tight">
+                    <TableHead className="pl-6">MAC</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>IP</TableHead>
                   <TableHead>Vers IP</TableHead>
@@ -898,6 +885,12 @@ export default function IpBindings() {
                 ))}
               </TableBody>
             </Table>
+            ) : (
+              <div className="py-10 px-6 text-center border-t">
+                <Search className="h-8 w-8 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Aucun résultat pour « {search} »</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

@@ -29,6 +29,7 @@ import { Plus, Trash2, Wifi, WifiOff, Edit, KeyRound, CheckCircle2, AlertTriangl
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
+import { isAxiosError } from "axios";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -177,7 +178,7 @@ export default function Routers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { selectedRouterId, setSelectedRouterId } = useRouterContext();
-  const { role, token, isSuperAdmin } = useAuth();
+  const { role, token, isSuperAdmin, logout } = useAuth();
   const isManager = role === "manager";
   const [, navigate] = useLocation();
   const [connectingId, setConnectingId] = useState<number | null>(null);
@@ -211,6 +212,15 @@ export default function Routers() {
   const [form, setForm] = useState<RouterFormData>(emptyForm);
   const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
   const [deletingRouterId, setDeletingRouterId] = useState<number | null>(null);
+
+  const listRoutersAxiosError = isAxiosError(error) ? error : null;
+  const isSession401 = listRoutersAxiosError?.response?.status === 401;
+  const session401ApiMessage =
+    isSession401 &&
+    listRoutersAxiosError.response?.data &&
+    typeof (listRoutersAxiosError.response.data as { error?: unknown }).error === "string"
+      ? (listRoutersAxiosError.response.data as { error: string }).error
+      : null;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
 
@@ -425,20 +435,61 @@ export default function Routers() {
           <Skeleton className="h-24 w-full" />
         </div>
       ) : isError ? (
-        <Card className="border-red-200 bg-red-50/80">
+        <Card
+          className={
+            isSession401
+              ? "border-amber-200 bg-amber-50/90"
+              : "border-red-200 bg-red-50/80"
+          }
+        >
           <CardContent className="py-10 text-center space-y-3">
-            <AlertTriangle className="h-10 w-10 text-red-500 mx-auto" />
-            <p className="text-red-900 font-medium">Impossible de charger la liste des routeurs</p>
-            <p className="text-sm text-red-800/90 max-w-md mx-auto">
-              Vos routeurs sont toujours en base ; le serveur a peut‑être besoin d&apos;un redémarrage après mise à jour (schéma PostgreSQL). Réessayez ou contactez l&apos;administrateur si le problème continue.
+            <AlertTriangle
+              className={`h-10 w-10 mx-auto ${isSession401 ? "text-amber-600" : "text-red-500"}`}
+            />
+            <p className={`font-medium ${isSession401 ? "text-amber-950" : "text-red-900"}`}>
+              {isSession401 ? "Session à renouveler" : "Impossible de charger la liste des routeurs"}
+            </p>
+            <p className={`text-sm max-w-md mx-auto ${isSession401 ? "text-amber-900/90" : "text-red-800/90"}`}>
+              {isSession401 ? (
+                <>
+                  {session401ApiMessage ??
+                    "Votre session ne correspond plus à cette base de données (souvent après un changement de PostgreSQL ou une nouvelle installation). Déconnectez-vous puis reconnectez-vous."}
+                </>
+              ) : (
+                <>
+                  Erreur réseau ou serveur. Si l’API vient d’être mise à jour, réessayez après son redémarrage.
+                  {" "}
+                  Si vous avez changé de base PostgreSQL, déconnectez-vous puis reconnectez-vous pour obtenir un nouveau jeton.
+                </>
+              )}
             </p>
             {error instanceof Error && error.message && (
-              <p className="text-xs text-red-700 font-mono break-all px-2">{error.message}</p>
+              <p className={`text-xs font-mono break-all px-2 ${isSession401 ? "text-amber-800" : "text-red-700"}`}>
+                {error.message}
+              </p>
             )}
-            <Button variant="outline" onClick={() => void refetch()} disabled={isFetching} className="gap-2">
-              {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Réessayer
-            </Button>
+            {isSession401 ? (
+              <div className="flex flex-wrap justify-center gap-2 pt-1">
+                <Button
+                  onClick={() => {
+                    logout();
+                    navigate("/login");
+                  }}
+                  className="gap-2"
+                >
+                  Se déconnecter
+                </Button>
+                <Button variant="outline" onClick={() => void refetch()} disabled={isFetching} className="gap-2">
+                  {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Réessayer
+                </Button>
+              </div>
+            ) : (
+              <Button variant="outline" onClick={() => void refetch()} disabled={isFetching} className="gap-2">
+                {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Réessayer
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : routers.length === 0 ? (
@@ -580,7 +631,10 @@ export default function Routers() {
                   value={form.hotspotName}
                   onChange={(e) => setForm({ ...form, hotspotName: e.target.value })}
                 />
-                <p className="text-xs text-gray-400 mt-0.5">Affiché comme titre dans les impressions de rapports (facultatif)</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Variable ticket <code className="rounded bg-gray-100 px-0.5 font-mono text-[11px]">$hotspotname</code>
+                  {" "}(= nom du Wi‑Fi sur le ticket). Facultatif.
+                </p>
               </div>
               <div>
                 <Label>Contact</Label>
@@ -590,7 +644,10 @@ export default function Routers() {
                   value={form.contact}
                   onChange={(e) => setForm({ ...form, contact: e.target.value })}
                 />
-                <p className="text-xs text-gray-400 mt-0.5">Affiché en bas de chaque ticket imprimé (facultatif)</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Variable ticket <code className="rounded bg-gray-100 px-0.5 font-mono text-[11px]">$dnsname</code>
+                  {" "}(= contact en pied de ticket ; si vide, hôte API / nom Wi-Fi). Facultatif.
+                </p>
               </div>
               <div>
                 <Label>Devise</Label>

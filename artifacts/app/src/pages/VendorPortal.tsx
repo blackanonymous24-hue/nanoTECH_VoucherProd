@@ -267,7 +267,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
           <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-lg">
             <Wifi className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">nanoTECH Vouchers Bills</h1>
+          <h1 className="text-2xl font-bold text-white">nanoTECH Vouchers</h1>
           <p className="text-sm text-gray-400 mt-1">Gestion Hotspot MikroTik</p>
         </div>
 
@@ -555,7 +555,7 @@ function DayReport({ token, day, month, year, onBack, hotspotName }: {
 
               {/* ── Impression ── */}
               <div className="print-only">
-                <p className="report-print-title">{hotspotName || "nanoTECH Vouchers Bills"} — Rapport de ventes</p>
+                <p className="report-print-title">{hotspotName || "nanoTECH Vouchers"} — Rapport de ventes</p>
                 <p className="report-print-meta">
                   {dateLabel} &nbsp;·&nbsp; Imprimé le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </p>
@@ -844,7 +844,7 @@ function PeriodReport({ token, period, onBack, hotspotName, initialData }: {
 
             {/* ── Impression ── */}
             <div className="print-only">
-              <p className="report-print-title">{hotspotName || "nanoTECH Vouchers Bills"} — Rapport de ventes</p>
+              <p className="report-print-title">{hotspotName || "nanoTECH Vouchers"} — Rapport de ventes</p>
               <p className="report-print-meta">
                 Période : <strong>{data.label}</strong> &nbsp;·&nbsp; Imprimé le {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
               </p>
@@ -1067,7 +1067,7 @@ function Dashboard({ token, vendor, onLogout }: {
       if (available < 100 && !notifiedProfilesRef.current.has(p.profileName)) {
         notifiedProfilesRef.current.add(p.profileName);
         if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("⚠️ Stock faible — nanoTECH Vouchers Bills", {
+          new Notification("⚠️ Stock faible — nanoTECH Vouchers", {
             body: `Forfait « ${p.profileName} » : seulement ${available} ticket(s) disponible(s).`,
             icon: "/favicon.ico",
           });
@@ -1115,7 +1115,7 @@ function Dashboard({ token, vendor, onLogout }: {
             <Wifi className="h-5 w-5 text-white" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-900">nanoTECH Vouchers Bills</p>
+            <p className="text-sm font-semibold text-gray-900">nanoTECH Vouchers</p>
             <p className="text-xs text-gray-500">Espace vendeur</p>
           </div>
         </div>

@@ -8,6 +8,9 @@ import type { HotspotUserComment } from './hotspotUserComment';
 import type { HotspotUserLimitUptime } from './hotspotUserLimitUptime';
 import type { HotspotUserLimitBytesTotal } from './hotspotUserLimitBytesTotal';
 import type { HotspotUserMacAddress } from './hotspotUserMacAddress';
+import type { HotspotUserUptime } from './hotspotUserUptime';
+import type { HotspotUserBytesIn } from './hotspotUserBytesIn';
+import type { HotspotUserBytesOut } from './hotspotUserBytesOut';
 import type { HotspotUserServer } from './hotspotUserServer';
 
 export interface HotspotUser {
@@ -18,6 +21,12 @@ export interface HotspotUser {
   limitUptime?: HotspotUserLimitUptime;
   limitBytesTotal?: HotspotUserLimitBytesTotal;
   macAddress?: HotspotUserMacAddress;
+  /** Session uptime from /ip/hotspot/user (RouterOS), when available. */
+  uptime?: HotspotUserUptime;
+  /** Bytes received by the user (RouterOS bytes-in). */
+  bytesIn?: HotspotUserBytesIn;
+  /** Bytes sent by the user (RouterOS bytes-out). */
+  bytesOut?: HotspotUserBytesOut;
   server?: HotspotUserServer;
   disabled: boolean;
 }

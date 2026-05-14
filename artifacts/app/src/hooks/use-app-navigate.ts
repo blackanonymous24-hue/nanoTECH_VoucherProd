@@ -8,10 +8,13 @@ import { useLocation } from "wouter";
  * When running inside the APK we fall back to a real HTTP navigation
  * (`window.location.href`) so that both events fire correctly.
  */
-const WEBVIEW_UA = "nanoTECH-VouchersBills-Mobile";
+const WEBVIEW_UA = "nanoTECH-Vouchers-Mobile";
+const WEBVIEW_UA_LEGACY = "nanoTECH-VouchersBills-Mobile";
 
 function isInsideWebView(): boolean {
-  return typeof navigator !== "undefined" && navigator.userAgent.includes(WEBVIEW_UA);
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return ua.includes(WEBVIEW_UA) || ua.includes(WEBVIEW_UA_LEGACY);
 }
 
 export function useAppNavigate() {

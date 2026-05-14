@@ -39,7 +39,9 @@ import type {
   SyncResult,
   SyncVoucherUsage200,
   TestResult,
+  UpdateHotspotProfileRequest,
   UpdateRouterBody,
+  UpdateRouterProfile200,
   UpdateVendorBody,
   Vendor,
   VendorReport,
@@ -584,6 +586,72 @@ export function useListRouterProfiles<TData = Awaited<ReturnType<typeof listRout
 
 
 
+/**
+ * @summary Update a hotspot user profile on the router
+ */
+export const updateRouterProfile = (
+    id: number,
+    profileName: string,
+    updateHotspotProfileRequest: UpdateHotspotProfileRequest,
+ options?: SecondParameter<typeof customInstance>,) => {
+      
+      
+      return customInstance<UpdateRouterProfile200>(
+      {url: `/routers/${id}/profiles/${profileName}`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: updateHotspotProfileRequest
+    },
+      options);
+    }
+  
+
+
+export const getUpdateRouterProfileMutationOptions = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRouterProfile>>, TError,{id: number;profileName: string;data: UpdateHotspotProfileRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateRouterProfile>>, TError,{id: number;profileName: string;data: UpdateHotspotProfileRequest}, TContext> => {
+
+const mutationKey = ['updateRouterProfile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateRouterProfile>>, {id: number;profileName: string;data: UpdateHotspotProfileRequest}> = (props) => {
+          const {id,profileName,data} = props ?? {};
+
+          return  updateRouterProfile(id,profileName,data,requestOptions)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateRouterProfileMutationResult = NonNullable<Awaited<ReturnType<typeof updateRouterProfile>>>
+    export type UpdateRouterProfileMutationBody = UpdateHotspotProfileRequest
+    export type UpdateRouterProfileMutationError = ErrorResponse
+
+    /**
+ * @summary Update a hotspot user profile on the router
+ */
+export const useUpdateRouterProfile = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRouterProfile>>, TError,{id: number;profileName: string;data: UpdateHotspotProfileRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateRouterProfile>>,
+        TError,
+        {id: number;profileName: string;data: UpdateHotspotProfileRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getUpdateRouterProfileMutationOptions(options);
+
+      return useMutation(mutationOptions);
+    }
+    
 /**
  * @summary List active hotspot sessions
  */

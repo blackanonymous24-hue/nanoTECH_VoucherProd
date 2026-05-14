@@ -1,8 +1,7 @@
 import { Router } from "express";
-import { eq, sql, and, ne } from "drizzle-orm";
+import { eq, sql, and, or, isNull } from "drizzle-orm";
 import { db, adminSettingsTable, routersTable, vendorsTable } from "@workspace/db";
 import { hashPassword } from "../lib/admin-auth.js";
-import { DEFAULT_TICKET_TEMPLATE } from "../lib/default-template.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
 import { getAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { pingRouter } from "../lib/mikrotik.js";
@@ -149,7 +148,6 @@ router.post("/super/admins", async (req, res): Promise<void> => {
       forfaitEndsAt,
       credits: initialCredits,
       extraRouterSlots: 0,
-      ticketTemplate: DEFAULT_TICKET_TEMPLATE,
     })
     .returning();
 
@@ -384,17 +382,32 @@ router.post("/super/admins/:id/credits", async (req, res): Promise<void> => {
 
 // ---------------------------------------------------------------------------
 // GET /api/super/admins/:id/routers — liste des routeurs dont l’admin cible est
-// propriétaire (`owner_admin_id`). Même forme que GET /api/routers pour l’admin connecté.
+// propriétaire (`owner_admin_id`), y compris pour un compte super-admin.
+// Même forme que GET /api/routers pour l’admin connecté.
 // ---------------------------------------------------------------------------
 router.get("/super/admins/:id/routers", async (req, res): Promise<void> => {
-  if (!requireSuperAdminScope(req, res)) return;
+  const scope = requireSuperAdminScope(req, res);
+  if (!scope) return;
 
   const adminId = parseInt(req.params.id, 10);
   if (!adminId || Number.isNaN(adminId)) { res.status(400).json({ error: "ID admin invalide" }); return; }
 
   const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, adminId));
   if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
-  if (target.isSuperAdmin) { res.json([]); return; }
+
+  // Routeurs dont owner_admin_id = adminId. Pour votre propre compte super-admin,
+  // si un seul super existe sur la plateforme, inclure aussi les lignes legacy
+  // (owner_admin_id NULL) — sinon elles n'apparaissaient nulle part.
+  let ownerFilter = eq(routersTable.ownerAdminId, adminId);
+  if (target.isSuperAdmin && scope.adminId === adminId) {
+    const [{ superCount }] = await db
+      .select({ superCount: sql<number>`count(*)::int` })
+      .from(adminSettingsTable)
+      .where(eq(adminSettingsTable.isSuperAdmin, true));
+    if (Number(superCount) === 1) {
+      ownerFilter = or(eq(routersTable.ownerAdminId, adminId), isNull(routersTable.ownerAdminId));
+    }
+  }
 
   const rows = await db
     .select({
@@ -414,7 +427,7 @@ router.get("/super/admins/:id/routers", async (req, res): Promise<void> => {
       updatedAt: routersTable.updatedAt,
     })
     .from(routersTable)
-    .where(eq(routersTable.ownerAdminId, adminId))
+    .where(ownerFilter)
     .orderBy(routersTable.name);
   res.json(rows);
 });
@@ -526,6 +539,7 @@ router.get("/super/all-routers", async (req, res): Promise<void> => {
 });
 
 // POST /api/super/admins/:id/routers — create a router for a target admin.
+// Super-admin : pas de plafond ni de débit crédit pour extraRouterSlots.
 // Body: { name, host, port?, username, password, hotspotName?, contact?, isActive? }
 // ---------------------------------------------------------------------------
 router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
@@ -536,7 +550,6 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
 
   const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, adminId));
   if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
-  if (target.isSuperAdmin) { res.status(400).json({ error: "Routeur direct non supporté pour super admin" }); return; }
   if (!target.isActive) { res.status(400).json({ error: "Admin désactivé" }); return; }
 
   const { name, hotspotName, contact, currency, host, port, username, password, isActive } = req.body as {
@@ -556,26 +569,29 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
     return;
   }
 
-  const limit = BASE_ROUTER_SLOTS + target.extraRouterSlots;
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(routersTable)
-    .where(eq(routersTable.ownerAdminId, adminId));
-  if (Number(count) >= limit) {
-    const autoExpanded = await db
-      .update(adminSettingsTable)
-      .set({
-        credits: sql`${adminSettingsTable.credits} - ${CREDITS_PER_EXTRA_ROUTER}`,
-        extraRouterSlots: sql`${adminSettingsTable.extraRouterSlots} + 1`,
-      })
-      .where(and(
-        eq(adminSettingsTable.id, adminId),
-        sql`${adminSettingsTable.credits} >= ${CREDITS_PER_EXTRA_ROUTER}`,
-      ))
-      .returning({ id: adminSettingsTable.id });
-    if (autoExpanded.length === 0) {
-      res.status(402).json({ error: `Limite atteinte (${limit} routeurs). Crédit insuffisant: ${CREDITS_PER_EXTRA_ROUTER} requis pour ajouter 1 routeur.` });
-      return;
+  // Admins classiques : plafond 5 + extraRouterSlots, extension auto si crédits suffisants.
+  if (!target.isSuperAdmin) {
+    const limit = BASE_ROUTER_SLOTS + target.extraRouterSlots;
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(routersTable)
+      .where(eq(routersTable.ownerAdminId, adminId));
+    if (Number(count) >= limit) {
+      const autoExpanded = await db
+        .update(adminSettingsTable)
+        .set({
+          credits: sql`${adminSettingsTable.credits} - ${CREDITS_PER_EXTRA_ROUTER}`,
+          extraRouterSlots: sql`${adminSettingsTable.extraRouterSlots} + 1`,
+        })
+        .where(and(
+          eq(adminSettingsTable.id, adminId),
+          sql`${adminSettingsTable.credits} >= ${CREDITS_PER_EXTRA_ROUTER}`,
+        ))
+        .returning({ id: adminSettingsTable.id });
+      if (autoExpanded.length === 0) {
+        res.status(402).json({ error: `Limite atteinte (${limit} routeurs). Crédit insuffisant: ${CREDITS_PER_EXTRA_ROUTER} requis pour ajouter 1 routeur.` });
+        return;
+      }
     }
   }
 
@@ -601,7 +617,7 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/super/admins/:id/ticket-template — super admin lit le template d'un admin.
+// GET /api/super/admins/:id/ticket-template — super admin lit le modèle d'un admin.
 // ---------------------------------------------------------------------------
 router.get("/super/admins/:id/ticket-template", async (req, res): Promise<void> => {
   if (!requireSuperAdminScope(req, res)) return;
@@ -610,18 +626,16 @@ router.get("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile })
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, id));
   if (!row) { res.status(404).json({ error: "Admin introuvable" }); return; }
 
-  res.json({ template: row.ticketTemplate ?? null, scaleSmall: row.printScaleSmall ?? 100, scaleMobile: row.printScaleMobile ?? 100 });
+  res.json({ template: row.ticketTemplate ?? null });
 });
 
 // ---------------------------------------------------------------------------
-// PUT /api/super/admins/:id/ticket-template — super admin définit le template
-// par défaut d'un admin (ce que l'admin verra à la connexion sur n'importe quel appareil).
-// Body: { template: string }
+// PUT /api/super/admins/:id/ticket-template — body: { template: string }
 // ---------------------------------------------------------------------------
 router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> => {
   if (!requireSuperAdminScope(req, res)) return;
@@ -629,7 +643,7 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   const id = parseInt(req.params.id, 10);
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { template, scaleSmall, scaleMobile } = req.body as { template?: string; scaleSmall?: number; scaleMobile?: number };
+  const { template } = req.body as { template?: string };
   if (typeof template !== "string") {
     res.status(400).json({ error: "Champ template requis (string)" });
     return;
@@ -638,13 +652,9 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, id));
   if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
 
-  const scaleUpdate: Partial<typeof adminSettingsTable.$inferInsert> = {};
-  if (typeof scaleSmall === "number" && scaleSmall >= 0 && scaleSmall <= 100) scaleUpdate.printScaleSmall = scaleSmall;
-  if (typeof scaleMobile === "number" && scaleMobile >= 0 && scaleMobile <= 100) scaleUpdate.printScaleMobile = scaleMobile;
-
   const [updated] = await db
     .update(adminSettingsTable)
-    .set({ ticketTemplate: template.trim() || null, ...scaleUpdate })
+    .set({ ticketTemplate: template.trim() || null })
     .where(eq(adminSettingsTable.id, id))
     .returning();
 
@@ -664,10 +674,18 @@ router.get("/super/own-routers", async (req, res): Promise<void> => {
   const scope = requireSuperAdminScope(req, res);
   if (!scope) return;
 
+  const [{ superCount }] = await db
+    .select({ superCount: sql<number>`count(*)::int` })
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.isSuperAdmin, true));
+  const ownerFilter = Number(superCount) === 1
+    ? or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId))
+    : eq(routersTable.ownerAdminId, scope.adminId);
+
   const rows = await db
     .select({ id: routersTable.id, name: routersTable.name, host: routersTable.host, port: routersTable.port })
     .from(routersTable)
-    .where(eq(routersTable.ownerAdminId, scope.adminId))
+    .where(ownerFilter)
     .orderBy(routersTable.name);
   res.json(rows);
 });
@@ -675,9 +693,10 @@ router.get("/super/own-routers", async (req, res): Promise<void> => {
 // ---------------------------------------------------------------------------
 // POST /api/super/copy-vendors
 // Body: { fromRouterId: number, toRouterId: number, targetAdminId: number }
-// Copie les vendeurs du routeur source (appartenant au super-admin) vers le
-// routeur cible (appartenant à l'admin cible). Les vendeurs dont le username
-// existe déjà sur le routeur cible sont ignorés (pas de doublon).
+// Copie les vendeurs du routeur source vers le routeur cible.
+// Source autorisée : routeur du super-admin OU routeur de l'admin cible (copie A→B).
+// Cible : routeur de l'admin cible uniquement. fromRouterId ≠ toRouterId.
+// Les vendeurs dont le username existe déjà sur le routeur cible sont ignorés.
 // Réponse: { copied: number, skipped: number }
 // ---------------------------------------------------------------------------
 router.post("/super/copy-vendors", async (req, res): Promise<void> => {
@@ -697,12 +716,22 @@ router.post("/super/copy-vendors", async (req, res): Promise<void> => {
     return;
   }
 
-  // Vérifier que le routeur source appartient au super-admin
+  if (fromId === toId) {
+    res.status(400).json({ error: "Le routeur source et le routeur cible doivent être différents." });
+    return;
+  }
+
+  // Routeur source : vôtre routeur (modèle) OU routeur de l'admin cible (copie interne A→B)
   const [srcRouter] = await db.select({ id: routersTable.id })
     .from(routersTable)
-    .where(and(eq(routersTable.id, fromId), eq(routersTable.ownerAdminId, scope.adminId)));
+    .where(and(
+      eq(routersTable.id, fromId),
+      or(eq(routersTable.ownerAdminId, scope.adminId), eq(routersTable.ownerAdminId, toAdminId)),
+    ));
   if (!srcRouter) {
-    res.status(403).json({ error: "Routeur source introuvable ou n'appartient pas au super-admin" });
+    res.status(403).json({
+      error: "Routeur source introuvable ou non autorisé (doit être le vôtre ou appartenir à l'administrateur cible).",
+    });
     return;
   }
 

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists } from "drizzle-orm";
+import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
@@ -138,6 +138,18 @@ function getAdminScopeFromHeader(req: { headers: { authorization?: string } }): 
   return verifyAdminTokenFull(auth.slice(7));
 }
 
+/** JWT `adminId` must exist in `admin_settings` (évite erreur 500 FK après changement de base / reseed). */
+async function adminTenantExists(adminId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: adminSettingsTable.id })
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.id, adminId));
+  return !!row;
+}
+
+const ERR_SESSION_DB_MISMATCH =
+  "Session invalide pour cette base de données. Déconnectez-vous puis reconnectez-vous.";
+
 /**
  * Resolve the caller into a list of routerIds they are permitted to access
  * AND the tenant (ownerAdminId) they belong to. Returns null when the request
@@ -268,6 +280,13 @@ router.get("/routers", async (req, res): Promise<void> => {
   const scope = await resolveCallerScope(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
 
+  if (scope.kind === "super" || scope.kind === "admin") {
+    if (!(await adminTenantExists(scope.adminId))) {
+      res.status(401).json({ error: ERR_SESSION_DB_MISMATCH });
+      return;
+    }
+  }
+
   const baseSelect = db
     .select({
       id: routersTable.id,
@@ -290,10 +309,21 @@ router.get("/routers", async (req, res): Promise<void> => {
 
 
 
-  // Super-admin et admin normal : uniquement leurs propres routeurs.
+  // Super-admin et admin normal : routeurs du tenant (owner_admin_id).
+  // Super-admin seul sur la plateforme : inclure les routeurs legacy sans owner_admin_id.
   // Le super-admin accède aux routeurs des autres via /api/super/admins/:id/routers.
   if (scope.kind === "super" || scope.kind === "admin") {
-    res.json(await baseSelect.where(eq(routersTable.ownerAdminId, scope.adminId)).orderBy(routersTable.name));
+    let ownerCond = eq(routersTable.ownerAdminId, scope.adminId);
+    if (scope.kind === "super") {
+      const [{ c }] = await db
+        .select({ c: sql<number>`count(*)::int` })
+        .from(adminSettingsTable)
+        .where(eq(adminSettingsTable.isSuperAdmin, true));
+      if (Number(c) === 1) {
+        ownerCond = or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId));
+      }
+    }
+    res.json(await baseSelect.where(ownerCond).orderBy(routersTable.name));
     return;
   }
   // manager / vendor / collaborateur: only the routers they're assigned to.
@@ -304,6 +334,11 @@ router.get("/routers", async (req, res): Promise<void> => {
 router.post("/routers", async (req, res): Promise<void> => {
   const scope = getAdminScopeFromHeader(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+
+  if (!(await adminTenantExists(scope.adminId))) {
+    res.status(401).json({ error: ERR_SESSION_DB_MISMATCH });
+    return;
+  }
 
   const { name, hotspotName, contact, currency, host, port, username, password, autoDeleteSalesScripts, isActive } = req.body as {
     name?: string;
@@ -695,6 +730,24 @@ router.get("/routers/:id/profiles", async (req, res): Promise<void> => {
       if (!row) return null;
       return JSON.parse(row.profilesJson) as typeof freshCached;
     } catch { return null; }
+  }
+
+  /** Impression tickets : attendre MikroTik pour prix / sellingPrice à jour (pas le cache « instantané »). */
+  const awaitLiveProfiles = String(req.query.awaitLive ?? "") === "1";
+  if (awaitLiveProfiles) {
+    try {
+      const fetched = await fetchProfilesWithCache(r.ownerAdminId, id, conn);
+      void saveSnapshot(fetched);
+      res.json(fetched);
+    } catch (err) {
+      const snapshot = await loadSnapshot();
+      if (snapshot) {
+        res.json(snapshot);
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+    }
+    return;
   }
 
   // Always return cached data immediately when available (even if ?refresh=1).
@@ -1293,7 +1346,7 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
       return true;
     }
 
-    const map = new Map<string, { count: number; profiles: Set<string>; preview: typeof users }>();
+    const map = new Map<string, { count: number; disabledCount: number; profiles: Set<string>; preview: typeof users }>();
     for (const u of users) {
       // Skip used vouchers: MAC address = currently in use on MikroTik, or tracked as used in DB
       if (u.macAddress || soldSet.has(u.username.toLowerCase())) continue;
@@ -1301,8 +1354,9 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
       if (u.profile?.toLowerCase() === "trial" || u.profile?.toLowerCase() === "default-trial") continue;
       const key = u.comment ?? "";
       if (!isValidBatchComment(key)) continue;
-      const entry = map.get(key) ?? { count: 0, profiles: new Set(), preview: [] };
+      const entry = map.get(key) ?? { count: 0, disabledCount: 0, profiles: new Set(), preview: [] };
       entry.count++;
+      if (u.disabled) entry.disabledCount++;
       entry.profiles.add(u.profile);
       if (entry.preview.length < 4) entry.preview.push(u);
       map.set(key, entry);
@@ -1322,6 +1376,9 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
       .map(([name, data]) => ({
         name,
         count: data.count,
+        disabledCount: data.disabledCount,
+        /** Tous les comptes du lot sont désactivés sur MikroTik */
+        allDisabled: data.count > 0 && data.disabledCount === data.count,
         profile: data.profiles.size === 1 ? [...data.profiles][0] : null,
         preview: data.preview,
       }))
@@ -1660,6 +1717,9 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
       limitUptime: null,
       limitBytesTotal: null,
       macAddress: null,
+      uptime: null,
+      bytesIn: null,
+      bytesOut: null,
     });
     if (!patched) userCache.delete(uScope);
 
@@ -2084,7 +2144,7 @@ async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host
   salesRefreshing.add(id);
   try {
     const conn = { host, port, username, password };
-    // Use 90s timeout — background, not constrained by Replit proxy
+    // Use 90s timeout — background work, not tied to a short HTTP client deadline
     const data = await fetchSalesFromScripts(conn, 90_000);
     const scope = routerCacheScope(ownerAdminId, id);
     salesCache.set(scope, { data, updatedAt: Date.now() });

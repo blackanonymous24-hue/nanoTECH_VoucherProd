@@ -1,6 +1,6 @@
 import * as React from "react"
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
-import { Trash2, AlertTriangle, Loader2 } from "lucide-react"
+import { Trash2, AlertTriangle, LogOut, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export interface DeleteConfirmDialogProps {
@@ -11,7 +11,7 @@ export interface DeleteConfirmDialogProps {
   onConfirm: () => void
   loading?: boolean
   confirmLabel?: string
-  icon?: "trash" | "warning"
+  icon?: "trash" | "warning" | "logout"
 }
 
 export function DeleteConfirmDialog({
@@ -24,7 +24,7 @@ export function DeleteConfirmDialog({
   confirmLabel = "Supprimer",
   icon = "trash",
 }: DeleteConfirmDialogProps) {
-  const Icon = icon === "warning" ? AlertTriangle : Trash2
+  const Icon = icon === "warning" ? AlertTriangle : icon === "logout" ? LogOut : Trash2
 
   return (
     <AlertDialogPrimitive.Root open={open} onOpenChange={(o) => { if (!loading) onOpenChange(o); }}>
@@ -43,11 +43,11 @@ export function DeleteConfirmDialog({
           <div className="px-6 pt-6 pb-5 flex flex-col items-center text-center gap-2.5">
             <div className={cn(
               "h-12 w-12 rounded-full flex items-center justify-center flex-shrink-0",
-              icon === "warning" ? "bg-amber-100" : "bg-red-100",
+              icon === "warning" || icon === "logout" ? "bg-amber-100" : "bg-red-100",
             )}>
               <Icon className={cn(
                 "h-5 w-5",
-                icon === "warning" ? "text-amber-600" : "text-red-600",
+                icon === "warning" || icon === "logout" ? "text-amber-600" : "text-red-600",
               )} />
             </div>
             <AlertDialogPrimitive.Title className="text-[15px] font-semibold text-foreground leading-snug">
@@ -72,7 +72,7 @@ export function DeleteConfirmDialog({
               disabled={loading}
               className={cn(
                 "h-11 text-sm font-semibold transition-colors disabled:opacity-50 focus-visible:outline-none inline-flex items-center justify-center gap-1.5",
-                icon === "warning"
+                icon === "warning" || icon === "logout"
                   ? "text-amber-600 hover:bg-amber-50"
                   : "text-red-600 hover:bg-red-50",
               )}

@@ -6,7 +6,7 @@ import { installAuthFetch } from "@/lib/installAuthFetch";
 installAuthFetch();
 
 // Expo APK WebView → add class for CSS/JS targeting
-if (/nanoTECH-VouchersBills-Mobile/i.test(navigator.userAgent)) {
+if (/nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent)) {
   document.documentElement.classList.add("native-app");
 }
 

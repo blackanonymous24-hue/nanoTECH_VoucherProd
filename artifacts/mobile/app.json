@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "nanoTECH Vouchers Bills",
-    "slug": "nanotech-vouchers-bills",
+    "name": "nanoTECH Vouchers",
+    "slug": "nanotech-vouchers",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -15,10 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.nanotech.vouchersbills"
+      "bundleIdentifier": "com.nanotech.vouchers"
     },
     "android": {
-      "package": "com.nanotech.vouchersbills",
+      "package": "com.nanotech.vouchers",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#0f172a"
@@ -35,7 +35,7 @@
       [
         "expo-router",
         {
-          "origin": "https://nanotech-voucher.replit.app"
+          "origin": "http://127.0.0.1:4173"
         }
       ],
       "expo-font",

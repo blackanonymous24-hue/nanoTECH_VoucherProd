@@ -29,8 +29,24 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { fetchServerTemplateWithMeta, readSmallScale, readMobileScale } from "@/pages/TicketTemplate";
-import { tryOpenVoucherPrintPage, buildSmallModePrintHtml, buildTicketPrintHtml, printTickets } from "@/lib/print";
+import { openVoucherPrintPreparationWindow, printMikhmonSmallVouchers } from "@/lib/print";
+import {
+  formatMikhmonBytes,
+  inferMikhmonUserMode,
+  mikhmonProfilePriceLabel,
+} from "@/lib/mikhmon-small-print";
+import {
+  fetchEffectiveTicketTemplate,
+  renderVoucherTicketsBody,
+  ticketPriceColorKey,
+  type VoucherTicketPrintRow,
+} from "@/lib/voucher-ticket-render";
+import { fetchHotspotQrImgAttrsBatch } from "@/lib/voucher-hotspot-qr-api";
+import {
+  fetchProfilesSnap,
+  finalizeProfilesForPrint,
+} from "@/lib/fetch-router-profiles-live";
+import { buildVoucherPdfDocumentTitle } from "@/lib/voucher-print-filename";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -91,7 +107,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 /** Détecte si l'app tourne dans le WebView de l'APK Expo nanoTECH */
 const isNativeApp =
   typeof navigator !== "undefined" &&
-  /nanoTECH-VouchersBills-Mobile/i.test(navigator.userAgent);
+  /nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent);
 
 /** "3h"→"3H", "1d"→"1J", "30m"→"30M", "1w"→"1S" */
 function validityCode(validity: string | null | undefined): string {
@@ -323,9 +339,10 @@ export default function GenerateVouchers() {
   const [lastLot, setLastLot] = useState<LastLot | null>(null);
   const [loadingLastLot, setLoadingLastLot] = useState(false);
 
-  const [isPrintingSmall, setIsPrintingSmall] = useState(false);
   const [copiedLot, setCopiedLot] = useState(false);
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
+  /** Impression tickets du dernier lot en cours (aperçu bouton). */
+  const [voucherPrintBusy, setVoucherPrintBusy] = useState(false);
   const [confirmDeleteLastLot, setConfirmDeleteLastLot] = useState<LastLot | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [genPaused, setGenPaused] = useState(false);
@@ -342,6 +359,7 @@ export default function GenerateVouchers() {
     // Réinitialise le vendeur et le profil sélectionnés (spécifiques à chaque routeur)
     setVendorId("");
     setProfile("");
+    setVoucherPrintBusy(false);
   }, [selectedRouterId, autoLoadAttempted]);
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
@@ -684,82 +702,98 @@ export default function GenerateVouchers() {
   };
 
   const handlePrintSmall = async (lot: LastLot) => {
-    const preWin: Window | null = window.open("", "_blank");
-    if (preWin) {
-      preWin.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chargement…</title>
-<style>
-  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
-    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
-  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#7c3aed;
-    border-radius:50%;animation:spin 0.9s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
-</style></head>
-<body><div class="spinner"></div>
-<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
-</body></html>`);
-      preWin.document.close();
-    }
-    const hotspotName = (selectedRouter as any)?.hotspotName || lot.routerName;
-    if (lot.comment && await tryOpenVoucherPrintPage(lot.comment, hotspotName)) { preWin?.close(); return; }
-    setIsPrintingSmall(true);
+    if (!lot.routerId || !lot.comment) return;
+    const preWin = openVoucherPrintPreparationWindow();
+    setVoucherPrintBusy(true);
     try {
-      const { template: php } = await fetchServerTemplateWithMeta();
-      const PRICE_COLORS: Record<string, string> = {
-        "0":"#E50877","100":"#752CEB","200":"#804000","300":"#13C013","500":"#ECA352",
-        "1000":"#F75418","1500":"#FF69B4","2500":"#F70000","3000":"#F70000",
-      };
-      const vouchers = lot.vouchers.map((v, idx) => ({
-        hotspotname: hotspotName,
-        dnsname: (selectedRouter as any)?.contact ?? "",
-        username: v.username,
-        password: v.password,
-        price: String(v.price ?? ""),
-        currency: "FCFA",
-        validity: v.validity ?? "",
-        timelimit: "",
-        datalimit: "",
-        num: idx + 1,
-        color: PRICE_COLORS[String(v.price ?? "")] ?? "#1433FD",
-      }));
-      const resp = await fetch(`${BASE}/api/render-tickets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ php, vouchers }),
-      });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error);
-      const toSlug = (s: string) => s.trim().replace(/\s+/g, "-");
-      const title = ["Voucher", toSlug(hotspotName), lot.comment].filter(Boolean).join("-");
-      const isNativeWV = typeof (window as any).ReactNativeWebView !== "undefined";
-      const isMobileBrowser = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (isNativeWV) {
-        // APK : pont natif, pas de window.open
-        printTickets(data.html as string[], title, readMobileScale());
-      } else if (isMobileBrowser) {
-        // Mobile browser : zoom + page-breaks (anti-coupure)
-        if (preWin) {
-          const html = buildTicketPrintHtml(data.html as string[], title, readMobileScale(), true);
-          preWin.document.open();
-          preWin.document.write(html);
-          preWin.document.close();
-        }
-      } else {
-        // Desktop : 2 colonnes Small
-        if (preWin) {
-          const html = buildSmallModePrintHtml(data.html as string[], title, readSmallScale());
-          preWin.document.open();
-          preWin.document.write(html);
-          preWin.document.close();
-        }
+      const [raw, template, profilesSnap] = await Promise.all([
+        fetchLotUsers(lot.routerId, lot.comment, GEN_BASE),
+        fetchEffectiveTicketTemplate(GEN_BASE),
+        fetchProfilesSnap(GEN_BASE, lot.routerId),
+      ]);
+      const users = raw as Array<{
+        username: string;
+        password: string;
+        profile: string;
+        comment: string | null;
+        limitUptime?: string | null;
+        limitBytesTotal?: string | null;
+      }>;
+      if (users.length === 0) {
+        preWin?.close();
+        toast({ title: "Rien à imprimer", description: "Aucun voucher sur le routeur pour ce lot.", variant: "destructive" });
+        return;
       }
+      const r = selectedRouter as {
+        hotspotName?: string | null;
+        contact?: string | null;
+        name?: string;
+        currency?: string | null;
+        host?: string;
+      } | undefined;
+      const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || lot.routerName || "Hotspot";
+      const currency = (r?.currency ?? "").trim() || "FCFA";
+      const qrHost = (r?.host ?? "").trim() || hotspotName;
+      const dnsname = (r?.contact ?? "").trim() || qrHost;
+      const needQr = /\$qrcode/i.test(template);
+      const voucherByUser = new Map(lot.vouchers.map((v) => [v.username, v]));
+      const profilesForPrint = await finalizeProfilesForPrint(
+        GEN_BASE,
+        lot.routerId,
+        displayedProfilesSorted,
+        users,
+        profilesSnap,
+      );
+      const profByName = new Map(profilesForPrint.map((p) => [p.name, p]));
+      const qrItems = needQr
+        ? users.map((u) => {
+            const v = voucherByUser.get(u.username);
+            return {
+              username: u.username,
+              password: u.password,
+              usermode: inferMikhmonUserMode(u.comment ?? v?.comment ?? null, u.username, u.password),
+            };
+          })
+        : [];
+      const qrAttrsList =
+        needQr && qrItems.length > 0 ? await fetchHotspotQrImgAttrsBatch(GEN_BASE, qrHost, qrItems) : [];
+      const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
+          const v = voucherByUser.get(u.username);
+          const p = profByName.get(u.profile);
+          const usermode = inferMikhmonUserMode(u.comment ?? v?.comment ?? null, u.username, u.password);
+          const priceStr = (v?.price ?? "").trim() || mikhmonProfilePriceLabel(p) || (lot.price ?? "").trim();
+          const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? v?.price ?? lot.price ?? "").trim();
+          const qrcode = needQr ? (qrAttrsList[i] ?? 'src="" alt=""') : "";
+          return {
+            hotspotName,
+            num: i + 1,
+            usermode,
+            username: u.username,
+            password: u.password,
+            validityRaw: String(v?.validity ?? p?.validity ?? lot.validity ?? "").trim(),
+            timelimitRaw: String(u.limitUptime ?? "").trim(),
+            datalimit: formatMikhmonBytes(u.limitBytesTotal),
+            priceDisplay: priceStr,
+            getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
+            currency,
+            dnsname,
+            qrcode,
+          };
+        });
+      printMikhmonSmallVouchers(
+        renderVoucherTicketsBody(template, rows),
+        buildVoucherPdfDocumentTitle(hotspotName, lot.profileName, lot.comment),
+        preWin,
+      );
     } catch (err) {
       preWin?.close();
-      toast({ title: "Erreur impression Small", description: String(err), variant: "destructive" });
+      toast({
+        title: "Impression impossible",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
     } finally {
-      setIsPrintingSmall(false);
+      setVoucherPrintBusy(false);
     }
   };
 
@@ -1168,12 +1202,19 @@ export default function GenerateVouchers() {
                     type="button"
                     className="w-full gap-1.5 h-9 text-sm bg-purple-600 hover:bg-purple-700 text-white"
                     onClick={() => void handlePrintSmall(lastLot)}
-                    disabled={isPrintingSmall || !selectedRouterId}
+                    disabled={!selectedRouterId || voucherPrintBusy}
                   >
-                    {isPrintingSmall
-                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      : <Printer className="h-3.5 w-3.5" />}
-                    {isPrintingSmall ? "Impression…" : "Imprimer"}
+                    {voucherPrintBusy ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                        <span className="italic">Impression en cours...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Printer className="h-3.5 w-3.5 shrink-0" />
+                        Imprimer
+                      </>
+                    )}
                   </Button>
                 ) : (
                   <Button
@@ -1286,12 +1327,19 @@ export default function GenerateVouchers() {
                   size="sm"
                   className="flex-1 gap-1.5 h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white"
                   onClick={() => void handlePrintSmall(lastLot)}
-                  disabled={isPrintingSmall}
+                  disabled={voucherPrintBusy}
                 >
-                  {isPrintingSmall
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <Printer className="h-3.5 w-3.5" />}
-                  {isPrintingSmall ? "Impression…" : "Imprimer"}
+                  {voucherPrintBusy ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                      <span className="italic">Impression en cours...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Printer className="h-3.5 w-3.5 shrink-0" />
+                      Imprimer
+                    </>
+                  )}
                 </Button>
                 <Button
                   size="sm"
@@ -1321,14 +1369,14 @@ export default function GenerateVouchers() {
               <div className="hidden sm:block max-h-[420px] overflow-y-auto">
                 <div className="divide-y divide-gray-50">
                   {lastLot.vouchers.map((v, i) => (
-                    <div key={v.id ?? i} className="flex items-center gap-3 px-4 py-1.5 hover:bg-gray-50 transition-colors">
-                      <span className="text-xs text-gray-300 w-6 text-right flex-shrink-0 tabular-nums">{i + 1}</span>
-                      <code className="font-mono text-sm font-semibold text-gray-900 flex-1 select-all">{v.username}</code>
+                    <div key={v.id ?? i} className="flex items-center gap-3 px-4 py-1.5 hover:bg-gray-50 transition-colors text-xs font-sans">
+                      <span className="text-gray-400 w-6 text-right flex-shrink-0 tabular-nums">{i + 1}</span>
+                      <span className="font-semibold text-gray-900 flex-1 select-all min-w-0 break-all">{v.username}</span>
                       {v.username !== v.password && (
-                        <code className="font-mono text-xs text-gray-400 flex-shrink-0 select-all">{v.password}</code>
+                        <span className="text-gray-500 flex-shrink-0 select-all tabular-nums">{v.password}</span>
                       )}
                       {v.validity && (
-                        <span className="text-xs text-blue-500 flex-shrink-0">{v.validity}</span>
+                        <span className="text-blue-600 flex-shrink-0 tabular-nums">{v.validity}</span>
                       )}
                     </div>
                   ))}
@@ -1352,9 +1400,6 @@ export default function GenerateVouchers() {
           )}
         </div>
       </div>
-
-      {/* ── Print section — uses global @media print CSS ── */}
-      <div id="voucher-print-section" style={{ display: "none" }} />
 
       <DeleteConfirmDialog
         open={!!confirmDeleteLastLot}

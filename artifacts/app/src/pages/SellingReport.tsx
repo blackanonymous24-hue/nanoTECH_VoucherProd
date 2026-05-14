@@ -216,7 +216,7 @@ export default function SellingReport() {
             </Badge>
           ) : (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 text-amber-700 border-amber-300 bg-amber-50">
-              Script base seule
+              Base locale
             </Badge>
           )}
         </td>
@@ -344,17 +344,17 @@ export default function SellingReport() {
                 <span className="text-[11px] text-gray-400">Vérif. présence routeur…</span>
               )}
               {!isLoading && (
-                <>
-                  <span className="text-xs text-gray-500 tabular-nums">
+                <div className="flex flex-col items-end gap-0.5 text-right shrink-0">
+                  <span className="text-xs text-gray-500 tabular-nums leading-tight">
                     {orderedFiltered.length} vente{orderedFiltered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
                   </span>
-                  <Badge variant="outline" className="text-[10px] font-normal text-emerald-700 border-emerald-300 bg-emerald-50">
-                    {sourceCounts.mikrotik} MikroTik + Local
-                  </Badge>
-                  <Badge variant="outline" className="text-[10px] font-normal text-amber-700 border-amber-300 bg-amber-50">
+                  <span className="text-[11px] tabular-nums text-emerald-700 leading-tight">
+                    {sourceCounts.mikrotik} MikroTik
+                  </span>
+                  <span className="text-[11px] tabular-nums text-amber-700 leading-tight">
                     {sourceCounts.localOnly} base locale
-                  </Badge>
-                </>
+                  </span>
+                </div>
               )}
             </div>
           </div>

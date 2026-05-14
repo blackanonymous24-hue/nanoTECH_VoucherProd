@@ -19,7 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
-import { Activity, RefreshCw, Wifi, Users, Search, Trash2, Loader2 } from "lucide-react";
+import { Activity, RefreshCw, Wifi, Users, Search, LogOut, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
 import { useQueryClient } from "@tanstack/react-query";
@@ -164,27 +164,6 @@ export default function Sessions() {
         )}
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        {selectedRouterId && sessions.length > 0 && (
-          <div className="relative flex-1 min-w-48 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-            <Input
-              className="pl-9"
-              placeholder="Rechercher un client, IP, MAC..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-        )}
-
-        {selectedRouterId && !isLoading && (
-          <Badge variant="outline" className="gap-1.5 text-green-600 border-green-200">
-            <Users className="h-3 w-3" />
-            {search ? `${filtered.length} / ${sessions.length}` : sessions.length} client(s)
-          </Badge>
-        )}
-      </div>
-
       {!selectedRouterId && (
         <Card>
           <CardContent className="py-16 text-center">
@@ -213,68 +192,86 @@ export default function Sessions() {
         </Card>
       )}
 
-      {selectedRouterId && !isLoading && sessions.length > 0 && filtered.length === 0 && (
+      {selectedRouterId && !isLoading && !error && sessions.length > 0 && (
         <Card>
-          <CardContent className="py-10 text-center">
-            <Search className="h-8 w-8 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 font-medium">Aucun résultat pour « {search} »</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {selectedRouterId && !isLoading && filtered.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="space-y-1 pb-0 sm:pb-0">
             <CardTitle className="text-base flex items-center gap-2">
               <Activity className="h-4 w-4 text-green-500" />
               Clients connectés
             </CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-48 max-w-sm">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                <Input
+                  className="h-7 min-h-7 sm:h-7 py-0 pl-8 pr-2 text-xs leading-none placeholder:text-xs"
+                  placeholder="Rechercher un client, IP, MAC..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <Badge variant="outline" className="h-7 gap-1 px-2 py-0 text-[11px] leading-none text-green-600 border-green-200 shrink-0">
+                <Users className="h-3 w-3 shrink-0" />
+                {search ? `${filtered.length} / ${sessions.length}` : sessions.length} client(s)
+              </Badge>
+            </div>
           </CardHeader>
-          <CardContent className="p-0 overflow-x-auto">
-            <Table className="min-w-[640px]">
-              <TableHeader>
-                <TableRow className="bg-gray-50">
-                  <TableHead className="pl-6">Utilisateur</TableHead>
-                  <TableHead>Adresse IP</TableHead>
-                  <TableHead>MAC</TableHead>
-                  <TableHead>Durée</TableHead>
-                  <TableHead>Données ↓</TableHead>
-                  <TableHead>Données ↑</TableHead>
-                  <TableHead className="pr-6">Serveur</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((s, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="pl-6">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
-                          title={`Déconnecter ${s.user}`}
-                          onClick={() => setDisconnectUser(s.user)}
-                          disabled={disconnectMutation.isPending && disconnectUser === s.user}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <span className="font-mono font-semibold text-gray-900">{s.user}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm text-gray-600">{s.address || "—"}</TableCell>
-                    <TableCell className="font-mono text-xs text-gray-500">{s.macAddress || "—"}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="font-mono text-xs text-blue-600 border-blue-200">
-                        {s.uptime}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-gray-600">{formatBytes(s.bytesIn)}</TableCell>
-                    <TableCell className="text-sm text-gray-600">{formatBytes(s.bytesOut)}</TableCell>
-                    <TableCell className="pr-6 text-sm text-gray-500">{s.server || "—"}</TableCell>
+          <CardContent className="p-0 overflow-x-auto -mt-1">
+            {filtered.length > 0 ? (
+              <Table className="min-w-[640px]">
+                <TableHeader>
+                  <TableRow className="bg-gray-50 [&_th]:h-7 [&_th]:py-0 [&_th]:leading-tight">
+                    <TableHead className="pl-6">Utilisateur</TableHead>
+                    <TableHead>Adresse IP</TableHead>
+                    <TableHead>MAC</TableHead>
+                    <TableHead>Durée</TableHead>
+                    <TableHead>Données ↓</TableHead>
+                    <TableHead>Données ↑</TableHead>
+                    <TableHead className="pr-6">Serveur</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((s, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="pl-6">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50 flex-shrink-0"
+                            title={`Déconnecter ${s.user}`}
+                            aria-label={`Déconnecter ${s.user}`}
+                            onClick={() => setDisconnectUser(s.user)}
+                            disabled={disconnectMutation.isPending}
+                          >
+                            {disconnectMutation.isPending && disconnectUser === s.user ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                            ) : (
+                              <LogOut className="h-3.5 w-3.5" aria-hidden />
+                            )}
+                          </Button>
+                          <span className="font-mono font-semibold text-gray-900">{s.user}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm text-gray-600">{s.address || "—"}</TableCell>
+                      <TableCell className="font-mono text-xs text-gray-500">{s.macAddress || "—"}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono text-xs text-blue-600 border-blue-200">
+                          {s.uptime}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">{formatBytes(s.bytesIn)}</TableCell>
+                      <TableCell className="text-sm text-gray-600">{formatBytes(s.bytesOut)}</TableCell>
+                      <TableCell className="pr-6 text-sm text-gray-500">{s.server || "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <div className="py-10 px-6 text-center border-t">
+                <Search className="h-8 w-8 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Aucun résultat pour « {search} »</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -282,7 +279,7 @@ export default function Sessions() {
       <DeleteConfirmDialog
         open={!!disconnectUser}
         onOpenChange={(o) => { if (!o && !disconnectMutation.isPending) setDisconnectUser(null); }}
-        icon="warning"
+        icon="logout"
         title="Déconnecter ce client ?"
         description={<>L'utilisateur <strong className="font-mono">{disconnectUser}</strong> sera déconnecté du hotspot immédiatement. Il pourra se reconnecter avec ses identifiants.</>}
         onConfirm={handleDisconnect}

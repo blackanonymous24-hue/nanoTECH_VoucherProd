@@ -44,6 +44,11 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
-# Replit
+# Secrets (Neon, local DB, etc.) — never commit
+.env
+.env.*
+!.env.example
+
+# Legacy / cache
 .cache/
 .local/

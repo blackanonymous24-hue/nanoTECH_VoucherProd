@@ -1175,6 +1175,15 @@ components:
           type: ["string", "null"]
         macAddress:
           type: ["string", "null"]
+        uptime:
+          type: ["string", "null"]
+          description: Session uptime from /ip/hotspot/user (RouterOS), when available.
+        bytesIn:
+          type: ["string", "null"]
+          description: Bytes received by the user (RouterOS bytes-in).
+        bytesOut:
+          type: ["string", "null"]
+          description: Bytes sent by the user (RouterOS bytes-out).
         server:
           type: ["string", "null"]
         disabled:

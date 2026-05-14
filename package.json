@@ -5,6 +5,11 @@
   "packageManager": "pnpm@10.26.1",
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) if [ \"$CI\" = \"true\" ]; then echo \"Non-pnpm install detected in CI; continuing for deployment compatibility.\" >&2; else echo \"Use pnpm instead\" >&2; exit 1; fi ;; esac'",
+    "db:sync-neon-local": "node scripts/sync-neon-to-local.mjs",
+    "dev": "pnpm exec concurrently -k -n api,web,tunnel -c blue,green,magenta \"pnpm --filter @workspace/api-server run dev\" \"pnpm --filter @workspace/app run dev\" \"node scripts/dev-tunnel.mjs\"",
+    "dev:no-tunnel": "pnpm exec concurrently -k -n api,web -c blue,green \"pnpm --filter @workspace/api-server run dev\" \"pnpm --filter @workspace/app run dev\"",
+    "dev:full": "pnpm run db:sync-neon-local && pnpm exec concurrently -k -n api,web -c blue,green \"pnpm --filter @workspace/api-server run dev\" \"pnpm --filter @workspace/app run dev\"",
+    "dev:full:tunnel": "pnpm run db:sync-neon-local && pnpm run dev",
     "build": "pnpm --filter @workspace/app run build && pnpm --filter @workspace/api-server run build",
     "start": "pnpm --filter @workspace/api-server run start",
     "typecheck:libs": "tsc --build",
@@ -12,7 +17,10 @@
   },
   "private": true,
   "devDependencies": {
-    "typescript": "~5.9.2",
-    "prettier": "^3.8.1"
+    "concurrently": "^9.1.2",
+    "localtunnel": "^2.0.2",
+    "open": "^10.1.0",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2"
   }
 }

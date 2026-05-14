@@ -621,7 +621,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             <Wifi className="h-4 w-4 text-blue-400" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-white leading-none">nanoTECH Vouchers Bills</p>
+            <p className="text-sm font-bold text-white leading-none">nanoTECH Vouchers</p>
             <p className="text-[10px] text-gray-500 mt-0.5 leading-none truncate">
               {routerIdentity ?? "Gestion Hotspot MikroTik"}
             </p>
@@ -859,7 +859,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               {outilsOpen && (
                 <div className="space-y-0.5 mt-0.5">
                   {[
-                    { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode, show: true },
+                    { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode, show: isAdmin || isSuperAdmin },
                     { href: "/managers",        label: "Gérants de zone",  icon: UserCog,  show: isAdmin || isSuperAdmin },
                     { href: "/collaborateurs",  label: "Collaborateurs",   icon: Users,    show: isAdmin || isSuperAdmin },
                     { href: "/maintenance",     label: "Maintenance",      icon: Wrench,   show: isAdmin },
@@ -1428,7 +1428,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
                   <Wifi className="h-3.5 w-3.5 text-blue-400" />
                 </div>
-                <span className="font-bold text-white truncate text-sm leading-none">nanoTECH Vouchers Bills</span>
+                <span className="font-bold text-white truncate text-sm leading-none">nanoTECH Vouchers</span>
               </div>
             </div>
             {/* Row 2: router selector — masqué quand le menu est ouvert ou sur la page Routeurs */}

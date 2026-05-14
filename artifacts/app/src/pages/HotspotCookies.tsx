@@ -191,17 +191,6 @@ export default function HotspotCookies() {
 
       {selectedRouterId && (
         <>
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 min-w-52 max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-              <Input className="pl-9" placeholder="Rechercher utilisateur, MAC, IP..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-            <Badge variant="outline" className="gap-1.5 text-blue-700 border-blue-200">
-              <Cookie className="h-3 w-3" />
-              {search ? `${filtered.length} / ${cookies.length}` : cookies.length} cookie(s)
-            </Badge>
-          </div>
-
           {error && (
             <Card className="mb-4">
               <CardContent className="py-6 text-red-600 text-sm">{error}</CardContent>
@@ -209,13 +198,31 @@ export default function HotspotCookies() {
           )}
 
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Cookies Hotspot</CardTitle>
+            <CardHeader className="space-y-1 pb-0 sm:pb-0">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Cookie className="h-4 w-4 text-blue-500" />
+                Cookies Hotspot
+              </CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative flex-1 min-w-52 max-w-sm">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                  <Input
+                    className="h-7 min-h-7 sm:h-7 py-0 pl-8 pr-2 text-xs leading-none placeholder:text-xs"
+                    placeholder="Rechercher utilisateur, MAC, IP..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                <Badge variant="outline" className="h-7 gap-1 px-2 py-0 text-[11px] leading-none text-blue-700 border-blue-200 shrink-0">
+                  <Cookie className="h-3 w-3 shrink-0" />
+                  {search ? `${filtered.length} / ${cookies.length}` : cookies.length} cookie(s)
+                </Badge>
+              </div>
             </CardHeader>
-            <CardContent className="p-0 overflow-x-auto">
+            <CardContent className="p-0 overflow-x-auto -mt-1">
               <Table className="min-w-[760px]">
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="bg-gray-50 [&_th]:h-7 [&_th]:py-0 [&_th]:leading-tight">
                     <TableHead className="w-12 text-center">Action</TableHead>
                     <TableHead>Utilisateur</TableHead>
                     <TableHead>Adresse MAC</TableHead>

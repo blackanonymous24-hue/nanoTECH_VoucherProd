@@ -135,6 +135,7 @@ export const listRouterProfilesParams = zod.object({
 
 export const listRouterProfilesResponseItem = zod.object({
   "name": zod.string(),
+  "mikrotikId": zod.string().optional().describe('Internal RouterOS id of the profile row'),
   "rateLimit": zod.string().nullish(),
   "validity": zod.string().nullish(),
   "price": zod.string().nullish(),
@@ -143,9 +144,37 @@ export const listRouterProfilesResponseItem = zod.object({
   "addrPool": zod.string().nullish(),
   "lockMac": zod.boolean().optional(),
   "expiredMode": zod.string().nullish(),
-  "parentQueue": zod.string().nullish()
+  "parentQueue": zod.string().nullish(),
+  "schedulerMonitorActive": zod.boolean().describe('True when a \/system scheduler entry exists for this profile name and is enabled (Mikhmon-style monitor).')
 })
 export const listRouterProfilesResponse = zod.array(listRouterProfilesResponseItem)
+
+
+/**
+ * @summary Update a hotspot user profile on the router
+ */
+export const updateRouterProfileParams = zod.object({
+  "id": zod.number(),
+  "profileName": zod.string().describe('Original profile name (URL-encoded). When `mikrotikId` is sent, it must still match that row on the router.')
+})
+
+export const updateRouterProfileBody = zod.object({
+  "name": zod.string(),
+  "validity": zod.string(),
+  "price": zod.string(),
+  "sellingPrice": zod.string().optional(),
+  "sharedUsers": zod.string().optional(),
+  "addrPool": zod.string().optional(),
+  "rateLimit": zod.string().optional(),
+  "expiredMode": zod.string().optional(),
+  "lockMac": zod.boolean().optional(),
+  "parentQueue": zod.string().optional(),
+  "mikrotikId": zod.string().optional().describe('Optional internal RouterOS `.id` of the profile (same as `mikrotikId` from list profiles). When valid and matching the path profile name, the server resolves the row with a single `print ?.id=` instead of `print ?name=`, which is faster on routers with many profiles.\n')
+})
+
+export const updateRouterProfileResponse = zod.object({
+  "ok": zod.boolean()
+})
 
 
 /**
@@ -190,6 +219,9 @@ export const listRouterUsersResponse = zod.object({
   "limitUptime": zod.string().nullish(),
   "limitBytesTotal": zod.string().nullish(),
   "macAddress": zod.string().nullish(),
+  "uptime": zod.string().nullish().describe('Session uptime from \/ip\/hotspot\/user (RouterOS), when available.'),
+  "bytesIn": zod.string().nullish().describe('Bytes received by the user (RouterOS bytes-in).'),
+  "bytesOut": zod.string().nullish().describe('Bytes sent by the user (RouterOS bytes-out).'),
   "server": zod.string().nullish(),
   "disabled": zod.boolean()
 })),

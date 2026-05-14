@@ -5,12 +5,12 @@ import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verif
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken, verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyPassword as verifyCollabPassword, createToken as createCollabToken, verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { DEFAULT_TICKET_TEMPLATE } from "../lib/default-template.js";
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
 import { purgeOldMikhmonScripts } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { clearRouterScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 
@@ -38,12 +38,13 @@ async function getOrInitSuperAdmin(): Promise<typeof adminSettingsTable.$inferSe
   const passwordHash = await hashPassword("root");
   const [created] = await db
     .insert(adminSettingsTable)
-    .values({ login: "admin", passwordHash, isSuperAdmin: true, isActive: true, ticketTemplate: DEFAULT_TICKET_TEMPLATE })
+    .values({ login: "admin", passwordHash, isSuperAdmin: true, isActive: true })
     .returning();
   return created;
 }
 
 router.post("/login", async (req, res): Promise<void> => {
+  try {
   const { login, password } = req.body as { login?: string; password?: string };
   if (!login || !password) {
     res.status(400).json({ error: "Identifiants requis" });
@@ -160,6 +161,13 @@ router.post("/login", async (req, res): Promise<void> => {
   }
 
   res.status(401).json({ error: "Identifiants incorrects" });
+  } catch (err) {
+    logger.error({ err }, "POST /api/login");
+    res.status(503).json({
+      error:
+        "Erreur serveur ou base de données (schéma incomplet ou indisponible). Redémarrez l’API après mise à jour, exécutez les migrations Drizzle, puis réessayez.",
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -315,9 +323,7 @@ router.post("/admin/buy-routers", async (req, res): Promise<void> => {
 });
 
 /**
- * GET /api/tenant/ticket-template
- * Même contenu que GET /api/admin/ticket-template, mais accepte aussi les jetons
- * vendeur / manager / collaborateur (template du propriétaire du tenant).
+ * GET /api/tenant/ticket-template — modèle PHP/HTML du tenant (propriétaire du jeton).
  */
 router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -378,17 +384,15 @@ router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
   }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile })
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, tenantAdminId));
 
-  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100 });
+  res.json({ template: row?.ticketTemplate ?? null });
 });
 
 /**
- * GET /api/admin/ticket-template
- * Retourne le template PHP Mikhmon v3 de l'admin connecté.
- * null = l'admin n'a pas encore sauvegardé de template (utiliser le défaut côté client).
+ * GET /api/admin/ticket-template — modèle de l'admin connecté (null = défaut côté client).
  */
 router.get("/admin/ticket-template", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -396,36 +400,30 @@ router.get("/admin/ticket-template", async (req, res): Promise<void> => {
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate, printScaleSmall: adminSettingsTable.printScaleSmall, printScaleMobile: adminSettingsTable.printScaleMobile })
+    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, claims.adminId));
 
-  res.json({ template: row?.ticketTemplate ?? DEFAULT_TICKET_TEMPLATE, scaleSmall: row?.printScaleSmall ?? 100, scaleMobile: row?.printScaleMobile ?? 100 });
+  res.json({ template: row?.ticketTemplate ?? null });
 });
 
 /**
- * PUT /api/admin/ticket-template
- * Sauvegarde le template PHP Mikhmon v3 de l'admin connecté côté serveur.
- * Body: { template: string }  — chaîne vide = réinitialiser au défaut.
+ * PUT /api/admin/ticket-template — body: { template: string } (vide = réinitialiser).
  */
 router.put("/admin/ticket-template", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const { template, scaleSmall, scaleMobile } = req.body as { template?: string; scaleSmall?: number; scaleMobile?: number };
+  const { template } = req.body as { template?: string };
   if (typeof template !== "string") {
     res.status(400).json({ error: "Champ template requis (string)" });
     return;
   }
 
-  const scaleUpdate: Partial<typeof adminSettingsTable.$inferInsert> = {};
-  if (typeof scaleSmall === "number" && scaleSmall >= 0 && scaleSmall <= 100) scaleUpdate.printScaleSmall = scaleSmall;
-  if (typeof scaleMobile === "number" && scaleMobile >= 0 && scaleMobile <= 100) scaleUpdate.printScaleMobile = scaleMobile;
-
   await db
     .update(adminSettingsTable)
-    .set({ ticketTemplate: template.trim() || null, ...scaleUpdate })
+    .set({ ticketTemplate: template.trim() || null })
     .where(eq(adminSettingsTable.id, claims.adminId));
 
   res.json({ ok: true });

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, Fragment } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -136,32 +136,6 @@ function mergeArrearRun(run: DailyArrearEntry[]): ConsolidatableArrearEntry {
   };
 }
 
-function groupConsecutiveArrears(entries: DailyArrearEntry[]): ConsolidatableArrearEntry[] {
-  const asc = [...entries].filter((a) => a.remaining > 0).sort((a, b) => a.date.localeCompare(b.date));
-  if (asc.length === 0) return [];
-  const out: ConsolidatableArrearEntry[] = [];
-  let run: DailyArrearEntry[] = [asc[0]!];
-  for (let i = 1; i < asc.length; i++) {
-    const cur = asc[i]!;
-    const prev = run[run.length - 1]!;
-    if (addDaysIso(prev.date, 1) === cur.date) run.push(cur);
-    else {
-      out.push(mergeArrearRun(run));
-      run = [cur];
-    }
-  }
-  out.push(mergeArrearRun(run));
-  return out;
-}
-
-function arrearDisplayLabel(arr: ConsolidatableArrearEntry): string {
-  const u = arr.__underlying;
-  if (u && u.length > 1) {
-    return `Arriéré du ${fmtDateFr(u[0]!.date)} au ${fmtDateFr(u[u.length - 1]!.date)}`;
-  }
-  return `Arriéré du ${fmtDateFr(arr.date)}`;
-}
-
 /** Returns YYYY-MM-DD of Monday of the week containing the given iso date (UTC) */
 function mondayOfDate(iso: string): string {
   const d = new Date(iso + "T00:00:00Z");
@@ -182,25 +156,24 @@ function arrearWeekRangeLabel(mondayIso: string): string {
   return `Arriéré de la semaine du ${fmtDateFr(mondayIso)} au ${fmtDateFr(sun)}`;
 }
 
-/** Regroupement consécutif couvrant exactement le lun–dim de `weekMon` (même semaine civile). */
-function arrearGroupCoversFullWeek(g: ConsolidatableArrearEntry, weekMon: string): boolean {
-  const sun = sundayOfWeekMonday(weekMon);
-  const raw = g.__underlying ?? [g];
-  const sorted = [...raw].sort((a, b) => a.date.localeCompare(b.date));
-  if (sorted.length === 0) return false;
-  return sorted[0]!.date === weekMon && sorted[sorted.length - 1]!.date === sun;
+/**
+ * Total « versements non effectués » — même règle que le portail vendeur :
+ * reliquat API (carry) seulement si aucun jour avec reliquat avant le lundi
+ * de la semaine de `dataDateIso`, + somme des reliquats journaliers (> 0).
+ */
+function portalStyleTotalDue(
+  dataDateIso: string,
+  weekCarry: number,
+  allArrears: DailyArrearEntry[],
+): number {
+  const cwStart = mondayOfDate(dataDateIso);
+  const daysPos = allArrears.filter((a) => a.remaining > 0);
+  const hasPrevDays = daysPos.some((a) => a.date < cwStart);
+  const carryAmt = hasPrevDays ? 0 : weekCarry;
+  return carryAmt + daysPos.reduce((s, a) => s + a.remaining, 0);
 }
 
-/** Libellé « Arriéré de la semaine » sur l’intervalle réel des jours concernés (versements non faits / partiels). */
-function arrearWeekLabelFromGroup(g: ConsolidatableArrearEntry): string {
-  const raw = g.__underlying ?? [g];
-  const sorted = [...raw].sort((a, b) => a.date.localeCompare(b.date));
-  const first = sorted[0]!.date;
-  const last = sorted[sorted.length - 1]!.date;
-  return `Arriéré de la semaine du ${fmtDateFr(first)} au ${fmtDateFr(last)}`;
-}
-
-/** Lignes arriérés (ordre affichage / impression), alignées sur le regroupement par semaine civile. */
+/** Lignes arriérés — même affichage que « Mes versements non effectués » (portail). */
 function vendorArrearSummaryLines(
   dataDateIso: string,
   weekStartMonday: string | undefined,
@@ -221,36 +194,38 @@ function vendorArrearSummaryLines(
   const prevWeekMonSorted = [...prevByWeek.keys()].sort((a, b) => a.localeCompare(b));
 
   for (const weekMon of prevWeekMonSorted) {
-    const entries = prevByWeek.get(weekMon) ?? [];
-    const groupedPrev = groupConsecutiveArrears(entries);
-    const singleGroup = groupedPrev.length === 1;
-    const g0 = groupedPrev[0];
-    const lineLabelOne =
-      g0 &&
-      (arrearGroupCoversFullWeek(g0, weekMon)
-        ? arrearWeekRangeLabel(weekMon)
-        : arrearWeekLabelFromGroup(g0));
-    for (const arr of groupedPrev) {
-      const lineLabel = singleGroup ? lineLabelOne! : arrearWeekLabelFromGroup(arr);
-      out.push({ label: lineLabel, amount: arr.remaining, kind: "arrear" });
-    }
+    const entries = [...(prevByWeek.get(weekMon) ?? [])].sort((a, b) => a.date.localeCompare(b.date));
+    if (entries.length === 0) continue;
+    const merged = mergeArrearRun(entries);
+    out.push({ label: arrearWeekRangeLabel(weekMon), amount: merged.remaining, kind: "arrear" });
   }
 
   if (weekCarry > 0 && prevArrears.length === 0) {
     out.push({ label: arrearsWeekLabel(weekStartMonday), amount: weekCarry, kind: "carry" });
   }
 
-  const groupedCurrent = groupConsecutiveArrears(currentArrears);
-  const singleCur = groupedCurrent.length === 1;
-  const gc0 = groupedCurrent[0];
-  const lineCurOne =
-    gc0 &&
-    (arrearGroupCoversFullWeek(gc0, currentWeekStart)
-      ? arrearWeekRangeLabel(currentWeekStart)
-      : arrearWeekLabelFromGroup(gc0));
-  for (const arr of groupedCurrent) {
-    const lineLabel = singleCur ? lineCurOne! : arrearWeekLabelFromGroup(arr);
-    out.push({ label: lineLabel, amount: arr.remaining, kind: "arrear" });
+  const sortedCurrent = [...currentArrears]
+    .filter((d) => d.remaining > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (sortedCurrent.length <= 2) {
+    for (const d of sortedCurrent) {
+      out.push({ label: `Arriéré du ${fmtDateFr(d.date)}`, amount: d.remaining, kind: "arrear" });
+    }
+  } else {
+    const oldGroup = sortedCurrent.slice(0, sortedCurrent.length - 2);
+    const recentTwo = sortedCurrent.slice(sortedCurrent.length - 2);
+    const merged = mergeArrearRun(oldGroup);
+    const firstDate = oldGroup[0]!.date;
+    const lastDate = oldGroup[oldGroup.length - 1]!.date;
+    const cumulLabel =
+      firstDate === lastDate
+        ? `Arriéré du ${fmtDateFr(firstDate)}`
+        : `Arriéré du ${fmtDateFr(firstDate)} au ${fmtDateFr(lastDate)}`;
+    out.push({ label: cumulLabel, amount: merged.remaining, kind: "arrear" });
+    for (const d of recentTwo) {
+      out.push({ label: `Arriéré du ${fmtDateFr(d.date)}`, amount: d.remaining, kind: "arrear" });
+    }
   }
 
   return out;
@@ -312,12 +287,8 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
 
   const summaryByVendor = activeSummary.map((s) => {
     const allArrears = (arrears?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
-    const arrTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
     const weekCarry = data.weekSummary?.find((w) => w.vendorId === s.vendorId)?.carryOverAmount ?? 0;
-    const currentWeekStartPrint = mondayOfDate(data.date);
-    const prevArrearsPrint = allArrears.filter((a) => a.date < currentWeekStartPrint);
-    const weekCarryEff = weekCarry > 0 && prevArrearsPrint.length === 0 ? weekCarry : 0;
-    const totalDu = s.amount + weekCarryEff + arrTotal;
+    const totalDu = portalStyleTotalDue(data.date, weekCarry, allArrears);
     const hasArr = weekCarry > 0 || allArrears.length > 0;
     const vname = escapeHtmlPrint(s.vendorName);
 
@@ -653,8 +624,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
       });
 
       if (hasArr) {
-        const arrTotal = arr.reduce((sum, a) => sum + a.remaining, 0);
-        const totalDu = s.amount + wc + arrTotal;
+        const totalDu = portalStyleTotalDue(appliedDate, wc, arr);
         ln(PAD, ry, PAD + CW, ry, "#111", 1.5);
         rf(PAD, ry, CW, GRAND_ROW_H, "#f7f7f7");
         t("Total à verser", C_LBL, ry + GRAND_ROW_H / 2, { size: 9, bold: true, color: "#111827" });
@@ -1072,19 +1042,10 @@ export default function VendorTracking() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {activeSummary.map((s) => {
                     const allArrears = (arrearsData?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
-                    const currentWeekStart = mondayOfDate(applied);
-                    const prevArrears = allArrears.filter((a) => a.date < currentWeekStart);
-                    const currentArrears = allArrears.filter((a) => a.date >= currentWeekStart);
                     const weekCarry = weekSummary.find((w) => w.vendorId === s.vendorId)?.carryOverAmount ?? 0;
-                    const prevByWeek = new Map<string, DailyArrearEntry[]>();
-                    for (const a of prevArrears) {
-                      const m = mondayOfDate(a.date);
-                      if (!prevByWeek.has(m)) prevByWeek.set(m, []);
-                      prevByWeek.get(m)!.push(a);
-                    }
-                    const prevWeekMonSorted = [...prevByWeek.keys()].sort((a, b) => a.localeCompare(b));
-                    const groupedCurrentArrears = groupConsecutiveArrears(currentArrears);
+                    const summaryLines = vendorArrearSummaryLines(applied, data?.weekStart, weekCarry, allArrears);
                     const hasArrears = weekCarry > 0 || allArrears.length > 0;
+                    const totalDu = portalStyleTotalDue(applied, weekCarry, allArrears);
                     const pal = vpal(s.vendorId);
                     return (
                       <div
@@ -1092,7 +1053,6 @@ export default function VendorTracking() {
                         className="rounded-lg border overflow-hidden text-xs"
                         style={{ borderColor: hasArrears ? "#fdba74" : pal.border }}
                       >
-                        {/* Card header */}
                         <div
                           className="flex items-center justify-between px-3 py-2 border-b"
                           style={{ backgroundColor: pal.light, borderColor: pal.border }}
@@ -1102,134 +1062,62 @@ export default function VendorTracking() {
                             {fmtAmount(s.amount)} FCFA
                           </span>
                         </div>
-                        {/* Arrears only (forfait breakdown + total row removed) */}
                         <table className="w-full border-collapse">
-                <tbody>
-                            {prevWeekMonSorted.map((weekMon) => {
-                              const entries = prevByWeek.get(weekMon) ?? [];
-                              const groupedPrev = groupConsecutiveArrears(entries);
-                              const singleGroup = groupedPrev.length === 1;
-                              const g0 = groupedPrev[0];
-                              const lineLabelOne =
-                                g0 &&
-                                (arrearGroupCoversFullWeek(g0, weekMon)
-                                  ? arrearWeekRangeLabel(weekMon)
-                                  : arrearWeekLabelFromGroup(g0));
+                          <tbody>
+                            {summaryLines.map((row, idx) => {
+                              const isCarry = row.kind === "carry";
                               return (
-                                <Fragment key={`${s.vendorId}-prev-${weekMon}`}>
-                                  {!singleGroup && (
-                                    <tr className="border-t border-red-100 bg-red-50/50">
-                                      <td colSpan={3} className="px-3 py-0.5">
-                                        <span
-                                          className="text-[9px] font-semibold text-red-900 leading-none truncate block"
-                                          title={arrearWeekRangeLabel(weekMon)}
-                                        >
-                                          {arrearWeekRangeLabel(weekMon)}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  )}
-                                  {groupedPrev.map((arr) => {
-                                    const underlying = arr.__underlying;
-                                    const pKey = `${s.vendorId}|prev-${weekMon}|${underlying?.map((e) => e.date).join(",") ?? arr.date}`;
-                                    const lineLabel = singleGroup
-                                      ? lineLabelOne!
-                                      : arrearDisplayLabel(arr);
-                                    return (
-                                      <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
-                                        <td
-                                          colSpan={3}
-                                          className={`px-3 py-1 ${singleGroup ? "pl-3" : "pl-5"}`}
-                                        >
-                                          <div className="flex items-center justify-between gap-1.5 min-w-0">
-                                            <div className="flex items-center gap-0.5 text-orange-700 min-w-0 flex-1">
-                                              <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0 text-orange-500" />
-                                              <span
-                                                className="text-[9px] sm:text-[10px] font-medium leading-none truncate"
-                                                title={lineLabel}
-                                              >
-                                                {lineLabel}
-                                              </span>
-                                            </div>
-                                            <span className="text-[9px] sm:text-[10px] font-bold text-orange-700 tabular-nums whitespace-nowrap flex-shrink-0">
-                                              {fmtAmount(arr.remaining)} FCFA
-                                            </span>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </Fragment>
-                              );
-                            })}
-                            {weekCarry > 0 && prevArrears.length === 0 && (
-                              <tr className="border-t border-rose-200 bg-rose-50">
-                                <td colSpan={3} className="px-3 py-1">
-                                  <div className="flex items-center justify-between gap-1.5 min-w-0">
-                                    <div className="flex items-center gap-0.5 text-rose-800 min-w-0 flex-1">
-                                      <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0 text-rose-500" />
-                                      <span
-                                        className="text-[9px] sm:text-[10px] font-medium leading-none truncate"
-                                        title={arrearsWeekLabel(data?.weekStart)}
-                                      >
-                                        {arrearsWeekLabel(data?.weekStart)}
-                                      </span>
-                                    </div>
-                                    <span className="text-[9px] sm:text-[10px] font-bold text-rose-800 tabular-nums whitespace-nowrap flex-shrink-0">
-                                      {fmtAmount(weekCarry)} FCFA
-                                    </span>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                            {groupedCurrentArrears.map((arr) => {
-                              const underlying = arr.__underlying;
-                              const pKey = `${s.vendorId}|cur|${underlying?.map((e) => e.date).join(",") ?? arr.date}`;
-                              return (
-                                <tr key={pKey} className="border-t border-orange-200 bg-orange-50">
+                                <tr
+                                  key={`${s.vendorId}-arr-${idx}-${row.kind}`}
+                                  className={isCarry ? "border-t border-rose-200 bg-rose-50" : "border-t border-orange-200 bg-orange-50"}
+                                >
                                   <td colSpan={3} className="px-3 py-1">
                                     <div className="flex items-center justify-between gap-1.5 min-w-0">
-                                      <div className="flex items-center gap-0.5 text-orange-700 min-w-0 flex-1">
-                                        <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0 text-orange-500" />
+                                      <div
+                                        className={`flex items-center gap-0.5 min-w-0 flex-1 ${
+                                          isCarry ? "text-rose-800" : "text-orange-700"
+                                        }`}
+                                      >
+                                        <AlertTriangle
+                                          className={`h-2.5 w-2.5 flex-shrink-0 ${
+                                            isCarry ? "text-rose-500" : "text-orange-500"
+                                          }`}
+                                        />
                                         <span
                                           className="text-[9px] sm:text-[10px] font-medium leading-none truncate"
-                                          title={arrearDisplayLabel(arr)}
+                                          title={row.label}
                                         >
-                                          {arrearDisplayLabel(arr)}
+                                          {row.label}
                                         </span>
                                       </div>
-                                      <span className="text-[9px] sm:text-[10px] font-bold text-orange-700 tabular-nums whitespace-nowrap flex-shrink-0">
-                                        {fmtAmount(arr.remaining)} FCFA
-                                      </span>
-                                    </div>
-                    </td>
-                  </tr>
-                              );
-                            })}
-                            {/* ── Total à verser ── */}
-                            {hasArrears && (() => {
-                              const allArrearsTotal = allArrears.reduce((sum, a) => sum + a.remaining, 0);
-                              const weekCarryForTotal = weekCarry > 0 && prevArrears.length === 0 ? weekCarry : 0;
-                              const commRate = weekSummary.find((w) => w.vendorId === s.vendorId)?.commissionRate ?? 0;
-                              const netDayAmount = commRate > 0 ? Math.round(s.amount * (1 - commRate / 100)) : s.amount;
-                              const totalDu = netDayAmount + weekCarryForTotal + allArrearsTotal;
-                              return (
-                                <tr className="border-t-2 border-blue-900 bg-blue-900">
-                                  <td colSpan={3} className="px-3 py-1">
-                                    <div className="flex items-center justify-between gap-1.5 min-w-0">
-                                      <span className="text-[9px] sm:text-[10px] font-bold text-white leading-none truncate">
-                                        Total à verser
-                                      </span>
-                                      <span className="text-[9px] sm:text-[10px] font-bold text-white tabular-nums whitespace-nowrap flex-shrink-0">
-                                        {fmtAmount(totalDu)} FCFA
+                                      <span
+                                        className={`text-[9px] sm:text-[10px] font-bold tabular-nums whitespace-nowrap flex-shrink-0 ${
+                                          isCarry ? "text-rose-800" : "text-orange-700"
+                                        }`}
+                                      >
+                                        {fmtAmount(row.amount)} FCFA
                                       </span>
                                     </div>
                                   </td>
                                 </tr>
                               );
-                            })()}
+                            })}
+                            {hasArrears && (
+                              <tr className="border-t-2 border-blue-900 bg-blue-900">
+                                <td colSpan={3} className="px-3 py-1">
+                                  <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                    <span className="text-[9px] sm:text-[10px] font-bold text-white leading-none truncate">
+                                      Total à verser
+                                    </span>
+                                    <span className="text-[9px] sm:text-[10px] font-bold text-white tabular-nums whitespace-nowrap flex-shrink-0">
+                                      {fmtAmount(totalDu)} FCFA
+                                    </span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
                           </tbody>
-              </table>
+                        </table>
                       </div>
                     );
                   })}
