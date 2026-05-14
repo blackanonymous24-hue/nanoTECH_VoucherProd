@@ -367,17 +367,28 @@ table.voucher {
   height:30px;
   margin-top:1px;
 }
-.vn-voucher-scale-wrap {
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
 `;
 
-function wrapVoucherBodyWithPrintScale(bodyTicketsHtml: string, scalePercent: number): string {
+/** Même règle que le client `buildVoucherPrintScaleBodyAttrs` : échelle sur `<body>` (mobile). */
+function voucherPrintScaleBodyStyleValue(scalePercent: number): string | undefined {
   const pct = Math.max(0, Math.min(100, Math.round(scalePercent)));
-  if (pct <= 0 || pct >= 100) return bodyTicketsHtml;
+  if (pct <= 0 || pct >= 100) return undefined;
   const f = pct / 100;
-  return `<div class="vn-voucher-scale-wrap" style="box-sizing:border-box;-webkit-transform-origin:top left;transform-origin:top left;-webkit-transform:scale(${f});transform:scale(${f});width:calc(100% / ${f});">${bodyTicketsHtml}</div>`;
+  const fs = f.toFixed(6);
+  const w = (100 / f).toFixed(6);
+  return [
+    "margin:0",
+    "box-sizing:border-box",
+    `-webkit-transform:scale(${fs})`,
+    `transform:scale(${fs})`,
+    "-webkit-transform-origin:0 0",
+    "transform-origin:0 0",
+    `width:${w}%`,
+    "max-width:none",
+    "overflow:visible",
+    "-webkit-print-color-adjust:exact",
+    "print-color-adjust:exact",
+  ].join(";");
 }
 
 export function buildStandaloneVoucherPrintHtml(
@@ -386,7 +397,8 @@ export function buildStandaloneVoucherPrintHtml(
   opts?: { deferPrintMs?: number; scalePercent?: number },
 ): string {
   const scale = opts?.scalePercent ?? 100;
-  const body = wrapVoucherBodyWithPrintScale(bodyTicketsHtml, scale);
+  const bodyStyle = voucherPrintScaleBodyStyleValue(scale);
+  const bodyOpen = bodyStyle ? `<body style="${bodyStyle}">` : "<body>";
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
   const printScript =
@@ -402,7 +414,7 @@ export function buildStandaloneVoucherPrintHtml(
     <style>${MIKHMON_VOUCHER_PRINT_CSS}</style>
     <script>${printScript}<\/script>
   </head>
-  <body>${body}</body>
+  ${bodyOpen}${bodyTicketsHtml}</body>
 </html>`;
 }
 

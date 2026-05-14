@@ -62,17 +62,31 @@ function voucherPrintScalePercentForCurrentContext(): number {
   return getVoucherPrintScaleDesktop();
 }
 
-/** Applique l’échelle d’impression autour du HTML des tickets. */
-export function wrapVoucherTicketsBodyForPrintScale(bodyHtml: string, scalePercent: number): string {
+/**
+ * Attributs `style` pour `<body>` afin d’appliquer l’échelle d’impression de façon fiable sur mobile.
+ * Les navigateurs mobiles ignorent souvent `zoom` / `@media print` sur un conteneur interne au moment
+ * de l’aperçu ; un `transform: scale` sur `<body>` (fenêtre dédiée à l’impression) peint déjà la page
+ * à la bonne taille pour l’aperçu et la sortie.
+ */
+export function buildVoucherPrintScaleBodyAttrs(scalePercent: number): string | undefined {
   const pct = clampVoucherPrintScale(scalePercent);
-  if (pct <= 0 || pct >= 100) return bodyHtml;
+  if (pct <= 0 || pct >= 100) return undefined;
   const f = pct / 100;
-  /**
-   * `zoom` est bien pris en charge à l’écran sur Chrome, mais l’aperçu / l’impression **mobile**
-   * (Safari iOS, WebView, souvent Firefox) l’ignore ou l’applique mal. `transform: scale` + largeur
-   * compensée est le contrepoids classique pour que l’échelle se voie aussi à l’impression.
-   */
-  return `<div class="vn-voucher-scale-wrap" style="box-sizing:border-box;-webkit-transform-origin:top left;transform-origin:top left;-webkit-transform:scale(${f});transform:scale(${f});width:calc(100% / ${f});">${bodyHtml}</div>`;
+  const fs = f.toFixed(6);
+  const w = (100 / f).toFixed(6);
+  return [
+    "margin:0",
+    "box-sizing:border-box",
+    `-webkit-transform:scale(${fs})`,
+    `transform:scale(${fs})`,
+    "-webkit-transform-origin:0 0",
+    "transform-origin:0 0",
+    `width:${w}%`,
+    "max-width:none",
+    "overflow:visible",
+    "-webkit-print-color-adjust:exact",
+    "print-color-adjust:exact",
+  ].join(";");
 }
 
 /**
@@ -156,11 +170,12 @@ export function buildStandalonePrintHtml(
   title: string,
   styleCss: string,
   bodyHtml: string,
-  opts?: { deferPrintMs?: number; autoprint?: boolean },
+  opts?: { deferPrintMs?: number; autoprint?: boolean; bodyAttrs?: string },
 ): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
   const autoprint = opts?.autoprint !== false;
+  const bodyExtra = opts?.bodyAttrs?.trim() ? ` ${opts.bodyAttrs.trim()}` : "";
   const printScript =
     defer > 0
       ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
@@ -175,7 +190,7 @@ export function buildStandalonePrintHtml(
     <style>${styleCss}</style>
 ${scriptTag}
   </head>
-  <body>${bodyHtml}</body>
+  <body${bodyExtra}>${bodyHtml}</body>
 </html>`;
 }
 
@@ -220,10 +235,6 @@ table.voucher {
   height:30px;
   margin-top:1px;
 }
-.vn-voucher-scale-wrap {
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
 `;
 
 function buildMikhmonVoucherPrintDocumentHtml(
@@ -231,10 +242,11 @@ function buildMikhmonVoucherPrintDocumentHtml(
   documentTitle: string,
   opts?: { autoprint?: boolean },
 ): string {
-  const scaledBody = wrapVoucherTicketsBodyForPrintScale(bodyTicketsHtml, voucherPrintScalePercentForCurrentContext());
-  return buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, scaledBody, {
+  const scaleAttrs = buildVoucherPrintScaleBodyAttrs(voucherPrintScalePercentForCurrentContext());
+  return buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, bodyTicketsHtml, {
     deferPrintMs: 150,
     autoprint: opts?.autoprint !== false,
+    bodyAttrs: scaleAttrs ? `style="${scaleAttrs}"` : undefined,
   });
 }
 
