@@ -1,6 +1,7 @@
 import {
   getVoucherPrintScaleDesktop,
   getVoucherPrintScaleMobile,
+  scaleFactorFromPct,
 } from "@/lib/voucher-print-scale";
 
 const REPORT_CSS = `
@@ -164,13 +165,20 @@ export function buildStandalonePrintHtml(
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const raw = options?.printScale;
   const scale =
-    raw != null && Number.isFinite(raw) && raw > 0 ? Math.min(1.25, Math.max(0.5, raw)) : 1;
-  /** Même effet visuel que la mise à l’échelle du dialogue d’impression (zoom document). */
+    raw != null && Number.isFinite(raw) && raw > 0 ? Math.min(1.5, Math.max(0.5, raw)) : 1;
+  const invPct = Math.round(100 / scale);
+  /**
+   * Zoom universel : zoom (Chrome/Safari/Edge) + fallback transform pour Firefox.
+   * Appliqué hors et dans @media print pour garantir l'effet sur mobile et desktop.
+   */
   const scaleCss =
     scale !== 1
       ? `
-  html {
-    zoom: ${scale};
+  html { zoom: ${scale}; }
+  @media print { html { zoom: ${scale}; } }
+  @supports not (zoom: 1) {
+    html { transform: scale(${scale}); transform-origin: 0 0; width: ${invPct}%; }
+    @media print { html { transform: scale(${scale}); transform-origin: 0 0; width: ${invPct}%; } }
   }
 `
       : "";
@@ -237,9 +245,10 @@ table.voucher {
  * HTML complet du document d’impression vouchers (Mikhmon small + zoom tenant).
  */
 export function buildMikhmonSmallVouchersPrintHtml(bodyTicketsHtml: string, documentTitle: string): string {
-  const printScale = isMobileUserAgent()
+  const pct = isMobileUserAgent()
     ? getVoucherPrintScaleMobile()
     : getVoucherPrintScaleDesktop();
+  const printScale = scaleFactorFromPct(pct);
   return buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, bodyTicketsHtml, {
     printScale,
     mikhmonCompatibleViewport: true,

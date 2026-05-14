@@ -1,60 +1,55 @@
 const DESKTOP_KEY = "vouchernet_voucher_print_scale_desktop_v1";
 const MOBILE_KEY = "vouchernet_voucher_print_scale_mobile_v1";
 
-/** Facteurs proposés (liste déroulante) — impression vouchers navigateur. */
-export const VOUCHER_PRINT_SCALE_CHOICES = [0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1] as const;
+export const VOUCHER_PRINT_SCALE_MIN = 50;
+export const VOUCHER_PRINT_SCALE_MAX = 150;
+export const VOUCHER_PRINT_SCALE_DEFAULT = 100;
 
-export type VoucherPrintScaleChoice = (typeof VOUCHER_PRINT_SCALE_CHOICES)[number];
-
-function snapToChoice(n: number): VoucherPrintScaleChoice {
-  let best = VOUCHER_PRINT_SCALE_CHOICES[0];
-  let bestD = Math.abs(best - n);
-  for (const v of VOUCHER_PRINT_SCALE_CHOICES) {
-    const d = Math.abs(v - n);
-    if (d < bestD) {
-      best = v;
-      bestD = d;
-    }
-  }
-  return best;
+function clamp(n: number): number {
+  return Math.min(VOUCHER_PRINT_SCALE_MAX, Math.max(VOUCHER_PRINT_SCALE_MIN, Math.round(n)));
 }
 
-function readStored(key: string): VoucherPrintScaleChoice {
+function readStored(key: string): number {
   try {
     const raw = localStorage.getItem(key);
-    if (raw == null || raw === "") return 1;
+    if (raw == null || raw === "") return VOUCHER_PRINT_SCALE_DEFAULT;
     const n = Number.parseFloat(raw);
-    if (!Number.isFinite(n)) return 1;
-    return snapToChoice(n);
+    if (!Number.isFinite(n)) return VOUCHER_PRINT_SCALE_DEFAULT;
+    const pct = n < 10 ? Math.round(n * 100) : Math.round(n);
+    return clamp(pct);
   } catch {
-    return 1;
+    return VOUCHER_PRINT_SCALE_DEFAULT;
   }
 }
 
-export function getVoucherPrintScaleDesktop(): VoucherPrintScaleChoice {
+function writeStored(key: string, pct: number): void {
+  try {
+    localStorage.setItem(key, String(clamp(pct)));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getVoucherPrintScaleDesktop(): number {
   return readStored(DESKTOP_KEY);
 }
 
-export function getVoucherPrintScaleMobile(): VoucherPrintScaleChoice {
+export function getVoucherPrintScaleMobile(): number {
   return readStored(MOBILE_KEY);
 }
 
-export function setVoucherPrintScaleDesktop(scale: VoucherPrintScaleChoice): void {
-  try {
-    localStorage.setItem(DESKTOP_KEY, String(scale));
-  } catch {
-    /* ignore */
-  }
+export function setVoucherPrintScaleDesktop(pct: number): void {
+  writeStored(DESKTOP_KEY, pct);
 }
 
-export function setVoucherPrintScaleMobile(scale: VoucherPrintScaleChoice): void {
-  try {
-    localStorage.setItem(MOBILE_KEY, String(scale));
-  } catch {
-    /* ignore */
-  }
+export function setVoucherPrintScaleMobile(pct: number): void {
+  writeStored(MOBILE_KEY, pct);
 }
 
-export function formatVoucherPrintScaleLabel(scale: number): string {
-  return `${Math.round(scale * 100)} %`;
+export function formatVoucherPrintScaleLabel(pct: number): string {
+  return `${Math.round(pct)} %`;
+}
+
+export function scaleFactorFromPct(pct: number): number {
+  return clamp(pct) / 100;
 }
