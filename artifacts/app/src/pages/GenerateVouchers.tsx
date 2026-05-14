@@ -767,7 +767,7 @@ export default function GenerateVouchers() {
           getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
           currency,
           dnsname,
-          qrcode: qrAttrsList[i] ?? 'class="vn-voucher-qr" src="" alt=""',
+          qrcode: qrAttrsList[i] ?? 'src="" alt=""',
         };
       });
       const bodyHtml = renderVoucherTicketsBody(template, rows);

@@ -367,14 +367,6 @@ table.voucher {
   height:30px;
   margin-top:1px;
 }
-img.vn-voucher-qr {
-  max-width: min(38px, 40%) !important;
-  max-height: min(38px, 40%) !important;
-  width: auto !important;
-  height: auto !important;
-  object-fit: contain;
-  box-sizing: border-box;
-}
 .vn-voucher-scale-wrap {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
@@ -423,12 +415,12 @@ const VOUCHER_QR_PNG_OPTS = {
 
 async function voucherQrImgAttrsServer(loginHost: string, username: string, password: string): Promise<string> {
   const loginUrl = buildHotspotLoginUrl(loginHost, username, password);
-  if (!loginUrl) return 'class="vn-voucher-qr" src="" alt=""';
+  if (!loginUrl) return 'src="" alt=""';
   try {
     const dataUrl = await QRCode.toDataURL(loginUrl, VOUCHER_QR_PNG_OPTS);
-    return `class="vn-voucher-qr" src="${dataUrl}" alt="" decoding="async"`;
+    return `src="${dataUrl}" alt="" decoding="async"`;
   } catch {
-    return 'class="vn-voucher-qr" src="" alt=""';
+    return 'src="" alt=""';
   }
 }
 
@@ -438,9 +430,9 @@ export async function attachVoucherQrCodesToRows(
   loginHost: string,
 ): Promise<VoucherTicketPrintRow[]> {
   const host = loginHost.trim();
-  if (!host) return rows.map((r) => ({ ...r, qrcode: 'class="vn-voucher-qr" src="" alt=""' }));
+  if (!host) return rows.map((r) => ({ ...r, qrcode: 'src="" alt=""' }));
   const attrs = await Promise.all(rows.map((r) => voucherQrImgAttrsServer(host, r.username, r.password)));
-  return rows.map((row, i) => ({ ...row, qrcode: attrs[i] ?? 'class="vn-voucher-qr" src="" alt=""' }));
+  return rows.map((row, i) => ({ ...row, qrcode: attrs[i] ?? 'src="" alt=""' }));
 }
 
 export function buildVoucherPrintRows(params: {

@@ -216,14 +216,6 @@ table.voucher {
   height:30px;
   margin-top:1px;
 }
-img.vn-voucher-qr {
-  max-width: min(38px, 40%) !important;
-  max-height: min(38px, 40%) !important;
-  width: auto !important;
-  height: auto !important;
-  object-fit: contain;
-  box-sizing: border-box;
-}
 .vn-voucher-scale-wrap {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;

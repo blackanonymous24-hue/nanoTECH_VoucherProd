@@ -96,7 +96,7 @@ Veuillez conserver ce ticket jusqu'à l'épuisement du forfait.
 <div style="clear:both;padding:0 2.5px;font-size:7px;font-weight:bold;color:#000000">
 <?php echo $validity;?><br> <?php echo $timelimit;?> <br><?php echo $datalimit;?>
 </div>
-<img style="float:right;border:1px solid <?php echo $color ?>;border-radius:3px;padding:1px;margin:0 1px -5px 0;text-align:right;" <?= $qrcode ?></div>
+<img style="float:right;box-sizing:border-box;border:1px solid <?php echo $color ?>;border-radius:3px;padding:1px;margin:0 1px -5px 0;width:32px;height:32px;max-width:32px;max-height:32px;object-fit:contain;" <?= $qrcode ?></div>
 </td>		
 </tr>
 <tr>

@@ -6,7 +6,7 @@ import { MIKHMON_VOUCHER_PRINT_CSS } from "@/lib/print";
 
 /** Placeholder 1×1 PNG pour l’aperçu (évite une image cassée si le gabarit utilise $qrcode). */
 const PREVIEW_QR_ATTRS =
-  'class="vn-voucher-qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwADgwJ/lV1O6QAAAABJRU5ErkJggg==" alt=""';
+  'src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwADgwJ/lV1O6QAAAABJRU5ErkJggg==" alt=""';
 
 const SAMPLE_ROW: VoucherTicketPrintRow = {
   hotspotName: "WiFi Bureau",

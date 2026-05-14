@@ -863,7 +863,7 @@ export default function Vouchers() {
           getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
           currency,
           dnsname,
-          qrcode: qrAttrsList[i] ?? 'class="vn-voucher-qr" src="" alt=""',
+          qrcode: qrAttrsList[i] ?? 'src="" alt=""',
         };
       });
       const profile = lot.profile ?? users[0]?.profile ?? "";
