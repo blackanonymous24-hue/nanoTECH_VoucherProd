@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/select";
 import { TicketTemplateCodeEditor } from "@/components/TicketTemplateCodeEditor";
 import { TicketTemplateVarLegend } from "@/components/TicketTemplateVarLegend";
+import { TicketTemplatePreview } from "@/components/TicketTemplatePreview";
 import { VoucherPrintScaleControl } from "@/components/VoucherPrintScaleControl";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -225,6 +226,8 @@ export default function TicketTemplate() {
           </CardContent>
         </Card>
       </div>
+
+      {!loading && <TicketTemplatePreview code={code} />}
     </div>
   );
 }

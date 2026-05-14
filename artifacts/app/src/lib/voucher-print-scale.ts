@@ -1,8 +1,8 @@
 const DESKTOP_KEY = "vouchernet_voucher_print_scale_desktop_v1";
 const MOBILE_KEY = "vouchernet_voucher_print_scale_mobile_v1";
 
-export const VOUCHER_PRINT_SCALE_MIN = 50;
-export const VOUCHER_PRINT_SCALE_MAX = 150;
+export const VOUCHER_PRINT_SCALE_MIN = 0;
+export const VOUCHER_PRINT_SCALE_MAX = 100;
 export const VOUCHER_PRINT_SCALE_DEFAULT = 100;
 
 function clamp(n: number): number {

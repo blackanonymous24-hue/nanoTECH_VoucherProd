@@ -165,7 +165,7 @@ export function buildStandalonePrintHtml(
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const raw = options?.printScale;
   const scale =
-    raw != null && Number.isFinite(raw) && raw > 0 ? Math.min(1.5, Math.max(0.5, raw)) : 1;
+    raw != null && Number.isFinite(raw) && raw > 0 ? Math.min(2.0, Math.max(0.0, raw)) : 1;
   const invPct = Math.round(100 / scale);
   /**
    * Zoom universel : zoom (Chrome/Safari/Edge) + fallback transform pour Firefox.
