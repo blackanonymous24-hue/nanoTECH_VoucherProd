@@ -4,6 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { renderVoucherTicketHtml, type VoucherTicketPrintRow } from "@/lib/voucher-ticket-render";
 import { MIKHMON_VOUCHER_PRINT_CSS } from "@/lib/print";
 
+/** Placeholder 1×1 PNG pour l’aperçu (évite une image cassée si le gabarit utilise $qrcode). */
+const PREVIEW_QR_ATTRS =
+  'src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwADgwJ/lV1O6QAAAABJRU5ErkJggg==" width="64" height="64" alt=""';
+
 const SAMPLE_ROW: VoucherTicketPrintRow = {
   hotspotName: "WiFi Bureau",
   num: 1,
@@ -17,7 +21,7 @@ const SAMPLE_ROW: VoucherTicketPrintRow = {
   getpriceKey: "1000",
   currency: "FCFA",
   dnsname: "contact@wifi.local",
-  qrcode: "",
+  qrcode: PREVIEW_QR_ATTRS,
 };
 
 const PREVIEW_WRAPPER_CSS = `

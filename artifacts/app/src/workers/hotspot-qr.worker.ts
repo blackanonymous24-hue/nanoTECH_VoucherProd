@@ -18,28 +18,18 @@ export type HotspotQrWorkerResponse = {
   attrs: string;
 };
 
-function readBlobAsDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result as string);
-    fr.onerror = () => reject(fr.error ?? new Error("FileReader error"));
-    fr.readAsDataURL(blob);
-  });
-}
-
 async function runJob(req: HotspotQrWorkerRequest): Promise<HotspotQrWorkerResponse> {
   const { id, loginHost, username, password, pixelWidth, margin, errorCorrectionLevel } = req;
   const loginUrl = buildHotspotLoginUrl(loginHost, username, password);
   if (!loginUrl) return { id, attrs: 'src="" alt=""' };
   try {
-    const svg = await QRCode.toString(loginUrl, {
-      type: "svg",
-      width: pixelWidth,
+    const dataUrl = await QRCode.toDataURL(loginUrl, {
+      type: "image/png",
+      width: pixelWidth || 64,
       margin,
       errorCorrectionLevel,
     });
-    const dataUrl = await readBlobAsDataUrl(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
-    return { id, attrs: `src="${dataUrl}" alt=""` };
+    return { id, attrs: `src="${dataUrl}" width="64" height="64" alt="" decoding="async"` };
   } catch {
     return { id, attrs: 'src="" alt=""' };
   }

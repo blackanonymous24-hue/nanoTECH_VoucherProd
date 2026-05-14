@@ -9,7 +9,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import QRCode from "qrcode";
 import type { HotspotProfile, HotspotUser } from "./mikrotik.js";
+import { buildHotspotLoginUrl } from "./voucher-login-qr-url.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -361,8 +363,17 @@ table.voucher {
 }
 `;
 
-export function buildStandaloneVoucherPrintHtml(documentTitle: string, bodyTicketsHtml: string): string {
+export function buildStandaloneVoucherPrintHtml(
+  documentTitle: string,
+  bodyTicketsHtml: string,
+  opts?: { deferPrintMs?: number },
+): string {
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const defer = opts?.deferPrintMs ?? 0;
+  const printScript =
+    defer > 0
+      ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
+      : `window.onload=function(){window.focus();window.print();};`;
   return `<!doctype html>
 <html>
   <head>
@@ -370,10 +381,39 @@ export function buildStandaloneVoucherPrintHtml(documentTitle: string, bodyTicke
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${safeTitle}</title>
     <style>${MIKHMON_VOUCHER_PRINT_CSS}</style>
-    <script>window.onload=function(){window.focus();window.print();}<\/script>
+    <script>${printScript}<\/script>
   </head>
   <body>${bodyTicketsHtml}</body>
 </html>`;
+}
+
+const VOUCHER_QR_PNG_OPTS = {
+  type: "image/png" as const,
+  width: 64,
+  margin: 1,
+  errorCorrectionLevel: "L" as const,
+};
+
+async function voucherQrImgAttrsServer(loginHost: string, username: string, password: string): Promise<string> {
+  const loginUrl = buildHotspotLoginUrl(loginHost, username, password);
+  if (!loginUrl) return 'src="" alt=""';
+  try {
+    const dataUrl = await QRCode.toDataURL(loginUrl, VOUCHER_QR_PNG_OPTS);
+    return `src="${dataUrl}" width="64" height="64" alt="" decoding="async"`;
+  } catch {
+    return 'src="" alt=""';
+  }
+}
+
+/** Remplit `qrcode` sur chaque ligne (PNG 64×64), en parallèle pour limiter la latence. */
+export async function attachVoucherQrCodesToRows(
+  rows: VoucherTicketPrintRow[],
+  loginHost: string,
+): Promise<VoucherTicketPrintRow[]> {
+  const host = loginHost.trim();
+  if (!host) return rows.map((r) => ({ ...r, qrcode: 'src="" alt=""' }));
+  const attrs = await Promise.all(rows.map((r) => voucherQrImgAttrsServer(host, r.username, r.password)));
+  return rows.map((row, i) => ({ ...row, qrcode: attrs[i] ?? 'src="" alt=""' }));
 }
 
 export function buildVoucherPrintRows(params: {

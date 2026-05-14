@@ -41,6 +41,7 @@ import {
   ticketPriceColorKey,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
+import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -718,9 +719,14 @@ export default function GenerateVouchers() {
       const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || lot.routerName || "Hotspot";
       const currency = (r?.currency ?? "").trim() || "FCFA";
       const dnsname = (r?.host ?? "").trim() || hotspotName;
+      const loginHost = (r?.host ?? "").trim() || hotspotName;
       const template = await fetchEffectiveTicketTemplate(GEN_BASE);
       const voucherByUser = new Map(lot.vouchers.map((v) => [v.username, v]));
       const profByName = new Map(displayedProfilesSorted.map((p) => [p.name, p]));
+      const qrAttrsList = await buildVoucherQrImgAttrsBatch(
+        loginHost,
+        users.map((u) => ({ username: u.username, password: u.password })),
+      );
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
         const v = voucherByUser.get(u.username);
         const p = profByName.get(u.profile);
@@ -739,7 +745,7 @@ export default function GenerateVouchers() {
           getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
           currency,
           dnsname,
-          qrcode: "",
+          qrcode: qrAttrsList[i] ?? 'src="" alt=""',
         };
       });
       printMikhmonSmallVouchers(

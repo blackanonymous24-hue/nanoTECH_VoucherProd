@@ -121,8 +121,18 @@ function buildReportHtml(bodyHtml: string, title: string, autoprint = true): str
 /**
  * Document HTML autonome pour l’impression (suivi vendeurs, hebdo, etc.).
  */
-export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHtml: string): string {
+export function buildStandalonePrintHtml(
+  title: string,
+  styleCss: string,
+  bodyHtml: string,
+  opts?: { deferPrintMs?: number },
+): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const defer = opts?.deferPrintMs ?? 0;
+  const printScript =
+    defer > 0
+      ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
+      : `window.onload=function(){window.focus();window.print();};`;
   return `<!doctype html>
 <html>
   <head>
@@ -130,7 +140,7 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${safeTitle}</title>
     <style>${styleCss}</style>
-    <script>window.onload=function(){window.focus();window.print();}<\/script>
+    <script>${printScript}<\/script>
   </head>
   <body>${bodyHtml}</body>
 </html>`;
@@ -185,7 +195,9 @@ table.voucher {
  * WebView native (APK) : pont d’impression inchangé.
  */
 export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle: string): void {
-  const html = buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, bodyTicketsHtml);
+  const html = buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, bodyTicketsHtml, {
+    deferPrintMs: 150,
+  });
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, documentTitle);

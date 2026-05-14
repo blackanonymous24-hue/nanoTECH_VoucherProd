@@ -8,6 +8,8 @@ import type { VendorPhone } from './vendorPhone';
 
 export interface Vendor {
   id: number;
+  /** Routeur d’attachement (présent sur les réponses étendues, ex. rapports). */
+  routerId?: number;
   name: string;
   phone?: VendorPhone;
   isActive: boolean;

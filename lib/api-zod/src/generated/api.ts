@@ -320,6 +320,7 @@ export const syncVoucherUsageResponse = zod.object({
  */
 export const listVendorsResponseItem = zod.object({
   "id": zod.number(),
+  "routerId": zod.number().optional().describe('Routeur d’attachement (présent sur les réponses étendues, ex. rapports).'),
   "name": zod.string(),
   "phone": zod.string().nullish(),
   "isActive": zod.boolean(),
@@ -353,6 +354,7 @@ export const updateVendorBody = zod.object({
 
 export const updateVendorResponse = zod.object({
   "id": zod.number(),
+  "routerId": zod.number().optional().describe('Routeur d’attachement (présent sur les réponses étendues, ex. rapports).'),
   "name": zod.string(),
   "phone": zod.string().nullish(),
   "isActive": zod.boolean(),
@@ -379,6 +381,7 @@ export const getVendorReportParams = zod.object({
 export const getVendorReportResponse = zod.object({
   "vendor": zod.object({
   "id": zod.number(),
+  "routerId": zod.number().optional().describe('Routeur d’attachement (présent sur les réponses étendues, ex. rapports).'),
   "name": zod.string(),
   "phone": zod.string().nullish(),
   "isActive": zod.boolean(),
@@ -429,6 +432,7 @@ export const getVendorReportResponse = zod.object({
 export const getVendorReportsSummaryResponseItem = zod.object({
   "vendor": zod.object({
   "id": zod.number(),
+  "routerId": zod.number().optional().describe('Routeur d’attachement (présent sur les réponses étendues, ex. rapports).'),
   "name": zod.string(),
   "phone": zod.string().nullish(),
   "isActive": zod.boolean(),

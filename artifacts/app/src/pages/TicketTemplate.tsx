@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { FileCode, Save, Loader2, RotateCcw, Upload, BookMarked, Router } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FileCode, Save, Loader2, RotateCcw, Upload, BookMarked, Router, Braces } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -22,6 +22,10 @@ import {
   setStoredTicketPresetId,
   findMatchingPresetId,
 } from "@/lib/voucher-ticket-presets";
+import {
+  extractTicketTemplateVariableKeys,
+  ticketTemplateVarDescription,
+} from "@/lib/ticket-template-vars";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -156,8 +160,10 @@ export default function TicketTemplate() {
     toast({ title: "Modèle de base local", description: "Utilisé pour Réinitialiser sur cet appareil." });
   };
 
+  const templateVariableKeys = useMemo(() => extractTicketTemplateVariableKeys(code), [code]);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-4 p-4 md:p-6">
+    <div className="max-w-6xl mx-auto space-y-4 p-4 md:p-6">
       <div>
         <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
           <FileCode className="h-5 w-5 text-violet-600" />
@@ -168,90 +174,127 @@ export default function TicketTemplate() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader className="py-3 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-4">
-            <div className="flex-1 min-w-0 space-y-1.5">
-              <Label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
-                <Router className="h-3.5 w-3.5 text-gray-500" />
-                Modèle intégré
-              </Label>
-              <Select
-                value={presetValue}
-                onValueChange={handlePresetChange}
-                disabled={loading || !token}
-              >
-                <SelectTrigger className="h-9 text-sm w-full sm:max-w-md bg-white border-gray-200">
-                  <SelectValue placeholder="Choisir un modèle…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
-                    <SelectItem key={id} value={id} className="text-sm">
-                      {label}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(260px,300px)] gap-4 items-start">
+        <Card className="min-w-0">
+          <CardHeader className="py-3 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-4">
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <Label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+                  <Router className="h-3.5 w-3.5 text-gray-500" />
+                  Modèle intégré
+                </Label>
+                <Select
+                  value={presetValue}
+                  onValueChange={handlePresetChange}
+                  disabled={loading || !token}
+                >
+                  <SelectTrigger className="h-9 text-sm w-full sm:max-w-md bg-white border-gray-200">
+                    <SelectValue placeholder="Choisir un modèle…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
+                      <SelectItem key={id} value={id} className="text-sm">
+                        {label}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="custom" className="text-sm text-muted-foreground">
+                      Personnalisé (contenu hors modèles)
                     </SelectItem>
-                  ))}
-                  <SelectItem value="custom" className="text-sm text-muted-foreground">
-                    Personnalisé (contenu hors modèles)
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {presetValue === "custom" && (
-                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
-                  Le texte ne correspond exactement à aucun des trois modèles — choisissez un modèle ci-dessus pour le remplacer, ou continuez à éditer à la main.
-                </p>
-              )}
+                  </SelectContent>
+                </Select>
+                {presetValue === "custom" && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
+                    Le texte ne correspond exactement à aucun des trois modèles — choisissez un modèle ci-dessus pour le remplacer, ou continuez à éditer à la main.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-          <CardTitle className="text-sm pt-1">Éditeur</CardTitle>
-          <CardDescription className="text-xs">
-            Par défaut : <strong>Mikhmon (small)</strong> lorsque le serveur n’a pas encore de modèle. Sauvegardez pour synchroniser.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 pt-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Button type="button" variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200">
-              <RotateCcw className="h-3.5 w-3.5" />
-              Réinitialiser
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5">
-              <FileCode className="h-3.5 w-3.5" />
-              Mikhmon (small)
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5">
-              <Upload className="h-3.5 w-3.5" />
-              Importer .php
-            </Button>
-            <input ref={fileRef} type="file" accept=".php,.html,.txt" className="hidden" onChange={handleImport} />
-            <Button type="button" variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200">
-              <BookMarked className="h-3.5 w-3.5" />
-              Définir par défaut (local)
-            </Button>
-            <Button type="button" size="sm" className="gap-1.5 ml-auto bg-violet-600 hover:bg-violet-700" disabled={saving || loading || !token} onClick={handleSave}>
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              Sauvegarder
-            </Button>
-          </div>
+            <CardTitle className="text-sm pt-1">Éditeur</CardTitle>
+            <CardDescription className="text-xs">
+              Par défaut : <strong>Mikhmon (small)</strong> lorsque le serveur n’a pas encore de modèle. Sauvegardez pour synchroniser.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button type="button" variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200">
+                <RotateCcw className="h-3.5 w-3.5" />
+                Réinitialiser
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5">
+                <FileCode className="h-3.5 w-3.5" />
+                Mikhmon (small)
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5">
+                <Upload className="h-3.5 w-3.5" />
+                Importer .php
+              </Button>
+              <input ref={fileRef} type="file" accept=".php,.html,.txt" className="hidden" onChange={handleImport} />
+              <Button type="button" variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200">
+                <BookMarked className="h-3.5 w-3.5" />
+                Définir par défaut (local)
+              </Button>
+              <Button type="button" size="sm" className="gap-1.5 ml-auto bg-violet-600 hover:bg-violet-700" disabled={saving || loading || !token} onClick={handleSave}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                Sauvegarder
+              </Button>
+            </div>
 
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Chargement…
-            </div>
-          ) : (
-            <textarea
-              className="w-full min-h-[320px] rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              value={code}
-              onChange={(e) => {
-                const next = e.target.value;
-                setCode(next);
-                setPresetValue(findMatchingPresetId(next));
-              }}
-              placeholder="Choisissez un modèle intégré ou collez votre fichier…"
-              spellCheck={false}
-            />
-          )}
-        </CardContent>
-      </Card>
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Chargement…
+              </div>
+            ) : (
+              <textarea
+                className="w-full min-h-[320px] rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={code}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setCode(next);
+                  setPresetValue(findMatchingPresetId(next));
+                }}
+                placeholder="Choisissez un modèle intégré ou collez votre fichier…"
+                spellCheck={false}
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="lg:sticky lg:top-4 border-violet-100 shadow-sm">
+          <CardHeader className="py-3 pb-2 space-y-1">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Braces className="h-4 w-4 text-violet-600 shrink-0" />
+              Variables du modèle
+            </CardTitle>
+            <CardDescription className="text-[11px] leading-snug">
+              Détectées dans le texte actuel (<code className="text-[10px] bg-muted px-0.5 rounded">{"<?php echo $… ?>"}</code>,{" "}
+              <code className="text-[10px] bg-muted px-0.5 rounded">{"<?= $… ?>"}</code>, <code className="text-[10px] bg-muted px-0.5 rounded">[$num]</code>).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 max-h-[min(70vh,520px)] overflow-y-auto">
+            {loading ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-2 py-4">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Chargement…
+              </p>
+            ) : templateVariableKeys.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">
+                Aucune variable d’affichage reconnue. Utilisez les formes <span className="font-mono">{"<?php echo $nom; ?>"}</span> ou{" "}
+                <span className="font-mono">{"<?= $nom; ?>"}</span>.
+              </p>
+            ) : (
+              <ul className="space-y-2.5 text-xs">
+                {templateVariableKeys.map((key) => (
+                  <li key={key} className="border-b border-border/60 last:border-0 pb-2.5 last:pb-0">
+                    <div className="font-mono text-[11px] text-violet-800 font-medium break-all">${key}</div>
+                    <div className="text-muted-foreground mt-0.5 leading-snug">{ticketTemplateVarDescription(key)}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

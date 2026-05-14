@@ -21,6 +21,7 @@ import {
   ticketPriceColorKey,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
+import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -819,8 +820,13 @@ export default function Vouchers() {
       const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || "Hotspot";
       const currency = (r?.currency ?? "").trim() || "FCFA";
       const dnsname = (r?.host ?? "").trim() || hotspotName;
+      const loginHost = (r?.host ?? "").trim() || hotspotName;
       const template = await fetchEffectiveTicketTemplate(BASE);
       const profByName = new Map(sortedProfiles.map((p) => [p.name, p]));
+      const qrAttrsList = await buildVoucherQrImgAttrsBatch(
+        loginHost,
+        users.map((u) => ({ username: u.username, password: u.password })),
+      );
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
         const p = profByName.get(u.profile);
         const priceStr = mikhmonProfilePriceLabel(p);
@@ -838,7 +844,7 @@ export default function Vouchers() {
           getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
           currency,
           dnsname,
-          qrcode: "",
+          qrcode: qrAttrsList[i] ?? 'src="" alt=""',
         };
       });
       const profile = lot.profile ?? users[0]?.profile ?? "";

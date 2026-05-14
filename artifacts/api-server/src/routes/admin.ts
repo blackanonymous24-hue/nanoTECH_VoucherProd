@@ -14,6 +14,14 @@ import { logger } from "../lib/logger.js";
 
 const router = Router();
 
+function loginDbFailureMessage(err: unknown): string {
+  const stack = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+  if (stack.includes("ECONNREFUSED")) {
+    return "Impossible de joindre PostgreSQL (serveur arrêté ou DATABASE_URL incorrecte). Démarrez la base (ex. Docker sur le port attendu), ou corrigez DATABASE_URL / .env.local, puis redémarrez l’API.";
+  }
+  return "Erreur serveur ou base de données (schéma incomplet ou indisponible). Redémarrez l’API après mise à jour, exécutez les migrations Drizzle, puis réessayez.";
+}
+
 /**
  * Ensure that at least one super-admin exists. On a fresh database we seed
  * one with login="admin" / password="root". On an existing database we make
@@ -163,10 +171,7 @@ router.post("/login", async (req, res): Promise<void> => {
   res.status(401).json({ error: "Identifiants incorrects" });
   } catch (err) {
     logger.error({ err }, "POST /api/login");
-    res.status(503).json({
-      error:
-        "Erreur serveur ou base de données (schéma incomplet ou indisponible). Redémarrez l’API après mise à jour, exécutez les migrations Drizzle, puis réessayez.",
-    });
+    res.status(503).json({ error: loginDbFailureMessage(err) });
   }
 });
 

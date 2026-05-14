@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists } from "drizzle-orm";
+import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists, type SQL } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
@@ -13,6 +13,7 @@ import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib
 import { logger } from "../lib/logger.js";
 import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import {
+  attachVoucherQrCodesToRows,
   buildStandaloneVoucherPrintHtml,
   buildVoucherPrintRows,
   renderVoucherTicketsBody,
@@ -326,7 +327,7 @@ router.get("/routers", async (req, res): Promise<void> => {
         .from(adminSettingsTable)
         .where(eq(adminSettingsTable.isSuperAdmin, true));
       if (Number(c) === 1) {
-        ownerCond = or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId));
+        ownerCond = or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId)) as SQL;
       }
     }
     res.json(await baseSelect.where(ownerCond).orderBy(routersTable.name));
@@ -1339,12 +1340,14 @@ router.get("/routers/:id/voucher-print-small", async (req, res): Promise<void> =
     const hotspotName = (r.hotspotName ?? "").trim() || r.name || "Hotspot";
     const currency = (r.currency ?? "").trim() || "FCFA";
     const dnsname = (r.host ?? "").trim() || hotspotName;
+    const loginHost = (r.host ?? "").trim() || hotspotName;
 
-    const rows = buildVoucherPrintRows({ hotspotName, currency, dnsname, users, profByName });
+    const rowsBase = buildVoucherPrintRows({ hotspotName, currency, dnsname, users, profByName });
+    const rows = await attachVoucherQrCodesToRows(rowsBase, loginHost);
     const profileLabel = users[0]?.profile ?? "";
     const docTitle = `Voucher-${hotspotName}-${profileLabel}-${comment}`;
     const bodyHtml = renderVoucherTicketsBody(template, rows);
-    const html = buildStandaloneVoucherPrintHtml(docTitle, bodyHtml);
+    const html = buildStandaloneVoucherPrintHtml(docTitle, bodyHtml, { deferPrintMs: 150 });
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);

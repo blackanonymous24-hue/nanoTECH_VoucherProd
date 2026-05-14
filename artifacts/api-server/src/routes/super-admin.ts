@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, sql, and, or, isNull } from "drizzle-orm";
+import { eq, sql, and, or, isNull, type SQL } from "drizzle-orm";
 import { db, adminSettingsTable, routersTable, vendorsTable } from "@workspace/db";
 import { hashPassword } from "../lib/admin-auth.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
@@ -405,7 +405,7 @@ router.get("/super/admins/:id/routers", async (req, res): Promise<void> => {
       .from(adminSettingsTable)
       .where(eq(adminSettingsTable.isSuperAdmin, true));
     if (Number(superCount) === 1) {
-      ownerFilter = or(eq(routersTable.ownerAdminId, adminId), isNull(routersTable.ownerAdminId));
+      ownerFilter = or(eq(routersTable.ownerAdminId, adminId), isNull(routersTable.ownerAdminId)) as SQL;
     }
   }
 

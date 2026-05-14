@@ -966,6 +966,9 @@ components:
       properties:
         id:
           type: integer
+        routerId:
+          type: integer
+          description: Routeur d’attachement (présent sur les réponses étendues, ex. rapports).
         name:
           type: string
         phone:
