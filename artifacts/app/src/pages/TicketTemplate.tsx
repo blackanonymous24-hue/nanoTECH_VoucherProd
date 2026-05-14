@@ -46,8 +46,15 @@ export default function TicketTemplate() {
       .then((data: { template: string | null }) => {
         const fromServer = data.template?.trim() ?? "";
         if (fromServer) {
-          setCode(fromServer);
-          setPresetValue(findMatchingPresetId(fromServer));
+          const id = findMatchingPresetId(fromServer);
+          if (id !== "custom") {
+            setCode(getPresetBody(id));
+            setPresetValue(id);
+          } else {
+            const stored = getStoredTicketPresetId();
+            setPresetValue(stored);
+            setCode(getCustomDefault() || getPresetBody(stored));
+          }
         } else {
           const stored = getStoredTicketPresetId();
           setPresetValue(stored);

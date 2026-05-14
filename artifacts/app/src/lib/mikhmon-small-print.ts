@@ -65,7 +65,7 @@ export type MikhmonSmallTicket = {
   price: string;
 };
 
-/** Une table `.voucher` comme `template-small.php`. */
+/** Une table `.voucher` alignée sur `ticket-templates/mikhmon-small.php.txt` (mode vc). */
 export function buildMikhmonSmallTicketHtml(t: MikhmonSmallTicket): string {
   const hs = escapeHtml(t.hotspotName);
   const num = escapeHtml(String(t.num));
@@ -91,7 +91,7 @@ export function buildMikhmonSmallTicketHtml(t: MikhmonSmallTicket): string {
       <td>
         <table style="width:100%;">
         <tr>
-          <td style="font-size: 12px;">Kode Voucher</td>
+          <td style="font-size: 12px;">Code Ticket</td>
         </tr>
         <tr style="color: black; font-size: 14px;">
           <td style="width:100%; border: 1px solid black; font-weight:bold;">${u}</td>

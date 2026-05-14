@@ -2,6 +2,7 @@ import bodyMikhmonSmall from "./ticket-templates/mikhmon-small.php.txt?raw";
 import bodyNanotechNormal from "./ticket-templates/nanotech-normal.php.txt?raw";
 import bodyNanotechSmall from "./ticket-templates/nanotech-small.php.txt?raw";
 
+/** Identifiants des 3 seuls modèles embarqués (fichiers `ticket-templates/*.php.txt`). */
 export type TicketTemplatePresetId = "mikhmon-small" | "nanotech-normal" | "nanotech-small";
 
 export const DEFAULT_TICKET_PRESET_ID: TicketTemplatePresetId = "mikhmon-small";
@@ -14,6 +15,11 @@ const BODIES: Record<TicketTemplatePresetId, string> = {
   "nanotech-normal": bodyNanotechNormal,
   "nanotech-small": bodyNanotechSmall,
 };
+
+/** Comparaison stable (fins de lignes / espaces) entre le contenu et les 3 fichiers embarqués. */
+export function normalizeTicketTemplateBody(s: string): string {
+  return s.trim().replace(/\r\n/g, "\n");
+}
 
 export const TICKET_TEMPLATE_PRESETS: { id: TicketTemplatePresetId; label: string }[] = [
   { id: "mikhmon-small", label: "Modèle de ticket style Mikhmon (small)" },
@@ -43,11 +49,11 @@ export function setStoredTicketPresetId(id: TicketTemplatePresetId): void {
   }
 }
 
-/** Repère si le contenu correspond exactement à un des trois modèles fournis. */
+/** Repère si le contenu correspond exactement à un des trois modèles fournis (fichiers embarqués). */
 export function findMatchingPresetId(code: string): TicketTemplatePresetId | "custom" {
-  const t = code.trim();
+  const t = normalizeTicketTemplateBody(code);
   for (const id of Object.keys(BODIES) as TicketTemplatePresetId[]) {
-    if (BODIES[id].trim() === t) return id;
+    if (normalizeTicketTemplateBody(BODIES[id]) === t) return id;
   }
   return "custom";
 }

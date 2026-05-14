@@ -9,7 +9,7 @@ import {
 } from "@workspace/api-client-react";
 import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
-import { printMikhmonSmallVouchers } from "@/lib/print";
+import { openMikhmonVoucherPrintByUrl, printMikhmonSmallVouchers } from "@/lib/print";
 import {
   formatMikhmonBytes,
   inferMikhmonUserMode,
@@ -799,6 +799,7 @@ export default function Vouchers() {
 
   const handlePrintSmallLot = async (lot: LotSummary) => {
     if (!activeRouterId) return;
+    if (openMikhmonVoucherPrintByUrl(BASE, activeRouterId, lot.name)) return;
     try {
       const users = await fetchLotUsers(lot);
       if (users.length === 0) {

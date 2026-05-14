@@ -1,21 +1,113 @@
 /**
- * Rendu côté client des modèles PHP/HTML (Mikhmon / nanoTECH) pour l’impression,
- * sans moteur PHP : mêmes variables que les fichiers .php d’origine.
+ * Rendu HTML d’impression vouchers (équivalent Mikhmon v3 `voucher/print.php`) côté API.
+ * Logique alignée sur `artifacts/app/src/lib/voucher-ticket-render.ts` et `mikhmon-small-print.ts`.
+ *
+ * Gabarits : fichiers sous `ticket-templates/` lus depuis le disque (compatible `tsx` en dev ;
+ * en prod le build copie ce dossier à côté de `dist/index.js`).
  */
 
-import { escapeHtml } from "@/lib/mikhmon-small-print";
-import {
-  getCustomDefault,
-} from "@/lib/voucher-ticket-defaults";
-import {
-  getPresetBody,
-  getStoredTicketPresetId,
-  findMatchingPresetId,
-} from "@/lib/voucher-ticket-presets";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { HotspotProfile, HotspotUser } from "./mikrotik.js";
+
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+
+function readEmbeddedTicketTemplate(filename: string): string {
+  const p = join(MODULE_DIR, "ticket-templates", filename);
+  if (!existsSync(p)) {
+    throw new Error(
+      `Gabarit ticket introuvable : ${p}. En prod, exécuter le build api-server (copie des .php.txt vers dist/).`,
+    );
+  }
+  return readFileSync(p, "utf8");
+}
+
+const UNITS = ["Byte", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"] as const;
+
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export function formatMikhmonBytes(raw: string | number | null | undefined): string {
+  let size = typeof raw === "number" ? raw : parseInt(String(raw ?? "").trim(), 10);
+  if (!Number.isFinite(size) || size <= 0) return "";
+  let i = 0;
+  for (; size >= 1024 && i < UNITS.length - 1; i++) {
+    size /= 1024;
+  }
+  return `${size.toFixed(2)} ${UNITS[i]}`;
+}
+
+export function mikhmonProfilePriceLabel(p?: { price?: string | null; sellingPrice?: string | null } | null): string {
+  if (!p) return "";
+  const sp = String(p.sellingPrice ?? "").trim();
+  const pr = String(p.price ?? "").trim();
+  const isZero = (s: string) => {
+    const n = parseFloat(s.replace(",", "."));
+    return s === "" || (Number.isFinite(n) && n === 0);
+  };
+  if (sp && !isZero(sp)) return sp;
+  if (pr && !isZero(pr)) return pr;
+  return "";
+}
+
+export function inferMikhmonUserMode(
+  comment: string | null | undefined,
+  username: string,
+  password: string,
+): "vc" | "up" {
+  const first = (comment ?? "").split("-")[0]?.toLowerCase() ?? "";
+  if (first === "vc") return "vc";
+  if (first === "up") return "up";
+  return username === password ? "vc" : "up";
+}
+
+type TicketTemplatePresetId = "mikhmon-small" | "nanotech-normal" | "nanotech-small";
+
+const DEFAULT_TICKET_PRESET_ID: TicketTemplatePresetId = "mikhmon-small";
+
+const BODIES: Record<TicketTemplatePresetId, string> = {
+  "mikhmon-small": readEmbeddedTicketTemplate("mikhmon-small.php.txt"),
+  "nanotech-normal": readEmbeddedTicketTemplate("nanotech-normal.php.txt"),
+  "nanotech-small": readEmbeddedTicketTemplate("nanotech-small.php.txt"),
+};
+
+function normalizeTicketTemplateBody(s: string): string {
+  return s.trim().replace(/\r\n/g, "\n");
+}
+
+function findMatchingPresetId(code: string): TicketTemplatePresetId | "custom" {
+  const t = normalizeTicketTemplateBody(code);
+  for (const id of Object.keys(BODIES) as TicketTemplatePresetId[]) {
+    if (normalizeTicketTemplateBody(BODIES[id]) === t) return id;
+  }
+  return "custom";
+}
+
+function getPresetBody(id: TicketTemplatePresetId): string {
+  return BODIES[id];
+}
+
+/**
+ * Même règle que le client `fetchEffectiveTicketTemplate`, sans localStorage :
+ * modèle serveur s’il est strictement identique à un gabarit embarqué, sinon Mikhmon (small).
+ */
+export function resolveEffectiveTicketTemplate(fromDb: string | null | undefined): string {
+  const fromServer = (fromDb ?? "").trim();
+  if (fromServer) {
+    const id = findMatchingPresetId(fromServer);
+    if (id !== "custom") return getPresetBody(id);
+  }
+  return getPresetBody(DEFAULT_TICKET_PRESET_ID);
+}
 
 const MKS = "<!--mks-mulai-->";
 
-/** Clé numérique pour la palette nanoTECH (prix profil / vente, chiffres seuls). */
 export function ticketPriceColorKey(priceStr: string): string {
   const m = String(priceStr ?? "").replace(/\s/g, "").match(/^(\d+)/);
   return m?.[1] ?? "0";
@@ -138,7 +230,6 @@ function substituteTicketVars(html: string, vars: Record<string, string>, qrcode
   s = s.replace(/<\?php\s+echo\s+"\s*\[\$num\]"\s*;\s*\?>/g, ` [${escapeHtml(vars.num)}]`);
   s = s.replace(/<\?=\s*"\s+\[\$num\]"\s*;\s*\?>/g, ` [${escapeHtml(vars.num)}]`);
   s = s.replace(/<\?=\s*"\s*\[\$num\]"\s*;\s*\?>/g, ` [${escapeHtml(vars.num)}]`);
-  /* Modèle nanoTECH : balise PHP parfois coupée avant ?> */
   s = s.replace(/<\?=\s*"\s*\[\$num\]"\s*;\s*/g, ` [${escapeHtml(vars.num)}]`);
 
   const echoPhp = /<\?php\s+echo\s+\$([a-zA-Z_][a-zA-Z0-9_]*)\s*;?\s*\?>/g;
@@ -164,17 +255,13 @@ export type VoucherTicketPrintRow = {
   usermode: "vc" | "up";
   username: string;
   password: string;
-  /** Brut (ex. 1d) — format nanoTECH appliqué si le modèle l’utilise. */
   validityRaw: string;
   timelimitRaw: string;
   datalimit: string;
-  /** Ligne prix Mikhmon / affichage bas de ticket. */
   priceDisplay: string;
-  /** Clé couleur nanoTECH (chiffres, ex. profil.price). */
   getpriceKey: string;
   currency: string;
   dnsname: string;
-  /** Fragment HTML attributs image QR (ex. `src="data:image/png;base64,..."`) ou vide. */
   qrcode: string;
 };
 
@@ -207,9 +294,6 @@ function buildVarMap(row: VoucherTicketPrintRow, nano: null | { variant: "normal
   };
 }
 
-/**
- * Transforme le fichier modèle (PHP) en HTML imprimable pour un voucher.
- */
 export function renderVoucherTicketHtml(template: string, row: VoucherTicketPrintRow): string {
   const full = template;
   const idx = full.indexOf(MKS);
@@ -234,24 +318,90 @@ export function renderVoucherTicketsBody(template: string, rows: VoucherTicketPr
   return rows.map((r) => renderVoucherTicketHtml(template, r)).join("\n");
 }
 
-/**
- * Modèle effectif : uniquement l’un des **3** gabarits embarqués (fichiers `ticket-templates/*.php.txt`),
- * ou copie serveur **strictement identique** à l’un d’eux. Sinon défaut local / préréglage stocké.
- */
-export async function fetchEffectiveTicketTemplate(apiBase: string): Promise<string> {
-  let fromServer = "";
-  try {
-    const r = await fetch(`${apiBase}/api/admin/ticket-template`);
-    if (r.ok) {
-      const data = (await r.json()) as { template?: string | null };
-      fromServer = data.template?.trim() ?? "";
-    }
-  } catch {
-    /* ignore */
-  }
-  if (fromServer) {
-    const id = findMatchingPresetId(fromServer);
-    if (id !== "custom") return getPresetBody(id);
-  }
-  return getCustomDefault() || getPresetBody(getStoredTicketPresetId());
+/** Feuille de styles Mikhmon v3 `voucher/print.php`. */
+export const MIKHMON_VOUCHER_PRINT_CSS = `
+body {
+  color: #000000;
+  background-color: #FFFFFF;
+  font-size: 14px;
+  font-family:  'Helvetica', arial, sans-serif;
+  margin: 0px;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+table.voucher {
+  display: inline-block;
+  border: 2px solid black;
+  margin: 2px;
+}
+@page
+{
+  size: auto;
+  margin-left: 7mm;
+  margin-right: 3mm;
+  margin-top: 9mm;
+  margin-bottom: 3mm;
+}
+@media print
+{
+  table { page-break-after:auto }
+  tr    { page-break-inside:avoid; page-break-after:auto }
+  td    { page-break-inside:avoid; page-break-after:auto }
+  thead { display:table-header-group }
+  tfoot { display:table-footer-group }
+}
+#num {
+  float:right;
+  display:inline-block;
+}
+.qrc {
+  width:30px;
+  height:30px;
+  margin-top:1px;
+}
+`;
+
+export function buildStandaloneVoucherPrintHtml(documentTitle: string, bodyTicketsHtml: string): string {
+  const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>${safeTitle}</title>
+    <style>${MIKHMON_VOUCHER_PRINT_CSS}</style>
+    <script>window.onload=function(){window.focus();window.print();}<\/script>
+  </head>
+  <body>${bodyTicketsHtml}</body>
+</html>`;
+}
+
+export function buildVoucherPrintRows(params: {
+  hotspotName: string;
+  currency: string;
+  dnsname: string;
+  users: HotspotUser[];
+  profByName: Map<string, HotspotProfile>;
+}): VoucherTicketPrintRow[] {
+  const { hotspotName, currency, dnsname, users, profByName } = params;
+  return users.map((u, i) => {
+    const p = profByName.get(u.profile);
+    const priceStr = mikhmonProfilePriceLabel(p);
+    const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? "").trim();
+    return {
+      hotspotName,
+      num: i + 1,
+      usermode: inferMikhmonUserMode(u.comment, u.username, u.password),
+      username: u.username,
+      password: u.password,
+      validityRaw: String(p?.validity ?? "").trim(),
+      timelimitRaw: String(u.limitUptime ?? "").trim(),
+      datalimit: formatMikhmonBytes(u.limitBytesTotal),
+      priceDisplay: priceStr,
+      getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
+      currency,
+      dnsname,
+      qrcode: "",
+    };
+  });
 }

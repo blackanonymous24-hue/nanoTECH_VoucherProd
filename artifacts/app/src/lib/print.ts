@@ -35,6 +35,46 @@ function isNativeWebView(): boolean {
   return typeof window !== "undefined" && !!window.ReactNativeWebView;
 }
 
+const ADMIN_TOKEN_KEY = "vouchernet_admin_token";
+
+function readAdminAuthToken(): string | null {
+  try {
+    return localStorage.getItem(ADMIN_TOKEN_KEY) ?? sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mikhmon v3 : `window.open(URL)` → GET → document HTML avec `onload` → `print()`.
+ * Retourne `false` si WebView native (pont d’impression requis) ou jeton absent.
+ */
+export function openMikhmonVoucherPrintByUrl(
+  baseUrl: string,
+  routerId: number,
+  comment: string,
+  opts?: { refresh?: boolean },
+): boolean {
+  if (typeof window === "undefined" || isNativeWebView()) return false;
+  const token = readAdminAuthToken();
+  if (!token) return false;
+
+  const prefix = baseUrl.replace(/\/$/, "");
+  const path = `${prefix}/api/routers/${routerId}/voucher-print-small`;
+  const u = new URL(path, window.location.origin);
+  u.searchParams.set("comment", comment);
+  u.searchParams.set("token", token);
+  if (opts?.refresh !== false) u.searchParams.set("refresh", "1");
+
+  const win = window.open(u.toString(), "_blank");
+  try {
+    win?.focus();
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
 function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
@@ -138,8 +178,9 @@ table.voucher {
 `;
 
 /**
- * Impression navigateur / WebView mobile / APK — même stratégie que les rapports,
- * avec le document Mikhmon « small » (print.php + template-small).
+ * Impression des vouchers — **HTML + `print()` au chargement** (styles Mikhmon v3).
+ * Dans le navigateur, préférer `openMikhmonVoucherPrintByUrl` (GET serveur comme `print.php`).
+ * WebView native (APK) : pont d’impression inchangé.
  */
 export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle: string): void {
   const html = buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, bodyTicketsHtml);
@@ -149,11 +190,7 @@ export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle
     return;
   }
 
-  if (isMobile()) {
-    openPrintHtmlWindow(html, documentTitle);
-  } else {
-    printWithIframe(html, documentTitle);
-  }
+  openPrintHtmlWindow(html, documentTitle);
 }
 
 function printWithIframe(html: string, title: string): void {

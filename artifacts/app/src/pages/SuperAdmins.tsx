@@ -1730,8 +1730,15 @@ function TemplateDialog({ admin, onClose }: {
       .then((data: { template: string | null }) => {
         const fromServer = data.template?.trim() ?? "";
         if (fromServer) {
-          setTemplateCode(fromServer);
-          setPresetValue(findMatchingPresetId(fromServer));
+          const id = findMatchingPresetId(fromServer);
+          if (id !== "custom") {
+            setTemplateCode(getPresetBody(id));
+            setPresetValue(id);
+          } else {
+            const stored = getStoredTicketPresetId();
+            setPresetValue(stored);
+            setTemplateCode(getCustomDefault() || getPresetBody(stored));
+          }
         } else {
           const stored = getStoredTicketPresetId();
           setPresetValue(stored);

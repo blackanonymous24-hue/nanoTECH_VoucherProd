@@ -29,7 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { printMikhmonSmallVouchers } from "@/lib/print";
+import { openMikhmonVoucherPrintByUrl, printMikhmonSmallVouchers } from "@/lib/print";
 import {
   formatMikhmonBytes,
   inferMikhmonUserMode,
@@ -694,6 +694,7 @@ export default function GenerateVouchers() {
 
   const handlePrintSmall = async (lot: LastLot) => {
     if (!lot.routerId || !lot.comment) return;
+    if (openMikhmonVoucherPrintByUrl(GEN_BASE, lot.routerId, lot.comment)) return;
     try {
       const raw = await fetchLotUsers(lot.routerId, lot.comment, GEN_BASE);
       const users = raw as Array<{
