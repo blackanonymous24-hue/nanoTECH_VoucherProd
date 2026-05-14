@@ -33,6 +33,10 @@ args = "Start application"
 task = "workflow.run"
 args = "Start Backend"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start Mobile"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -56,6 +60,18 @@ waitForPort = 3001
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "Start Mobile"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=18115 pnpm --filter @workspace/mobile run dev"
+waitForPort = 8081
 
 [agent]
 stack = "PNPM_WORKSPACE"
