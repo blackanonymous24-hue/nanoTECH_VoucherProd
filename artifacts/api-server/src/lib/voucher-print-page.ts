@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import QRCode from "qrcode";
 import type { HotspotProfile, HotspotUser } from "./mikrotik.js";
 import { buildHotspotLoginUrl } from "./voucher-login-qr-url.js";
+import { voucherTemplatePricePhpVarValue } from "./voucher-ticket-template-semantics.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -97,13 +98,15 @@ function getPresetBody(id: TicketTemplatePresetId): string {
 
 /**
  * Même règle que le client `fetchEffectiveTicketTemplate`, sans localStorage :
- * modèle serveur s’il est strictement identique à un gabarit embarqué, sinon Mikhmon (small).
+ * gabarit embarqué si le contenu DB est strictement identique à un des trois fichiers ;
+ * sinon le texte DB tel quel (personnalisé) ; sinon Mikhmon (small).
  */
 export function resolveEffectiveTicketTemplate(fromDb: string | null | undefined): string {
   const fromServer = (fromDb ?? "").trim();
   if (fromServer) {
     const id = findMatchingPresetId(fromServer);
     if (id !== "custom") return getPresetBody(id);
+    return fromServer;
   }
   return getPresetBody(DEFAULT_TICKET_PRESET_ID);
 }
@@ -260,22 +263,25 @@ export type VoucherTicketPrintRow = {
   validityRaw: string;
   timelimitRaw: string;
   datalimit: string;
+  /** Libellé tarifaire / montant forfait (hors variable PHP `$price` — voir `voucher-ticket-template-semantics.ts`). */
   priceDisplay: string;
   getpriceKey: string;
   currency: string;
+  /** Texte injecté dans `$dnsname` (= contact routeur, pas l’hôte API). */
   dnsname: string;
   qrcode: string;
 };
 
 function buildVarMap(row: VoucherTicketPrintRow, nano: null | { variant: "normal" | "small"; color: string; validity: string; timelimit: string }): Record<string, string> {
   const num = String(row.num);
+  /** `$price` en PHP = devise (contrat produit, voir `voucher-ticket-template-semantics.ts`). */
   const base: Record<string, string> = {
     hotspotname: row.hotspotName,
     num,
     username: row.username,
     password: row.password,
     datalimit: row.datalimit,
-    price: row.priceDisplay,
+    price: voucherTemplatePricePhpVarValue(row.currency),
     getprice: row.getpriceKey,
     currency: row.currency,
     dnsname: row.dnsname,
@@ -361,13 +367,34 @@ table.voucher {
   height:30px;
   margin-top:1px;
 }
+img.vn-voucher-qr {
+  max-width: min(38px, 40%) !important;
+  max-height: min(38px, 40%) !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain;
+  box-sizing: border-box;
+}
+.vn-voucher-scale-wrap {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 `;
+
+function wrapVoucherBodyWithPrintScale(bodyTicketsHtml: string, scalePercent: number): string {
+  const pct = Math.max(0, Math.min(100, Math.round(scalePercent)));
+  if (pct >= 100) return bodyTicketsHtml;
+  const z = pct <= 0 ? 1 : pct;
+  return `<div class="vn-voucher-scale-wrap" style="zoom:${z}%;box-sizing:border-box">${bodyTicketsHtml}</div>`;
+}
 
 export function buildStandaloneVoucherPrintHtml(
   documentTitle: string,
   bodyTicketsHtml: string,
-  opts?: { deferPrintMs?: number },
+  opts?: { deferPrintMs?: number; scalePercent?: number },
 ): string {
+  const scale = opts?.scalePercent ?? 100;
+  const body = wrapVoucherBodyWithPrintScale(bodyTicketsHtml, scale);
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
   const printScript =
@@ -383,7 +410,7 @@ export function buildStandaloneVoucherPrintHtml(
     <style>${MIKHMON_VOUCHER_PRINT_CSS}</style>
     <script>${printScript}<\/script>
   </head>
-  <body>${bodyTicketsHtml}</body>
+  <body>${body}</body>
 </html>`;
 }
 
@@ -396,24 +423,24 @@ const VOUCHER_QR_PNG_OPTS = {
 
 async function voucherQrImgAttrsServer(loginHost: string, username: string, password: string): Promise<string> {
   const loginUrl = buildHotspotLoginUrl(loginHost, username, password);
-  if (!loginUrl) return 'src="" alt=""';
+  if (!loginUrl) return 'class="vn-voucher-qr" src="" alt=""';
   try {
     const dataUrl = await QRCode.toDataURL(loginUrl, VOUCHER_QR_PNG_OPTS);
-    return `src="${dataUrl}" width="64" height="64" alt="" decoding="async"`;
+    return `class="vn-voucher-qr" src="${dataUrl}" alt="" decoding="async"`;
   } catch {
-    return 'src="" alt=""';
+    return 'class="vn-voucher-qr" src="" alt=""';
   }
 }
 
-/** Remplit `qrcode` sur chaque ligne (PNG 64×64), en parallèle pour limiter la latence. */
+/** Remplit `qrcode` sur chaque ligne (PNG 64 px intrinsèque, sans width/height HTML), en parallèle. */
 export async function attachVoucherQrCodesToRows(
   rows: VoucherTicketPrintRow[],
   loginHost: string,
 ): Promise<VoucherTicketPrintRow[]> {
   const host = loginHost.trim();
-  if (!host) return rows.map((r) => ({ ...r, qrcode: 'src="" alt=""' }));
+  if (!host) return rows.map((r) => ({ ...r, qrcode: 'class="vn-voucher-qr" src="" alt=""' }));
   const attrs = await Promise.all(rows.map((r) => voucherQrImgAttrsServer(host, r.username, r.password)));
-  return rows.map((row, i) => ({ ...row, qrcode: attrs[i] ?? 'src="" alt=""' }));
+  return rows.map((row, i) => ({ ...row, qrcode: attrs[i] ?? 'class="vn-voucher-qr" src="" alt=""' }));
 }
 
 export function buildVoucherPrintRows(params: {

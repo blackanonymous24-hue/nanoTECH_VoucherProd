@@ -9,7 +9,12 @@ import {
 } from "@workspace/api-client-react";
 import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
-import { openMikhmonVoucherPrintByUrl, printMikhmonSmallVouchers } from "@/lib/print";
+import {
+  applyMikhmonVoucherPrintHtmlToTab,
+  openMikhmonVoucherPrintLoadingTab,
+  printMikhmonSmallVouchers,
+  showMikhmonVoucherPrintErrorInTab,
+} from "@/lib/print";
 import {
   formatMikhmonBytes,
   inferMikhmonUserMode,
@@ -17,10 +22,16 @@ import {
 } from "@/lib/mikhmon-small-print";
 import {
   fetchEffectiveTicketTemplate,
+  flushEditorLiveTicketTemplateToServer,
   renderVoucherTicketsBody,
   ticketPriceColorKey,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
+import {
+  voucherTemplateDnsnameFromContact,
+  voucherTemplatePricePhpVarValue,
+  voucherTemplateWifiDisplayName,
+} from "@/lib/voucher-ticket-template-semantics";
 import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
@@ -800,10 +811,17 @@ export default function Vouchers() {
 
   const handlePrintSmallLot = async (lot: LotSummary) => {
     if (!activeRouterId) return;
-    if (openMikhmonVoucherPrintByUrl(BASE, activeRouterId, lot.name)) return;
+    const printTab = openMikhmonVoucherPrintLoadingTab(`Impression — ${lot.name}`);
     try {
+      await flushEditorLiveTicketTemplateToServer(BASE);
       const users = await fetchLotUsers(lot);
       if (users.length === 0) {
+        if (printTab) {
+          showMikhmonVoucherPrintErrorInTab(
+            printTab,
+            "Aucun utilisateur trouvé pour ce lot sur le routeur.",
+          );
+        }
         toast({
           title: "Rien à imprimer",
           description: "Aucun utilisateur trouvé pour ce lot sur le routeur.",
@@ -816,10 +834,11 @@ export default function Vouchers() {
         name?: string;
         currency?: string | null;
         host?: string;
+        contact?: string | null;
       } | undefined;
-      const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || "Hotspot";
-      const currency = (r?.currency ?? "").trim() || "FCFA";
-      const dnsname = (r?.host ?? "").trim() || hotspotName;
+      const hotspotName = voucherTemplateWifiDisplayName((r?.hotspotName ?? "").trim(), (r?.name ?? "").trim() || "Hotspot");
+      const currency = voucherTemplatePricePhpVarValue((r?.currency ?? "").trim());
+      const dnsname = voucherTemplateDnsnameFromContact(r?.contact ?? null, hotspotName);
       const loginHost = (r?.host ?? "").trim() || hotspotName;
       const template = await fetchEffectiveTicketTemplate(BASE);
       const profByName = new Map(sortedProfiles.map((p) => [p.name, p]));
@@ -844,18 +863,23 @@ export default function Vouchers() {
           getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
           currency,
           dnsname,
-          qrcode: qrAttrsList[i] ?? 'src="" alt=""',
+          qrcode: qrAttrsList[i] ?? 'class="vn-voucher-qr" src="" alt=""',
         };
       });
       const profile = lot.profile ?? users[0]?.profile ?? "";
-      printMikhmonSmallVouchers(
-        renderVoucherTicketsBody(template, rows),
-        `Voucher-${hotspotName}-${profile}-${lot.name}`,
-      );
+      const bodyHtml = renderVoucherTicketsBody(template, rows);
+      const docTitle = `Voucher-${hotspotName}-${profile}-${lot.name}`;
+      if (printTab) {
+        applyMikhmonVoucherPrintHtmlToTab(printTab, bodyHtml, docTitle);
+      } else {
+        printMikhmonSmallVouchers(bodyHtml, docTitle);
+      }
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (printTab) showMikhmonVoucherPrintErrorInTab(printTab, msg);
       toast({
         title: "Impression impossible",
-        description: err instanceof Error ? err.message : String(err),
+        description: msg,
         variant: "destructive",
       });
     }

@@ -6,7 +6,7 @@ import { MIKHMON_VOUCHER_PRINT_CSS } from "@/lib/print";
 
 /** Placeholder 1×1 PNG pour l’aperçu (évite une image cassée si le gabarit utilise $qrcode). */
 const PREVIEW_QR_ATTRS =
-  'src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwADgwJ/lV1O6QAAAABJRU5ErkJggg==" width="64" height="64" alt=""';
+  'class="vn-voucher-qr" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwADgwJ/lV1O6QAAAABJRU5ErkJggg==" alt=""';
 
 const SAMPLE_ROW: VoucherTicketPrintRow = {
   hotspotName: "WiFi Bureau",
@@ -17,6 +17,7 @@ const SAMPLE_ROW: VoucherTicketPrintRow = {
   validityRaw: "1d",
   timelimitRaw: "8h",
   datalimit: "",
+  /** Non affiché dans `$price` (réservé à la devise) — utile pour `$getprice` / nanoTECH. */
   priceDisplay: "1000",
   getpriceKey: "1000",
   currency: "FCFA",

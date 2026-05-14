@@ -631,6 +631,8 @@ router.get("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
     .where(eq(adminSettingsTable.id, id));
   if (!row) { res.status(404).json({ error: "Admin introuvable" }); return; }
 
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
   res.json({ template: row.ticketTemplate ?? null });
 });
 

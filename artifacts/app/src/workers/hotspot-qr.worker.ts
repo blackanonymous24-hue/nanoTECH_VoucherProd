@@ -21,7 +21,7 @@ export type HotspotQrWorkerResponse = {
 async function runJob(req: HotspotQrWorkerRequest): Promise<HotspotQrWorkerResponse> {
   const { id, loginHost, username, password, pixelWidth, margin, errorCorrectionLevel } = req;
   const loginUrl = buildHotspotLoginUrl(loginHost, username, password);
-  if (!loginUrl) return { id, attrs: 'src="" alt=""' };
+  if (!loginUrl) return { id, attrs: 'class="vn-voucher-qr" src="" alt=""' };
   try {
     const dataUrl = await QRCode.toDataURL(loginUrl, {
       type: "image/png",
@@ -29,9 +29,9 @@ async function runJob(req: HotspotQrWorkerRequest): Promise<HotspotQrWorkerRespo
       margin,
       errorCorrectionLevel,
     });
-    return { id, attrs: `src="${dataUrl}" width="64" height="64" alt="" decoding="async"` };
+    return { id, attrs: `class="vn-voucher-qr" src="${dataUrl}" alt="" decoding="async"` };
   } catch {
-    return { id, attrs: 'src="" alt=""' };
+    return { id, attrs: 'class="vn-voucher-qr" src="" alt=""' };
   }
 }
 

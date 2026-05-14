@@ -1,3 +1,9 @@
+import {
+  clampVoucherPrintScale,
+  getVoucherPrintScaleDesktop,
+  getVoucherPrintScaleMobile,
+} from "./voucher-print-scale";
+
 const REPORT_CSS = `
   body {
     color:#111; background:#fff; font-size:12px;
@@ -45,6 +51,26 @@ function readAdminAuthToken(): string | null {
   }
 }
 
+function isMobileUa(): boolean {
+  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+function voucherPrintScalePercentForCurrentContext(): number {
+  if (typeof window === "undefined") return 100;
+  if (window.ReactNativeWebView) return getVoucherPrintScaleMobile();
+  if (isMobileUa()) return getVoucherPrintScaleMobile();
+  return getVoucherPrintScaleDesktop();
+}
+
+/** Applique un zoom type « mise à l’échelle » autour du HTML des tickets (navigateur / WebView). */
+export function wrapVoucherTicketsBodyForPrintScale(bodyHtml: string, scalePercent: number): string {
+  const pct = clampVoucherPrintScale(scalePercent);
+  if (pct >= 100) return bodyHtml;
+  /** `zoom` est pris en charge à l’aperçu d’impression ; `transform: scale()` est souvent ignoré ou mal composé. */
+  const z = pct <= 0 ? 1 : pct;
+  return `<div class="vn-voucher-scale-wrap" style="zoom:${z}%;box-sizing:border-box">${bodyHtml}</div>`;
+}
+
 /**
  * Mikhmon v3 : `window.open(URL)` → GET → document HTML avec `onload` → `print()`.
  * Retourne `false` si WebView native (pont d’impression requis) ou jeton absent.
@@ -66,6 +92,7 @@ export function openMikhmonVoucherPrintByUrl(
   const u = new URL(path, window.location.origin);
   u.searchParams.set("comment", comment);
   u.searchParams.set("token", token);
+  u.searchParams.set("scale", String(voucherPrintScalePercentForCurrentContext()));
   if (opts?.refresh === true) u.searchParams.set("refresh", "1");
 
   const win = window.open(u.toString(), "_blank");
@@ -78,7 +105,7 @@ export function openMikhmonVoucherPrintByUrl(
 }
 
 function isMobile(): boolean {
-  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  return isMobileUa();
 }
 
 /**
@@ -125,14 +152,16 @@ export function buildStandalonePrintHtml(
   title: string,
   styleCss: string,
   bodyHtml: string,
-  opts?: { deferPrintMs?: number },
+  opts?: { deferPrintMs?: number; autoprint?: boolean },
 ): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
+  const autoprint = opts?.autoprint !== false;
   const printScript =
     defer > 0
       ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
       : `window.onload=function(){window.focus();window.print();};`;
+  const scriptTag = autoprint ? `    <script>${printScript}<\/script>` : "";
   return `<!doctype html>
 <html>
   <head>
@@ -140,7 +169,7 @@ export function buildStandalonePrintHtml(
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${safeTitle}</title>
     <style>${styleCss}</style>
-    <script>${printScript}<\/script>
+${scriptTag}
   </head>
   <body>${bodyHtml}</body>
 </html>`;
@@ -187,17 +216,140 @@ table.voucher {
   height:30px;
   margin-top:1px;
 }
+img.vn-voucher-qr {
+  max-width: min(38px, 40%) !important;
+  max-height: min(38px, 40%) !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain;
+  box-sizing: border-box;
+}
+.vn-voucher-scale-wrap {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 `;
+
+function buildMikhmonVoucherPrintDocumentHtml(
+  bodyTicketsHtml: string,
+  documentTitle: string,
+  opts?: { autoprint?: boolean },
+): string {
+  const scaledBody = wrapVoucherTicketsBodyForPrintScale(bodyTicketsHtml, voucherPrintScalePercentForCurrentContext());
+  return buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, scaledBody, {
+    deferPrintMs: 150,
+    autoprint: opts?.autoprint !== false,
+  });
+}
+
+/**
+ * Ouvre **tout de suite** un onglet (même geste utilisateur) avec une page de chargement.
+ * À utiliser avant tout `await` dans le gestionnaire d’impression, sinon le navigateur
+ * bloque `window.open` après chargement de milliers de vouchers.
+ * WebView native : retourne `null` (pas d’onglet ; utiliser `printMikhmonSmallVouchers` à la fin).
+ */
+export function openMikhmonVoucherPrintLoadingTab(documentTitle: string): Window | null {
+  if (typeof window === "undefined" || isNativeWebView()) return null;
+  const win = window.open("", "_blank");
+  if (!win) return null;
+  const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  win.document.open();
+  win.document.write(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fafafa; color: #1e293b; }
+    .vn-spin { width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top-color: #7c3aed; border-radius: 50%; animation: vn-spin-360 0.75s linear infinite; }
+    @keyframes vn-spin-360 { to { transform: rotate(360deg); } }
+    p { margin: 1rem 1.25rem 0; font-size: 14px; max-width: 22rem; text-align: center; line-height: 1.45; }
+    .vn-sub { font-size: 12px; color: #64748b; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="vn-spin" aria-hidden="true"></div>
+  <p>Préparation des tickets pour l’impression…<span class="vn-sub">Ne fermez pas cet onglet. Vous pouvez l’ignorer si vous avez annulé depuis l’application.</span></p>
+</body>
+</html>`);
+  win.document.close();
+  try {
+    win.document.title = documentTitle;
+  } catch {
+    /* ignore */
+  }
+  try {
+    win.focus();
+  } catch {
+    /* ignore */
+  }
+  return win;
+}
+
+/** Remplace le contenu d’un onglet ouvert par {@link openMikhmonVoucherPrintLoadingTab} par le document d’impression. */
+export function applyMikhmonVoucherPrintHtmlToTab(
+  win: Window,
+  bodyTicketsHtml: string,
+  documentTitle: string,
+): void {
+  if (isNativeWebView()) {
+    printWithNativeBridge(
+      buildMikhmonVoucherPrintDocumentHtml(bodyTicketsHtml, documentTitle, { autoprint: true }),
+      documentTitle,
+    );
+    return;
+  }
+
+  /**
+   * Après `document.write` sur un onglet qui avait déjà fini de charger (page « Préparation… »),
+   * `window.onload` du nouveau document ne se déclenche souvent plus → pas d’auto-print.
+   * On injecte le HTML **sans** script d’impression et on appelle `print()` après un court délai
+   * (mise en page / QR) depuis ce contexte.
+   */
+  const html = buildMikhmonVoucherPrintDocumentHtml(bodyTicketsHtml, documentTitle, { autoprint: false });
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  try {
+    win.document.title = documentTitle;
+  } catch {
+    /* ignore */
+  }
+  const invokePrint = (): void => {
+    try {
+      win.focus();
+      win.print();
+    } catch {
+      /* ignore */
+    }
+  };
+  win.setTimeout(invokePrint, 320);
+}
+
+export function showMikhmonVoucherPrintErrorInTab(win: Window, message: string): void {
+  if (isNativeWebView()) return;
+  const safe = String(message)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  win.document.open();
+  win.document.write(`<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"/><title>Impression</title>
+<style>body{font-family:system-ui,sans-serif;padding:1.5rem;max-width:36rem;margin:0 auto;color:#b91c1c;background:#fef2f2}</style>
+</head><body><p><strong>Impression impossible</strong></p><p>${safe}</p></body></html>`);
+  win.document.close();
+}
 
 /**
  * Impression des vouchers — **HTML + `print()` au chargement** (styles Mikhmon v3).
- * Dans le navigateur, préférer `openMikhmonVoucherPrintByUrl` (GET serveur comme `print.php`).
+ * Utiliser ce chemin depuis l’app (gabarit + échelle alignés sur l’éditeur / localStorage).
+ * Pour les gros lots, préférer {@link openMikhmonVoucherPrintLoadingTab} puis {@link applyMikhmonVoucherPrintHtmlToTab}.
+ * `openMikhmonVoucherPrintByUrl` reste disponible pour un onglet serveur ponctuel si besoin.
  * WebView native (APK) : pont d’impression inchangé.
  */
 export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle: string): void {
-  const html = buildStandalonePrintHtml(documentTitle, MIKHMON_VOUCHER_PRINT_CSS, bodyTicketsHtml, {
-    deferPrintMs: 150,
-  });
+  const html = buildMikhmonVoucherPrintDocumentHtml(bodyTicketsHtml, documentTitle);
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, documentTitle);

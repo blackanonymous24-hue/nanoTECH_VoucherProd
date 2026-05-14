@@ -1,6 +1,7 @@
 /**
- * QR code des tickets (PNG 64×64, correction L pour génération plus légère).
- * Les gabarits nanoTECH insèrent `<?= $qrcode ?>` comme attributs d’une balise `<img>`.
+ * QR code des tickets : PNG intrinsèque 64×64 (correction L, léger).
+ * `<?= $qrcode ?>` fournit `class="vn-voucher-qr"`, `src`, `alt`, `decoding` (pas de width/height).
+ * La taille d’affichage est plafonnée par la feuille `MIKHMON_VOUCHER_PRINT_CSS` ; le gabarit peut rester plus petit.
  */
 
 import QRCode from "qrcode";
@@ -13,19 +14,19 @@ const VOUCHER_QR_PNG_OPTS = {
   errorCorrectionLevel: "L" as const,
 };
 
-/** Fragment HTML pour `<img … <?= $qrcode ?>>` (src + dimensions + décodage async). */
+/** Fragment HTML pour `<img … <?= $qrcode ?>>` (classe + src + décodage async). */
 export async function buildVoucherQrImgAttrs(
   loginHost: string,
   username: string,
   password: string,
 ): Promise<string> {
   const loginUrl = buildHotspotLoginUrl(loginHost, username, password);
-  if (!loginUrl) return 'src="" alt=""';
+  if (!loginUrl) return 'class="vn-voucher-qr" src="" alt=""';
   try {
     const dataUrl = await QRCode.toDataURL(loginUrl, VOUCHER_QR_PNG_OPTS);
-    return `src="${dataUrl}" width="64" height="64" alt="" decoding="async"`;
+    return `class="vn-voucher-qr" src="${dataUrl}" alt="" decoding="async"`;
   } catch {
-    return 'src="" alt=""';
+    return 'class="vn-voucher-qr" src="" alt=""';
   }
 }
 
@@ -35,6 +36,6 @@ export async function buildVoucherQrImgAttrsBatch(
   users: { username: string; password: string }[],
 ): Promise<string[]> {
   const host = loginHost.trim();
-  if (!host) return users.map(() => 'src="" alt=""');
+  if (!host) return users.map(() => 'class="vn-voucher-qr" src="" alt=""');
   return Promise.all(users.map((u) => buildVoucherQrImgAttrs(host, u.username, u.password)));
 }

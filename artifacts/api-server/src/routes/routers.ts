@@ -19,6 +19,11 @@ import {
   renderVoucherTicketsBody,
   resolveEffectiveTicketTemplate,
 } from "../lib/voucher-print-page.js";
+import {
+  voucherTemplateDnsnameFromContact,
+  voucherTemplatePricePhpVarValue,
+  voucherTemplateWifiDisplayName,
+} from "../lib/voucher-ticket-template-semantics.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -1337,9 +1342,9 @@ router.get("/routers/:id/voucher-print-small", async (req, res): Promise<void> =
         .map((p) => [p.name, p]),
     );
 
-    const hotspotName = (r.hotspotName ?? "").trim() || r.name || "Hotspot";
-    const currency = (r.currency ?? "").trim() || "FCFA";
-    const dnsname = (r.host ?? "").trim() || hotspotName;
+    const hotspotName = voucherTemplateWifiDisplayName((r.hotspotName ?? "").trim(), r.name || "Hotspot");
+    const currency = voucherTemplatePricePhpVarValue((r.currency ?? "").trim());
+    const dnsname = voucherTemplateDnsnameFromContact(r.contact, hotspotName);
     const loginHost = (r.host ?? "").trim() || hotspotName;
 
     const rowsBase = buildVoucherPrintRows({ hotspotName, currency, dnsname, users, profByName });
@@ -1347,9 +1352,16 @@ router.get("/routers/:id/voucher-print-small", async (req, res): Promise<void> =
     const profileLabel = users[0]?.profile ?? "";
     const docTitle = `Voucher-${hotspotName}-${profileLabel}-${comment}`;
     const bodyHtml = renderVoucherTicketsBody(template, rows);
-    const html = buildStandaloneVoucherPrintHtml(docTitle, bodyHtml, { deferPrintMs: 150 });
+    const scaleRaw = req.query.scale;
+    let scalePercent = 100;
+    if (typeof scaleRaw === "string" && /^\d{1,3}$/.test(scaleRaw)) {
+      const n = parseInt(scaleRaw, 10);
+      if (!Number.isNaN(n)) scalePercent = Math.max(0, Math.min(100, n));
+    }
+    const html = buildStandaloneVoucherPrintHtml(docTitle, bodyHtml, { deferPrintMs: 150, scalePercent });
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.send(html);
   } catch (err) {
     res

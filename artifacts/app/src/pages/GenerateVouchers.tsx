@@ -29,7 +29,12 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { openMikhmonVoucherPrintByUrl, printMikhmonSmallVouchers } from "@/lib/print";
+import {
+  applyMikhmonVoucherPrintHtmlToTab,
+  openMikhmonVoucherPrintLoadingTab,
+  printMikhmonSmallVouchers,
+  showMikhmonVoucherPrintErrorInTab,
+} from "@/lib/print";
 import {
   formatMikhmonBytes,
   inferMikhmonUserMode,
@@ -37,10 +42,16 @@ import {
 } from "@/lib/mikhmon-small-print";
 import {
   fetchEffectiveTicketTemplate,
+  flushEditorLiveTicketTemplateToServer,
   renderVoucherTicketsBody,
   ticketPriceColorKey,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
+import {
+  voucherTemplateDnsnameFromContact,
+  voucherTemplatePricePhpVarValue,
+  voucherTemplateWifiDisplayName,
+} from "@/lib/voucher-ticket-template-semantics";
 import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 
 const LS_KEY = "vouchernet-last-lot";
@@ -695,8 +706,9 @@ export default function GenerateVouchers() {
 
   const handlePrintSmall = async (lot: LastLot) => {
     if (!lot.routerId || !lot.comment) return;
-    if (openMikhmonVoucherPrintByUrl(GEN_BASE, lot.routerId, lot.comment)) return;
+    const printTab = openMikhmonVoucherPrintLoadingTab(`Impression — ${lot.comment}`);
     try {
+      await flushEditorLiveTicketTemplateToServer(GEN_BASE);
       const raw = await fetchLotUsers(lot.routerId, lot.comment, GEN_BASE);
       const users = raw as Array<{
         username: string;
@@ -707,6 +719,12 @@ export default function GenerateVouchers() {
         limitBytesTotal?: string | null;
       }>;
       if (users.length === 0) {
+        if (printTab) {
+          showMikhmonVoucherPrintErrorInTab(
+            printTab,
+            "Aucun voucher sur le routeur pour ce lot.",
+          );
+        }
         toast({ title: "Rien à imprimer", description: "Aucun voucher sur le routeur pour ce lot.", variant: "destructive" });
         return;
       }
@@ -715,10 +733,14 @@ export default function GenerateVouchers() {
         name?: string;
         currency?: string | null;
         host?: string;
+        contact?: string | null;
       } | undefined;
-      const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || lot.routerName || "Hotspot";
-      const currency = (r?.currency ?? "").trim() || "FCFA";
-      const dnsname = (r?.host ?? "").trim() || hotspotName;
+      const hotspotName = voucherTemplateWifiDisplayName(
+        (r?.hotspotName ?? "").trim(),
+        (r?.name ?? "").trim() || (lot.routerName ?? "").trim() || "Hotspot",
+      );
+      const currency = voucherTemplatePricePhpVarValue((r?.currency ?? "").trim());
+      const dnsname = voucherTemplateDnsnameFromContact(r?.contact ?? null, hotspotName);
       const loginHost = (r?.host ?? "").trim() || hotspotName;
       const template = await fetchEffectiveTicketTemplate(GEN_BASE);
       const voucherByUser = new Map(lot.vouchers.map((v) => [v.username, v]));
@@ -745,17 +767,22 @@ export default function GenerateVouchers() {
           getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
           currency,
           dnsname,
-          qrcode: qrAttrsList[i] ?? 'src="" alt=""',
+          qrcode: qrAttrsList[i] ?? 'class="vn-voucher-qr" src="" alt=""',
         };
       });
-      printMikhmonSmallVouchers(
-        renderVoucherTicketsBody(template, rows),
-        `Voucher-${hotspotName}-${lot.profileName}-${lot.comment}`,
-      );
+      const bodyHtml = renderVoucherTicketsBody(template, rows);
+      const docTitle = `Voucher-${hotspotName}-${lot.profileName}-${lot.comment}`;
+      if (printTab) {
+        applyMikhmonVoucherPrintHtmlToTab(printTab, bodyHtml, docTitle);
+      } else {
+        printMikhmonSmallVouchers(bodyHtml, docTitle);
+      }
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (printTab) showMikhmonVoucherPrintErrorInTab(printTab, msg);
       toast({
         title: "Impression impossible",
-        description: err instanceof Error ? err.message : String(err),
+        description: msg,
         variant: "destructive",
       });
     }
