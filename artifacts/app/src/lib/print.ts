@@ -246,7 +246,11 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   const A4_MM = 200; // A4 imprimable (210 mm − marges 5 mm × 2)
   const gridMm = zoom !== 1 ? (A4_MM / zf) : A4_MM;
   const gridWidthPx = Math.round((gridMm / 25.4) * 96);
-  const TICKET_MARGIN_PX = Math.round((4 / 25.4) * 96); // 2mm × 2 côtés ≈ 15 px
+  // Marge effective par ticket — calée sur le rendu naturel Safari/Chromium :
+  // bordures décoratives + padding interne + whitespace inline-block ≈ 9 mm/ticket.
+  // Donne le même nombre de colonnes que la référence mikhmonv3 (Mikhmon small = 3 cols,
+  // nanoTECH small = 4 cols, nanoTECH normal = 3 cols à 100 %).
+  const TICKET_MARGIN_PX = Math.round((9 / 25.4) * 96); // ≈ 34 px
 
   let processedBodyHtml = bodyTicketsHtml;
   if (mobile) {
