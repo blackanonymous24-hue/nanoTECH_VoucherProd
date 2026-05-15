@@ -1,4 +1,4 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 import { eq, and, ne, sql } from "drizzle-orm";
 import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
@@ -11,62 +11,8 @@ import { withRouterLock } from "../lib/router-lock.js";
 import { clearRouterScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { logger } from "../lib/logger.js";
-import { applyImpersonation } from "../lib/tenant.js";
 
 const router = Router();
-
-/** Tenant cible (admin + impersonation super-admin, vendeur, manager, collaborateur). */
-async function resolveTenantAdminIdFromAuth(req: Request): Promise<number | null> {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ")) return null;
-  const token = auth.slice(7);
-
-  const adminClaims = verifyAdminTokenFull(token);
-  if (adminClaims) {
-    const scope = applyImpersonation(req, adminClaims);
-    return scope.adminId;
-  }
-
-  const vnd = verifyVendorToken(token);
-  if (vnd) {
-    const [row] = await db
-      .select({ ownerAdminId: vendorsTable.ownerAdminId, isActive: vendorsTable.isActive })
-      .from(vendorsTable)
-      .where(eq(vendorsTable.id, vnd.vendorId));
-    if (!row?.isActive || row.ownerAdminId == null) return null;
-    return row.ownerAdminId;
-  }
-
-  const mgr = verifyManagerToken(token);
-  if (mgr) {
-    const [row] = await db
-      .select({ ownerAdminId: managersTable.ownerAdminId, isActive: managersTable.isActive })
-      .from(managersTable)
-      .where(eq(managersTable.id, mgr.managerId));
-    if (!row?.isActive || row.ownerAdminId == null) return null;
-    return row.ownerAdminId;
-  }
-
-  const col = verifyCollaborateurToken(token);
-  if (col) {
-    const [row] = await db
-      .select({ ownerAdminId: collaborateursTable.ownerAdminId, isActive: collaborateursTable.isActive })
-      .from(collaborateursTable)
-      .where(eq(collaborateursTable.id, col.collaborateurId));
-    if (!row?.isActive || row.ownerAdminId == null) return null;
-    return row.ownerAdminId;
-  }
-
-  return null;
-}
-
-function loginDbFailureMessage(err: unknown): string {
-  const stack = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
-  if (stack.includes("ECONNREFUSED")) {
-    return "Impossible de joindre PostgreSQL (serveur arrêté ou DATABASE_URL incorrecte). Démarrez la base (ex. Docker sur le port attendu), ou corrigez DATABASE_URL / .env.local, puis redémarrez l’API.";
-  }
-  return "Erreur serveur ou base de données (schéma incomplet ou indisponible). Redémarrez l’API après mise à jour, exécutez les migrations Drizzle, puis réessayez.";
-}
 
 /**
  * Ensure that at least one super-admin exists. On a fresh database we seed
@@ -217,7 +163,10 @@ router.post("/login", async (req, res): Promise<void> => {
   res.status(401).json({ error: "Identifiants incorrects" });
   } catch (err) {
     logger.error({ err }, "POST /api/login");
-    res.status(503).json({ error: loginDbFailureMessage(err) });
+    res.status(503).json({
+      error:
+        "Erreur serveur ou base de données (schéma incomplet ou indisponible). Redémarrez l’API après mise à jour, exécutez les migrations Drizzle, puis réessayez.",
+    });
   }
 });
 
@@ -377,7 +326,58 @@ router.post("/admin/buy-routers", async (req, res): Promise<void> => {
  * GET /api/tenant/ticket-template — modèle PHP/HTML du tenant (propriétaire du jeton).
  */
 router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
-  const tenantAdminId = await resolveTenantAdminIdFromAuth(req);
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+  const token = auth.slice(7);
+
+  let tenantAdminId: number | null = null;
+  const adminClaims = verifyAdminTokenFull(token);
+  if (adminClaims) {
+    tenantAdminId = adminClaims.adminId;
+  } else {
+    const vnd = verifyVendorToken(token);
+    if (vnd) {
+      const [row] = await db
+        .select({ ownerAdminId: vendorsTable.ownerAdminId, isActive: vendorsTable.isActive })
+        .from(vendorsTable)
+        .where(eq(vendorsTable.id, vnd.vendorId));
+      if (!row?.isActive) {
+        res.status(401).json({ error: "Non authentifié" });
+        return;
+      }
+      tenantAdminId = row.ownerAdminId;
+    } else {
+      const mgr = verifyManagerToken(token);
+      if (mgr) {
+        const [row] = await db
+          .select({ ownerAdminId: managersTable.ownerAdminId, isActive: managersTable.isActive })
+          .from(managersTable)
+          .where(eq(managersTable.id, mgr.managerId));
+        if (!row?.isActive) {
+          res.status(401).json({ error: "Non authentifié" });
+          return;
+        }
+        tenantAdminId = row.ownerAdminId;
+      } else {
+        const col = verifyCollaborateurToken(token);
+        if (col) {
+          const [row] = await db
+            .select({ ownerAdminId: collaborateursTable.ownerAdminId, isActive: collaborateursTable.isActive })
+            .from(collaborateursTable)
+            .where(eq(collaborateursTable.id, col.collaborateurId));
+          if (!row?.isActive) {
+            res.status(401).json({ error: "Non authentifié" });
+            return;
+          }
+          tenantAdminId = row.ownerAdminId;
+        }
+      }
+    }
+  }
+
   if (tenantAdminId == null) {
     res.status(401).json({ error: "Non authentifié" });
     return;
@@ -388,35 +388,7 @@ router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, tenantAdminId));
 
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
-  res.setHeader("Pragma", "no-cache");
   res.json({ template: row?.ticketTemplate ?? null });
-});
-
-/**
- * PUT /api/tenant/ticket-template — même périmètre que GET /tenant/ticket-template
- * (admin + impersonation, vendeur, manager, collaborateur). Sert à pousser le
- * gabarit « live » avant impression sans exiger un jeton admin-only.
- */
-router.put("/tenant/ticket-template", async (req, res): Promise<void> => {
-  const tenantAdminId = await resolveTenantAdminIdFromAuth(req);
-  if (tenantAdminId == null) {
-    res.status(401).json({ error: "Non authentifié" });
-    return;
-  }
-
-  const { template } = req.body as { template?: string };
-  if (typeof template !== "string") {
-    res.status(400).json({ error: "Champ template requis (string)" });
-    return;
-  }
-
-  await db
-    .update(adminSettingsTable)
-    .set({ ticketTemplate: template.trim() || null })
-    .where(eq(adminSettingsTable.id, tenantAdminId));
-
-  res.json({ ok: true });
 });
 
 /**
@@ -427,14 +399,11 @@ router.get("/admin/ticket-template", async (req, res): Promise<void> => {
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const scope = applyImpersonation(req, claims);
   const [row] = await db
     .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
     .from(adminSettingsTable)
-    .where(eq(adminSettingsTable.id, scope.adminId));
+    .where(eq(adminSettingsTable.id, claims.adminId));
 
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
-  res.setHeader("Pragma", "no-cache");
   res.json({ template: row?.ticketTemplate ?? null });
 });
 
@@ -446,7 +415,6 @@ router.put("/admin/ticket-template", async (req, res): Promise<void> => {
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const scope = applyImpersonation(req, claims);
   const { template } = req.body as { template?: string };
   if (typeof template !== "string") {
     res.status(400).json({ error: "Champ template requis (string)" });
@@ -456,7 +424,7 @@ router.put("/admin/ticket-template", async (req, res): Promise<void> => {
   await db
     .update(adminSettingsTable)
     .set({ ticketTemplate: template.trim() || null })
-    .where(eq(adminSettingsTable.id, scope.adminId));
+    .where(eq(adminSettingsTable.id, claims.adminId));
 
   res.json({ ok: true });
 });

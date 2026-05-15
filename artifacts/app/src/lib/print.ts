@@ -1,8 +1,7 @@
 import {
-  clampVoucherPrintScale,
-  getVoucherPrintScaleDesktop,
-  getVoucherPrintScaleMobile,
-} from "./voucher-print-scale";
+  getVoucherPrintScalePercent,
+  getVoucherPrintZoomFactorFromPercent,
+} from "@/lib/voucher-print-scale";
 
 const REPORT_CSS = `
   body {
@@ -41,223 +40,8 @@ function isNativeWebView(): boolean {
   return typeof window !== "undefined" && !!window.ReactNativeWebView;
 }
 
-const ADMIN_TOKEN_KEY = "vouchernet_admin_token";
-
-function readAdminAuthToken(): string | null {
-  try {
-    return localStorage.getItem(ADMIN_TOKEN_KEY) ?? sessionStorage.getItem(ADMIN_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function isMobileUa(): boolean {
-  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-}
-
-function voucherPrintScalePercentForCurrentContext(): number {
-  if (typeof window === "undefined") return 100;
-  if (window.ReactNativeWebView) return getVoucherPrintScaleMobile();
-  if (isMobileUa()) return getVoucherPrintScaleMobile();
-  return getVoucherPrintScaleDesktop();
-}
-
-/**
- * Échelle document sur `<html>` via `zoom` (facteur sans unité, comme le chemin mobile de
- * mikrotik-hotspot-manager) + duplication `@media print` (Safari iOS n’applique parfois le zoom
- * qu’à l’aperçu d’impression) + `-webkit-text-size-adjust` pour limiter les réécritures de taille.
- */
-export function buildVoucherPrintZoomCssForHead(scalePercent: number): string {
-  const pct = clampVoucherPrintScale(scalePercent);
-  if (pct <= 0 || pct >= 100) return "";
-  const factor = pct / 100;
-  if (factor >= 0.999 && factor <= 1.001) return "";
-  const u = factor.toFixed(6);
-  return `
-html {
-  zoom: ${u};
-  margin: 0;
-  padding: 0;
-  -webkit-text-size-adjust: 100%;
-}
-@media print {
-  html {
-    zoom: ${u} !important;
-  }
-}
-`;
-}
-
-/** `style="…"` pour la balise `<html>` (renfort WebKit / expo-print quand la feuille seule suffit). */
-export function buildVoucherPrintZoomHtmlRootAttrs(scalePercent: number): string | undefined {
-  const pct = clampVoucherPrintScale(scalePercent);
-  if (pct <= 0 || pct >= 100) return undefined;
-  const u = (pct / 100).toFixed(6);
-  return `style="zoom:${u};margin:0;padding:0;-webkit-text-size-adjust:100%"`;
-}
-
-/** Force le zoom sur le document d’impression (onglet) avant `print()` — contourne certains Safari. */
-function syncVoucherPrintZoomToDocument(doc: Document, scalePercent: number): void {
-  const pct = clampVoucherPrintScale(scalePercent);
-  if (pct <= 0 || pct >= 100) return;
-  const u = (pct / 100).toFixed(6);
-  try {
-    const root = doc.documentElement;
-    root.style.setProperty("zoom", u);
-    root.style.setProperty("-webkit-text-size-adjust", "100%");
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * Conteneur unique avec `transform: scale` — fiable pour l’impression mobile, expo-print (APK),
- * et WKWebView ; `zoom` sur `<html>` est souvent ignoré à l’aperçu d’impression sur iOS/Android.
- */
-export function wrapVoucherTicketsForExpoPrintScale(bodyTicketsHtml: string, scalePercent: number): string {
-  const pct = clampVoucherPrintScale(scalePercent);
-  if (pct <= 0 || pct >= 100) return bodyTicketsHtml;
-  const f = pct / 100;
-  const fs = f.toFixed(6);
-  const w = (100 / f).toFixed(6);
-  return `<div id="vn-print-scale-root" style="box-sizing:border-box;margin:0;position:relative;-webkit-backface-visibility:hidden;backface-visibility:hidden;transform:scale(${fs});-webkit-transform:scale(${fs});transform-origin:left top;-webkit-transform-origin:left top;width:${w}%;overflow:visible;-webkit-print-color-adjust:exact;print-color-adjust:exact">${bodyTicketsHtml}</div>`;
-}
-
-/** Réapplique le transform sur la racine (Safari / Chrome Android avant l’aperçu d’impression). */
-function syncPrintScaleTransformRoot(doc: Document, scalePercent: number): void {
-  const pct = clampVoucherPrintScale(scalePercent);
-  if (pct <= 0 || pct >= 100) return;
-  const el = doc.getElementById("vn-print-scale-root");
-  if (!el) return;
-  const f = pct / 100;
-  const fs = f.toFixed(6);
-  const w = (100 / f).toFixed(6);
-  try {
-    el.style.setProperty("transform", `scale(${fs})`);
-    el.style.setProperty("-webkit-transform", `scale(${fs})`);
-    el.style.setProperty("transform-origin", "left top");
-    el.style.setProperty("-webkit-transform-origin", "left top");
-    el.style.setProperty("width", `${w}%`);
-  } catch {
-    /* ignore */
-  }
-}
-
-/** Script inline : Safari iOS et Chrome Android réécrivent parfois les styles à l’entrée en mode impression. */
-function buildWebKitAndroidPrintScaleRuntimeScript(scalePercent: number): string {
-  const pct = Math.round(clampVoucherPrintScale(scalePercent));
-  if (pct <= 0 || pct >= 100) return "";
-  return `<script>(function(){
-var P=${pct};
-function F(){
-  var n=document.getElementById("vn-print-scale-root");
-  if(!n)return;
-  var f=P/100;
-  var w=(100/f).toFixed(6);
-  n.style.setProperty("transform","scale("+f+")");
-  n.style.setProperty("-webkit-transform","scale("+f+")");
-  n.style.setProperty("transform-origin","left top");
-  n.style.setProperty("-webkit-transform-origin","left top");
-  n.style.setProperty("width",w+"%");
-}
-window.addEventListener("beforeprint",F);
-try{window.addEventListener("webkitBeforePrint",F);}catch(e){}
-try{
-  var mq=window.matchMedia("print");
-  if(mq&&mq.addEventListener)mq.addEventListener("change",function(){if(mq.matches)F();});
-  else if(mq&&mq.addListener)mq.addListener(function(){if(mq.matches)F();});
-}catch(e){}
-if(document.readyState==="complete")setTimeout(F,0);
-else window.addEventListener("load",function(){setTimeout(F,0);});
-})();<\/script>`;
-}
-
-/** Renforce le `transform` en `@media print` (Safari peut rafraîchir les styles à l’aperçu). */
-function buildVoucherPrintScaleWrapReinforceCss(scalePercent: number): string {
-  const pct = clampVoucherPrintScale(scalePercent);
-  if (pct <= 0 || pct >= 100) return "";
-  const f = pct / 100;
-  const fs = f.toFixed(6);
-  const w = (100 / f).toFixed(6);
-  return `
-#vn-print-scale-root {
-  position: relative;
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-  isolation: isolate;
-  text-align: left;
-  font-size: 0;
-  line-height: 0;
-}
-#vn-print-scale-root table.voucher {
-  font-size: 14px;
-  line-height: normal;
-  vertical-align: top;
-}
-@media print {
-  #vn-print-scale-root {
-    transform: scale(${fs}) !important;
-    -webkit-transform: scale(${fs}) !important;
-    transform-origin: left top !important;
-    -webkit-transform-origin: left top !important;
-    width: ${w}% !important;
-    max-width: none !important;
-    overflow: visible !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    text-align: left !important;
-    font-size: 0 !important;
-    line-height: 0 !important;
-  }
-  #vn-print-scale-root table.voucher {
-    font-size: 14px !important;
-    line-height: normal !important;
-    vertical-align: top !important;
-  }
-  html, body {
-    overflow: visible !important;
-    height: auto !important;
-    max-width: none !important;
-  }
-}
-`;
-}
-
-/**
- * Mikhmon v3 : `window.open(URL)` → GET → document HTML avec `onload` → `print()`.
- * Retourne `false` si WebView native (pont d’impression requis) ou jeton absent.
- * Par défaut pas de `refresh=1` : le serveur interroge le lot via `?comment=` sur MikroTik (rapide).
- * Passer `refresh: true` seulement si un lot récent n’apparaît pas (repli cache liste complète).
- */
-export function openMikhmonVoucherPrintByUrl(
-  baseUrl: string,
-  routerId: number,
-  comment: string,
-  opts?: { refresh?: boolean },
-): boolean {
-  if (typeof window === "undefined" || isNativeWebView()) return false;
-  const token = readAdminAuthToken();
-  if (!token) return false;
-
-  const prefix = baseUrl.replace(/\/$/, "");
-  const path = `${prefix}/api/routers/${routerId}/voucher-print-small`;
-  const u = new URL(path, window.location.origin);
-  u.searchParams.set("comment", comment);
-  u.searchParams.set("token", token);
-  u.searchParams.set("scale", String(voucherPrintScalePercentForCurrentContext()));
-  if (opts?.refresh === true) u.searchParams.set("refresh", "1");
-
-  const win = window.open(u.toString(), "_blank");
-  try {
-    win?.focus();
-  } catch {
-    /* ignore */
-  }
-  return true;
-}
-
 function isMobile(): boolean {
-  return isMobileUa();
+  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
 /**
@@ -278,6 +62,13 @@ export function openPrintHtmlWindow(html: string, title: string): void {
   win.document.close();
   try {
     win.document.title = title;
+    const te = win.document.querySelector("title");
+    if (te) te.textContent = title;
+  } catch {
+    /* ignore */
+  }
+  try {
+    win.focus();
   } catch {
     /* ignore */
   }
@@ -300,57 +91,61 @@ function buildReportHtml(bodyHtml: string, title: string, autoprint = true): str
 /**
  * Document HTML autonome pour l’impression (suivi vendeurs, hebdo, etc.).
  */
-export function buildStandalonePrintHtml(
-  title: string,
-  styleCss: string,
-  bodyHtml: string,
-  opts?: { deferPrintMs?: number; autoprint?: boolean; htmlAttrs?: string },
-): string {
+export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHtml: string): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const defer = opts?.deferPrintMs ?? 0;
-  const autoprint = opts?.autoprint !== false;
-  const htmlOpen = opts?.htmlAttrs?.trim() ? `<html ${opts.htmlAttrs.trim()}>` : "<html>";
-  const printScript =
-    defer > 0
-      ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
-      : `window.onload=function(){window.focus();window.print();};`;
-  const scriptTag = autoprint ? `    <script>${printScript}<\/script>` : "";
   return `<!doctype html>
-${htmlOpen}
+<html>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${safeTitle}</title>
     <style>${styleCss}</style>
-${scriptTag}
+    <script>window.onload=function(){window.focus();window.print();}<\/script>
   </head>
   <body>${bodyHtml}</body>
 </html>`;
 }
 
+/**
+ * Document d’impression vouchers — même principe que `mikhmonv3/voucher/print.php` :
+ * nouvel onglet, HTML complet, `&lt;body onload="window.print()"&gt;` (pas d’iframe, pas d’autre déclencheur).
+ */
+function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTicketsHtml: string): string {
+  const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
+  const zoomRule =
+    zoom !== 1
+      ? `html { zoom: ${Number(zoom.toFixed(6))}; }\n`
+      : "";
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta http-equiv="pragma" content="no-cache" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safeTitle}</title>
+    <style>${zoomRule}${MIKHMON_VOUCHER_PRINT_CSS}</style>
+  </head>
+  <body onload="window.print()">${bodyTicketsHtml}</body>
+</html>`;
+}
+
 /** Feuille de styles de `mikhmonv3/voucher/print.php` (bloc &lt;style&gt; du &lt;head&gt;). */
 export const MIKHMON_VOUCHER_PRINT_CSS = `
-html {
-  text-align: left;
-}
 body {
   color: #000000;
   background-color: #FFFFFF;
+  font-size: 14px;
   font-family:  'Helvetica', arial, sans-serif;
   margin: 0px;
-  text-align: left;
-  font-size: 0;
-  line-height: 0;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
 table.voucher {
   display: inline-block;
-  vertical-align: top;
   border: 2px solid black;
   margin: 2px;
-  font-size: 14px;
-  line-height: normal;
 }
 @page
 {
@@ -362,21 +157,6 @@ table.voucher {
 }
 @media print
 {
-  html, body {
-    text-align: left !important;
-  }
-  body, #vn-print-scale-root {
-    font-size: 0 !important;
-    line-height: 0 !important;
-  }
-  #vn-print-scale-root {
-    text-align: left !important;
-  }
-  table.voucher {
-    font-size: 14px !important;
-    line-height: normal !important;
-    vertical-align: top !important;
-  }
   table { page-break-after:auto }
   tr    { page-break-inside:avoid; page-break-after:auto }
   td    { page-break-inside:avoid; page-break-after:auto }
@@ -394,183 +174,13 @@ table.voucher {
 }
 `;
 
-/** Assemble CSS + attributs racine pour une échelle donnée (navigateur — pas APK). Utile aux tests. */
-export function buildMikhmonVoucherPrintStylePayload(scalePercent: number): {
-  styleCss: string;
-  htmlAttrs: string | undefined;
-} {
-  const zoomCss = buildVoucherPrintZoomCssForHead(scalePercent);
-  const htmlAttrs = buildVoucherPrintZoomHtmlRootAttrs(scalePercent);
-  return {
-    styleCss: zoomCss ? `${zoomCss}\n${MIKHMON_VOUCHER_PRINT_CSS}` : MIKHMON_VOUCHER_PRINT_CSS,
-    htmlAttrs,
-  };
-}
-
-function buildMikhmonVoucherPrintDocumentHtml(
-  bodyTicketsHtml: string,
-  documentTitle: string,
-  opts?: { autoprint?: boolean },
-): string {
-  const scalePct = voucherPrintScalePercentForCurrentContext();
-  const scaled = scalePct > 0 && scalePct < 100;
-  const mobileLike = isNativeWebView() || isMobileUa();
-
-  let body = bodyTicketsHtml;
-  let zoomCss = "";
-  let htmlAttrs: string | undefined = undefined;
-  let reinforceCss = "";
-
-  if (scaled) {
-    if (mobileLike) {
-      body =
-        wrapVoucherTicketsForExpoPrintScale(bodyTicketsHtml, scalePct) +
-        buildWebKitAndroidPrintScaleRuntimeScript(scalePct);
-      reinforceCss = buildVoucherPrintScaleWrapReinforceCss(scalePct);
-    } else {
-      zoomCss = buildVoucherPrintZoomCssForHead(scalePct);
-      htmlAttrs = buildVoucherPrintZoomHtmlRootAttrs(scalePct);
-    }
-  }
-
-  const styleCss = [zoomCss, MIKHMON_VOUCHER_PRINT_CSS, reinforceCss].filter((s) => s.length > 0).join("\n");
-
-  return buildStandalonePrintHtml(documentTitle, styleCss, body, {
-    deferPrintMs: 150,
-    autoprint: opts?.autoprint !== false,
-    htmlAttrs,
-  });
-}
-
 /**
- * Ouvre **tout de suite** un onglet (même geste utilisateur) avec une page de chargement.
- * À utiliser avant tout `await` dans le gestionnaire d’impression, sinon le navigateur
- * bloque `window.open` après chargement de milliers de vouchers.
- * WebView native : retourne `null` (pas d’onglet ; utiliser `printMikhmonSmallVouchers` à la fin).
- */
-export function openMikhmonVoucherPrintLoadingTab(documentTitle: string): Window | null {
-  if (typeof window === "undefined" || isNativeWebView()) return null;
-  const win = window.open("", "_blank");
-  if (!win) return null;
-  const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  win.document.open();
-  win.document.write(`<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${safeTitle}</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fafafa; color: #1e293b; }
-    .vn-spin { width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top-color: #7c3aed; border-radius: 50%; animation: vn-spin-360 0.75s linear infinite; }
-    @keyframes vn-spin-360 { to { transform: rotate(360deg); } }
-    p { margin: 1rem 1.25rem 0; font-size: 14px; max-width: 22rem; text-align: center; line-height: 1.45; }
-    .vn-sub { font-size: 12px; color: #64748b; margin-top: 0.5rem; }
-  </style>
-</head>
-<body>
-  <div class="vn-spin" aria-hidden="true"></div>
-  <p>Préparation des tickets pour l’impression…<span class="vn-sub">Ne fermez pas cet onglet. Vous pouvez l’ignorer si vous avez annulé depuis l’application.</span></p>
-</body>
-</html>`);
-  win.document.close();
-  try {
-    win.document.title = documentTitle;
-  } catch {
-    /* ignore */
-  }
-  try {
-    win.focus();
-  } catch {
-    /* ignore */
-  }
-  return win;
-}
-
-/** Remplace le contenu d’un onglet ouvert par {@link openMikhmonVoucherPrintLoadingTab} par le document d’impression. */
-export function applyMikhmonVoucherPrintHtmlToTab(
-  win: Window,
-  bodyTicketsHtml: string,
-  documentTitle: string,
-): void {
-  if (isNativeWebView()) {
-    printWithNativeBridge(
-      buildMikhmonVoucherPrintDocumentHtml(bodyTicketsHtml, documentTitle, { autoprint: true }),
-      documentTitle,
-    );
-    return;
-  }
-
-  /**
-   * Après `document.write` sur un onglet qui avait déjà fini de charger (page « Préparation… »),
-   * `window.onload` du nouveau document ne se déclenche souvent plus → pas d’auto-print.
-   * On injecte le HTML **sans** script d’impression et on appelle `print()` après un court délai
-   * (mise en page / QR) depuis ce contexte.
-   */
-  const scalePct = voucherPrintScalePercentForCurrentContext();
-  const html = buildMikhmonVoucherPrintDocumentHtml(bodyTicketsHtml, documentTitle, { autoprint: false });
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  try {
-    win.document.title = documentTitle;
-  } catch {
-    /* ignore */
-  }
-  if (!isMobileUa()) {
-    syncVoucherPrintZoomToDocument(win.document, scalePct);
-  } else if (scalePct > 0 && scalePct < 100) {
-    syncPrintScaleTransformRoot(win.document, scalePct);
-  }
-  const invokePrint = (): void => {
-    try {
-      if (!isMobileUa()) {
-        syncVoucherPrintZoomToDocument(win.document, scalePct);
-      } else if (scalePct > 0 && scalePct < 100) {
-        syncPrintScaleTransformRoot(win.document, scalePct);
-      }
-      win.focus();
-      win.print();
-    } catch {
-      /* ignore */
-    }
-  };
-  const delayMs = isMobileUa() ? 520 : 320;
-  const schedule = (): void => {
-    win.setTimeout(invokePrint, delayMs);
-  };
-  if (typeof win.requestAnimationFrame === "function") {
-    win.requestAnimationFrame(() => {
-      win.requestAnimationFrame(schedule);
-    });
-  } else {
-    schedule();
-  }
-}
-
-export function showMikhmonVoucherPrintErrorInTab(win: Window, message: string): void {
-  if (isNativeWebView()) return;
-  const safe = String(message)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  win.document.open();
-  win.document.write(`<!DOCTYPE html>
-<html lang="fr"><head><meta charset="utf-8"/><title>Impression</title>
-<style>body{font-family:system-ui,sans-serif;padding:1.5rem;max-width:36rem;margin:0 auto;color:#b91c1c;background:#fef2f2}</style>
-</head><body><p><strong>Impression impossible</strong></p><p>${safe}</p></body></html>`);
-  win.document.close();
-}
-
-/**
- * Impression des vouchers — **HTML + `print()` au chargement** (styles Mikhmon v3).
- * Utiliser ce chemin depuis l’app (gabarit + échelle alignés sur l’éditeur / localStorage).
- * Pour les gros lots, préférer {@link openMikhmonVoucherPrintLoadingTab} puis {@link applyMikhmonVoucherPrintHtmlToTab}.
- * `openMikhmonVoucherPrintByUrl` reste disponible pour un onglet serveur ponctuel si besoin.
- * WebView native (APK) : pont d’impression inchangé.
+ * Impression vouchers — **un seul flux**, aligné sur Mikhmon v3 (`voucher/print.php`) :
+ * `window.open` + document HTML complet + `body onload="window.print()"`.
+ * (WebView native : pont d’impression, seul environnement sans `window.open` utilisable.)
  */
 export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle: string): void {
-  const html = buildMikhmonVoucherPrintDocumentHtml(bodyTicketsHtml, documentTitle);
+  const html = buildMikhmonVoucherPrintDocumentHtml(documentTitle, bodyTicketsHtml);
 
   if (isNativeWebView()) {
     printWithNativeBridge(html, documentTitle);
@@ -578,53 +188,6 @@ export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle
   }
 
   openPrintHtmlWindow(html, documentTitle);
-}
-
-function printWithIframe(html: string, title: string): void {
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("title", title);
-  iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:0;visibility:hidden;";
-  document.body.appendChild(iframe);
-
-  const doc = iframe.contentDocument;
-  if (!doc) {
-    try {
-      document.body.removeChild(iframe);
-    } catch {
-      /* ignore */
-    }
-    throw new Error("iframe document indisponible");
-  }
-
-  doc.open();
-  doc.write(html);
-  doc.close();
-  doc.title = title;
-
-  const cleanup = () => {
-    try {
-      document.body.removeChild(iframe);
-    } catch {
-      /* ignore */
-    }
-  };
-  iframe.contentWindow?.addEventListener("afterprint", cleanup, { once: true });
-  const safetyTimeout = window.setTimeout(cleanup, 60_000);
-
-  setTimeout(() => {
-    const prevTitle = document.title;
-    document.title = title;
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch (_) {
-      window.clearTimeout(safetyTimeout);
-      cleanup();
-      document.title = prevTitle;
-      throw _;
-    }
-    document.title = prevTitle;
-  }, 600);
 }
 
 function printWithNativeBridge(html: string, title: string): void {
@@ -682,9 +245,5 @@ export function printReport(title: string): void {
     return;
   }
 
-  if (isMobile()) {
-    openPrintHtmlWindow(html, title);
-  } else {
-    printWithIframe(html, title);
-  }
+  openPrintHtmlWindow(html, title);
 }

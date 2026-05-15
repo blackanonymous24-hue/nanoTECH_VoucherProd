@@ -1,29 +1,17 @@
 import { Router } from "express";
-import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists, type SQL } from "drizzle-orm";
+import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, listHotspotUsersByExactComment, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
 import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
-import {
-  attachVoucherQrCodesToRows,
-  buildStandaloneVoucherPrintHtml,
-  buildVoucherPrintRows,
-  renderVoucherTicketsBody,
-  resolveEffectiveTicketTemplate,
-} from "../lib/voucher-print-page.js";
-import {
-  voucherTemplateDnsnameFromContact,
-  voucherTemplatePricePhpVarValue,
-  voucherTemplateWifiDisplayName,
-} from "../lib/voucher-ticket-template-semantics.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -332,7 +320,7 @@ router.get("/routers", async (req, res): Promise<void> => {
         .from(adminSettingsTable)
         .where(eq(adminSettingsTable.isSuperAdmin, true));
       if (Number(c) === 1) {
-        ownerCond = or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId)) as SQL;
+        ownerCond = or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId));
       }
     }
     res.json(await baseSelect.where(ownerCond).orderBy(routersTable.name));
@@ -1268,106 +1256,6 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
     res.json({ users: paged, total });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
-  }
-});
-
-/**
- * GET /routers/:id/voucher-print-small?comment=…&token=…
- * Document HTML complet + `window.print()` au chargement — même chaîne que Mikhmon v3 (`voucher/print.php`).
- * Auth : `Authorization: Bearer` ou `token` en query (navigation `window.open` sans en-têtes custom).
- * Utilisateurs : requête MikroTik ciblée `?comment=…` (pas toute la table). `refresh=1` : repli liste complète si le lot ne remonte pas (encodage / cache).
- */
-router.get("/routers/:id/voucher-print-small", async (req, res): Promise<void> => {
-  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const id = parseInt(raw, 10);
-  if (isNaN(id)) {
-    res.status(400).type("text/plain; charset=utf-8").send("ID routeur invalide");
-    return;
-  }
-
-  const comment = typeof req.query.comment === "string" ? req.query.comment : "";
-  if (!comment.trim()) {
-    res.status(400).type("text/plain; charset=utf-8").send("Paramètre comment requis");
-    return;
-  }
-
-  const refresh = req.query.refresh === "1" || req.query.refresh === "true";
-
-  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-  if (!r) {
-    res.status(404).type("text/plain; charset=utf-8").send("Routeur introuvable");
-    return;
-  }
-
-  const ownerId = r.ownerAdminId;
-  if (ownerId == null) {
-    res.status(403).type("text/plain; charset=utf-8").send("Routeur sans propriétaire — impression impossible.");
-    return;
-  }
-
-  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-
-  try {
-    const [settingsRows, profilesRaw, usersDirect] = await Promise.all([
-      db
-        .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
-        .from(adminSettingsTable)
-        .where(eq(adminSettingsTable.id, ownerId)),
-      listProfiles(conn),
-      listHotspotUsersByExactComment(conn, comment),
-    ]);
-
-    let users = usersDirect;
-    if (users.length === 0) {
-      users = (await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: refresh })).filter(
-        (u) => (u.comment ?? "") === comment,
-      );
-    }
-
-    if (users.length === 0) {
-      res
-        .status(404)
-        .type("text/html; charset=utf-8")
-        .send(
-          "<!doctype html><html><head><meta charset=\"utf-8\"/><title>Rien à imprimer</title></head><body><p>Aucun utilisateur pour ce lot sur le routeur.</p></body></html>",
-        );
-      return;
-    }
-
-    const settings = settingsRows[0];
-    const template = resolveEffectiveTicketTemplate(settings?.ticketTemplate ?? null);
-    const profByName = new Map(
-      profilesRaw
-        .filter((p) => !SYSTEM_PROFILE_NAMES.has(p.name.toLowerCase()))
-        .map((p) => [p.name, p]),
-    );
-
-    const hotspotName = voucherTemplateWifiDisplayName((r.hotspotName ?? "").trim(), r.name || "Hotspot");
-    const currency = voucherTemplatePricePhpVarValue((r.currency ?? "").trim());
-    const dnsname = voucherTemplateDnsnameFromContact(r.contact, hotspotName);
-    const loginHost = (r.host ?? "").trim() || hotspotName;
-
-    const rowsBase = buildVoucherPrintRows({ hotspotName, currency, dnsname, users, profByName });
-    const rows = await attachVoucherQrCodesToRows(rowsBase, loginHost);
-    const profileLabel = users[0]?.profile ?? "";
-    const docTitle = `Voucher-${hotspotName}-${profileLabel}-${comment}`;
-    const bodyHtml = renderVoucherTicketsBody(template, rows);
-    const scaleRaw = req.query.scale;
-    let scalePercent = 100;
-    if (typeof scaleRaw === "string" && /^\d{1,3}$/.test(scaleRaw)) {
-      const n = parseInt(scaleRaw, 10);
-      if (!Number.isNaN(n)) scalePercent = Math.max(0, Math.min(100, n));
-    }
-    const html = buildStandaloneVoucherPrintHtml(docTitle, bodyHtml, { deferPrintMs: 150, scalePercent });
-
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
-    res.send(html);
-  } catch (err) {
-    res
-      .status(502)
-      .type("text/plain; charset=utf-8")
-      .send(err instanceof Error ? err.message : "Impossible de contacter le routeur");
   }
 });
 

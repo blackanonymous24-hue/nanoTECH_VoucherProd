@@ -3,13 +3,7 @@ import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
-import {
-  useGetDashboard,
-  useListRouterLogs,
-  getGetDashboardQueryKey,
-  getListRouterLogsQueryKey,
-  type LogEntry,
-} from "@workspace/api-client-react";
+import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRouterLogsQueryKey } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
@@ -24,6 +18,8 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 // Used as fallback display value while data refetches in background.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _dashboardCache: { data?: any; ts?: number } = {};
+
+type LogEntry = { id: string; time: string; topics: string; message: string };
 
 const DASH_LOGS_PARAMS = {
   limit: 120,
@@ -295,7 +291,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
   const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
   const [selectedIface, setSelectedIface] = useState<string>("");
 
-  const authHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
   // Fetch interface list when router changes — gated on tab visibility
   const { data: ifaceList } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
@@ -663,7 +659,7 @@ export default function Dashboard() {
     isFetching: logsFetching,
     refetch: refetchLogs,
     error: logsError,
-  } = useListRouterLogs<LogEntry[]>(
+  } = useListRouterLogs(
     selectedRouterId ?? 0,
     DASH_LOGS_PARAMS,
     {

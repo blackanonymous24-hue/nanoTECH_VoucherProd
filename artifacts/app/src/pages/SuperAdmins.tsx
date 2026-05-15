@@ -5,7 +5,6 @@ import {
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
   FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Copy, Wifi, Activity,
 } from "lucide-react";
-import { TicketPhpEditor } from "@/components/TicketPhpEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -43,6 +42,7 @@ import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
 import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 import { getListRoutersQueryKey } from "@workspace/api-client-react";
+import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
 
 interface RouterRow {
   id: number;
@@ -1723,44 +1723,16 @@ function TemplateDialog({ admin, onClose }: {
   const [saving, setSaving] = useState(false);
   const [presetValue, setPresetValue] = useState<TicketTemplatePresetId | "custom">("mikhmon-small");
   const fileRef = useRef<HTMLInputElement>(null);
-  const presetSyncAbortRef = useRef<AbortController | null>(null);
-
-  const syncTemplateBodyToServerForAdmin = (body: string): Promise<"ok" | "fail" | "aborted"> => {
-    if (!token) return Promise.resolve("fail");
-    presetSyncAbortRef.current?.abort();
-    const ac = new AbortController();
-    presetSyncAbortRef.current = ac;
-    return fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeaders },
-      body: JSON.stringify({ template: body }),
-      signal: ac.signal,
-    })
-      .then((r) => {
-        if (ac.signal.aborted) return "aborted";
-        return r.ok ? "ok" : "fail";
-      })
-      .catch((e: unknown) => {
-        if (e instanceof DOMException && e.name === "AbortError") return "aborted";
-        return "fail";
-      });
-  };
 
   useEffect(() => {
     setLoading(true);
-    fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, { headers: authHeaders, cache: "no-store" })
+    fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, { headers: authHeaders })
       .then((r) => (r.ok ? r.json() : { template: null }))
       .then((data: { template: string | null }) => {
         const fromServer = data.template?.trim() ?? "";
         if (fromServer) {
-          const id = findMatchingPresetId(fromServer);
-          if (id !== "custom") {
-            setTemplateCode(getPresetBody(id));
-            setPresetValue(id);
-          } else {
-            setPresetValue("custom");
-            setTemplateCode(fromServer);
-          }
+          setTemplateCode(fromServer);
+          setPresetValue(findMatchingPresetId(fromServer));
         } else {
           const stored = getStoredTicketPresetId();
           setPresetValue(stored);
@@ -1813,28 +1785,7 @@ function TemplateDialog({ admin, onClose }: {
       localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
     } catch { /* ignore */ }
     const label = TICKET_TEMPLATE_PRESETS.find((p) => p.id === id)?.label ?? id;
-    if (!token) {
-      toast({
-        title: "Modèle chargé",
-        description: `${label} — session requise pour enregistrer sur le serveur.`,
-      });
-      return;
-    }
-    void syncTemplateBodyToServerForAdmin(body).then((result) => {
-      if (result === "aborted") return;
-      if (result === "ok") {
-        toast({
-          title: "Modèle actif",
-          description: `${label} — enregistré pour cet administrateur.`,
-        });
-      } else {
-        toast({
-          title: "Synchronisation impossible",
-          description: `${label} est chargé localement. Utilisez « Sauvegarder » pour réessayer.`,
-          variant: "destructive",
-        });
-      }
-    });
+    toast({ title: "Modèle chargé", description: label });
   };
 
   const handleReset = () => {
@@ -1854,22 +1805,7 @@ function TemplateDialog({ admin, onClose }: {
       localStorage.setItem(PHP_KEY, body);
       localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
     } catch { /* ignore */ }
-    if (!token) {
-      toast({ title: "Mikhmon (small)", description: "Session requise pour enregistrer sur le serveur." });
-      return;
-    }
-    void syncTemplateBodyToServerForAdmin(body).then((result) => {
-      if (result === "aborted") return;
-      if (result === "ok") {
-        toast({ title: "Mikhmon (small)", description: "Enregistré pour cet administrateur." });
-      } else {
-        toast({
-          title: "Mikhmon (small)",
-          description: "Chargé localement — utilisez « Sauvegarder » pour le serveur.",
-          variant: "destructive",
-        });
-      }
-    });
+    toast({ title: "Mikhmon (small)", description: "Sauvegardez pour l’appliquer à cet admin." });
   };
 
   const handleImportPHP = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1902,7 +1838,7 @@ function TemplateDialog({ admin, onClose }: {
             Modèle de ticket — {admin.displayName || admin.login}
           </DialogTitle>
           <DialogDescription>
-            Un <strong>modèle intégré</strong> choisi dans la liste est enregistré tout de suite pour cet admin. Le texte <strong>personnalisé</strong> se synchronise avec « Sauvegarder ».
+            Trois modèles intégrés — par défaut <strong>Mikhmon (small)</strong> si le serveur n’a pas encore de modèle pour cet admin.
           </DialogDescription>
         </DialogHeader>
 
@@ -1955,6 +1891,7 @@ function TemplateDialog({ admin, onClose }: {
             <BookMarked className="h-3.5 w-3.5" />
             Définir par défaut (local)
           </Button>
+          <VoucherPrintScaleButton />
         </div>
 
         {loading ? (
@@ -1963,13 +1900,15 @@ function TemplateDialog({ admin, onClose }: {
             Chargement…
           </div>
         ) : (
-          <TicketPhpEditor
+          <textarea
+            className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y min-h-[240px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             value={templateCode}
-            onChange={(next) => {
+            onChange={(e) => {
+              const next = e.target.value;
               setTemplateCode(next);
               setPresetValue(findMatchingPresetId(next));
             }}
-            placeholder="Choisissez un modèle intégré ou collez votre fichier…"
+            spellCheck={false}
           />
         )}
 

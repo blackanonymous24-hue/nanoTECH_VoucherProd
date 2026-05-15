@@ -1,9 +1,4 @@
 import * as esbuild from "esbuild";
-import { cpSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const root = dirname(fileURLToPath(import.meta.url));
 
 await esbuild.build({
   entryPoints: ["src/index.ts"],
@@ -23,8 +18,3 @@ await esbuild.build({
     js: `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`,
   },
 });
-
-// Voucher print templates : lus à l'exécution depuis `ticket-templates/` (voir voucher-print-page.ts).
-// Sans cette copie, `node dist/index.js` ne trouverait pas les fichiers (.php.txt non importables par tsx).
-mkdirSync(join(root, "dist"), { recursive: true });
-cpSync(join(root, "src/lib/ticket-templates"), join(root, "dist/ticket-templates"), { recursive: true });

@@ -1,51 +1,85 @@
-/** Échelle d’impression des tickets (%, style dialogue d’impression du navigateur). Persistance locale, prise en compte immédiate. */
+/** Pourcentage 0–100 : même logique que la « Mise à l’échelle » du dialogue d’impression Chromium (Chrome / Edge). */
+const LEGACY_STORAGE_KEY = "vouchernet_voucher_print_scale_pct_v1";
+const STORAGE_KEY_WEB = "vouchernet_voucher_print_scale_pct_web_v1";
+const STORAGE_KEY_MOBILE = "vouchernet_voucher_print_scale_pct_mobile_v1";
+const DEFAULT_PERCENT = 100;
 
-export const VOUCHER_PRINT_SCALE_DESKTOP_KEY = "vouchernet_voucher_print_scale_desktop_v1";
-export const VOUCHER_PRINT_SCALE_MOBILE_KEY = "vouchernet_voucher_print_scale_mobile_v1";
+export type VoucherPrintScaleProfile = "web" | "mobile";
 
-export const VOUCHER_PRINT_SCALE_DEFAULT = 100;
-export const VOUCHER_PRINT_SCALE_MIN = 0;
-export const VOUCHER_PRINT_SCALE_MAX = 100;
-
-export function clampVoucherPrintScale(n: number): number {
-  if (!Number.isFinite(n)) return VOUCHER_PRINT_SCALE_DEFAULT;
-  return Math.max(VOUCHER_PRINT_SCALE_MIN, Math.min(VOUCHER_PRINT_SCALE_MAX, Math.round(n)));
+function clampPercent(n: number): number {
+  if (!Number.isFinite(n)) return DEFAULT_PERCENT;
+  return Math.min(100, Math.max(0, Math.round(n)));
 }
 
-function readKey(key: string, fallback: number): number {
+/** WebView Expo / React Native : même profil que navigateur mobile. */
+function isNativeWebView(): boolean {
+  return typeof window !== "undefined" && !!window.ReactNativeWebView;
+}
+
+function isMobileUserAgent(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+/** Profil actif pour lecture / écriture (impression incluse). */
+export function getActiveVoucherPrintScaleProfile(): VoucherPrintScaleProfile {
+  if (typeof window === "undefined") return "web";
+  if (isNativeWebView() || isMobileUserAgent()) return "mobile";
+  return "web";
+}
+
+function storageKey(profile: VoucherPrintScaleProfile): string {
+  return profile === "web" ? STORAGE_KEY_WEB : STORAGE_KEY_MOBILE;
+}
+
+/**
+ * Lecture pour un profil donné. L’ancienne clé unique est migrée **vers le web uniquement**
+ * (l’échelle mobile peut différer volontairement).
+ */
+export function getVoucherPrintScalePercentFor(profile: VoucherPrintScaleProfile): number {
   try {
-    const raw = localStorage.getItem(key);
-    if (raw == null) return fallback;
-    return clampVoucherPrintScale(parseInt(raw, 10));
+    const key = storageKey(profile);
+    let raw = localStorage.getItem(key);
+    if ((raw == null || raw === "") && profile === "web") {
+      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacy != null && legacy !== "") {
+        raw = legacy;
+        localStorage.setItem(key, legacy);
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    }
+    if (raw == null || raw === "") return DEFAULT_PERCENT;
+    return clampPercent(Number.parseFloat(raw));
   } catch {
-    return fallback;
+    return DEFAULT_PERCENT;
   }
 }
 
-function writeKey(key: string, value: number): void {
+export function setVoucherPrintScalePercentFor(profile: VoucherPrintScaleProfile, percent: number): void {
   try {
-    localStorage.setItem(key, String(clampVoucherPrintScale(value)));
+    localStorage.setItem(storageKey(profile), String(clampPercent(percent)));
   } catch {
     /* ignore */
   }
 }
 
-export function getVoucherPrintScaleDesktop(): number {
-  if (typeof window === "undefined") return VOUCHER_PRINT_SCALE_DEFAULT;
-  return readKey(VOUCHER_PRINT_SCALE_DESKTOP_KEY, VOUCHER_PRINT_SCALE_DEFAULT);
+/** Valeur utilisée à l’impression selon l’environnement courant (web vs mobile / APK). */
+export function getVoucherPrintScalePercent(): number {
+  return getVoucherPrintScalePercentFor(getActiveVoucherPrintScaleProfile());
 }
 
-export function getVoucherPrintScaleMobile(): number {
-  if (typeof window === "undefined") return VOUCHER_PRINT_SCALE_DEFAULT;
-  return readKey(VOUCHER_PRINT_SCALE_MOBILE_KEY, VOUCHER_PRINT_SCALE_DEFAULT);
+/** Sauvegarde pour le profil courant (web ou mobile). */
+export function setVoucherPrintScalePercent(percent: number): void {
+  setVoucherPrintScalePercentFor(getActiveVoucherPrintScaleProfile(), percent);
 }
 
-export function setVoucherPrintScaleDesktop(value: number): void {
-  if (typeof window === "undefined") return;
-  writeKey(VOUCHER_PRINT_SCALE_DESKTOP_KEY, value);
-}
-
-export function setVoucherPrintScaleMobile(value: number): void {
-  if (typeof window === "undefined") return;
-  writeKey(VOUCHER_PRINT_SCALE_MOBILE_KEY, value);
+/**
+ * Facteur pour `html { zoom: … }` — préféré à `transform: scale()` en impression Chromium.
+ * 100 % → 1 ; 0 % → 0,01 (évite un zoom nul).
+ */
+export function getVoucherPrintZoomFactorFromPercent(percent: number): number {
+  const p = clampPercent(percent);
+  if (p >= 100) return 1;
+  if (p <= 0) return 0.01;
+  return p / 100;
 }

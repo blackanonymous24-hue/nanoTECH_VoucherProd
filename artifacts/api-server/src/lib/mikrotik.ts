@@ -1235,56 +1235,6 @@ export async function listHotspotUsers(conn: RouterConnection, timeout = 15000):
   }, timeout);
 }
 
-/**
- * Utilisateurs hotspot dont le commentaire est **exactement** `comment`, via
- * `/ip/hotspot/user/print ?comment=…` sur le routeur (pas de téléchargement de toute la table).
- * Timeout long : lots de milliers de vouchers sur liaisons lentes.
- */
-export async function listHotspotUsersByExactComment(
-  conn: RouterConnection,
-  comment: string,
-  timeout = 300_000,
-): Promise<HotspotUser[]> {
-  const trimmed = (comment ?? "").trim();
-  if (!trimmed) return [];
-
-  return withRouter(conn, async (api) => {
-    const variants: string[] = [trimmed];
-    const enc = toWin1252(trimmed);
-    if (enc !== trimmed) variants.push(enc);
-
-    let rows: Record<string, unknown>[] = [];
-    for (const variant of variants) {
-      const filtered = await api.write("/ip/hotspot/user/print", [`?comment=${variant}`]);
-      if (filtered.length > 0) {
-        rows = filtered;
-        break;
-      }
-    }
-
-    const users = rows.map((u) => ({
-      username: decodeRouterText((u["name"] as string) ?? ""),
-      password: (u["password"] as string) ?? "",
-      profile: decodeRouterText((u["profile"] as string) ?? ""),
-      comment: decodeRouterText((u["comment"] as string) ?? "") || null,
-      limitUptime: (u["limit-uptime"] as string) || null,
-      limitBytesTotal: (u["limit-bytes-total"] as string) || null,
-      macAddress: (u["mac-address"] as string) || null,
-      uptime: (u["uptime"] as string) || null,
-      bytesIn: (u["bytes-in"] as string) || null,
-      bytesOut: (u["bytes-out"] as string) || null,
-      server: (u["server"] as string) || null,
-      disabled: (u["disabled"] as string) === "true",
-    }));
-
-    return users.filter((u) => {
-      const uname = u.username.toLowerCase();
-      const prof = (u.profile ?? "").toLowerCase();
-      return uname !== "default" && uname !== "default-trial" && prof !== "trial" && prof !== "default-trial";
-    });
-  }, timeout, "high");
-}
-
 export interface AddHotspotUserOpts {
   name: string;
   password: string;

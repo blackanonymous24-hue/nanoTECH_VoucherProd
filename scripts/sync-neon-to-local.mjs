@@ -6,8 +6,7 @@
  *          sinon la première `DATABASE_URL` qui contient `neon.tech` (ignore une
  *          `DATABASE_URL` locale déjà présente dans `.env.local`).
  *          Autre source : `NEON_SYNC_ALLOW_NON_NEON=1` dans l’environnement du shell.
- * Cible : conteneur `vouchernet-preview-pg`, port hôte **5434**, base `vouchernet_preview`,
- *          redémarrage automatique avec Docker (`--restart unless-stopped`).
+ * Cible : conteneur `vouchernet-preview-pg`, port hôte **5434**, base `vouchernet_preview`.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -118,8 +117,6 @@ function main() {
   const run = docker([
     "run",
     "-d",
-    "--restart",
-    "unless-stopped",
     "--name",
     CONTAINER,
     "--network",

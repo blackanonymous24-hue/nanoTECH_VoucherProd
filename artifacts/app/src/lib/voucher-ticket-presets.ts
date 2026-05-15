@@ -16,11 +16,6 @@ const BODIES: Record<TicketTemplatePresetId, string> = {
   "nanotech-small": bodyNanotechSmall,
 };
 
-/** Comparaison stable (fins de lignes / espaces) entre le contenu et les 3 fichiers embarqués. */
-export function normalizeTicketTemplateBody(s: string): string {
-  return s.trim().replace(/\r\n/g, "\n");
-}
-
 export const TICKET_TEMPLATE_PRESETS: { id: TicketTemplatePresetId; label: string }[] = [
   { id: "mikhmon-small", label: "Modèle de ticket style Mikhmon (small)" },
   { id: "nanotech-normal", label: "Modèle de Ticket style nanoTECH (normal)" },
@@ -49,11 +44,11 @@ export function setStoredTicketPresetId(id: TicketTemplatePresetId): void {
   }
 }
 
-/** Repère si le contenu correspond exactement à un des trois modèles fournis (fichiers embarqués). */
+/** Repère si le contenu correspond exactement à un des trois modèles fournis. */
 export function findMatchingPresetId(code: string): TicketTemplatePresetId | "custom" {
-  const t = normalizeTicketTemplateBody(code);
+  const t = code.trim();
   for (const id of Object.keys(BODIES) as TicketTemplatePresetId[]) {
-    if (normalizeTicketTemplateBody(BODIES[id]) === t) return id;
+    if (BODIES[id].trim() === t) return id;
   }
   return "custom";
 }

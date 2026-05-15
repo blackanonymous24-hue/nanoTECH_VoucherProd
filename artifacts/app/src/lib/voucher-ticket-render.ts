@@ -6,14 +6,11 @@
 import { escapeHtml } from "@/lib/mikhmon-small-print";
 import {
   getCustomDefault,
-  getEditorLiveTicketTemplate,
 } from "@/lib/voucher-ticket-defaults";
 import {
   getPresetBody,
   getStoredTicketPresetId,
-  findMatchingPresetId,
 } from "@/lib/voucher-ticket-presets";
-import { voucherTemplatePricePhpVarValue } from "@/lib/voucher-ticket-template-semantics";
 
 const MKS = "<!--mks-mulai-->";
 
@@ -170,12 +167,11 @@ export type VoucherTicketPrintRow = {
   validityRaw: string;
   timelimitRaw: string;
   datalimit: string;
-  /** Libellé tarifaire / montant forfait (hors variable PHP `$price` — voir `voucher-ticket-template-semantics.ts`). */
+  /** Ligne prix Mikhmon / affichage bas de ticket. */
   priceDisplay: string;
   /** Clé couleur nanoTECH (chiffres, ex. profil.price). */
   getpriceKey: string;
   currency: string;
-  /** Texte injecté dans `$dnsname` (= contact routeur, pas l’hôte API). */
   dnsname: string;
   /** Fragment HTML attributs image QR (ex. `src="data:image/png;base64,..."`) ou vide. */
   qrcode: string;
@@ -183,14 +179,13 @@ export type VoucherTicketPrintRow = {
 
 function buildVarMap(row: VoucherTicketPrintRow, nano: null | { variant: "normal" | "small"; color: string; validity: string; timelimit: string }): Record<string, string> {
   const num = String(row.num);
-  /** `$price` en PHP = devise (contrat produit, voir `voucher-ticket-template-semantics.ts`). */
   const base: Record<string, string> = {
     hotspotname: row.hotspotName,
     num,
     username: row.username,
     password: row.password,
     datalimit: row.datalimit,
-    price: voucherTemplatePricePhpVarValue(row.currency),
+    price: row.priceDisplay,
     getprice: row.getpriceKey,
     currency: row.currency,
     dnsname: row.dnsname,
@@ -239,22 +234,12 @@ export function renderVoucherTicketsBody(template: string, rows: VoucherTicketPr
 }
 
 /**
- * Modèle effectif pour impression :
- * 1) Texte actuel de l’éditeur « Modèle de ticket » (localStorage), s’il est présent ;
- * 2) sinon relu sur le serveur (pas de cache HTTP) ;
- * 3) sinon défaut local / préréglage stocké.
+ * Modèle effectif : serveur (si enregistré), sinon défaut local / préréglage stocké.
  */
 export async function fetchEffectiveTicketTemplate(apiBase: string): Promise<string> {
-  const live = getEditorLiveTicketTemplate();
-  if (live) {
-    const id = findMatchingPresetId(live);
-    if (id !== "custom") return getPresetBody(id);
-    return live;
-  }
-
   let fromServer = "";
   try {
-    const r = await fetch(`${apiBase}/api/tenant/ticket-template`, { cache: "no-store" });
+    const r = await fetch(`${apiBase}/api/admin/ticket-template`);
     if (r.ok) {
       const data = (await r.json()) as { template?: string | null };
       fromServer = data.template?.trim() ?? "";
@@ -262,41 +247,6 @@ export async function fetchEffectiveTicketTemplate(apiBase: string): Promise<str
   } catch {
     /* ignore */
   }
-  if (fromServer) {
-    const id = findMatchingPresetId(fromServer);
-    if (id !== "custom") return getPresetBody(id);
-    return fromServer;
-  }
+  if (fromServer) return fromServer;
   return getCustomDefault() || getPresetBody(getStoredTicketPresetId());
-}
-
-const ADMIN_TOKEN_KEY = "vouchernet_admin_token";
-
-function readAdminTokenForTemplate(): string | null {
-  try {
-    return localStorage.getItem(ADMIN_TOKEN_KEY) ?? sessionStorage.getItem(ADMIN_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Pousse le modèle « live » de l’éditeur vers le serveur (`PUT /api/tenant/ticket-template`)
- * pour que d’autres clients ou l’endpoint `voucher-print-small` voient le même gabarit.
- */
-export async function flushEditorLiveTicketTemplateToServer(apiBase: string): Promise<void> {
-  const live = getEditorLiveTicketTemplate();
-  const token = readAdminTokenForTemplate();
-  if (!live?.trim() || !token) return;
-  const prefix = apiBase.replace(/\/$/, "");
-  try {
-    await fetch(`${prefix}/api/tenant/ticket-template`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ template: live }),
-      cache: "no-store",
-    });
-  } catch {
-    /* ignore — l’impression client utilisera quand même le live via fetchEffectiveTicketTemplate */
-  }
 }

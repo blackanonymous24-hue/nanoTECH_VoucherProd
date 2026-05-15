@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { renderVoucherTicketHtml, type VoucherTicketPrintRow } from "@/lib/voucher-ticket-render";
-import { MIKHMON_VOUCHER_PRINT_CSS } from "@/lib/print";
+import { MIKHMON_VOUCHER_PRINT_CSS } from "@/lib/mikhmon-voucher-preview-css";
 
 /** Placeholder 1×1 PNG pour l’aperçu (évite une image cassée si le gabarit utilise $qrcode). */
 const PREVIEW_QR_ATTRS =
