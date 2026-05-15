@@ -132,6 +132,20 @@ export async function ensureVerificationCodeColumn(): Promise<void> {
 }
 
 /**
+ * Colonnes print_scale_web / print_scale_mobile (0–100) — sync multi-appareils.
+ * Remplacent l'ancien stockage localStorage-only.
+ */
+export async function ensurePrintScaleColumns(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS print_scale_web integer`);
+    await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS print_scale_mobile integer`);
+    logger.info("DB compat: colonnes admin_settings.print_scale_web/mobile vérifiées / ajoutées");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.print_scale_web/mobile");
+  }
+}
+
+/**
  * Backfill password_plain = 'root' pour les super admins créés avant l'ajout
  * de la colonne (le compte initial admin/root n'avait pas de mot de passe en clair stocké).
  * Idempotent : ne touche que les lignes où password_plain IS NULL.

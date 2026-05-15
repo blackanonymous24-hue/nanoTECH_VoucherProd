@@ -254,6 +254,11 @@ table.voucher {
   td    { page-break-inside:avoid; page-break-after:auto }
   thead { display:table-header-group }
   tfoot { display:table-footer-group }
+  table.voucher {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    display: inline-block !important;
+  }
 }
 #num {
   float:right;
