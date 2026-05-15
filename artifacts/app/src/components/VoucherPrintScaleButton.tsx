@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Scaling } from "lucide-react";
+import { Scaling, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import {
-  getActiveVoucherPrintScaleProfile,
-  getVoucherPrintScalePercentFor,
-  setVoucherPrintScalePercentFor,
+  getVoucherPrintScalePercent,
+  setVoucherPrintScalePercent,
 } from "@/lib/voucher-print-scale";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -19,18 +18,26 @@ type VoucherPrintScaleButtonProps = {
 };
 
 /**
- * Lit l'échelle depuis l'API au montage (sync multi-appareils) puis à chaque ouverture.
- * Sauvegarde en localStorage ET en base à chaque modification.
+ * Bouton d'échelle d'impression — visible uniquement pour le super admin.
+ * Permet de régler l'échelle et de la diffuser à tous les comptes via "Appliquer à tous".
  */
 export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonProps) {
-  const { token } = useAuth();
+  const { token, isSuperAdmin } = useAuth();
+
+  // Masqué pour tous les non-super-admins
+  if (!isSuperAdmin) return null;
+
+  return <VoucherPrintScaleButtonInner token={token} className={className} />;
+}
+
+function VoucherPrintScaleButtonInner({ token, className }: { token: string | null; className?: string }) {
   const authHeaders = { Authorization: `Bearer ${token ?? ""}` };
 
-  const [open, setOpen] = useState(false);
-  const [activeProfile, setActiveProfile] = useState(() => getActiveVoucherPrintScaleProfile());
-  const [pctWeb, setPctWeb] = useState(() => getVoucherPrintScalePercentFor("web"));
-  const [pctMobile, setPctMobile] = useState(() => getVoucherPrintScalePercentFor("mobile"));
-  const [synced, setSynced] = useState(false);
+  const [open, setOpen]       = useState(false);
+  const [pct, setPct]         = useState(() => getVoucherPrintScalePercent());
+  const [synced, setSynced]   = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastOk, setBroadcastOk]   = useState(false);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -39,57 +46,54 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
     try {
       const r = await fetch(`${BASE}/api/admin/print-scale`, { headers: authHeaders });
       if (!r.ok) return;
-      const data = (await r.json()) as { scaleWeb: number | null; scaleMobile: number | null };
+      const data = (await r.json()) as { scaleWeb: number | null };
       if (data.scaleWeb !== null && data.scaleWeb !== undefined) {
-        setVoucherPrintScalePercentFor("web", data.scaleWeb);
-        setPctWeb(data.scaleWeb);
-      }
-      if (data.scaleMobile !== null && data.scaleMobile !== undefined) {
-        setVoucherPrintScalePercentFor("mobile", data.scaleMobile);
-        setPctMobile(data.scaleMobile);
+        setVoucherPrintScalePercent(data.scaleWeb);
+        setPct(data.scaleWeb);
       }
       setSynced(true);
-    } catch {
-      /* offline — localStorage conservé */
-    }
+    } catch { /* offline — localStorage conservé */ }
   };
 
-  const saveToServer = (web: number, mobile: number) => {
+  const saveToServer = (web: number) => {
     if (!token) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       fetch(`${BASE}/api/admin/print-scale`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ scaleWeb: web, scaleMobile: mobile }),
+        body: JSON.stringify({ scaleWeb: web }),
       }).catch(() => { /* ignore réseau */ });
     }, 600);
   };
 
-  useEffect(() => {
-    fetchFromServer();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  useEffect(() => { fetchFromServer(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!open) return;
-    setActiveProfile(getActiveVoucherPrintScaleProfile());
+    if (!open) { setBroadcastOk(false); return; }
     fetchFromServer();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleWebChange = (v: number[]) => {
+  const handleChange = (v: number[]) => {
     const next = v[0] ?? 100;
-    setPctWeb(next);
-    setVoucherPrintScalePercentFor("web", next);
-    saveToServer(next, pctMobile);
+    setPct(next);
+    setVoucherPrintScalePercent(next);
+    setBroadcastOk(false);
+    saveToServer(next);
   };
 
-  const handleMobileChange = (v: number[]) => {
-    const next = v[0] ?? 100;
-    setPctMobile(next);
-    setVoucherPrintScalePercentFor("mobile", next);
-    saveToServer(pctWeb, next);
+  const handleBroadcast = async () => {
+    if (!token || broadcasting) return;
+    setBroadcasting(true);
+    setBroadcastOk(false);
+    try {
+      const r = await fetch(`${BASE}/api/admin/print-scale/broadcast`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+      });
+      if (r.ok) setBroadcastOk(true);
+    } catch { /* ignore */ }
+    finally { setBroadcasting(false); }
   };
 
   return (
@@ -104,51 +108,42 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
         <div className="space-y-3">
           <div className="space-y-1">
             <Label className="text-xs font-medium leading-snug">
-              Mise à l&apos;échelle (Chrome / Edge)
+              Mise à l&apos;échelle impression
             </Label>
             <p className="text-[11px] text-muted-foreground leading-snug">
-              Réglages synchronisés entre tous vos appareils via le serveur.{" "}
-              {synced && (
-                <span className="text-green-600 font-medium">✓ synchronisé</span>
-              )}
+              Réglage synchronisé entre appareils.{" "}
+              {synced && <span className="text-green-600 font-medium">✓ synchronisé</span>}
             </p>
           </div>
 
           <div className="space-y-2.5 rounded-md border bg-muted/20 p-2.5">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs font-medium leading-tight">Navigateur web (bureau)</span>
-              <span className="text-xl font-semibold tabular-nums tracking-tight">{pctWeb}%</span>
+              <span className="text-xs font-medium leading-tight">Échelle d&apos;impression</span>
+              <span className="text-xl font-semibold tabular-nums tracking-tight">{pct}%</span>
             </div>
-            <Slider
-              min={0}
-              max={100}
-              step={1}
-              value={[pctWeb]}
-              onValueChange={handleWebChange}
-            />
+            <Slider min={0} max={100} step={1} value={[pct]} onValueChange={handleChange} />
           </div>
 
-          <div className="space-y-2.5 rounded-md border bg-muted/20 p-2.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs font-medium leading-tight">Mobile / APK</span>
-              <span className="text-xl font-semibold tabular-nums tracking-tight">{pctMobile}%</span>
-            </div>
-            <Slider
-              min={0}
-              max={100}
-              step={1}
-              value={[pctMobile]}
-              onValueChange={handleMobileChange}
-            />
+          <div className="border-t pt-2.5 space-y-2">
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Appliquer cette échelle ({pct}%) à <strong className="text-foreground">tous les comptes</strong>{" "}
+              (admins, gérants, collaborateurs).
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={cn(
+                "w-full gap-1.5",
+                broadcastOk && "border-green-500 text-green-700"
+              )}
+              disabled={broadcasting}
+              onClick={handleBroadcast}
+            >
+              <Users className="h-3.5 w-3.5" />
+              {broadcasting ? "Envoi…" : broadcastOk ? "✓ Appliqué à tous" : "Appliquer à tous"}
+            </Button>
           </div>
-
-          <p className="text-[10px] text-muted-foreground leading-snug border-t pt-2">
-            Depuis cet appareil, l&apos;impression utilise actuellement l&apos;échelle{" "}
-            <strong className="font-medium text-foreground">
-              {activeProfile === "web" ? "Web" : "Mobile / APK"}
-            </strong>
-            .
-          </p>
         </div>
       </PopoverContent>
     </Popover>
