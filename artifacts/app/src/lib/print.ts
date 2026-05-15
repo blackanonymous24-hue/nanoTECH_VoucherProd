@@ -147,16 +147,71 @@ html.vn-print-mobile #vn-print-scale-root {
   box-sizing: border-box !important;
   overflow: visible !important;
 }
-html.vn-print-mobile table.voucher {
-  flex: 0 0 auto;
+html.vn-print-mobile .vn-ticket-row {
+  display: block !important;
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+  font-size: 0;
+}
+html.vn-print-mobile .vn-ticket-row > table {
   display: inline-block !important;
   vertical-align: top !important;
   box-sizing: border-box !important;
   margin: 2mm !important;
-  break-inside: avoid !important;
-  page-break-inside: avoid !important;
+  font-size: 12px;
 }
 `;
+}
+
+/**
+ * Extrait les éléments `<table>` racines depuis le HTML concaténé des tickets.
+ * Gère l'imbrication (mikhmon-small a 3 niveaux de tables).
+ */
+function splitVoucherTickets(html: string): string[] {
+  const tickets: string[] = [];
+  const lower = html.toLowerCase();
+  let depth = 0;
+  let start = -1;
+  let i = 0;
+  while (i < lower.length) {
+    const nextOpen = lower.indexOf('<table', i);
+    const nextClose = lower.indexOf('</table>', i);
+    if (nextOpen === -1 && nextClose === -1) break;
+    if (nextClose === -1 || (nextOpen !== -1 && nextOpen < nextClose)) {
+      if (depth === 0) start = nextOpen;
+      depth++;
+      i = nextOpen + 6;
+    } else {
+      depth = Math.max(0, depth - 1);
+      const closeEnd = nextClose + 8;
+      if (depth === 0 && start !== -1) {
+        tickets.push(html.slice(start, closeEnd));
+        start = -1;
+      }
+      i = closeEnd;
+    }
+  }
+  return tickets;
+}
+
+/**
+ * Détecte la largeur en pixels du premier ticket racine via son attribut/style `width`.
+ * Fallback : 160 (largeur Mikhmon par défaut). Couvre Mikhmon (160), nanoTECH small (135),
+ * nanoTECH normal (215), etc.
+ */
+function detectTicketWidthPx(firstTicketHtml: string | undefined): number {
+  if (!firstTicketHtml) return 160;
+  // Lit la 1ʳᵉ balise <table ...> uniquement (pas les enfants)
+  const openTagMatch = firstTicketHtml.match(/<table\b[^>]*>/i);
+  if (!openTagMatch) return 160;
+  const openTag = openTagMatch[0];
+  // Cherche style="...width: Npx..."
+  const styleMatch = openTag.match(/style\s*=\s*["'][^"']*?width\s*:\s*(\d+(?:\.\d+)?)\s*px/i);
+  if (styleMatch) return Math.round(parseFloat(styleMatch[1]));
+  // Cherche attribut width="N" ou width=N
+  const attrMatch = openTag.match(/\bwidth\s*=\s*["']?(\d+(?:\.\d+)?)/i);
+  if (attrMatch) return Math.round(parseFloat(attrMatch[1]));
+  return 160;
 }
 
 /**
@@ -184,15 +239,36 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   // À l'échelle zf ≠ 1 : le conteneur est élargi à (200/zf) mm + zoom: zf CSS
   //   → visuel = 200 mm, mais plus de colonnes tiennent dans la grille logique.
   //
-  // Approche unifiée iOS + Android : flex-wrap natif sur le conteneur, le navigateur
-  // décide des colonnes en fonction des tailles réelles des tickets (plus de hardcoding
-  // par template). break-inside: avoid sur table.voucher (inline-block) gère les coupures.
-  const A4_MM = 200; // largeur imprimable A4 (210 mm − marges 5 mm × 2)
+  // ── Mobile : pré-découpe en rangées-blocs pour pagination fiable ─────────
+  //
+  // Sur les 3 plateformes mobiles testées (Android Chrome, iPhone Safari, iPhone Chrome),
+  // `break-inside: avoid` sur des enfants flex est ignoré → tickets coupés entre pages.
+  // Solution fiable cross-browser : grouper N tickets dans un `<div class="vn-ticket-row">`
+  // bloc, sur lequel `break-inside: avoid` est honoré universellement.
+  //
+  // Largeur réelle détectée depuis le HTML (Mikhmon=160px, nanoTECH small=135px,
+  // nanoTECH normal=215px) → numCols correct quel que soit le template.
+  const A4_MM = 200; // A4 imprimable (210 mm − marges 5 mm × 2)
   const gridMm = zoom !== 1 ? (A4_MM / zf) : A4_MM;
+  const gridWidthPx = Math.round((gridMm / 25.4) * 96);
+  const TICKET_MARGIN_PX = Math.round((4 / 25.4) * 96); // 2mm × 2 côtés ≈ 15 px
 
-  const processedBodyHtml = bodyTicketsHtml;
+  let processedBodyHtml = bodyTicketsHtml;
+  if (mobile) {
+    const tickets = splitVoucherTickets(bodyTicketsHtml);
+    if (tickets.length > 0) {
+      const ticketWidthPx = detectTicketWidthPx(tickets[0]);
+      const effectiveWidth = ticketWidthPx + TICKET_MARGIN_PX;
+      const numCols = Math.max(1, Math.floor(gridWidthPx / effectiveWidth));
+      const rows: string[] = [];
+      for (let r = 0; r < tickets.length; r += numCols) {
+        rows.push(`<div class="vn-ticket-row">${tickets.slice(r, r + numCols).join("")}</div>`);
+      }
+      processedBodyHtml = rows.join("");
+    }
+  }
 
-  // ── CSS impression mobile : unités mm, @page A4, flex-wrap unifié ────────
+  // ── CSS impression mobile : unités mm, @page A4 ──────────────────────────
   let mobileScaleCss = "";
   if (mobile) {
     mobileScaleCss =
@@ -205,10 +281,14 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
       `    max-width: none !important;\n` +
       `  }\n` +
       `  html.vn-print-mobile #vn-print-scale-root {\n` +
-      `    display: flex !important;\n` +
-      `    flex-wrap: wrap !important;\n` +
+      `    display: block !important;\n` +
+      `    width: ${A4_MM}mm !important;\n` +
+      `    max-width: none !important;\n` +
+      `  }\n` +
+      `  html.vn-print-mobile .vn-ticket-row {\n` +
       `    width: ${gridMm.toFixed(2)}mm !important;\n` +
       `    max-width: none !important;\n` +
+      `    white-space: nowrap !important;\n` +
       (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
       `  }\n` +
       `}\n`;
