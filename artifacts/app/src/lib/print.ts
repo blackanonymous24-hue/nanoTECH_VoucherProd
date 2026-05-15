@@ -48,14 +48,6 @@ function isMobile(): boolean {
   return false;
 }
 
-/** iOS Safari (inclut iPadOS 13+) — `zoom` CSS n'affecte pas le layout flex sur cette plateforme. */
-function isIOS(): boolean {
-  if (typeof navigator === "undefined") return false;
-  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return true;
-  // iPadOS 13+ se signale comme Macintosh mais a le multi-touch
-  return navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent);
-}
-
 /** Navigateur mobile ou APK : layout + zoom d’impression dédiés (Safari / WebView gèrent mal `zoom` sur `html`). */
 function isVoucherPrintMobileLayout(): boolean {
   return isNativeWebView() || isMobile();
@@ -155,50 +147,16 @@ html.vn-print-mobile #vn-print-scale-root {
   box-sizing: border-box !important;
   overflow: visible !important;
 }
-html.vn-print-mobile .vn-ticket-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
 html.vn-print-mobile table.voucher {
   flex: 0 0 auto;
   display: inline-block !important;
   vertical-align: top !important;
   box-sizing: border-box !important;
-  margin: 1mm !important;
+  margin: 2mm !important;
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
 }
 `;
-}
-
-/**
- * Extrait les éléments `<table class="voucher">...</table>` individuels depuis le HTML
- * concaténé des tickets. Gère l'imbrication de tables (template mikhmon-small en a 3 niveaux).
- */
-function splitVoucherTickets(html: string): string[] {
-  const tickets: string[] = [];
-  const lower = html.toLowerCase();
-  let depth = 0;
-  let start = -1;
-  let i = 0;
-  while (i < lower.length) {
-    const nextOpen = lower.indexOf('<table', i);
-    const nextClose = lower.indexOf('</table>', i);
-    if (nextOpen === -1 && nextClose === -1) break;
-    if (nextClose === -1 || (nextOpen !== -1 && nextOpen < nextClose)) {
-      if (depth === 0) start = nextOpen;
-      depth++;
-      i = nextOpen + 6;
-    } else {
-      depth = Math.max(0, depth - 1);
-      const closeEnd = nextClose + 8; // '</table>' = 8 chars
-      if (depth === 0 && start !== -1) {
-        tickets.push(html.slice(start, closeEnd));
-        start = -1;
-      }
-      i = closeEnd;
-    }
-  }
-  return tickets;
 }
 
 /**
@@ -208,7 +166,6 @@ function splitVoucherTickets(html: string): string[] {
 function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTicketsHtml: string): string {
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const mobile = isVoucherPrintMobileLayout();
-  const ios = isIOS();
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
   const zf = Number(zoom.toFixed(6));
 
@@ -227,65 +184,17 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   // À l'échelle zf ≠ 1 : le conteneur est élargi à (200/zf) mm + zoom: zf CSS
   //   → visuel = 200 mm, mais plus de colonnes tiennent dans la grille logique.
   //
-  // iOS (Safari/WebKit) : break-inside: avoid ignoré sur les enfants flex
-  //   → rangées HTML pré-calculées, chaque rangée = bloc avec zoom + break-inside.
-  // Android (Chromium) : flex-wrap natif, le moteur de layout décide des colonnes.
-  const A4_MM = 200; // largeur imprimable A4 avec marges 5 mm de chaque côté
-  // A4_PX sert uniquement au calcul interne du nombre de colonnes iOS (tickets en px)
-  const A4_PX = Math.round((A4_MM / 25.4) * 96); // ≈ 756 px CSS
-  const TICKET_W_PX = 160;
-  const TICKET_MARGIN_PX = Math.round((2 / 25.4) * 96); // ≈ 8 px
-  const TICKET_EFFECTIVE_W = TICKET_W_PX + TICKET_MARGIN_PX; // ≈ 168 px
+  // Approche unifiée iOS + Android : flex-wrap natif sur le conteneur, le navigateur
+  // décide des colonnes en fonction des tailles réelles des tickets (plus de hardcoding
+  // par template). break-inside: avoid sur table.voucher (inline-block) gère les coupures.
+  const A4_MM = 200; // largeur imprimable A4 (210 mm − marges 5 mm × 2)
   const gridMm = zoom !== 1 ? (A4_MM / zf) : A4_MM;
-  const gridWidthPx = Math.round((gridMm / 25.4) * 96); // pour calcul numCols iOS
 
-  // ── Découpage en rangées : iOS uniquement ────────────────────────────────
-  let processedBodyHtml = bodyTicketsHtml;
-  if (mobile && ios) {
-    const numCols = Math.max(1, Math.floor(gridWidthPx / TICKET_EFFECTIVE_W));
-    const ticketsList = splitVoucherTickets(bodyTicketsHtml);
-    const rowsHtml: string[] = [];
-    for (let ri = 0; ri < ticketsList.length; ri += numCols) {
-      rowsHtml.push(
-        `<div class="vn-ticket-row">${ticketsList.slice(ri, ri + numCols).join("")}</div>`,
-      );
-    }
-    processedBodyHtml = rowsHtml.join("");
-  }
+  const processedBodyHtml = bodyTicketsHtml;
 
-  // ── CSS impression mobile : unités mm, @page A4 ──────────────────────────
+  // ── CSS impression mobile : unités mm, @page A4, flex-wrap unifié ────────
   let mobileScaleCss = "";
-  if (mobile && ios) {
-    // iOS : rangées-blocs avec break-inside: avoid (WebKit ignore break-inside sur flex)
-    mobileScaleCss =
-      `@media print {\n` +
-      `  @page { size: A4 portrait; margin: 5mm; }\n` +
-      `  html.vn-print-mobile body {\n` +
-      `    width: ${A4_MM}mm !important;\n` +
-      `    margin: 0 !important;\n` +
-      `    padding: 0 !important;\n` +
-      `    max-width: none !important;\n` +
-      `  }\n` +
-      `  html.vn-print-mobile #vn-print-scale-root {\n` +
-      `    display: block !important;\n` +
-      `    width: ${A4_MM}mm !important;\n` +
-      `    max-width: none !important;\n` +
-      `  }\n` +
-      `  html.vn-print-mobile .vn-ticket-row {\n` +
-      `    display: flex !important;\n` +
-      `    flex-wrap: nowrap !important;\n` +
-      `    align-items: flex-start !important;\n` +
-      `    width: ${gridMm.toFixed(2)}mm !important;\n` +
-      `    max-width: none !important;\n` +
-      (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
-      `    break-inside: avoid !important;\n` +
-      `    page-break-inside: avoid !important;\n` +
-      `  }\n` +
-      `}\n`;
-  } else if (mobile) {
-    // Android : flex-wrap natif + body ancré sur A4 mm → identique au desktop
-    // À 100 % : gridMm = A4_MM, pas de zoom → même résultat qu'en desktop
-    // À une autre échelle : conteneur élargi à A4_MM/zf mm + zoom:zf → visuel = A4_MM mm
+  if (mobile) {
     mobileScaleCss =
       `@media print {\n` +
       `  @page { size: A4 portrait; margin: 5mm; }\n` +
