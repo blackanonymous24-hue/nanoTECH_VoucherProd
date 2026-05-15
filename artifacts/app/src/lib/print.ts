@@ -197,14 +197,18 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   const scaledColW = Math.round(TICKET_NATURAL_W * zf);
 
   // CSS spécifique iOS : grille + zoom sur chaque ticket
+  // justify-items: start → le ticket conserve son width: 160px natif (pas étiré à la colonne).
+  // Le ticket dépasse de (160-scaledColW)px en layout, mais son rendu visuel via zoom = scaledColW.
+  // Résultat : pas de coupure de texte dans l'en-tête, taille visuelle correcte.
   const iosScaleCss = ios
     ? `html.vn-print-mobile #vn-print-scale-root {\n` +
       `  display: grid !important;\n` +
       `  grid-template-columns: repeat(auto-fill, ${scaledColW}px) !important;\n` +
+      `  align-items: start !important;\n` +
+      `  justify-items: start !important;\n` +
       `  gap: 1mm !important;\n` +
       `}\n` +
       `html.vn-print-mobile table.voucher {\n` +
-      `  display: block !important;\n` +
       `  margin: 0 !important;\n` +
       (zoom !== 1 ? `  zoom: ${zf};\n` : "") +
       `}\n`
