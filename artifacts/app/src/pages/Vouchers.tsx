@@ -22,6 +22,7 @@ import {
   ticketPriceColorKey,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
+import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-template-semantics";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -86,7 +87,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 
-/** Affichage des compteurs hotspot user (MikroTik `bytes-in` / `bytes-out`), aligné sur Sessions. */
+/** Compteurs hotspot : bytesIn = download (↓), bytesOut = upload (↑) — voir `hotspotTrafficBytesFromRouter` côté API. */
 function formatUserTrafficBytes(bytes: string | null | undefined): string {
   if (bytes == null || bytes === "") return "—";
   const n = parseInt(bytes, 10);
@@ -814,15 +815,15 @@ export default function Vouchers() {
         hotspotName?: string | null;
         name?: string;
         currency?: string | null;
+        contact?: string | null;
         host?: string;
       } | undefined;
-      const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || "Hotspot";
-      const currency = (r?.currency ?? "").trim() || "FCFA";
-      const dnsname = (r?.host ?? "").trim() || hotspotName;
+      const phpFields = buildVoucherTicketPhpFieldsFromRouter(r ?? {});
+      const { hotspotName, currency, dnsname, qrLoginHost } = phpFields;
       const template = await fetchEffectiveTicketTemplate(BASE);
       const profByName = new Map(sortedProfiles.map((p) => [p.name, p]));
       const qrAttrs = await buildVoucherQrImgAttrsBatch(
-        dnsname,
+        qrLoginHost,
         users.map((u) => ({ username: u.username, password: u.password })),
       );
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
@@ -2944,7 +2945,7 @@ function UserRow({
                 {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
                   <span
                     className="max-w-full truncate rounded border border-amber-200/35 bg-amber-100/40 px-1 py-0.5 text-[11px] leading-tight text-amber-800/65"
-                    title="Octets sortants (bytes-out)"
+                    title="Upload (RouterOS bytes-in)"
                   >
                     ↑ {formatUserTrafficBytes(user.bytesOut)}
                   </span>
@@ -2952,7 +2953,7 @@ function UserRow({
                 {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
                   <span
                     className="max-w-full truncate rounded border border-sky-200/35 bg-sky-100/40 px-1 py-0.5 text-[11px] leading-tight text-sky-700/70"
-                    title="Octets entrants (bytes-in)"
+                    title="Download (RouterOS bytes-out)"
                   >
                     ↓ {formatUserTrafficBytes(user.bytesIn)}
                   </span>

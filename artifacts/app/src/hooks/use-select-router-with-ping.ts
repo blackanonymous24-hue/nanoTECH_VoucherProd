@@ -3,14 +3,13 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { testRouterConnectionApi } from "@/lib/router-connection-test";
 
 /**
- * Ping-avant-connexion : tente 2 fois de pinguer le routeur avant de le
- * sélectionner. Chaque échec affiche un toast 3 s. Après 2 échecs, le
- * routeur est quand même sélectionné mais `isPingFailed` est levé pour que
- * le tableau de bord affiche la page d'erreur.
+ * Test API RouterOS avant connexion (2 tentatives). Le simple TCP `/ping` ne suffit pas :
+ * le port peut être ouvert sans login API valide.
+ * Chaque échec affiche un toast 3 s. Après 2 échecs, le routeur est quand même sélectionné
+ * mais `isPingFailed` est levé pour que le tableau de bord affiche la page d'erreur.
  *
  * `opts.routerData` — données minimales du routeur (id + name) à stocker
  *   comme "routeur emprunté" quand le super-admin se connecte au routeur
@@ -35,21 +34,14 @@ export function useSelectRouterWithPing() {
       let success = false;
 
       for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const res = await fetch(`${BASE}/api/routers/${id}/ping?force=1`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          });
-          if (res.ok) {
-            const data = (await res.json()) as { success: boolean };
-            if (data.success) {
-              success = true;
-              break;
-            }
-          }
-        } catch {}
+        const data = await testRouterConnectionApi(id, token);
+        if (data.success) {
+          success = true;
+          break;
+        }
 
-        toast.error("Impossible de se connecter au Router !", {
-          description: "Nouvelle tentative en cours...",
+        toast.error("Connexion API MikroTik impossible", {
+          description: data.message || "Nouvelle tentative en cours…",
           duration: 3000,
           id: "router-ping-fail",
         });

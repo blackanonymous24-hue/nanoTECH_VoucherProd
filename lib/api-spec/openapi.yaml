@@ -914,8 +914,10 @@ components:
           type: string
         bytesIn:
           type: ["string", "null"]
+          description: Download côté client (RouterOS bytes-out).
         bytesOut:
           type: ["string", "null"]
+          description: Upload côté client (RouterOS bytes-in).
         server:
           type: ["string", "null"]
 
@@ -1180,10 +1182,10 @@ components:
           description: Session uptime from /ip/hotspot/user (RouterOS), when available.
         bytesIn:
           type: ["string", "null"]
-          description: Bytes received by the user (RouterOS bytes-in).
+          description: Download côté client (RouterOS bytes-out).
         bytesOut:
           type: ["string", "null"]
-          description: Bytes sent by the user (RouterOS bytes-out).
+          description: Upload côté client (RouterOS bytes-in).
         server:
           type: ["string", "null"]
         disabled:

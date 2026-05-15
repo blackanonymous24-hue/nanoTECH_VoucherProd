@@ -1,19 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { FileCode, Save, Loader2, RotateCcw, Upload, BookMarked, Router } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FileCode, Save, Loader2, RotateCcw, Router } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import {
-  DEFAULT_MIKHMON_PHP,
-  PHP_KEY,
-  CUSTOM_DEFAULT_KEY,
-  getCustomDefault,
-} from "@/lib/voucher-ticket-defaults";
 import {
   TICKET_TEMPLATE_PRESETS,
   type TicketTemplatePresetId,
@@ -22,9 +16,14 @@ import {
   setStoredTicketPresetId,
   findMatchingPresetId,
 } from "@/lib/voucher-ticket-presets";
+import { TicketPhpEditor } from "@/components/TicketPhpEditor";
 import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
+import { VoucherPrintScaleBroadcastButton } from "@/components/VoucherPrintScaleBroadcastButton";
 import { setCurrentPrintTemplateId } from "@/lib/voucher-print-scale";
-
+import {
+  TICKET_TEMPLATE_VAR_REFERENCE,
+  TICKET_TEMPLATE_VAR_REFERENCE_CONDITIONAL,
+} from "@/lib/ticket-template-vars";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function TicketTemplate() {
@@ -34,38 +33,72 @@ export default function TicketTemplate() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [presetValue, setPresetValue] = useState<TicketTemplatePresetId | "custom">("mikhmon-small");
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [editorEpoch, setEditorEpoch] = useState(0);
+  const templateCardRef = useRef<HTMLDivElement>(null);
+  const loadRequestRef = useRef(0);
+  const [templateCardHeight, setTemplateCardHeight] = useState<number | undefined>(undefined);
+  const [syncVarsCardHeight, setSyncVarsCardHeight] = useState(false);
 
   useEffect(() => { setCurrentPrintTemplateId(presetValue); }, [presetValue]);
 
   useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setSyncVarsCardHeight(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    const node = templateCardRef.current;
+    if (!node) return;
+    const measure = () => setTemplateCardHeight(node.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [loading, code]);
+
+  const loadTemplateFromServer = useCallback(async (): Promise<boolean> => {
     if (!token) {
       setLoading(false);
-      return;
+      setCode("");
+      setDirty(false);
+      return false;
     }
+    const reqId = ++loadRequestRef.current;
     setLoading(true);
-    fetch(`${BASE}/api/admin/ticket-template`, { headers: authHeaders })
-      .then((r) => (r.ok ? r.json() : { template: null }))
-      .then((data: { template: string | null }) => {
-        const fromServer = data.template?.trim() ?? "";
-        if (fromServer) {
-          setCode(fromServer);
-          setPresetValue(findMatchingPresetId(fromServer));
-        } else {
-          const stored = getStoredTicketPresetId();
-          setPresetValue(stored);
-          setCode(getCustomDefault() || getPresetBody(stored));
-        }
-      })
-      .catch(() => {
-        const stored = getStoredTicketPresetId();
-        setPresetValue(stored);
-        setCode(getCustomDefault() || getPresetBody(stored));
-      })
-      .finally(() => setLoading(false));
+    try {
+      const r = await fetch(`${BASE}/api/admin/ticket-template`, { headers: authHeaders });
+      const data = (r.ok ? await r.json() : { template: null }) as { template: string | null };
+      if (reqId !== loadRequestRef.current) return false;
+      const fromServer = data.template ?? "";
+      setCode(fromServer);
+      setPresetValue(
+        fromServer.trim() ? findMatchingPresetId(fromServer) : getStoredTicketPresetId(),
+      );
+      setDirty(false);
+      setEditorEpoch((n) => n + 1);
+      return true;
+    } catch {
+      if (reqId !== loadRequestRef.current) return false;
+      toast({
+        title: "Chargement impossible",
+        description: "Le modèle enregistré n'a pas pu être récupéré.",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      if (reqId === loadRequestRef.current) setLoading(false);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  useEffect(() => {
+    void loadTemplateFromServer();
+  }, [loadTemplateFromServer]);
 
   const handleSave = async () => {
     if (!token) return;
@@ -77,6 +110,8 @@ export default function TicketTemplate() {
         body: JSON.stringify({ template: code }),
       });
       if (r.ok) {
+        setDirty(false);
+        setPresetValue(findMatchingPresetId(code));
         toast({ title: "Modèle enregistré", description: "Synchronisé sur le serveur pour ce compte administrateur." });
       } else {
         const err = await r.json().catch(() => ({})) as { error?: string };
@@ -95,161 +130,177 @@ export default function TicketTemplate() {
       return;
     }
     const id = v as TicketTemplatePresetId;
+    const body = getPresetBody(id);
+    if (dirty && code.trim() !== body.trim()) {
+      const ok = window.confirm(
+        "Remplacer le contenu de l'éditeur par ce modèle intégré ? Les modifications non enregistrées seront perdues.",
+      );
+      if (!ok) return;
+    }
     setStoredTicketPresetId(id);
     setPresetValue(id);
-    const body = getPresetBody(id);
     setCode(body);
-    try {
-      localStorage.setItem(PHP_KEY, body);
-      localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
-    } catch { /* ignore */ }
+    setDirty(true);
+    setEditorEpoch((n) => n + 1);
     const label = TICKET_TEMPLATE_PRESETS.find((p) => p.id === id)?.label ?? id;
-    toast({ title: "Modèle chargé", description: label });
+    toast({ title: "Modèle intégré chargé", description: `${label} — enregistrez pour le conserver en base.` });
   };
 
-  const handleReset = () => {
-    setCode(getCustomDefault() ?? DEFAULT_MIKHMON_PHP);
-    const id = getStoredTicketPresetId();
-    setPresetValue(findMatchingPresetId(getCustomDefault() ?? getPresetBody(id)));
-    toast({ title: "Réinitialisé", description: "Modèle de base local ou préréglage Mikhmon (small)." });
-  };
-
-  const handleUseDefaultMikhmon = () => {
-    setStoredTicketPresetId("mikhmon-small");
-    setPresetValue("mikhmon-small");
-    const body = DEFAULT_MIKHMON_PHP;
-    setCode(body);
-    try {
-      localStorage.setItem(PHP_KEY, body);
-      localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
-    } catch { /* ignore */ }
-    toast({ title: "Mikhmon (small)", description: "Enregistrez pour appliquer sur le serveur." });
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const raw = ev.target?.result as string;
-      setCode(raw);
-      setPresetValue(findMatchingPresetId(raw));
-      try {
-        localStorage.setItem(PHP_KEY, raw);
-        localStorage.setItem(CUSTOM_DEFAULT_KEY, raw);
-      } catch { /* ignore */ }
-      toast({ title: "Fichier importé", description: `${file.name} — validez avec Sauvegarder pour le serveur.` });
-    };
-    reader.readAsText(file, "UTF-8");
-    e.target.value = "";
-  };
-
-  const handleSetAsDefault = () => {
-    if (!code.trim()) return;
-    try {
-      localStorage.setItem(CUSTOM_DEFAULT_KEY, code);
-      localStorage.setItem(PHP_KEY, code);
-    } catch { /* ignore */ }
-    toast({ title: "Modèle de base local", description: "Utilisé pour Réinitialiser sur cet appareil." });
+  const handleReset = async () => {
+    if (dirty) {
+      const ok = window.confirm(
+        "Annuler les modifications non enregistrées et recharger le modèle depuis le serveur ?",
+      );
+      if (!ok) return;
+    }
+    const ok = await loadTemplateFromServer();
+    if (ok) {
+      toast({ title: "Rechargé", description: "Modèle restauré depuis l'enregistrement serveur." });
+    }
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-4 p-4 md:p-6">
-      <div>
-        <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-          <FileCode className="h-5 w-5 text-violet-600" />
-          Modèle de ticket
-        </h1>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Trois modèles intégrés (fichiers nanoTECH / Mikhmon) — stockage serveur pour ce tenant.
-        </p>
+    <div className="max-w-6xl mx-auto space-y-2 p-3 md:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <div className="min-w-0">
+          <h1 className="text-base font-bold text-gray-900 flex items-center gap-1.5">
+            <FileCode className="h-4 w-4 text-violet-600" />
+            Modèle de ticket
+          </h1>
+          <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+            Trois modèles intégrés (fichiers nanoTECH / Mikhmon)
+          </p>
+        </div>
+        <VoucherPrintScaleBroadcastButton templateId={presetValue} />
       </div>
 
-      <Card>
-        <CardHeader className="py-3 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-4">
-            <div className="flex-1 min-w-0 space-y-1.5">
-              <Label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
-                <Router className="h-3.5 w-3.5 text-gray-500" />
-                Modèle intégré
-              </Label>
-              <Select
-                value={presetValue}
-                onValueChange={handlePresetChange}
-                disabled={loading || !token}
-              >
-                <SelectTrigger className="h-9 text-sm w-full sm:max-w-md bg-white border-gray-200">
-                  <SelectValue placeholder="Choisir un modèle…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
-                    <SelectItem key={id} value={id} className="text-sm">
-                      {label}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="custom" className="text-sm text-muted-foreground">
-                    Personnalisé (contenu hors modèles)
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+      <div className="flex flex-col lg:flex-row gap-3 items-start">
+        <Card ref={templateCardRef} className="flex-1 min-w-0 w-full shadow-sm">
+          <CardHeader className="py-2 px-3 sm:px-4 space-y-1.5">
+            <div className="space-y-0.5 w-full">
+              <div className="flex flex-wrap items-end justify-between gap-x-2 gap-y-1.5 w-full">
+                <div className="flex items-end gap-2 min-w-0">
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                  <Label className="text-[10px] font-medium text-gray-600 flex items-center gap-1">
+                    <Router className="h-3 w-3 text-gray-400 shrink-0" />
+                    Modèle intégré
+                  </Label>
+                  <Select
+                    value={presetValue}
+                    onValueChange={handlePresetChange}
+                    disabled={loading || !token}
+                  >
+                    <SelectTrigger className="h-7 w-full sm:w-[11.5rem] text-xs px-2 py-0 bg-white border-gray-200 shadow-none [&_svg]:h-3 [&_svg]:w-3">
+                      <SelectValue placeholder="Choisir…" />
+                    </SelectTrigger>
+                    <SelectContent className="text-xs">
+                      {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
+                        <SelectItem key={id} value={id} className="text-xs py-1 pl-2 pr-7 min-h-0">
+                          {label}
+                        </SelectItem>
+                      ))}
+                      <SelectItem
+                        value="custom"
+                        className="text-[11px] text-muted-foreground py-1 pl-2 pr-7 min-h-0"
+                      >
+                        Personnalisé
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="warning"
+                    size="sm"
+                    onClick={handleReset}
+                    className="shrink-0"
+                  >
+                    <RotateCcw />
+                    Réinitialiser
+                  </Button>
+                </div>
+                <div className="flex items-center gap-1 shrink-0 ml-auto">
+                  <VoucherPrintScaleButton templateId={presetValue} compact />
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={saving || loading || !token}
+                    onClick={handleSave}
+                  >
+                    {saving ? <Loader2 className="animate-spin" /> : <Save />}
+                    Sauvegarder
+                  </Button>
+                </div>
+              </div>
               {presetValue === "custom" && (
-                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
-                  Le texte ne correspond exactement à aucun des trois modèles — choisissez un modèle ci-dessus pour le remplacer, ou continuez à éditer à la main.
+                <p className="text-[10px] leading-snug text-amber-700/90 max-w-md">
+                  Contenu hors modèles intégrés — choisissez un modèle ci-dessus ou continuez à éditer.
                 </p>
               )}
             </div>
-          </div>
-          <CardTitle className="text-sm pt-1">Éditeur</CardTitle>
-          <CardDescription className="text-xs">
-            Par défaut : <strong>Mikhmon (small)</strong> lorsque le serveur n’a pas encore de modèle. Sauvegardez pour synchroniser.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 pt-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Button type="button" variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200">
-              <RotateCcw className="h-3.5 w-3.5" />
-              Réinitialiser
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5">
-              <FileCode className="h-3.5 w-3.5" />
-              Mikhmon (small)
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5">
-              <Upload className="h-3.5 w-3.5" />
-              Importer .php
-            </Button>
-            <input ref={fileRef} type="file" accept=".php,.html,.txt" className="hidden" onChange={handleImport} />
-            <VoucherPrintScaleButton templateId={presetValue} />
-            <Button type="button" variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200">
-              <BookMarked className="h-3.5 w-3.5" />
-              Définir par défaut (local)
-            </Button>
-            <Button type="button" size="sm" className="gap-1.5 ml-auto bg-violet-600 hover:bg-violet-700" disabled={saving || loading || !token} onClick={handleSave}>
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              Sauvegarder
-            </Button>
-          </div>
+          </CardHeader>
+          <CardContent className="pt-0 pb-2 px-3 sm:px-4 sm:pb-3">
+            <CardTitle className="text-xs font-semibold text-gray-800 mb-1.5">Éditeur</CardTitle>
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Chargement…
+              </div>
+            ) : (
+              <TicketPhpEditor
+                key={editorEpoch}
+                value={code}
+                onChange={(next) => {
+                  setCode(next);
+                  setDirty(true);
+                }}
+                readOnly={!token}
+                placeholder="Choisissez un modèle intégré ou collez votre template PHP…"
+                editorMinHeight="min(52vh, 500px)"
+              />
+            )}
+          </CardContent>
+        </Card>
 
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Chargement…
-            </div>
-          ) : (
-            <textarea
-              className="w-full min-h-[320px] rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              value={code}
-              onChange={(e) => {
-                const next = e.target.value;
-                setCode(next);
-                setPresetValue(findMatchingPresetId(next));
-              }}
-              placeholder="Choisissez un modèle intégré ou collez votre fichier…"
-              spellCheck={false}
-            />
-          )}
-        </CardContent>
-      </Card>
+        <Card
+          className="w-full lg:w-64 xl:w-72 shrink-0 flex flex-col overflow-hidden shadow-sm"
+          style={
+            syncVarsCardHeight && templateCardHeight != null
+              ? { height: templateCardHeight }
+              : undefined
+          }
+        >
+          <CardHeader className="py-2 px-3 pb-1 space-y-0">
+            <CardTitle className="text-xs font-semibold text-violet-900 leading-tight">
+              Variables PHP
+            </CardTitle>
+            <p className="text-[10px] text-violet-700/75 leading-snug">Référence MikHmon</p>
+          </CardHeader>
+          <CardContent className="pt-0 pb-2 px-3 flex-1 min-h-0 overflow-y-auto">
+            <ul className="space-y-2">
+              {TICKET_TEMPLATE_VAR_REFERENCE.map(({ title, code }) => (
+                <li
+                  key={title}
+                  className="rounded-md border border-violet-100/90 bg-violet-50/50 px-2 py-1.5 text-[10px] text-violet-950/90"
+                >
+                  <p className="font-semibold text-violet-900 mb-0.5">{title} :</p>
+                  <pre className="whitespace-pre-wrap break-all font-mono text-[9px] leading-relaxed text-violet-950/85 bg-white/80 rounded px-1 py-0.5 m-0">
+                    {code}
+                  </pre>
+                </li>
+              ))}
+              <li className="rounded-md border border-violet-100/90 bg-violet-50/50 px-2 py-1.5 text-[10px] text-violet-950/90">
+                <p className="font-semibold text-violet-900 mb-0.5">
+                  {TICKET_TEMPLATE_VAR_REFERENCE_CONDITIONAL.title} :
+                </p>
+                <pre className="whitespace-pre-wrap font-mono text-[9px] leading-relaxed text-violet-950/85 bg-white/80 rounded px-1 py-0.5 m-0">
+                  {TICKET_TEMPLATE_VAR_REFERENCE_CONDITIONAL.body}
+                </pre>
+              </li>
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

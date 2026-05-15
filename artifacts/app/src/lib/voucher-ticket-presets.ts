@@ -17,9 +17,9 @@ const BODIES: Record<TicketTemplatePresetId, string> = {
 };
 
 export const TICKET_TEMPLATE_PRESETS: { id: TicketTemplatePresetId; label: string }[] = [
-  { id: "mikhmon-small", label: "Modèle de ticket style Mikhmon (small)" },
-  { id: "nanotech-normal", label: "Modèle de Ticket style nanoTECH (normal)" },
-  { id: "nanotech-small", label: "Modèle de Ticket style nanoTECH (small)" },
+  { id: "mikhmon-small", label: "Mikhmon (small)" },
+  { id: "nanotech-normal", label: "nanoTECH (normal)" },
+  { id: "nanotech-small", label: "nanoTECH (small)" },
 ];
 
 export function getPresetBody(id: TicketTemplatePresetId): string {

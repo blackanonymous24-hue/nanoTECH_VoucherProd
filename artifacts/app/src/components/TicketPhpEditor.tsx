@@ -54,9 +54,12 @@ export function TicketPhpEditor({
         placeholder={placeholder}
         basicSetup={{
           lineNumbers: true,
-          foldGutter: false,
+          foldGutter: true,
+          highlightActiveLine: true,
+          highlightActiveLineGutter: true,
           bracketMatching: true,
           closeBrackets: true,
+          indentOnInput: true,
           autocompletion: false,
         }}
         className="text-xs"

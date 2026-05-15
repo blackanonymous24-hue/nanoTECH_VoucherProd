@@ -416,15 +416,15 @@ export default function SellingReport() {
 
             {/* Boutons : ligne 2 sur mobile (même ligne, scroll si besoin), inline sur sm+ */}
             <div className="flex gap-1.5 overflow-x-auto sm:contents">
-              <Button size="sm" className="h-8 gap-1.5 text-xs flex-shrink-0" onClick={applyFilter}>
+              <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={applyFilter}>
                 <Search className="h-3.5 w-3.5" /> Filtrer
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs flex-shrink-0" onClick={showAll}>
+              <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0" onClick={showAll}>
                 <RotateCcw className="h-3.5 w-3.5" /> Tout
               </Button>
               <Button
                 size="sm" variant="outline"
-                className="h-8 gap-1.5 text-xs flex-shrink-0 sm:ml-auto"
+                className="gap-1.5 flex-shrink-0 sm:ml-auto"
                 onClick={() => exportCSV(orderedFiltered, csvFilename)}
                 disabled={orderedFiltered.length === 0}
               >
@@ -433,7 +433,7 @@ export default function SellingReport() {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 gap-1.5 text-xs flex-shrink-0 whitespace-nowrap text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                className="gap-1.5 flex-shrink-0 whitespace-nowrap text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                 onClick={() => setConfirmDeleteMonth(true)}
                 disabled={!canDeleteMonthScripts || deletingMonthScripts}
                 title={

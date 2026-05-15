@@ -42,6 +42,7 @@ import {
   ticketPriceColorKey,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
+import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-template-semantics";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -713,16 +714,19 @@ export default function GenerateVouchers() {
         hotspotName?: string | null;
         name?: string;
         currency?: string | null;
+        contact?: string | null;
         host?: string;
       } | undefined;
-      const hotspotName = (r?.hotspotName ?? "").trim() || r?.name || lot.routerName || "Hotspot";
-      const currency = (r?.currency ?? "").trim() || "FCFA";
-      const dnsname = (r?.host ?? "").trim() || hotspotName;
+      const phpFields = buildVoucherTicketPhpFieldsFromRouter({
+        ...r,
+        name: r?.name ?? lot.routerName,
+      });
+      const { hotspotName, currency, dnsname, qrLoginHost } = phpFields;
       const template = await fetchEffectiveTicketTemplate(GEN_BASE);
       const voucherByUser = new Map(lot.vouchers.map((v) => [v.username, v]));
       const profByName = new Map(displayedProfilesSorted.map((p) => [p.name, p]));
       const qrAttrs = await buildVoucherQrImgAttrsBatch(
-        dnsname,
+        qrLoginHost,
         users.map((u) => ({ username: u.username, password: u.password })),
       );
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
@@ -1162,7 +1166,7 @@ export default function GenerateVouchers() {
                 {lastLot && !profile ? (
                   <Button
                     type="button"
-                    className="w-full gap-1.5 h-9 text-sm bg-purple-600 hover:bg-purple-700 text-white"
+                    className="w-full gap-1.5"
                     onClick={() => void handlePrintSmall(lastLot)}
                     disabled={!selectedRouterId}
                   >
@@ -1278,7 +1282,7 @@ export default function GenerateVouchers() {
               <div className="px-3 py-2 border-b border-gray-100 flex gap-1.5">
                 <Button
                   size="sm"
-                  className="flex-1 gap-1.5 h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+                  className="flex-1 gap-1.5"
                   onClick={() => void handlePrintSmall(lastLot)}
                 >
                   <Printer className="h-3.5 w-3.5" />
@@ -1287,19 +1291,19 @@ export default function GenerateVouchers() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className={`gap-1 h-8 px-2.5 transition-colors ${copiedLot ? "border-green-400 text-green-600 bg-green-50" : ""}`}
+                  className={`gap-1 transition-colors ${copiedLot ? "border-green-400 text-green-600 bg-green-50" : ""}`}
                   onClick={() => void handleCopyVouchers(lastLot)}
                   title="Copier les vouchers"
                 >
                   {copiedLot ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
-                <Button size="sm" variant="outline" className="gap-1 h-8 px-2.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
+                <Button size="sm" variant="outline" className="gap-1 px-2.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
                   <Table2 className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="gap-1 h-8 px-2.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                  variant="destructive"
+                  className="gap-1 px-2.5"
                   onClick={() => setConfirmDeleteLastLot(lastLot)}
                   title="Supprimer ce lot"
                   disabled={isDeletingLastLot}

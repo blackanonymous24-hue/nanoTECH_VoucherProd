@@ -41,6 +41,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
 import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
+import {
+  formatRouterConnectionTestLabel,
+  routerConnectionStatusShortLabel,
+  testRouterConnectionApi,
+} from "@/lib/router-connection-test";
 import { getListRoutersQueryKey } from "@workspace/api-client-react";
 import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
 import { setCurrentPrintTemplateId } from "@/lib/voucher-print-scale";
@@ -683,14 +688,16 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     if (pingingIds.has(r.id)) return;
     setPingingIds((s) => new Set(s).add(r.id));
     try {
-      const res = await fetch(`${BASE}/api/super/admins/${admin.id}/routers/${r.id}/ping`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) { setPingResults((prev) => ({ ...prev, [r.id]: false })); return; }
-      const data = await res.json() as { success: boolean };
-      setPingResults((prev) => ({ ...prev, [r.id]: data.success === true }));
+      const data = await testRouterConnectionApi(r.id, token);
+      setPingResults((prev) => ({
+        ...prev,
+        [r.id]: { success: data.success, message: formatRouterConnectionTestLabel(data) },
+      }));
     } catch {
-      setPingResults((prev) => ({ ...prev, [r.id]: false }));
+      setPingResults((prev) => ({
+        ...prev,
+        [r.id]: { success: false, message: "Erreur réseau" },
+      }));
     } finally {
       setPingingIds((s) => { const n = new Set(s); n.delete(r.id); return n; });
     }
@@ -795,10 +802,10 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               >
                 <Users className="h-3 w-3" /> <span className="hidden xs:inline">Copier</span> vendeurs
               </Button>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-purple-700 border-purple-200 hover:bg-purple-50" onClick={() => setShowCopyRouter(true)}>
+              <Button size="sm" variant="accentOutline" className="gap-1" onClick={() => setShowCopyRouter(true)}>
                 <Copy className="h-3 w-3" /> <span className="hidden xs:inline">Copier</span> routeur
               </Button>
-              <Button size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => setFormTarget("create")}>
+              <Button size="sm" className="gap-1" onClick={() => setFormTarget("create")}>
                 <Plus className="h-3 w-3" /> Ajouter
               </Button>
             </div>
@@ -821,7 +828,8 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               </div>
             )}
             {routers.map((r) => {
-              const pingOk = pingResults[r.id];
+              const pingResult = pingResults[r.id];
+              const pingOk = pingResult?.success === true;
               const hasPing = r.id in pingResults;
               const isPinging = pingingIds.has(r.id);
               const isConnecting = connectingId === r.id;
@@ -843,17 +851,25 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
                       <p className="font-bold text-xs text-gray-900 truncate uppercase tracking-wide">{r.name}</p>
-                      {hasPing && (
-                        <span className={`inline-flex items-center rounded-full px-1 h-3.5 text-[9px] font-semibold border shrink-0 ${
-                          pingOk
-                            ? "text-emerald-600 border-emerald-200 bg-emerald-50"
-                            : "text-red-500 border-red-200 bg-red-50"
-                        }`}>
-                          {pingOk ? "En ligne" : "Hors ligne"}
+                      {hasPing && pingResult && (
+                        <span
+                          title={pingResult.message}
+                          className={`inline-flex max-w-[12rem] items-center rounded-full px-1 min-h-3.5 text-[9px] font-semibold border shrink-0 truncate ${
+                            pingOk
+                              ? "text-emerald-600 border-emerald-200 bg-emerald-50"
+                              : "text-red-600 border-red-200 bg-red-50"
+                          }`}
+                        >
+                          {routerConnectionStatusShortLabel(pingResult)}
                         </span>
                       )}
                     </div>
                     <p className="text-[10px] text-gray-400 leading-tight truncate font-mono">{r.host}:{r.port}</p>
+                    {hasPing && pingResult && !pingResult.success && (
+                      <p className="text-[9px] text-red-600 leading-snug line-clamp-2" title={pingResult.message}>
+                        {pingResult.message}
+                      </p>
+                    )}
                   </div>
 
                   {/* Actions */}
@@ -1877,8 +1893,8 @@ function TemplateDialog({ admin, onClose }: {
         </div>
 
         <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto">
-          <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5 text-orange-600 border-orange-200 hover:bg-orange-50 shrink-0">
-            <RotateCcw className="h-3.5 w-3.5" />
+          <Button variant="warning" size="sm" onClick={handleReset} className="shrink-0">
+            <RotateCcw />
             Réinitialiser
           </Button>
           <Button variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5 shrink-0">
@@ -1890,11 +1906,11 @@ function TemplateDialog({ admin, onClose }: {
             Importer .php
           </Button>
           <input ref={fileRef} type="file" accept=".php,.html,.txt" className="hidden" onChange={handleImportPHP} />
-          <Button variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50 shrink-0">
-            <BookMarked className="h-3.5 w-3.5" />
+          <Button variant="accentOutline" size="sm" onClick={handleSetAsDefault} className="shrink-0">
+            <BookMarked />
             Définir par défaut (local)
           </Button>
-          <VoucherPrintScaleButton templateId={presetValue} />
+          <VoucherPrintScaleButton templateId={presetValue} compact />
         </div>
 
         {loading ? (

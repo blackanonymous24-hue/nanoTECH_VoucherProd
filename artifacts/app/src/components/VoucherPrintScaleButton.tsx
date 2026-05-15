@@ -16,26 +16,25 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 type VoucherPrintScaleButtonProps = {
   className?: string;
   templateId: string;
+  /** Bouton compact (barre d’outils modèle de ticket). */
+  compact?: boolean;
 };
 
 /**
  * Visible uniquement pour le super admin.
  * Gère l'échelle d'impression par template (localStorage + API).
- * Le bouton "Appliquer à tous" est affiché seulement pour les templates intégrés (pas "custom").
+ * Réglage personnel super admin (localStorage + API). La diffusion globale est dans VoucherPrintScaleBroadcastButton.
  */
-export function VoucherPrintScaleButton({ className, templateId }: VoucherPrintScaleButtonProps) {
+export function VoucherPrintScaleButton({ className, templateId, compact }: VoucherPrintScaleButtonProps) {
   const { token, isSuperAdmin } = useAuth();
 
   if (!isSuperAdmin) return null;
 
-  const isBuiltIn = templateId !== "custom";
   const authHeaders = { Authorization: `Bearer ${token ?? ""}` };
 
-  const [open, setOpen]               = useState(false);
-  const [pct, setPct]                 = useState(() => getVoucherPrintScalePercent(templateId));
-  const [synced, setSynced]           = useState(false);
-  const [broadcasting, setBroadcasting] = useState(false);
-  const [broadcastOk, setBroadcastOk]   = useState(false);
+  const [open, setOpen] = useState(false);
+  const [pct, setPct] = useState(() => getVoucherPrintScalePercent(templateId));
+  const [synced, setSynced] = useState(false);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -76,11 +75,10 @@ export function VoucherPrintScaleButton({ className, templateId }: VoucherPrintS
   useEffect(() => {
     setPct(getVoucherPrintScalePercent(templateId));
     setSynced(false);
-    setBroadcastOk(false);
   }, [templateId]);
 
   useEffect(() => {
-    if (!open) { setBroadcastOk(false); return; }
+    if (!open) return;
     fetchFromServer();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -89,34 +87,20 @@ export function VoucherPrintScaleButton({ className, templateId }: VoucherPrintS
     const next = v[0] ?? 85;
     setPct(next);
     setVoucherPrintScalePercent(templateId, next);
-    setBroadcastOk(false);
     saveToServer(next);
-  };
-
-  const handleBroadcast = async () => {
-    if (!token || broadcasting) return;
-    setBroadcasting(true);
-    setBroadcastOk(false);
-    try {
-      const r = await fetch(`${BASE}/api/admin/print-scale/broadcast`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ templateId }),
-      });
-      if (r.ok) setBroadcastOk(true);
-    } catch {
-      /* ignore */
-    } finally {
-      setBroadcasting(false);
-    }
   };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className={cn("gap-1.5 shrink-0", className)}>
-          <Scaling className="h-3.5 w-3.5" />
-          Échelle impression
+        <Button
+          type="button"
+          variant="accentOutline"
+          size="sm"
+          className={cn("shrink-0", !compact && "px-2.5", className)}
+        >
+          <Scaling />
+          {compact ? "Échelle" : "Échelle impression"}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[min(22rem,calc(100vw-2rem))]" align="start">
@@ -126,7 +110,7 @@ export function VoucherPrintScaleButton({ className, templateId }: VoucherPrintS
               Échelle — {templateId === "custom" ? "Modèle personnalisé" : templateId}
             </Label>
             <p className="text-[11px] text-muted-foreground leading-snug">
-              Propre à ce template, synchronisé avec le serveur.{" "}
+              Réglage personnel (votre compte super admin), synchronisé avec le serveur.{" "}
               {synced && <span className="text-green-600 font-medium">✓ synchronisé</span>}
             </p>
           </div>
@@ -144,32 +128,6 @@ export function VoucherPrintScaleButton({ className, templateId }: VoucherPrintS
               onValueChange={handleChange}
             />
           </div>
-
-          {isBuiltIn && (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                className="w-full"
-                disabled={broadcasting}
-                onClick={handleBroadcast}
-              >
-                {broadcasting ? "Diffusion…" : "Appliquer à tous les comptes"}
-              </Button>
-
-              {broadcastOk && (
-                <p className="text-[11px] text-green-600 font-medium text-center">
-                  ✓ Échelle diffusée à tous les comptes
-                </p>
-              )}
-            </>
-          )}
-
-          {!isBuiltIn && (
-            <p className="text-[10px] text-muted-foreground border-t pt-2 leading-snug">
-              La diffusion n&apos;est disponible que pour les templates intégrés.
-            </p>
-          )}
         </div>
       </PopoverContent>
     </Popover>

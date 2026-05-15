@@ -138,9 +138,26 @@ export interface HotspotSession {
   address: string;
   macAddress: string | null;
   uptime: string;
+  /** Download côté client (RouterOS `bytes-out`). */
   bytesIn: string | null;
+  /** Upload côté client (RouterOS `bytes-in`). */
   bytesOut: string | null;
   server: string | null;
+}
+
+/**
+ * RouterOS hotspot : `bytes-in` = reçu du client (upload), `bytes-out` = envoyé au client (download).
+ * L’API VoucherNet aligne bytesIn sur le download (↓) et bytesOut sur l’upload (↑), comme l’UI Sessions.
+ */
+function hotspotTrafficBytesFromRouter(
+  routerBytesIn: unknown,
+  routerBytesOut: unknown,
+): { bytesIn: string | null; bytesOut: string | null } {
+  const fromClient =
+    typeof routerBytesIn === "string" && routerBytesIn.trim() ? routerBytesIn.trim() : null;
+  const toClient =
+    typeof routerBytesOut === "string" && routerBytesOut.trim() ? routerBytesOut.trim() : null;
+  return { bytesIn: toClient, bytesOut: fromClient };
 }
 
 export interface HotspotCookie {
@@ -377,6 +394,34 @@ export async function pingRouter(conn: RouterConnection): Promise<boolean> {
   });
 }
 
+/** Message lisible pour l’UI (test connexion / ping API). */
+export function formatRouterOsConnectionError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? "Erreur de connexion");
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("invalid user")
+    || lower.includes("invalid username")
+    || lower.includes("username or password")
+    || lower.includes("user name or password")
+    || lower.includes("wrong user name")
+    || lower.includes("authentication failed")
+    || lower.includes("not allowed to login")
+    || (lower.includes("password") && lower.includes("invalid"))
+  ) {
+    return "Identifiants API invalides (utilisateur ou mot de passe MikroTik)";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "Délai dépassé — routeur injoignable ou port API incorrect";
+  }
+  if (lower.includes("econnrefused") || lower.includes("connection refused")) {
+    return "Connexion refusée — vérifiez l’adresse et le port API (8728 ou 8729)";
+  }
+  if (lower.includes("enotfound") || lower.includes("getaddrinfo")) {
+    return "Adresse IP ou nom d’hôte introuvable";
+  }
+  return raw.trim() || "Erreur de connexion";
+}
+
 export async function testConnection(conn: RouterConnection): Promise<{ success: boolean; message: string; routerBoard: string | null; version: string | null }> {
   try {
     return await withRouter(conn, async (api) => {
@@ -392,7 +437,7 @@ export async function testConnection(conn: RouterConnection): Promise<{ success:
   } catch (err) {
     return {
       success: false,
-      message: err instanceof Error ? err.message : "Erreur de connexion",
+      message: formatRouterOsConnectionError(err),
       routerBoard: null,
       version: null,
     };
@@ -1209,7 +1254,9 @@ export interface HotspotUser {
   macAddress: string | null;
   /** Session uptime from hotspot user row (RouterOS), when present. */
   uptime: string | null;
+  /** Download côté client (RouterOS `bytes-out`). */
   bytesIn: string | null;
+  /** Upload côté client (RouterOS `bytes-in`). */
   bytesOut: string | null;
   server: string | null;
   disabled: boolean;
@@ -1227,8 +1274,7 @@ export async function listHotspotUsers(conn: RouterConnection, timeout = 15000):
       limitBytesTotal: (u["limit-bytes-total"] as string) || null,
       macAddress: (u["mac-address"] as string) || null,
       uptime: (u["uptime"] as string) || null,
-      bytesIn: (u["bytes-in"] as string) || null,
-      bytesOut: (u["bytes-out"] as string) || null,
+      ...hotspotTrafficBytesFromRouter(u["bytes-in"], u["bytes-out"]),
       server: (u["server"] as string) || null,
       disabled: (u["disabled"] as string) === "true",
     }));
@@ -1270,8 +1316,7 @@ export async function listSessions(conn: RouterConnection): Promise<HotspotSessi
       address: (s["address"] as string) ?? "",
       macAddress: (s["mac-address"] as string) || null,
       uptime: (s["uptime"] as string) ?? "00:00:00",
-      bytesIn: (s["bytes-in"] as string) || null,
-      bytesOut: (s["bytes-out"] as string) || null,
+      ...hotspotTrafficBytesFromRouter(s["bytes-in"], s["bytes-out"]),
       server: decodeRouterText((s["server"] as string) || "") || null,
     }));
   });

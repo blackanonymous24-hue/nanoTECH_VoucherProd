@@ -3,22 +3,24 @@
  * `substituteTicketVars` dans `voucher-ticket-render.ts`).
  */
 
-/** Libellés FR pour les clés connues — alignés sur `voucher-ticket-template-semantics.ts` + substitution. */
+import { VOUCHER_TICKET_PHP_VAR_CONTRACT } from "@/lib/voucher-ticket-template-semantics";
+
+/** Libellés FR — variables contractuelles depuis `voucher-ticket-template-semantics.ts`. */
 export const TICKET_TEMPLATE_VAR_LABELS: Record<string, string> = {
   logo: "Logo (URL ou chemin)",
-  hotspotname: "Nom du Wi‑Fi (variable `$hotspotname`)",
+  hotspotname: `${VOUCHER_TICKET_PHP_VAR_CONTRACT.hotspotname.label} (${VOUCHER_TICKET_PHP_VAR_CONTRACT.hotspotname.phpVar})`,
   num: "Numéro du ticket",
   username: "Identifiant",
   password: "Mot de passe",
   validity: "Validité",
   timelimit: "Durée / limite",
   datalimit: "Quota données",
-  price: "Devise (variable `$price`, ex. FCFA)",
+  price: `${VOUCHER_TICKET_PHP_VAR_CONTRACT.price.label} (${VOUCHER_TICKET_PHP_VAR_CONTRACT.price.phpVar})`,
   profile: "Profil hotspot",
   comment: "Commentaire / lot",
   getprice: "Montant clé (palette couleur)",
-  currency: "Devise (rappel — identique à `$price` dans cette app)",
-  dnsname: "Contact routeur (variable `$dnsname`, champ contact)",
+  currency: `${VOUCHER_TICKET_PHP_VAR_CONTRACT.price.label} (identique à ${VOUCHER_TICKET_PHP_VAR_CONTRACT.price.phpVar})`,
+  dnsname: `${VOUCHER_TICKET_PHP_VAR_CONTRACT.dnsname.label} (${VOUCHER_TICKET_PHP_VAR_CONTRACT.dnsname.phpVar})`,
   color: "Couleur d’accent",
   qrcode: "QR code",
 };
@@ -48,21 +50,19 @@ export type TicketTemplateVarRefEntry = {
   code: string;
 };
 
+/** Référence MikHmon — ordre et extraits pour la carte « Variables PHP ». */
 export const TICKET_TEMPLATE_VAR_REFERENCE: TicketTemplateVarRefEntry[] = [
-  {
-    title: "Logo",
-    code: '<img src="<?= $logo; ?>" style="height:30px;border:0;">',
-  },
+  { title: "Logo", code: '<img src="<?= $logo; ?>" style="height:30px;border:0;">' },
   { title: "Hotspotname", code: "<?= $hotspotname; ?>" },
   { title: "Username", code: "<?= $username; ?>" },
   { title: "Password", code: "<?= $password; ?>" },
   { title: "Validity", code: "<?= $validity; ?>" },
   { title: "Time Limit", code: "<?= $timelimit; ?>" },
   { title: "Data Limit", code: "<?= $datalimit; ?>" },
-  { title: "Price (= devise)", code: "<?= $price; ?>" },
+  { title: "Price", code: "<?= $price; ?>" },
   { title: "Profile", code: "<?= $profile; ?>" },
   { title: "Comment", code: "<?= $comment; ?>" },
-  { title: "DNS / contact (routeur)", code: "<?= $dnsname; ?>" },
+  { title: "DNS Name Hotspot", code: "<?= $dnsname; ?>" },
   { title: "QR Code", code: "<?= $qrcode ?>" },
   {
     title: "Number Voucher",

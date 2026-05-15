@@ -7,6 +7,7 @@ import { escapeHtml } from "@/lib/mikhmon-small-print";
 import {
   getCustomDefault,
 } from "@/lib/voucher-ticket-defaults";
+import { voucherTemplatePricePhpVarValue } from "@/lib/voucher-ticket-template-semantics";
 import {
   getPresetBody,
   getStoredTicketPresetId,
@@ -167,7 +168,7 @@ export type VoucherTicketPrintRow = {
   validityRaw: string;
   timelimitRaw: string;
   datalimit: string;
-  /** Ligne prix Mikhmon / affichage bas de ticket. */
+  /** Libellé tarifaire forfait (hors `$price` PHP = devise). */
   priceDisplay: string;
   /** Clé couleur nanoTECH (chiffres, ex. profil.price). */
   getpriceKey: string;
@@ -185,7 +186,8 @@ function buildVarMap(row: VoucherTicketPrintRow, nano: null | { variant: "normal
     username: row.username,
     password: row.password,
     datalimit: row.datalimit,
-    price: row.priceDisplay,
+    /** Contrat app : `$price` = devise routeur, pas le montant forfait. */
+    price: voucherTemplatePricePhpVarValue(row.currency),
     getprice: row.getpriceKey,
     currency: row.currency,
     dnsname: row.dnsname,

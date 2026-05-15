@@ -30,6 +30,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { isAxiosError } from "axios";
+import {
+  formatRouterConnectionTestLabel,
+  routerConnectionStatusShortLabel,
+  testRouterConnectionApi,
+} from "@/lib/router-connection-test";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -312,11 +317,18 @@ export default function Routers() {
   const handleTest = async (id: number) => {
     setPingingIds((prev) => new Set(prev).add(id));
     try {
-      const res = await fetch(`${BASE}/api/routers/${id}/ping?force=1`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const data = await testRouterConnectionApi(id, token);
+      setTestResultWithAutoExpiry(id, {
+        success: data.success,
+        message: formatRouterConnectionTestLabel(data),
       });
-      const data = await res.json() as { success: boolean };
-      setTestResultWithAutoExpiry(id, { success: data.success, message: data.success ? "En ligne" : "Hors ligne" });
+      if (!data.success) {
+        toast({
+          title: "Connexion API impossible",
+          description: data.message,
+          variant: "destructive",
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erreur de connexion";
       setTestResultWithAutoExpiry(id, { success: false, message });
@@ -335,22 +347,17 @@ export default function Routers() {
     setTestResults((prev) => { const copy = { ...prev }; delete copy[id]; return copy; });
     setConnectingId(id);
     try {
-      const res = await fetch(`${BASE}/api/routers/${id}/ping?force=1`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      let success = false;
-      if (res.ok) {
-        const data = await res.json() as { success: boolean };
-        success = data.success;
-      }
-      if (success) {
+      const data = await testRouterConnectionApi(id, token);
+      if (data.success) {
         setSelectedRouterId(id);
         navigate("/");
       } else {
-        setTestResultWithAutoExpiry(id, { success: false, message: "Hors ligne" });
+        const msg = data.message || "Connexion API impossible";
+        setTestResultWithAutoExpiry(id, { success: false, message: msg });
+        toast({ title: "Connexion API impossible", description: msg, variant: "destructive" });
       }
     } catch {
-      setTestResultWithAutoExpiry(id, { success: false, message: "Hors ligne" });
+      setTestResultWithAutoExpiry(id, { success: false, message: "Erreur réseau" });
     } finally {
       setConnectingId(null);
     }
@@ -535,19 +542,25 @@ export default function Routers() {
                           )}
                           {testResults[r.id] && (
                             <span
-                              className={`inline-flex items-center rounded-full px-1.5 h-5 text-[10px] font-medium border ${
+                              title={testResults[r.id].message}
+                              className={`inline-flex max-w-[min(100%,14rem)] items-center rounded-full px-1.5 min-h-5 text-[10px] font-medium border truncate ${
                                 testResults[r.id].success
                                   ? "text-green-600 border-green-200 bg-green-50"
-                                  : "text-red-500 border-red-200 bg-red-50"
+                                  : "text-red-600 border-red-200 bg-red-50"
                               }`}
                             >
-                              {testResults[r.id].success ? "En ligne" : "Hors ligne"}
+                              {routerConnectionStatusShortLabel(testResults[r.id])}
                             </span>
                           )}
                         </div>
                         <p className="text-[11px] text-gray-500 leading-tight truncate">
                           {r.host}:{r.port}
                         </p>
+                        {testResults[r.id] && !testResults[r.id].success && (
+                          <p className="text-[10px] text-red-600 leading-snug line-clamp-2" title={testResults[r.id].message}>
+                            {testResults[r.id].message}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div
@@ -564,7 +577,7 @@ export default function Routers() {
                           className="h-7 w-7 rounded-full text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-100 relative"
                           onClick={(e) => { e.stopPropagation(); void handleTest(r.id); }}
                           disabled={pingingIds.has(r.id)}
-                          title="Ping"
+                          title="Tester la connexion API"
                         >
                           {pingingIds.has(r.id)
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
