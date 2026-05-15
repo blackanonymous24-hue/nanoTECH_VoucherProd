@@ -204,20 +204,32 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   const gridWidthPx = mobile && zoom !== 1 ? Math.round(A4_PX / zf) : A4_PX;
   void ios; // non utilisé maintenant (approche unifiée)
 
+  // ─ NOTE IMPORTANTE : on n'utilise PAS transform ici ─────────────────────────
+  // `transform: scale()` crée un nouveau stacking context et casse la fragmentation
+  // CSS en impression : les sauts de page sont calculés en coordonnées de LAYOUT
+  // (pré-transform), donc les tickets se font tronquer à mi-hauteur et
+  // `break-inside: avoid` n'est pas respecté dans un conteneur transformé.
+  //
+  // On utilise `zoom` à la place :
+  //   • `zoom` affecte à la fois le rendu visuel ET le layout
+  //     → les sauts de page sont calculés en coordonnées VISUELLES (après zoom)
+  //     → `break-inside: avoid` fonctionne correctement ✓
+  //   • Les largeurs en PIXELS FIXES évitent l'ambiguïté % (viewport vs papier sur iOS)
+  //   • body  = A4_PX px           → correspond à la largeur utilisable du papier A4
+  //   • root  = A4_PX/zf px + zoom → le flex voit la largeur étendue, zoom ramène au papier
+  //   • `overflow-x: hidden` sur body → évite la pagination horizontale fantôme
   const mobileScaleCss = mobile
     ? `@media print {\n` +
       `  html.vn-print-mobile body {\n` +
       `    width: ${A4_PX}px !important;\n` +
       `    max-width: none !important;\n` +
-      `    overflow: visible !important;\n` +
+      `    overflow-x: hidden !important;\n` +
+      `    overflow-y: visible !important;\n` +
       `  }\n` +
       `  html.vn-print-mobile #vn-print-scale-root {\n` +
       `    width: ${gridWidthPx}px !important;\n` +
       `    max-width: none !important;\n` +
-      (zoom !== 1
-        ? `    transform: scale(${zf}) !important;\n` +
-          `    transform-origin: top left !important;\n`
-        : "") +
+      (zoom !== 1 ? `    zoom: ${zf} !important;\n` : "") +
       `  }\n` +
       `}\n`
     : "";
