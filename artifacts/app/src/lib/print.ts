@@ -44,6 +44,11 @@ function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
+/** Navigateur mobile ou APK : layout + zoom d’impression dédiés (Safari / WebView gèrent mal `zoom` sur `html`). */
+function isVoucherPrintMobileLayout(): boolean {
+  return isNativeWebView() || isMobile();
+}
+
 /**
  * Impression depuis une page HTML complète (rapports vendeur, etc.).
  * — APK (React Native WebView) : postMessage → expo-print
@@ -107,27 +112,93 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
 }
 
 /**
+ * Styles additionnels impression mobile / WebView : marges feuille réduites, flex-wrap
+ * pour que les tickets utilisent la largeur utile. Le facteur `zoom` est appliqué en
+ * **inline** sur `#vn-print-scale-root` (meilleure prise en charge que sur `<html>`).
+ */
+function buildVoucherPrintMobileLayoutCss(): string {
+  return `@page {
+  size: auto;
+  margin: 2mm;
+}
+html.vn-print-mobile {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+html.vn-print-mobile body {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: visible !important;
+}
+html.vn-print-mobile #vn-print-scale-root {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: 2mm;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+html.vn-print-mobile table.voucher {
+  flex: 1 1 auto;
+  display: inline-block !important;
+  vertical-align: top !important;
+  width: auto !important;
+  max-width: min(100%, 260px) !important;
+  min-width: 0;
+  box-sizing: border-box !important;
+  margin: 1mm !important;
+}
+@media print {
+  html.vn-print-mobile table.voucher {
+    max-width: 100% !important;
+  }
+}
+`;
+}
+
+/**
  * Document d’impression vouchers — même principe que `mikhmonv3/voucher/print.php` :
  * nouvel onglet, HTML complet, `&lt;body onload="window.print()"&gt;` (pas d’iframe, pas d’autre déclencheur).
  */
 function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTicketsHtml: string): string {
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const mobile = isVoucherPrintMobileLayout();
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
-  const zoomRule =
-    zoom !== 1
+  const zoomRuleDesktop =
+    !mobile && zoom !== 1
       ? `html { zoom: ${Number(zoom.toFixed(6))}; }\n`
       : "";
+  const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
+  const zoomStyle =
+    mobile && zoom !== 1 ? ` style="zoom:${Number(zoom.toFixed(6))}"` : "";
+  const bodyInner = mobile
+    ? `<div id="vn-print-scale-root"${zoomStyle}>${bodyTicketsHtml}</div>`
+    : bodyTicketsHtml;
+  const onload = mobile
+    ? `setTimeout(function(){try{window.focus();}catch(_){}window.print();},400)`
+    : `window.print()`;
+  const viewport = mobile
+    ? `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />`
+    : `<meta name="viewport" content="width=device-width, initial-scale=1" />`;
+  const htmlClass = mobile ? ` class="vn-print-mobile"` : "";
+  const bodyClass = mobile ? ` class="vn-print-mobile-body"` : "";
   return `<!doctype html>
-<html>
+<html${htmlClass}>
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
     <meta http-equiv="pragma" content="no-cache" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    ${viewport}
     <title>${safeTitle}</title>
-    <style>${zoomRule}${MIKHMON_VOUCHER_PRINT_CSS}</style>
+    <style>${zoomRuleDesktop}${MIKHMON_VOUCHER_PRINT_CSS}${mobileLayoutCss}</style>
   </head>
-  <body onload="window.print()">${bodyTicketsHtml}</body>
+  <body${bodyClass} onload="${onload}">${bodyInner}</body>
 </html>`;
 }
 
