@@ -124,10 +124,9 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
 }
 
 /**
- * Styles additionnels impression mobile / WebView : marges feuille réduites, flex-wrap
- * pour que les tickets utilisent la largeur utile. Le facteur `zoom` est appliqué en
- * CSS sur **chaque `table.voucher`** (via `mobileScaleCss`) pour que le moteur flex
- * recalcule le nombre de colonnes selon l'échelle.
+ * Styles additionnels impression mobile / WebView.
+ * Sur ÉCRAN : affichage libre pour prévisualisation.
+ * Sur IMPRESSION : voir mobileScaleCss dans buildMikhmonVoucherPrintDocumentHtml.
  */
 function buildVoucherPrintMobileLayoutCss(): string {
   return `@page {
@@ -146,16 +145,14 @@ html.vn-print-mobile body {
   overflow-x: visible !important;
 }
 html.vn-print-mobile #vn-print-scale-root {
+  display: block;
+  width: 100% !important;
+  overflow: visible !important;
+}
+html.vn-print-mobile .vn-ticket-row {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-start;
-  align-content: flex-start;
   align-items: flex-start;
-  gap: 2mm;
-  width: 100% !important;
-  max-width: 100% !important;
-  box-sizing: border-box !important;
-  overflow: visible !important;
 }
 html.vn-print-mobile table.voucher {
   flex: 0 0 auto;
@@ -165,6 +162,37 @@ html.vn-print-mobile table.voucher {
   margin: 1mm !important;
 }
 `;
+}
+
+/**
+ * Extrait les éléments `<table class="voucher">...</table>` individuels depuis le HTML
+ * concaténé des tickets. Gère l'imbrication de tables (template mikhmon-small en a 3 niveaux).
+ */
+function splitVoucherTickets(html: string): string[] {
+  const tickets: string[] = [];
+  const lower = html.toLowerCase();
+  let depth = 0;
+  let start = -1;
+  let i = 0;
+  while (i < lower.length) {
+    const nextOpen = lower.indexOf('<table', i);
+    const nextClose = lower.indexOf('</table>', i);
+    if (nextOpen === -1 && nextClose === -1) break;
+    if (nextClose === -1 || (nextOpen !== -1 && nextOpen < nextClose)) {
+      if (depth === 0) start = nextOpen;
+      depth++;
+      i = nextOpen + 6;
+    } else {
+      depth = Math.max(0, depth - 1);
+      const closeEnd = nextClose + 8; // '</table>' = 8 chars
+      if (depth === 0 && start !== -1) {
+        tickets.push(html.slice(start, closeEnd));
+        start = -1;
+      }
+      i = closeEnd;
+    }
+  }
+  return tickets;
 }
 
 /**
@@ -178,46 +206,55 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
   const zf = Number(zoom.toFixed(6));
 
-  // ── CSS scale ──────────────────────────────────────────────────────────────
   // Desktop : `html { zoom }` — bien pris en charge par Chromium.
   const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
-  // ── Mobile print scaling ───────────────────────────────────────────────────
+  // ── Mobile print scaling — approche RANGÉES PRÉ-CALCULÉES ─────────────────
   //
-  // PROBLÈME :
-  //   • `zoom` sur un conteneur flex ne recalcule pas le layout flex sur iOS (WebKit).
-  //   • `zoom` cascadé sur body réduit la largeur interne des tickets → texte coupé.
-  //   • Changer le viewport provoque des débordements horizontaux (coupure côté droit).
+  // POURQUOI PAS `transform` : casse la fragmentation CSS → break-inside: avoid ignoré
+  //   → tickets tronqués. Les sauts de page sont calculés en coordonnées LAYOUT (pre-transform).
   //
-  // SOLUTION : `transform: scale(zf)` sur le wrapper, en @media print uniquement.
-  //   `transform` ne cascade PAS → les tickets gardent leurs 160 px internes.
-  //   Le wrapper voit une largeur logique = A4_PX/zf → flex y place le bon nombre de colonnes.
-  //   Le transform ramène le visuel à A4_PX → tient exactement sur le papier.
+  // POURQUOI PAS `zoom` SUR LE CONTENEUR FLEX :
+  //   • WebKit (iOS Safari) : zoom sur un flex container réduit l'espace disponible dans
+  //     le coordinate system du flex → les tickets voient moins de largeur → texte écrasé.
+  //   • Chrome iOS : ne tient pas compte du zoom pour le calcul des colonnes flex.
   //
-  //   A4_PX = 206 mm (A4 - marges 2 mm×2) × 96 px/in ÷ 25,4 = 779 px (CSS 96 dpi)
-  //   numCols = floor(A4_PX / (160 × zf))  — calculé implicitement par le flex
-  //   gridW   = A4_PX / zf                 — largeur logique du wrapper
-  //   visual  = gridW × zf = A4_PX         ✓
+  // SOLUTION DÉFINITIVE : rangées HTML pré-calculées + `zoom` sur chaque RANGÉE (bloc).
+  //   1. On coupe bodyTicketsHtml en tickets individuels via splitVoucherTickets().
+  //   2. On groupe par numCols tickets → chaque groupe = <div class="vn-ticket-row">.
+  //   3. En @media print : zoom: zf sur la rangée (élément BLOC, pas flex container).
+  //      • La rangée est un bloc → sa largeur logique = rowWidthPx = A4_PX/zf.
+  //      • Son flex interne voit rowWidthPx CSS px → y place numCols tickets de 160 px. ✓
+  //      • zoom sur un BLOC ne perturbe pas le flex interne de la rangée.
+  //      • Visuel rangée = rowWidthPx × zf = A4_PX → tient dans le papier. ✓
+  //      • break-inside: avoid sur la rangée (bloc) → jamais tronquée entre pages. ✓
+  //      • Le layout en coordonnées CSS internes du ticket reste 160 px → pas de wrapping. ✓
   //
-  // Fonctionne identiquement sur Android Chrome et iOS Safari.
-  const A4_PX = Math.round((206 / 25.4) * 96); // 779 px (A4 utilisable à 96 dpi CSS)
-  const gridWidthPx = mobile && zoom !== 1 ? Math.round(A4_PX / zf) : A4_PX;
-  void ios; // non utilisé maintenant (approche unifiée)
+  //  A4_PX      = 206 mm (A4 − marges 2 mm×2) × 96 dpi ÷ 25,4 = 779 px CSS
+  //  rowWidthPx = A4_PX / zf        (ex : 779/0.75 = 1038 px)
+  //  numCols    = floor(rowWidthPx / (160 + 2 mm_margin)) (ex : floor(1038/168) = 6)
+  //  visual     = rowWidthPx × zf = A4_PX = 779 px        ✓
+  void ios;
+  const A4_PX = Math.round((206 / 25.4) * 96); // 779 px
+  const TICKET_W_PX = 160;
+  const TICKET_MARGIN_PX = Math.round((2 / 25.4) * 96); // 1 mm × 2 côtés ≈ 8 px
+  const TICKET_EFFECTIVE_W = TICKET_W_PX + TICKET_MARGIN_PX; // ≈ 168 px
+  const rowWidthPx = mobile && zoom !== 1 ? Math.round(A4_PX / zf) : A4_PX;
+  const numCols = Math.max(1, Math.floor(rowWidthPx / TICKET_EFFECTIVE_W));
 
-  // ─ NOTE IMPORTANTE : on n'utilise PAS transform ici ─────────────────────────
-  // `transform: scale()` crée un nouveau stacking context et casse la fragmentation
-  // CSS en impression : les sauts de page sont calculés en coordonnées de LAYOUT
-  // (pré-transform), donc les tickets se font tronquer à mi-hauteur et
-  // `break-inside: avoid` n'est pas respecté dans un conteneur transformé.
-  //
-  // On utilise `zoom` à la place :
-  //   • `zoom` affecte à la fois le rendu visuel ET le layout
-  //     → les sauts de page sont calculés en coordonnées VISUELLES (après zoom)
-  //     → `break-inside: avoid` fonctionne correctement ✓
-  //   • Les largeurs en PIXELS FIXES évitent l'ambiguïté % (viewport vs papier sur iOS)
-  //   • body  = A4_PX px           → correspond à la largeur utilisable du papier A4
-  //   • root  = A4_PX/zf px + zoom → le flex voit la largeur étendue, zoom ramène au papier
-  //   • `overflow-x: hidden` sur body → évite la pagination horizontale fantôme
+  // Découpage en rangées (mobile seulement)
+  let processedBodyHtml = bodyTicketsHtml;
+  if (mobile) {
+    const ticketsList = splitVoucherTickets(bodyTicketsHtml);
+    const rowsHtml: string[] = [];
+    for (let ri = 0; ri < ticketsList.length; ri += numCols) {
+      rowsHtml.push(
+        `<div class="vn-ticket-row">${ticketsList.slice(ri, ri + numCols).join("")}</div>`,
+      );
+    }
+    processedBodyHtml = rowsHtml.join("");
+  }
+
   const mobileScaleCss = mobile
     ? `@media print {\n` +
       `  html.vn-print-mobile body {\n` +
@@ -227,16 +264,26 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
       `    overflow-y: visible !important;\n` +
       `  }\n` +
       `  html.vn-print-mobile #vn-print-scale-root {\n` +
-      `    width: ${gridWidthPx}px !important;\n` +
+      `    display: block !important;\n` +
+      `    width: ${A4_PX}px !important;\n` +
       `    max-width: none !important;\n` +
-      (zoom !== 1 ? `    zoom: ${zf} !important;\n` : "") +
+      `  }\n` +
+      `  html.vn-print-mobile .vn-ticket-row {\n` +
+      `    display: flex !important;\n` +
+      `    flex-wrap: nowrap !important;\n` +
+      `    align-items: flex-start !important;\n` +
+      `    width: ${rowWidthPx}px !important;\n` +
+      `    max-width: none !important;\n` +
+      (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
+      `    break-inside: avoid !important;\n` +
+      `    page-break-inside: avoid !important;\n` +
       `  }\n` +
       `}\n`
     : "";
 
   const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
   const bodyInner = mobile
-    ? `<div id="vn-print-scale-root">${bodyTicketsHtml}</div>`
+    ? `<div id="vn-print-scale-root">${processedBodyHtml}</div>`
     : bodyTicketsHtml;
 
   // Sur mobile : délai 400 ms pour laisser le moteur de rendu appliquer le zoom
