@@ -4,7 +4,7 @@
  */
 const LEGACY_STORAGE_KEY = "vouchernet_voucher_print_scale_pct_v1";
 const STORAGE_KEY_WEB    = "vouchernet_voucher_print_scale_pct_web_v1";
-const DEFAULT_PERCENT    = 100;
+const DEFAULT_PERCENT    = 85;
 
 function clampPercent(n: number): number {
   if (!Number.isFinite(n)) return DEFAULT_PERCENT;

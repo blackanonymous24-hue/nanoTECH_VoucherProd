@@ -459,7 +459,7 @@ router.post("/admin/print-scale/broadcast", async (req, res): Promise<void> => {
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, claims.adminId));
 
-  const scaleVal = superRow?.printScaleWeb ?? 100;
+  const scaleVal = superRow?.printScaleWeb ?? 85;
   await db.update(adminSettingsTable).set({ printScaleWeb: scaleVal });
   res.json({ ok: true, appliedScale: scaleVal });
 });

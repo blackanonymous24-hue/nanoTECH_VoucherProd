@@ -75,7 +75,7 @@ function VoucherPrintScaleButtonInner({ token, className }: { token: string | nu
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleChange = (v: number[]) => {
-    const next = v[0] ?? 100;
+    const next = v[0] ?? 85;
     setPct(next);
     setVoucherPrintScalePercent(next);
     setBroadcastOk(false);
