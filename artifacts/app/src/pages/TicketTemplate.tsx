@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileCode, Save, Loader2, RotateCcw, Router } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,12 +10,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   TICKET_TEMPLATE_PRESETS,
+  DEFAULT_TICKET_PRESET_ID,
   type TicketTemplatePresetId,
   getPresetBody,
   getStoredTicketPresetId,
   setStoredTicketPresetId,
   findMatchingPresetId,
 } from "@/lib/voucher-ticket-presets";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { TicketPhpEditor } from "@/components/TicketPhpEditor";
 import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
 import { VoucherPrintScaleBroadcastButton } from "@/components/VoucherPrintScaleBroadcastButton";
@@ -40,6 +42,7 @@ export default function TicketTemplate() {
   const loadRequestRef = useRef(0);
   const [templateCardHeight, setTemplateCardHeight] = useState<number | undefined>(undefined);
   const [syncVarsCardHeight, setSyncVarsCardHeight] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   useEffect(() => { setCurrentPrintTemplateId(presetValue); }, [presetValue]);
 
@@ -100,27 +103,35 @@ export default function TicketTemplate() {
     void loadTemplateFromServer();
   }, [loadTemplateFromServer]);
 
-  const handleSave = async () => {
-    if (!token) return;
+  const persistTemplate = async (template: string): Promise<boolean> => {
+    if (!token) return false;
     setSaving(true);
     try {
       const r = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ template: code }),
+        body: JSON.stringify({ template }),
       });
       if (r.ok) {
         setDirty(false);
-        setPresetValue(findMatchingPresetId(code));
-        toast({ title: "Modèle enregistré", description: "Synchronisé sur le serveur pour ce compte administrateur." });
-      } else {
-        const err = await r.json().catch(() => ({})) as { error?: string };
-        toast({ title: "Erreur", description: err.error ?? "Sauvegarde impossible.", variant: "destructive" });
+        setPresetValue(findMatchingPresetId(template));
+        return true;
       }
+      const err = await r.json().catch(() => ({})) as { error?: string };
+      toast({ title: "Erreur", description: err.error ?? "Sauvegarde impossible.", variant: "destructive" });
+      return false;
     } catch {
       toast({ title: "Erreur réseau", variant: "destructive" });
+      return false;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    const ok = await persistTemplate(code);
+    if (ok) {
+      toast({ title: "Modèle enregistré", description: "Synchronisé sur le serveur pour ce compte administrateur." });
     }
   };
 
@@ -131,12 +142,6 @@ export default function TicketTemplate() {
     }
     const id = v as TicketTemplatePresetId;
     const body = getPresetBody(id);
-    if (dirty && code.trim() !== body.trim()) {
-      const ok = window.confirm(
-        "Remplacer le contenu de l'éditeur par ce modèle intégré ? Les modifications non enregistrées seront perdues.",
-      );
-      if (!ok) return;
-    }
     setStoredTicketPresetId(id);
     setPresetValue(id);
     setCode(body);
@@ -146,17 +151,42 @@ export default function TicketTemplate() {
     toast({ title: "Modèle intégré chargé", description: `${label} — enregistrez pour le conserver en base.` });
   };
 
-  const handleReset = async () => {
-    if (dirty) {
-      const ok = window.confirm(
-        "Annuler les modifications non enregistrées et recharger le modèle depuis le serveur ?",
-      );
-      if (!ok) return;
+  const isCustomTemplate = useMemo(
+    () => !loading && findMatchingPresetId(code) === "custom",
+    [loading, code],
+  );
+
+  const needsResetConfirm =
+    dirty && findMatchingPresetId(code) !== DEFAULT_TICKET_PRESET_ID;
+
+  const executeReset = async () => {
+    const body = getPresetBody(DEFAULT_TICKET_PRESET_ID);
+    setStoredTicketPresetId(DEFAULT_TICKET_PRESET_ID);
+    setPresetValue(DEFAULT_TICKET_PRESET_ID);
+    setCode(body);
+    setEditorEpoch((n) => n + 1);
+    const saved = await persistTemplate(body);
+    if (saved) {
+      toast({
+        title: "Réinitialisé",
+        description: "Modèle Mikhmon (small) enregistré sur le serveur.",
+      });
+    } else {
+      setDirty(true);
     }
-    const ok = await loadTemplateFromServer();
-    if (ok) {
-      toast({ title: "Rechargé", description: "Modèle restauré depuis l'enregistrement serveur." });
+  };
+
+  const handleResetClick = () => {
+    if (needsResetConfirm) {
+      setResetConfirmOpen(true);
+      return;
     }
+    void executeReset();
+  };
+
+  const handleResetConfirm = () => {
+    setResetConfirmOpen(false);
+    void executeReset();
   };
 
   return (
@@ -186,7 +216,7 @@ export default function TicketTemplate() {
                     Modèle intégré
                   </Label>
                   <Select
-                    value={presetValue}
+                    value={loading ? presetValue : findMatchingPresetId(code)}
                     onValueChange={handlePresetChange}
                     disabled={loading || !token}
                   >
@@ -199,25 +229,30 @@ export default function TicketTemplate() {
                           {label}
                         </SelectItem>
                       ))}
-                      <SelectItem
-                        value="custom"
-                        className="text-[11px] text-muted-foreground py-1 pl-2 pr-7 min-h-0"
-                      >
-                        Personnalisé
-                      </SelectItem>
+                      {isCustomTemplate ? (
+                        <SelectItem
+                          value="custom"
+                          className="text-[11px] text-muted-foreground py-1 pl-2 pr-7 min-h-0"
+                        >
+                          Personnalisé
+                        </SelectItem>
+                      ) : null}
                     </SelectContent>
                   </Select>
                   </div>
-                  <Button
-                    type="button"
-                    variant="warning"
-                    size="sm"
-                    onClick={handleReset}
-                    className="shrink-0"
-                  >
-                    <RotateCcw />
-                    Réinitialiser
-                  </Button>
+                  {isCustomTemplate ? (
+                    <Button
+                      type="button"
+                      variant="warning"
+                      size="sm"
+                      onClick={handleResetClick}
+                      disabled={saving || loading || !token}
+                      className="shrink-0"
+                    >
+                      {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+                      Réinitialiser
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-1 shrink-0 ml-auto">
                   <VoucherPrintScaleButton templateId={presetValue} compact />
@@ -232,13 +267,13 @@ export default function TicketTemplate() {
                   </Button>
                 </div>
               </div>
-              {presetValue === "custom" && (
+              {isCustomTemplate && (
                 <p className="text-[10px] leading-snug text-amber-700/90 max-w-md">
                   Contenu hors modèles intégrés — choisissez un modèle ci-dessus ou continuez à éditer.
                 </p>
               )}
-            </div>
-          </CardHeader>
+        </div>
+            </CardHeader>
           <CardContent className="pt-0 pb-2 px-3 sm:px-4 sm:pb-3">
             <CardTitle className="text-xs font-semibold text-gray-800 mb-1.5">Éditeur</CardTitle>
             {loading ? (
@@ -253,14 +288,15 @@ export default function TicketTemplate() {
                 onChange={(next) => {
                   setCode(next);
                   setDirty(true);
+                  setPresetValue(findMatchingPresetId(next));
                 }}
                 readOnly={!token}
                 placeholder="Choisissez un modèle intégré ou collez votre template PHP…"
                 editorMinHeight="min(52vh, 500px)"
               />
             )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
         <Card
           className="w-full lg:w-64 xl:w-72 shrink-0 flex flex-col overflow-hidden shadow-sm"
@@ -275,7 +311,7 @@ export default function TicketTemplate() {
               Variables PHP
             </CardTitle>
             <p className="text-[10px] text-violet-700/75 leading-snug">Référence MikHmon</p>
-          </CardHeader>
+            </CardHeader>
           <CardContent className="pt-0 pb-2 px-3 flex-1 min-h-0 overflow-y-auto">
             <ul className="space-y-2">
               {TICKET_TEMPLATE_VAR_REFERENCE.map(({ title, code }) => (
@@ -298,9 +334,20 @@ export default function TicketTemplate() {
                 </pre>
               </li>
             </ul>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
       </div>
+
+      <DeleteConfirmDialog
+        open={resetConfirmOpen}
+        onOpenChange={(o) => { if (!o && !saving) setResetConfirmOpen(false); }}
+        icon="warning"
+        title="Réinitialiser le modèle ?"
+        description="Réappliquer le modèle intégré Mikhmon (small) ? Les modifications non enregistrées seront perdues."
+        onConfirm={handleResetConfirm}
+        loading={saving}
+        confirmLabel="Réinitialiser"
+      />
     </div>
   );
 }

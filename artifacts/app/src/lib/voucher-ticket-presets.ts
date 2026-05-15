@@ -44,11 +44,23 @@ export function setStoredTicketPresetId(id: TicketTemplatePresetId): void {
   }
 }
 
+/**
+ * Normalise le texte avant comparaison (éditeur CodeMirror : fins de ligne, newline finale).
+ * On conserve les espaces / tabulations en tête et en fin de ligne du gabarit d’origine.
+ */
+export function normalizeTicketTemplateForCompare(source: string): string {
+  return source
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n+$/g, "");
+}
+
 /** Repère si le contenu correspond exactement à un des trois modèles fournis. */
 export function findMatchingPresetId(code: string): TicketTemplatePresetId | "custom" {
-  const t = code.trim();
+  const t = normalizeTicketTemplateForCompare(code);
   for (const id of Object.keys(BODIES) as TicketTemplatePresetId[]) {
-    if (BODIES[id].trim() === t) return id;
+    if (normalizeTicketTemplateForCompare(BODIES[id]) === t) return id;
   }
   return "custom";
 }

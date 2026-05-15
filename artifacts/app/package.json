@@ -15,7 +15,8 @@
     "@uiw/react-codemirror": "^4.25.9",
     "@workspace/api-client-react": "workspace:*",
     "axios": "^1.9.0",
-    "html2canvas": "^1.4.1"
+    "html2canvas": "^1.4.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

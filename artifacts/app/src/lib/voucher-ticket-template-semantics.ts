@@ -17,6 +17,11 @@ export const VOUCHER_TICKET_PHP_VAR_CONTRACT = {
   },
   price: {
     phpVar: "$price",
+    label: "Tarif forfait",
+    routerField: "Prix de vente / price du profil hotspot (sellingPrice ou price)",
+  },
+  currency: {
+    phpVar: "$currency",
     label: "Devise",
     routerField: "Devise du routeur (ex. FCFA)",
   },
@@ -67,14 +72,14 @@ export function voucherTemplateDnsnameFromContact(
   return (displayIfContactEmpty ?? "").trim();
 }
 
-/** @see VOUCHER_TICKET_PHP_VAR_CONTRACT.price */
-export function voucherTemplatePricePhpVarValue(currencyCode: string): string {
+/** @see VOUCHER_TICKET_PHP_VAR_CONTRACT.currency */
+export function voucherTemplateCurrencyPhpVarValue(currencyCode: string): string {
   const x = (currencyCode ?? "").trim();
   return x || "FCFA";
 }
 
 /**
- * Résout les trois variables PHP contractuelles + l’hôte pour le QR login
+ * Résout les variables PHP contractuelles + l’hôte pour le QR login
  * (le QR utilise l’IP/hôte routeur, pas le contact affiché dans `$dnsname`).
  */
 export function buildVoucherTicketPhpFieldsFromRouter(router: VoucherTicketRouterFields): {
@@ -87,7 +92,7 @@ export function buildVoucherTicketPhpFieldsFromRouter(router: VoucherTicketRoute
     router.hotspotName ?? "",
     router.name ?? "",
   );
-  const currency = voucherTemplatePricePhpVarValue(router.currency ?? "");
+  const currency = voucherTemplateCurrencyPhpVarValue(router.currency ?? "");
   const dnsname = voucherTemplateDnsnameFromContact(router.contact, hotspotName);
   const qrLoginHost = (router.host ?? "").trim() || hotspotName;
   return { hotspotName, currency, dnsname, qrLoginHost };

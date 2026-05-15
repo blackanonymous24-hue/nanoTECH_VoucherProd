@@ -17,7 +17,7 @@ const SAMPLE_ROW: VoucherTicketPrintRow = {
   validityRaw: "1d",
   timelimitRaw: "8h",
   datalimit: "",
-  /** Non affiché dans `$price` (réservé à la devise) — utile pour `$getprice` / nanoTECH. */
+  /** `$price` = tarif ; `$currency` = devise routeur. */
   priceDisplay: "1000",
   getpriceKey: "1000",
   currency: "FCFA",

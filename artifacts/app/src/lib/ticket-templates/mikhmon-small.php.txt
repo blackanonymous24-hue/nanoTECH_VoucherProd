@@ -1,4 +1,4 @@
-                                                                                                                                                                      
+	            	             	            	              	            	              	            	              	            	              
 <table class="voucher" style=" width: 160px;">
   <tbody>
     <tr>
@@ -22,11 +22,6 @@
         <tr>
           <td colspan="2" style="border: 1px solid black; font-weight:bold;"><?php echo $validity;?> <?php echo $timelimit;?> <?php echo $datalimit;?> <?php echo $price;?></td>
         </tr>
-        <tr>
-          <td colspan="2" style="text-align:center; padding:2px 0 0 0;">
-            <img style="width:28px;height:28px;max-width:28px;max-height:28px;object-fit:contain;" <?= $qrcode ?>>
-          </td>
-        </tr>
 <!-- /  -->
 <!-- Username & Password  -->
 <?php }elseif($usermode == "up"){?>
@@ -41,11 +36,6 @@
         <tr>
           <td colspan="2" style="border: 1px solid black; font-weight:bold;"><?php echo $validity;?> <?php echo $timelimit;?> <?php echo $datalimit;?> <?php echo $price;?></td>
         </tr>
-        <tr>
-          <td colspan="2" style="text-align:center; padding:2px 0 0 0;">
-            <img style="width:28px;height:28px;max-width:28px;max-height:28px;object-fit:contain;" <?= $qrcode ?>>
-          </td>
-        </tr>
 <?php }?>
 <!-- /  -->
         </table>
@@ -56,4 +46,4 @@
       </td>
     </tr>
   </tbody>
-</table>                                                                                                  
+</table>	            	          	           	          	           	          

@@ -7,7 +7,6 @@ import { escapeHtml } from "@/lib/mikhmon-small-print";
 import {
   getCustomDefault,
 } from "@/lib/voucher-ticket-defaults";
-import { voucherTemplatePricePhpVarValue } from "@/lib/voucher-ticket-template-semantics";
 import {
   getPresetBody,
   getStoredTicketPresetId,
@@ -65,6 +64,19 @@ const COLOR_SMALL: Record<string, string> = {
 };
 
 const DEFAULT_COLOR = "#1433FD";
+
+/**
+ * Mikhmon (small) n’affiche que `<?php echo $price; ?>` — y inclure la devise
+ * si le montant ne la contient pas déjà.
+ */
+function formatMikhmonTicketPrice(amount: string, currency: string): string {
+  const a = (amount ?? "").trim();
+  const c = (currency ?? "").trim();
+  if (!a) return "";
+  if (!c) return a;
+  if (a.toLowerCase().includes(c.toLowerCase())) return a;
+  return `${a} ${c}`;
+}
 
 function nanoColor(getpriceKey: string, variant: "normal" | "small"): string {
   const map = variant === "normal" ? COLOR_NORMAL : COLOR_SMALL;
@@ -168,7 +180,7 @@ export type VoucherTicketPrintRow = {
   validityRaw: string;
   timelimitRaw: string;
   datalimit: string;
-  /** Libellé tarifaire forfait (hors `$price` PHP = devise). */
+  /** Tarif forfait → `$price` ; devise routeur → `$currency`. */
   priceDisplay: string;
   /** Clé couleur nanoTECH (chiffres, ex. profil.price). */
   getpriceKey: string;
@@ -180,14 +192,13 @@ export type VoucherTicketPrintRow = {
 
 function buildVarMap(row: VoucherTicketPrintRow, nano: null | { variant: "normal" | "small"; color: string; validity: string; timelimit: string }): Record<string, string> {
   const num = String(row.num);
+  const priceAmount = (row.priceDisplay ?? "").trim();
   const base: Record<string, string> = {
     hotspotname: row.hotspotName,
     num,
     username: row.username,
     password: row.password,
     datalimit: row.datalimit,
-    /** Contrat app : `$price` = devise routeur, pas le montant forfait. */
-    price: voucherTemplatePricePhpVarValue(row.currency),
     getprice: row.getpriceKey,
     currency: row.currency,
     dnsname: row.dnsname,
@@ -195,6 +206,8 @@ function buildVarMap(row: VoucherTicketPrintRow, nano: null | { variant: "normal
   if (nano) {
     return {
       ...base,
+      /** nanoTECH : `$getprice` + `$currency` dans le gabarit. */
+      price: priceAmount,
       color: nano.color,
       validity: nano.validity,
       timelimit: nano.timelimit,
@@ -202,6 +215,8 @@ function buildVarMap(row: VoucherTicketPrintRow, nano: null | { variant: "normal
   }
   return {
     ...base,
+    /** Mikhmon (small) : `$price` seul → montant + devise. */
+    price: formatMikhmonTicketPrice(priceAmount, row.currency),
     color: "",
     validity: row.validityRaw,
     timelimit: row.timelimitRaw,
@@ -233,6 +248,11 @@ export function renderVoucherTicketHtml(template: string, row: VoucherTicketPrin
 
 export function renderVoucherTicketsBody(template: string, rows: VoucherTicketPrintRow[]): string {
   return rows.map((r) => renderVoucherTicketHtml(template, r)).join("\n");
+}
+
+/** Vrai si le gabarit contient `<?= $qrcode ?>` (ou variante echo PHP). */
+export function ticketTemplateUsesQrcode(template: string): boolean {
+  return /\$qrcode/i.test(template);
 }
 
 /**

@@ -1767,25 +1767,33 @@ function TemplateDialog({ admin, onClose }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin.id]);
 
-  const handleSave = async () => {
+  const persistTemplate = async (template: string, closeOnSuccess: boolean): Promise<boolean> => {
     setSaving(true);
     try {
       const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ template: templateCode }),
+        body: JSON.stringify({ template }),
       });
       if (r.ok) {
-        toast({ title: "Modèle sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
-        onClose();
-      } else {
-        const err = await r.json().catch(() => ({})) as { error?: string };
-        toast({ title: "Erreur", description: err.error ?? "Impossible de sauvegarder.", variant: "destructive" });
+        if (closeOnSuccess) onClose();
+        return true;
       }
+      const err = await r.json().catch(() => ({})) as { error?: string };
+      toast({ title: "Erreur", description: err.error ?? "Impossible de sauvegarder.", variant: "destructive" });
+      return false;
     } catch {
       toast({ title: "Erreur réseau", variant: "destructive" });
+      return false;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    const ok = await persistTemplate(templateCode, true);
+    if (ok) {
+      toast({ title: "Modèle sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
     }
   };
 
@@ -1807,12 +1815,27 @@ function TemplateDialog({ admin, onClose }: {
     toast({ title: "Modèle chargé", description: label });
   };
 
-  const handleReset = () => {
-    const base = getCustomDefault() ?? DEFAULT_MIKHMON_PHP;
-    setTemplateCode(base);
-    const id = getStoredTicketPresetId();
-    setPresetValue(findMatchingPresetId(getCustomDefault() ?? getPresetBody(id)));
-    toast({ title: "Réinitialisé", description: "Modèle de base local ou préréglage Mikhmon (small)." });
+  const isCustomTemplate = useMemo(
+    () => !loading && findMatchingPresetId(templateCode) === "custom",
+    [loading, templateCode],
+  );
+
+  const handleReset = async () => {
+    const body = DEFAULT_MIKHMON_PHP;
+    setStoredTicketPresetId("mikhmon-small");
+    setPresetValue("mikhmon-small");
+    setTemplateCode(body);
+    try {
+      localStorage.setItem(PHP_KEY, body);
+      localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
+    } catch { /* ignore */ }
+    const saved = await persistTemplate(body, false);
+    if (saved) {
+      toast({
+        title: "Réinitialisé",
+        description: `Modèle Mikhmon (small) enregistré pour ${admin.displayName || admin.login}.`,
+      });
+    }
   };
 
   const handleUseDefaultMikhmon = () => {
@@ -1867,7 +1890,7 @@ function TemplateDialog({ admin, onClose }: {
             Modèle intégré
           </Label>
           <Select
-            value={presetValue}
+            value={loading ? presetValue : findMatchingPresetId(templateCode)}
             onValueChange={handlePresetChange}
             disabled={loading || saving}
           >
@@ -1880,12 +1903,14 @@ function TemplateDialog({ admin, onClose }: {
                   {label}
                 </SelectItem>
               ))}
-              <SelectItem value="custom" className="text-sm text-muted-foreground">
-                Personnalisé (contenu hors modèles)
-              </SelectItem>
-            </SelectContent>
+              {isCustomTemplate ? (
+                <SelectItem value="custom" className="text-sm text-muted-foreground">
+                  Personnalisé (contenu hors modèles)
+                </SelectItem>
+              ) : null}
+          </SelectContent>
           </Select>
-          {presetValue === "custom" && (
+          {isCustomTemplate && (
             <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
               Le texte ne correspond exactement à aucun des trois modèles — choisissez un modèle pour le remplacer, ou continuez à éditer à la main.
             </p>
@@ -1893,10 +1918,18 @@ function TemplateDialog({ admin, onClose }: {
         </div>
 
         <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto">
-          <Button variant="warning" size="sm" onClick={handleReset} className="shrink-0">
-            <RotateCcw />
+          {isCustomTemplate ? (
+          <Button
+            variant="warning"
+            size="sm"
+            onClick={() => void handleReset()}
+            disabled={saving || loading}
+            className="shrink-0"
+          >
+            {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
             Réinitialiser
           </Button>
+          ) : null}
           <Button variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5 shrink-0">
             <FileCode className="h-3.5 w-3.5" />
             Coller modèle Mikhmon small

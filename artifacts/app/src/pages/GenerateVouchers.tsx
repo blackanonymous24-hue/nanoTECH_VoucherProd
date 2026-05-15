@@ -40,6 +40,7 @@ import {
   fetchEffectiveTicketTemplate,
   renderVoucherTicketsBody,
   ticketPriceColorKey,
+  ticketTemplateUsesQrcode,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
 import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-template-semantics";
@@ -696,6 +697,7 @@ export default function GenerateVouchers() {
 
   const handlePrintSmall = async (lot: LastLot) => {
     if (!lot.routerId || !lot.comment) return;
+    saveLastLot(lot);
     try {
       const raw = await fetchLotUsers(lot.routerId, lot.comment, GEN_BASE);
       const users = raw as Array<{
@@ -725,10 +727,12 @@ export default function GenerateVouchers() {
       const template = await fetchEffectiveTicketTemplate(GEN_BASE);
       const voucherByUser = new Map(lot.vouchers.map((v) => [v.username, v]));
       const profByName = new Map(displayedProfilesSorted.map((p) => [p.name, p]));
-      const qrAttrs = await buildVoucherQrImgAttrsBatch(
-        qrLoginHost,
-        users.map((u) => ({ username: u.username, password: u.password })),
-      );
+      const qrAttrs = ticketTemplateUsesQrcode(template)
+        ? await buildVoucherQrImgAttrsBatch(
+            qrLoginHost,
+            users.map((u) => ({ username: u.username, password: u.password })),
+          )
+        : users.map(() => "");
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
         const v = voucherByUser.get(u.username);
         const p = profByName.get(u.profile);

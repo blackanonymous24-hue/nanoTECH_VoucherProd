@@ -20,9 +20,15 @@ import {
   fetchEffectiveTicketTemplate,
   renderVoucherTicketsBody,
   ticketPriceColorKey,
+  ticketTemplateUsesQrcode,
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
 import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-template-semantics";
+import {
+  clearSavedPrintLot,
+  loadSavedPrintLot,
+  saveSavedPrintLot,
+} from "@/lib/voucher-print-lot-persist";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -254,9 +260,11 @@ export default function Vouchers() {
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
   const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
   const [lotsVendorPopoverOpen, setLotsVendorPopoverOpen] = useState(false);
+  const restoredPrintLotRouterRef = useRef<number | null>(null);
 
   // Réinitialise tous les filtres et la sélection quand le routeur change
   useEffect(() => {
+    restoredPrintLotRouterRef.current = null;
     setSearch("");
     setFilterProfile("all");
     setFilterComment("all");
@@ -324,6 +332,17 @@ export default function Vouchers() {
   const lots: LotSummary[] = lotsData?.lots ?? [];
   const totalUsers = lotsData?.total ?? 0;
   useRefetchOnEmpty(lots, lotsLoading, () => void refetchLots(), (d) => !!activeRouterId && (!d || d.length === 0));
+
+  /** Restaure le dernier lot d’impression sauvegardé (sélecteur ou impression directe). */
+  useEffect(() => {
+    if (!activeRouterId || lotsLoading) return;
+    if (restoredPrintLotRouterRef.current === activeRouterId) return;
+    restoredPrintLotRouterRef.current = activeRouterId;
+    const saved = loadSavedPrintLot(activeRouterId);
+    if (saved && lots.some((l) => l.name === saved.comment)) {
+      setFilterComment(saved.comment);
+    }
+  }, [activeRouterId, lotsLoading, lots]);
   const { data: vendorsAlias = [] } = useQuery<VendorAliasRow[]>({
     queryKey: ["vendors-aliases", activeRouterId],
     enabled: !!activeRouterId,
@@ -777,6 +796,8 @@ export default function Vouchers() {
     setDeletingLotName(lotName);
     setDeletingLot(null);
     if (filterComment === lotName) setFilterComment("all");
+    const savedPrint = loadSavedPrintLot(activeRouterId);
+    if (savedPrint?.comment === lotName) clearSavedPrintLot(activeRouterId);
     try {
       const res = await fetch(
         `${BASE}/api/routers/${activeRouterId}/users?comment=${encodeURIComponent(lotName)}`,
@@ -801,6 +822,8 @@ export default function Vouchers() {
 
   const handlePrintSmallLot = async (lot: LotSummary) => {
     if (!activeRouterId) return;
+    saveSavedPrintLot(activeRouterId, lot.name, lot.profile);
+    setFilterComment(lot.name);
     try {
       const users = await fetchLotUsers(lot);
       if (users.length === 0) {
@@ -822,10 +845,12 @@ export default function Vouchers() {
       const { hotspotName, currency, dnsname, qrLoginHost } = phpFields;
       const template = await fetchEffectiveTicketTemplate(BASE);
       const profByName = new Map(sortedProfiles.map((p) => [p.name, p]));
-      const qrAttrs = await buildVoucherQrImgAttrsBatch(
-        qrLoginHost,
-        users.map((u) => ({ username: u.username, password: u.password })),
-      );
+      const qrAttrs = ticketTemplateUsesQrcode(template)
+        ? await buildVoucherQrImgAttrsBatch(
+            qrLoginHost,
+            users.map((u) => ({ username: u.username, password: u.password })),
+          )
+        : users.map(() => "");
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
         const p = profByName.get(u.profile);
         const priceStr = mikhmonProfilePriceLabel(p);
@@ -1220,6 +1245,13 @@ export default function Vouchers() {
   const handleCommentChange = (v: string) => {
     setFilterComment(v);
     setPage(0);
+    if (!activeRouterId) return;
+    if (v === "all") {
+      clearSavedPrintLot(activeRouterId);
+      return;
+    }
+    const lot = lots.find((l) => l.name === v);
+    saveSavedPrintLot(activeRouterId, v, lot?.profile);
   };
 
   const handleVendorChange = (v: string) => {
