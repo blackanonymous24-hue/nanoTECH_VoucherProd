@@ -139,7 +139,7 @@ html.vn-print-mobile body {
 html.vn-print-mobile #vn-print-scale-root {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   align-content: flex-start;
   align-items: flex-start;
   gap: 2mm;
