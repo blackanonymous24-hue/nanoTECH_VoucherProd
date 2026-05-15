@@ -277,8 +277,11 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
       `    page-break-inside: avoid !important;\n` +
       `  }\n` +
       `}\n`;
-  } else if (mobile) {
-    // Android : zoom sur le flex container — remplissage libre par le moteur flex
+  } else if (mobile && zoom !== 1) {
+    // Android avec scale ≠ 100 % : zoom sur flex container avec largeur élargie
+    // pour que le navigateur place plus de colonnes (le visuel = A4 après zoom).
+    // À 100 %, on n'applique RIEN : le navigateur imprime à la largeur naturelle
+    // de la page (comportement identique au desktop, ~5 colonnes pour nanoTECH small).
     mobileScaleCss =
       `@media print {\n` +
       `  html.vn-print-mobile body {\n` +
@@ -292,7 +295,7 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
       `    flex-wrap: wrap !important;\n` +
       `    width: ${gridWidthPx}px !important;\n` +
       `    max-width: none !important;\n` +
-      (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
+      `    zoom: ${zf} !important;\n` +
       `  }\n` +
       `}\n`;
   }
