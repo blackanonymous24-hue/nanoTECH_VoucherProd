@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { printMikhmonSmallVouchers } from "@/lib/print";
+import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 import {
   formatMikhmonBytes,
   inferMikhmonUserMode,
@@ -720,6 +721,10 @@ export default function GenerateVouchers() {
       const template = await fetchEffectiveTicketTemplate(GEN_BASE);
       const voucherByUser = new Map(lot.vouchers.map((v) => [v.username, v]));
       const profByName = new Map(displayedProfilesSorted.map((p) => [p.name, p]));
+      const qrAttrs = await buildVoucherQrImgAttrsBatch(
+        dnsname,
+        users.map((u) => ({ username: u.username, password: u.password })),
+      );
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
         const v = voucherByUser.get(u.username);
         const p = profByName.get(u.profile);
@@ -738,7 +743,7 @@ export default function GenerateVouchers() {
           getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
           currency,
           dnsname,
-          qrcode: "",
+          qrcode: qrAttrs[i] ?? "",
         };
       });
       printMikhmonSmallVouchers(

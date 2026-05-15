@@ -10,6 +10,7 @@ import {
 import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
 import { printMikhmonSmallVouchers } from "@/lib/print";
+import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 import {
   formatMikhmonBytes,
   inferMikhmonUserMode,
@@ -820,6 +821,10 @@ export default function Vouchers() {
       const dnsname = (r?.host ?? "").trim() || hotspotName;
       const template = await fetchEffectiveTicketTemplate(BASE);
       const profByName = new Map(sortedProfiles.map((p) => [p.name, p]));
+      const qrAttrs = await buildVoucherQrImgAttrsBatch(
+        dnsname,
+        users.map((u) => ({ username: u.username, password: u.password })),
+      );
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
         const p = profByName.get(u.profile);
         const priceStr = mikhmonProfilePriceLabel(p);
@@ -837,7 +842,7 @@ export default function Vouchers() {
           getpriceKey: ticketPriceColorKey(rawPriceKey || priceStr),
           currency,
           dnsname,
-          qrcode: "",
+          qrcode: qrAttrs[i] ?? "",
         };
       });
       const profile = lot.profile ?? users[0]?.profile ?? "";
