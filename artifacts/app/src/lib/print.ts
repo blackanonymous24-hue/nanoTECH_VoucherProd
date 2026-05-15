@@ -186,12 +186,31 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   //   wrapper_width_css = 100%/zf  → le moteur flex voit plus d'espace → plus de colonnes.
   //   wrapper_physical  = css_width × zf = 100%  → tient dans la page.
   //
-  // iOS Safari : `zoom` CSS n'affecte PAS le layout flex (ni sur les items ni sur le conteneur).
-  //   On utilise à la place la largeur du <meta viewport> pour contrôler l'échelle d'impression.
-  //   iOS Safari adapte l'impression en faisant tenir le viewport dans la largeur du papier.
-  //   Base ≈ 780px = 206mm (A4 avec 2mm de marges) → impression 1:1.
-  //   À zf=0.75 : viewport = 780/0.75 = 1040px → iOS imprime à ≈75%, flex place plus de colonnes.
-  const IOS_BASE_VIEWPORT = 780;
+  // iOS Safari : `zoom` CSS n'affecte PAS le layout flex.
+  //   Solution : CSS Grid avec largeur de colonne explicite = TICKET_W × zf.
+  //   Le grid `auto-fill` calcule lui-même le nombre de colonnes depuis cette valeur.
+  //   `zoom: zf` sur chaque ticket le réduit visuellement pour tenir dans la cellule.
+  //   Viewport fixé à IOS_BASE_VIEWPORT (≈ largeur papier A4 avec 2mm de marges) :
+  //   NE PAS agrandir le viewport sur iOS → les tickets seraient coupés sur le bord droit.
+  const TICKET_NATURAL_W = 160; // px, largeur native `width: 160px` du template mikhmon-small
+  const IOS_BASE_VIEWPORT = 780; // px ≈ 206mm (A4 − 2mm×2 marges) → impression ~1:1
+  const scaledColW = Math.round(TICKET_NATURAL_W * zf);
+
+  // CSS spécifique iOS : grille + zoom sur chaque ticket
+  const iosScaleCss = ios
+    ? `html.vn-print-mobile #vn-print-scale-root {\n` +
+      `  display: grid !important;\n` +
+      `  grid-template-columns: repeat(auto-fill, ${scaledColW}px) !important;\n` +
+      `  gap: 1mm !important;\n` +
+      `}\n` +
+      `html.vn-print-mobile table.voucher {\n` +
+      `  display: block !important;\n` +
+      `  margin: 0 !important;\n` +
+      (zoom !== 1 ? `  zoom: ${zf};\n` : "") +
+      `}\n`
+    : "";
+
+  // CSS spécifique Android/Chrome mobile : zoom + largeur étendue sur le wrapper flex
   const scalePct = (100 / zf).toFixed(6);
   const mobileScaleCss =
     mobile && !ios && zoom !== 1
@@ -209,9 +228,8 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     ? `setTimeout(function(){try{window.focus();}catch(_){}window.print();},400)`
     : `window.print()`;
 
-  const iosViewportWidth = Math.round(IOS_BASE_VIEWPORT / zf);
   const viewport = ios
-    ? `<meta name="viewport" content="width=${iosViewportWidth}, initial-scale=1" />`
+    ? `<meta name="viewport" content="width=${IOS_BASE_VIEWPORT}, initial-scale=1" />`
     : mobile
       ? `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />`
       : `<meta name="viewport" content="width=device-width, initial-scale=1" />`;
@@ -225,7 +243,7 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     <meta http-equiv="pragma" content="no-cache" />
     ${viewport}
     <title>${safeTitle}</title>
-    <style>${zoomRuleDesktop}${MIKHMON_VOUCHER_PRINT_CSS}${mobileLayoutCss}${mobileScaleCss}</style>
+    <style>${zoomRuleDesktop}${MIKHMON_VOUCHER_PRINT_CSS}${mobileLayoutCss}${iosScaleCss}${mobileScaleCss}</style>
   </head>
   <body${bodyClass} onload="${onload}">${bodyInner}</body>
 </html>`;
