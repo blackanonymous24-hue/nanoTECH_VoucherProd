@@ -116,51 +116,15 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
 }
 
 /**
- * Styles additionnels impression mobile / WebView.
- * Sur ÉCRAN : affichage libre pour prévisualisation.
- * Sur IMPRESSION : voir mobileScaleCss dans buildMikhmonVoucherPrintDocumentHtml.
- */
-function buildVoucherPrintMobileLayoutCss(): string {
-  return `@page {
-  size: auto;
-  margin: 2mm;
-}
-html.vn-print-mobile {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
-html.vn-print-mobile body {
-  margin: 0 !important;
-  padding: 0 !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  overflow-x: visible !important;
-}
-html.vn-print-mobile #vn-print-scale-root {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  align-content: flex-start;
-  align-items: flex-start;
-  width: 100% !important;
-  max-width: 100% !important;
-  box-sizing: border-box !important;
-  overflow: visible !important;
-}
-html.vn-print-mobile .vn-ticket-row {
-  display: block !important;
-  break-inside: avoid !important;
-  page-break-inside: avoid !important;
-  white-space: nowrap !important;
-}
-/* Pas d'override sur les tables internes — on laisse le template piloter
-   son propre style (display, width, margin, padding, border, overflow…). */
-`;
-}
-
-/**
- * Document d’impression vouchers — même principe que `mikhmonv3/voucher/print.php` :
- * nouvel onglet, HTML complet, `&lt;body onload="window.print()"&gt;` (pas d’iframe, pas d’autre déclencheur).
+ * Document d’impression vouchers — flux pur et identique à `mikhmonv3/voucher/print.php`
+ * pour TOUS les appareils (desktop + mobile) :
+ *   - nouvel onglet, HTML complet
+ *   - `<body onload="window.print()">` (pas d'iframe, pas d'autre déclencheur)
+ *   - aucun CSS mobile additionnel, aucun wrap en rangées, aucun script de mesure
+ *
+ * Seule règle additionnelle : `html { zoom }` desktop si l'utilisateur a réglé
+ * le sélecteur d'échelle ≠ 100 %. Sur mobile : aucune règle d'échelle (le navigateur
+ * applique son rendu naturel d'impression mikhmonv3).
  */
 function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTicketsHtml: string): string {
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -168,113 +132,21 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
   const zf = Number(zoom.toFixed(6));
 
-  // Desktop : `html { zoom }` — bien pris en charge par Chromium.
-  const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
+  // Desktop uniquement : `html { zoom }` (bien pris en charge par Chromium).
+  // Mobile : aucune règle d'échelle — flux mikhmonv3 brut.
+  const zoomRule = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
-  // ── Mobile print scaling ──────────────────────────────────────────────────
-  //
-  // ── Approche unifiée : unités physiques mm ──────────────────────────────────
-  //
-  // Le navigateur (desktop ET mobile) mappe les CSS `mm` directement sur le papier
-  // physique. En fixant `body { width: A4_MM mm }` + `@page { size: A4 }`, le layout
-  // est identique partout, quelle que soit la densité de l'écran ou le viewport mobile.
-  //
-  // A4 imprimable ≈ 210 mm − 5 mm marges × 2 = 200 mm
-  // À l'échelle zf ≠ 1 : le conteneur est élargi à (200/zf) mm + zoom: zf CSS
-  //   → visuel = 200 mm, mais plus de colonnes tiennent dans la grille logique.
-  //
-  // ── Mobile : pré-découpe en rangées-blocs pour pagination fiable ─────────
-  //
-  // Sur les 3 plateformes mobiles (Android Chrome, iPhone Safari, iPhone Chrome),
-  // `break-inside: avoid` sur des enfants flex est ignoré → tickets coupés entre pages.
-  // Solution fiable cross-browser : grouper N tickets dans un `<div class="vn-ticket-row">`
-  // bloc, sur lequel `break-inside: avoid` est honoré universellement.
-  //
-  // Le nombre de colonnes N est calculé en JS au runtime dans le document d'impression
-  // en mesurant la VRAIE largeur rendue du premier ticket (offsetWidth + marges).
-  // Aucun hardcoding par template — fonctionne pour n'importe quel template présent
-  // ou futur que l'utilisateur ajouterait.
-  const A4_MM = 200; // A4 imprimable (210 mm − marges 5 mm × 2)
-  const gridMm = zoom !== 1 ? (A4_MM / zf) : A4_MM;
-
-  // ── CSS impression mobile : unités mm, @page A4 ──────────────────────────
-  let mobileScaleCss = "";
-  if (mobile) {
-    mobileScaleCss =
-      `@media print {\n` +
-      `  @page { size: A4 portrait; margin: 5mm; }\n` +
-      `  html.vn-print-mobile body {\n` +
-      `    width: ${A4_MM}mm !important;\n` +
-      `    margin: 0 !important;\n` +
-      `    padding: 0 !important;\n` +
-      `    max-width: none !important;\n` +
-      `  }\n` +
-      `  html.vn-print-mobile #vn-print-scale-root {\n` +
-      `    display: block !important;\n` +
-      `    width: ${A4_MM}mm !important;\n` +
-      `    max-width: none !important;\n` +
-      `  }\n` +
-      `  html.vn-print-mobile .vn-ticket-row {\n` +
-      `    width: ${gridMm.toFixed(2)}mm !important;\n` +
-      `    max-width: none !important;\n` +
-      `    white-space: nowrap !important;\n` +
-      (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
-      `  }\n` +
-      `}\n`;
-  }
-
-  const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
-  const bodyInner = mobile
-    ? `<div id="vn-print-scale-root">${bodyTicketsHtml}</div>`
-    : bodyTicketsHtml;
-
-  // ── Mobile : script de mesure runtime pour grouper les tickets en rangées ──
-  // Mesure offsetWidth + marges du premier ticket → calcule numCols → wrap en
-  // `<div class="vn-ticket-row">`. Template-agnostic, fonctionne pour tout HTML ticket.
-  const mobilePrintScript = `function vnPrintReady(){try{
-var root=document.getElementById('vn-print-scale-root');
-if(!root){window.print();return;}
-var kids=root.children,tickets=[];
-for(var i=0;i<kids.length;i++){var el=kids[i],t=el.tagName;if(t!=='SCRIPT'&&t!=='STYLE'&&t!=='LINK'&&t!=='META')tickets.push(el);}
-if(tickets.length<2){window.print();return;}
-var rootWidth=root.getBoundingClientRect().width;
-var firstRect=tickets[0].getBoundingClientRect();
-var st=window.getComputedStyle(tickets[0]);
-var marginX=(parseFloat(st.marginLeft)||0)+(parseFloat(st.marginRight)||0);
-var effective=firstRect.width+marginX;
-if(!(effective>0)){window.print();return;}
-var numCols=Math.max(1,Math.floor(rootWidth/effective));
-var frag=document.createDocumentFragment();
-for(var r=0;r<tickets.length;r+=numCols){
-var row=document.createElement('div');
-row.className='vn-ticket-row';
-for(var j=r;j<Math.min(r+numCols,tickets.length);j++){row.appendChild(tickets[j]);}
-frag.appendChild(row);
-}
-root.innerHTML='';
-root.appendChild(frag);
-}catch(e){}
-setTimeout(function(){try{window.focus();}catch(_){}window.print();},200);}`;
-
-  const onload = mobile ? `vnPrintReady()` : `window.print()`;
-  const inlineScript = mobile ? `<script>${mobilePrintScript}</script>` : "";
-
-  const viewport = mobile
-    ? `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />`
-    : `<meta name="viewport" content="width=device-width, initial-scale=1" />`;
-  const htmlClass = mobile ? ` class="vn-print-mobile"` : "";
-  const bodyClass = mobile ? ` class="vn-print-mobile-body"` : "";
   return `<!doctype html>
-<html${htmlClass}>
+<html>
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
     <meta http-equiv="pragma" content="no-cache" />
-    ${viewport}
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${safeTitle}</title>
-    <style>${zoomRuleDesktop}${MIKHMON_VOUCHER_PRINT_CSS}${mobileLayoutCss}${mobileScaleCss}</style>
+    <style>${zoomRule}${MIKHMON_VOUCHER_PRINT_CSS}</style>
   </head>
-  <body${bodyClass} onload="${onload}">${bodyInner}${inlineScript}</body>
+  <body onload="window.print()">${bodyTicketsHtml}</body>
 </html>`;
 }
 
