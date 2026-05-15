@@ -217,25 +217,29 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
 
   // ── Mobile print scaling ──────────────────────────────────────────────────
   //
-  // ANDROID (Chromium) : `zoom: zf` sur le flex container `#vn-print-scale-root`
-  //   avec `width: A4_PX/zf` → le flex remplit DYNAMIQUEMENT (browser décide N cols),
-  //   visuel = A4_PX, scaling correct. C'est l'approche confirmée « parfaite ».
+  // ── Approche unifiée : unités physiques mm ──────────────────────────────────
   //
-  // iOS (Safari/Chrome) : zoom sur flex container casse tout (cascade interne sur
-  //   Safari + colonnes mal calculées sur Chrome iOS + break-inside: avoid ignoré).
-  //   → On utilise des RANGÉES HTML pré-calculées : chaque rangée = <div bloc>
-  //   avec zoom: zf et break-inside: avoid. Le flex INTERNE de la rangée respecte
-  //   le coordinate system natif. break-inside: avoid sur un bloc fonctionne.
+  // Le navigateur (desktop ET mobile) mappe les CSS `mm` directement sur le papier
+  // physique. En fixant `body { width: A4_MM mm }` + `@page { size: A4 }`, le layout
+  // est identique partout, quelle que soit la densité de l'écran ou le viewport mobile.
   //
-  //  A4_PX      = 206 mm (A4 − marges 2 mm×2) × 96 dpi ÷ 25,4 = 779 px CSS
-  //  gridWidthPx = A4_PX / zf  (largeur logique du conteneur ou des rangées)
-  const A4_PX = Math.round((206 / 25.4) * 96); // 779 px
+  // A4 imprimable ≈ 210 mm − 5 mm marges × 2 = 200 mm
+  // À l'échelle zf ≠ 1 : le conteneur est élargi à (200/zf) mm + zoom: zf CSS
+  //   → visuel = 200 mm, mais plus de colonnes tiennent dans la grille logique.
+  //
+  // iOS (Safari/WebKit) : break-inside: avoid ignoré sur les enfants flex
+  //   → rangées HTML pré-calculées, chaque rangée = bloc avec zoom + break-inside.
+  // Android (Chromium) : flex-wrap natif, le moteur de layout décide des colonnes.
+  const A4_MM = 200; // largeur imprimable A4 avec marges 5 mm de chaque côté
+  // A4_PX sert uniquement au calcul interne du nombre de colonnes iOS (tickets en px)
+  const A4_PX = Math.round((A4_MM / 25.4) * 96); // ≈ 756 px CSS
   const TICKET_W_PX = 160;
-  const TICKET_MARGIN_PX = Math.round((2 / 25.4) * 96); // ≈ 8 px (1 mm × 2 côtés)
+  const TICKET_MARGIN_PX = Math.round((2 / 25.4) * 96); // ≈ 8 px
   const TICKET_EFFECTIVE_W = TICKET_W_PX + TICKET_MARGIN_PX; // ≈ 168 px
-  const gridWidthPx = mobile && zoom !== 1 ? Math.round(A4_PX / zf) : A4_PX;
+  const gridMm = zoom !== 1 ? (A4_MM / zf) : A4_MM;
+  const gridWidthPx = Math.round((gridMm / 25.4) * 96); // pour calcul numCols iOS
 
-  // ── Découpage en rangées : iOS uniquement (Android se débrouille avec flex) ──
+  // ── Découpage en rangées : iOS uniquement ────────────────────────────────
   let processedBodyHtml = bodyTicketsHtml;
   if (mobile && ios) {
     const numCols = Math.max(1, Math.floor(gridWidthPx / TICKET_EFFECTIVE_W));
@@ -249,53 +253,54 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     processedBodyHtml = rowsHtml.join("");
   }
 
-  // ── CSS impression : branche iOS vs Android ──────────────────────────────
+  // ── CSS impression mobile : unités mm, @page A4 ──────────────────────────
   let mobileScaleCss = "";
   if (mobile && ios) {
-    // iOS : rangées-blocs avec zoom + break-inside: avoid
+    // iOS : rangées-blocs avec break-inside: avoid (WebKit ignore break-inside sur flex)
     mobileScaleCss =
       `@media print {\n` +
+      `  @page { size: A4 portrait; margin: 5mm; }\n` +
       `  html.vn-print-mobile body {\n` +
-      `    width: ${A4_PX}px !important;\n` +
+      `    width: ${A4_MM}mm !important;\n` +
+      `    margin: 0 !important;\n` +
+      `    padding: 0 !important;\n` +
       `    max-width: none !important;\n` +
-      `    overflow-x: hidden !important;\n` +
-      `    overflow-y: visible !important;\n` +
       `  }\n` +
       `  html.vn-print-mobile #vn-print-scale-root {\n` +
       `    display: block !important;\n` +
-      `    width: ${A4_PX}px !important;\n` +
+      `    width: ${A4_MM}mm !important;\n` +
       `    max-width: none !important;\n` +
       `  }\n` +
       `  html.vn-print-mobile .vn-ticket-row {\n` +
       `    display: flex !important;\n` +
       `    flex-wrap: nowrap !important;\n` +
       `    align-items: flex-start !important;\n` +
-      `    width: ${gridWidthPx}px !important;\n` +
+      `    width: ${gridMm.toFixed(2)}mm !important;\n` +
       `    max-width: none !important;\n` +
       (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
       `    break-inside: avoid !important;\n` +
       `    page-break-inside: avoid !important;\n` +
       `  }\n` +
       `}\n`;
-  } else if (mobile && zoom !== 1) {
-    // Android avec scale ≠ 100 % : zoom sur flex container avec largeur élargie
-    // pour que le navigateur place plus de colonnes (le visuel = A4 après zoom).
-    // À 100 %, on n'applique RIEN : le navigateur imprime à la largeur naturelle
-    // de la page (comportement identique au desktop, ~5 colonnes pour nanoTECH small).
+  } else if (mobile) {
+    // Android : flex-wrap natif + body ancré sur A4 mm → identique au desktop
+    // À 100 % : gridMm = A4_MM, pas de zoom → même résultat qu'en desktop
+    // À une autre échelle : conteneur élargi à A4_MM/zf mm + zoom:zf → visuel = A4_MM mm
     mobileScaleCss =
       `@media print {\n` +
+      `  @page { size: A4 portrait; margin: 5mm; }\n` +
       `  html.vn-print-mobile body {\n` +
-      `    width: ${A4_PX}px !important;\n` +
+      `    width: ${A4_MM}mm !important;\n` +
+      `    margin: 0 !important;\n` +
+      `    padding: 0 !important;\n` +
       `    max-width: none !important;\n` +
-      `    overflow-x: hidden !important;\n` +
-      `    overflow-y: visible !important;\n` +
       `  }\n` +
       `  html.vn-print-mobile #vn-print-scale-root {\n` +
       `    display: flex !important;\n` +
       `    flex-wrap: wrap !important;\n` +
-      `    width: ${gridWidthPx}px !important;\n` +
+      `    width: ${gridMm.toFixed(2)}mm !important;\n` +
       `    max-width: none !important;\n` +
-      `    zoom: ${zf} !important;\n` +
+      (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
       `  }\n` +
       `}\n`;
   }
