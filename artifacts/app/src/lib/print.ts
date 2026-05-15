@@ -117,7 +117,8 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
 /**
  * Styles additionnels impression mobile / WebView : marges feuille réduites, flex-wrap
  * pour que les tickets utilisent la largeur utile. Le facteur `zoom` est appliqué en
- * **inline** sur `#vn-print-scale-root` (meilleure prise en charge que sur `<html>`).
+ * CSS sur **chaque `table.voucher`** (via `mobileScaleCss`) pour que le moteur flex
+ * recalcule le nombre de colonnes selon l'échelle.
  */
 function buildVoucherPrintMobileLayoutCss(): string {
   return `@page {
@@ -179,31 +180,22 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   // Desktop : `html { zoom }` — bien pris en charge par Chromium.
   const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
-  // Mobile : double approche pour couvrir Chrome Android ET iOS Safari.
-  //   • `zoom` inline sur #vn-print-scale-root (écran + Chrome Android print)
-  //   • `@media print body { transform: scale() }` (iOS Safari print)
-  //     → avec width compensatoire pour que le contenu remplisse la feuille
-  const invPct = Math.round(100 / zoom);
+  // Mobile : `zoom` appliqué sur **chaque ticket** (pas sur le wrapper).
+  // Pourquoi : `zoom` sur un conteneur flex ne modifie pas le layout interne —
+  // les enfants conservent leurs dimensions non-zoomées pour le calcul des colonnes.
+  // En appliquant `zoom` sur `table.voucher`, le moteur flex tient compte
+  // de la taille réduite → plus de colonnes quand l'échelle diminue.
+  // WebKit (iOS Safari + Chrome Android) respecte `zoom` sur les éléments
+  // à l'écran ET à l'impression, donc un seul mécanisme suffit.
   const mobileScaleCss =
     mobile && zoom !== 1
-      ? `#vn-print-scale-root { zoom: ${zf}; }
-@media print {
-  body {
-    -webkit-transform: scale(${zf});
-    transform: scale(${zf});
-    -webkit-transform-origin: 0 0;
-    transform-origin: 0 0;
-    width: ${invPct}% !important;
-    max-width: ${invPct}% !important;
-  }
-}
-`
+      ? `html.vn-print-mobile table.voucher { zoom: ${zf}; }\n`
       : "";
 
   const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
-  const zoomStyle = mobile && zoom !== 1 ? ` style="zoom:${zf}"` : "";
+  // Plus de zoom sur le wrapper : c'est chaque ticket qui porte le zoom.
   const bodyInner = mobile
-    ? `<div id="vn-print-scale-root"${zoomStyle}>${bodyTicketsHtml}</div>`
+    ? `<div id="vn-print-scale-root">${bodyTicketsHtml}</div>`
     : bodyTicketsHtml;
 
   // Sur mobile : délai 400 ms pour laisser le moteur de rendu appliquer le zoom
