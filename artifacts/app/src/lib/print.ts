@@ -43,15 +43,27 @@ function isNativeWebView(): boolean {
 function isMobile(): boolean {
   if (typeof navigator === "undefined") return false;
   if (/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+  // iPadOS 13+ s'identifie comme Macintosh mais possède le multi-touch
   if (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return true;
   return false;
 }
 
+/** Navigateur mobile ou APK : layout + zoom d’impression dédiés (Safari / WebView gèrent mal `zoom` sur `html`). */
+function isVoucherPrintMobileLayout(): boolean {
+  return isNativeWebView() || isMobile();
+}
+
+/**
+ * Impression depuis une page HTML complète (rapports vendeur, etc.).
+ * — APK (React Native WebView) : postMessage → expo-print
+ * — Navigateur mobile : nouvel onglet + document.write
+ */
 export function openPrintHtmlWindow(html: string, title: string): void {
   if (isNativeWebView()) {
     printWithNativeBridge(html, title);
     return;
   }
+
   const win = window.open("", "_blank");
   if (!win) return;
   win.document.open();
@@ -61,8 +73,14 @@ export function openPrintHtmlWindow(html: string, title: string): void {
     win.document.title = title;
     const te = win.document.querySelector("title");
     if (te) te.textContent = title;
-  } catch { /* ignore */ }
-  try { win.focus(); } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
+  try {
+    win.focus();
+  } catch {
+    /* ignore */
+  }
 }
 
 function buildReportHtml(bodyHtml: string, title: string, autoprint = true): string {
@@ -79,6 +97,9 @@ function buildReportHtml(bodyHtml: string, title: string, autoprint = true): str
 </html>`;
 }
 
+/**
+ * Document HTML autonome pour l’impression (suivi vendeurs, hebdo, etc.).
+ */
 export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHtml: string): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return `<!doctype html>
@@ -95,14 +116,25 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
 }
 
 /**
- * Document d'impression vouchers — flux aligné sur mikhmonv3/voucher/print.php.
- * Échelle unique définie par le super admin, appliquée via html { zoom } sur tous les appareils.
+ * Document d’impression vouchers — flux pur et identique à `mikhmonv3/voucher/print.php`
+ * pour TOUS les appareils (desktop + mobile) :
+ *   - nouvel onglet, HTML complet
+ *   - `<body onload="window.print()">` (pas d'iframe, pas d'autre déclencheur)
+ *   - aucun CSS mobile additionnel, aucun wrap en rangées, aucun script de mesure
+ *
+ * Seule règle additionnelle : `html { zoom }` desktop si l'utilisateur a réglé
+ * le sélecteur d'échelle ≠ 100 %. Sur mobile : aucune règle d'échelle (le navigateur
+ * applique son rendu naturel d'impression mikhmonv3).
  */
 function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTicketsHtml: string): string {
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const mobile = isVoucherPrintMobileLayout();
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
   const zf = Number(zoom.toFixed(6));
-  const zoomRule = zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
+
+  // Desktop uniquement : `html { zoom }` (bien pris en charge par Chromium).
+  // Mobile : aucune règle d'échelle — flux mikhmonv3 brut.
+  const zoomRule = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
   return `<!doctype html>
 <html>
@@ -118,7 +150,7 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
 </html>`;
 }
 
-/** Feuille de styles de mikhmonv3/voucher/print.php. */
+/** Feuille de styles de `mikhmonv3/voucher/print.php` (bloc &lt;style&gt; du &lt;head&gt;). */
 export const MIKHMON_VOUCHER_PRINT_CSS = `
 body {
   color: #000000;
@@ -166,12 +198,19 @@ table.voucher {
 }
 `;
 
+/**
+ * Impression vouchers — **un seul flux**, aligné sur Mikhmon v3 (`voucher/print.php`) :
+ * `window.open` + document HTML complet + `body onload="window.print()"`.
+ * (WebView native : pont d’impression, seul environnement sans `window.open` utilisable.)
+ */
 export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle: string): void {
   const html = buildMikhmonVoucherPrintDocumentHtml(documentTitle, bodyTicketsHtml);
+
   if (isNativeWebView()) {
     printWithNativeBridge(html, documentTitle);
     return;
   }
+
   openPrintHtmlWindow(html, documentTitle);
 }
 
@@ -197,6 +236,9 @@ function printWithNativeBridge(html: string, title: string): void {
   }
 }
 
+/**
+ * Imprime un rapport de ventes depuis le portail vendeur.
+ */
 export function printReport(title: string): void {
   const section = document.getElementById("report-print-section");
 

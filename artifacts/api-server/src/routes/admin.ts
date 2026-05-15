@@ -408,7 +408,7 @@ router.get("/admin/ticket-template", async (req, res): Promise<void> => {
 });
 
 /**
- * GET /api/admin/print-scale — échelle d'impression pour sync multi-appareils.
+ * GET /api/admin/print-scale — échelle d'impression (web + mobile) pour sync multi-appareils.
  */
 router.get("/admin/print-scale", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -416,52 +416,40 @@ router.get("/admin/print-scale", async (req, res): Promise<void> => {
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
   const [row] = await db
-    .select({ printScaleWeb: adminSettingsTable.printScaleWeb })
+    .select({ printScaleWeb: adminSettingsTable.printScaleWeb, printScaleMobile: adminSettingsTable.printScaleMobile })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, claims.adminId));
 
-  res.json({ scaleWeb: row?.printScaleWeb ?? null });
+  res.json({
+    scaleWeb: row?.printScaleWeb ?? null,
+    scaleMobile: row?.printScaleMobile ?? null,
+  });
 });
 
 /**
- * PUT /api/admin/print-scale — body: { scaleWeb: number } (0–100).
+ * PUT /api/admin/print-scale — body: { scaleWeb?: number, scaleMobile?: number } (0–100).
  */
 router.put("/admin/print-scale", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const { scaleWeb } = req.body as { scaleWeb?: unknown };
+  const { scaleWeb, scaleMobile } = req.body as { scaleWeb?: unknown; scaleMobile?: unknown };
   const toInt = (v: unknown) => (typeof v === "number" && Number.isFinite(v)) ? Math.min(100, Math.max(0, Math.round(v))) : undefined;
   const webVal = toInt(scaleWeb);
+  const mobileVal = toInt(scaleMobile);
 
-  if (webVal === undefined) {
-    res.status(400).json({ error: "Champ scaleWeb requis (entier 0–100)" });
+  if (webVal === undefined && mobileVal === undefined) {
+    res.status(400).json({ error: "Au moins scaleWeb ou scaleMobile requis (entier 0–100)" });
     return;
   }
 
-  await db.update(adminSettingsTable).set({ printScaleWeb: webVal }).where(eq(adminSettingsTable.id, claims.adminId));
+  const patch: Partial<{ printScaleWeb: number; printScaleMobile: number }> = {};
+  if (webVal !== undefined) patch.printScaleWeb = webVal;
+  if (mobileVal !== undefined) patch.printScaleMobile = mobileVal;
+
+  await db.update(adminSettingsTable).set(patch).where(eq(adminSettingsTable.id, claims.adminId));
   res.json({ ok: true });
-});
-
-/**
- * POST /api/admin/print-scale/broadcast — super admin seulement.
- * Copie le printScaleWeb du super admin vers TOUS les comptes (admins, gérants, collaborateurs).
- */
-router.post("/admin/print-scale/broadcast", async (req, res): Promise<void> => {
-  const auth = req.headers.authorization;
-  const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
-  if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
-  if (!claims.isSuperAdmin) { res.status(403).json({ error: "Réservé au super admin" }); return; }
-
-  const [superRow] = await db
-    .select({ printScaleWeb: adminSettingsTable.printScaleWeb })
-    .from(adminSettingsTable)
-    .where(eq(adminSettingsTable.id, claims.adminId));
-
-  const scaleVal = superRow?.printScaleWeb ?? 85;
-  await db.update(adminSettingsTable).set({ printScaleWeb: scaleVal });
-  res.json({ ok: true, appliedScale: scaleVal });
 });
 
 /**
