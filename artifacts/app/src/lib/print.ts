@@ -145,8 +145,14 @@ html.vn-print-mobile body {
   overflow-x: visible !important;
 }
 html.vn-print-mobile #vn-print-scale-root {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-content: flex-start;
+  align-items: flex-start;
   width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
   overflow: visible !important;
 }
 html.vn-print-mobile .vn-ticket-row {
@@ -209,42 +215,30 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   // Desktop : `html { zoom }` — bien pris en charge par Chromium.
   const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
-  // ── Mobile print scaling — approche RANGÉES PRÉ-CALCULÉES ─────────────────
+  // ── Mobile print scaling ──────────────────────────────────────────────────
   //
-  // POURQUOI PAS `transform` : casse la fragmentation CSS → break-inside: avoid ignoré
-  //   → tickets tronqués. Les sauts de page sont calculés en coordonnées LAYOUT (pre-transform).
+  // ANDROID (Chromium) : `zoom: zf` sur le flex container `#vn-print-scale-root`
+  //   avec `width: A4_PX/zf` → le flex remplit DYNAMIQUEMENT (browser décide N cols),
+  //   visuel = A4_PX, scaling correct. C'est l'approche confirmée « parfaite ».
   //
-  // POURQUOI PAS `zoom` SUR LE CONTENEUR FLEX :
-  //   • WebKit (iOS Safari) : zoom sur un flex container réduit l'espace disponible dans
-  //     le coordinate system du flex → les tickets voient moins de largeur → texte écrasé.
-  //   • Chrome iOS : ne tient pas compte du zoom pour le calcul des colonnes flex.
-  //
-  // SOLUTION DÉFINITIVE : rangées HTML pré-calculées + `zoom` sur chaque RANGÉE (bloc).
-  //   1. On coupe bodyTicketsHtml en tickets individuels via splitVoucherTickets().
-  //   2. On groupe par numCols tickets → chaque groupe = <div class="vn-ticket-row">.
-  //   3. En @media print : zoom: zf sur la rangée (élément BLOC, pas flex container).
-  //      • La rangée est un bloc → sa largeur logique = rowWidthPx = A4_PX/zf.
-  //      • Son flex interne voit rowWidthPx CSS px → y place numCols tickets de 160 px. ✓
-  //      • zoom sur un BLOC ne perturbe pas le flex interne de la rangée.
-  //      • Visuel rangée = rowWidthPx × zf = A4_PX → tient dans le papier. ✓
-  //      • break-inside: avoid sur la rangée (bloc) → jamais tronquée entre pages. ✓
-  //      • Le layout en coordonnées CSS internes du ticket reste 160 px → pas de wrapping. ✓
+  // iOS (Safari/Chrome) : zoom sur flex container casse tout (cascade interne sur
+  //   Safari + colonnes mal calculées sur Chrome iOS + break-inside: avoid ignoré).
+  //   → On utilise des RANGÉES HTML pré-calculées : chaque rangée = <div bloc>
+  //   avec zoom: zf et break-inside: avoid. Le flex INTERNE de la rangée respecte
+  //   le coordinate system natif. break-inside: avoid sur un bloc fonctionne.
   //
   //  A4_PX      = 206 mm (A4 − marges 2 mm×2) × 96 dpi ÷ 25,4 = 779 px CSS
-  //  rowWidthPx = A4_PX / zf        (ex : 779/0.75 = 1038 px)
-  //  numCols    = floor(rowWidthPx / (160 + 2 mm_margin)) (ex : floor(1038/168) = 6)
-  //  visual     = rowWidthPx × zf = A4_PX = 779 px        ✓
-  void ios;
+  //  gridWidthPx = A4_PX / zf  (largeur logique du conteneur ou des rangées)
   const A4_PX = Math.round((206 / 25.4) * 96); // 779 px
   const TICKET_W_PX = 160;
-  const TICKET_MARGIN_PX = Math.round((2 / 25.4) * 96); // 1 mm × 2 côtés ≈ 8 px
+  const TICKET_MARGIN_PX = Math.round((2 / 25.4) * 96); // ≈ 8 px (1 mm × 2 côtés)
   const TICKET_EFFECTIVE_W = TICKET_W_PX + TICKET_MARGIN_PX; // ≈ 168 px
-  const rowWidthPx = mobile && zoom !== 1 ? Math.round(A4_PX / zf) : A4_PX;
-  const numCols = Math.max(1, Math.floor(rowWidthPx / TICKET_EFFECTIVE_W));
+  const gridWidthPx = mobile && zoom !== 1 ? Math.round(A4_PX / zf) : A4_PX;
 
-  // Découpage en rangées (mobile seulement)
+  // ── Découpage en rangées : iOS uniquement (Android se débrouille avec flex) ──
   let processedBodyHtml = bodyTicketsHtml;
-  if (mobile) {
+  if (mobile && ios) {
+    const numCols = Math.max(1, Math.floor(gridWidthPx / TICKET_EFFECTIVE_W));
     const ticketsList = splitVoucherTickets(bodyTicketsHtml);
     const rowsHtml: string[] = [];
     for (let ri = 0; ri < ticketsList.length; ri += numCols) {
@@ -255,8 +249,12 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     processedBodyHtml = rowsHtml.join("");
   }
 
-  const mobileScaleCss = mobile
-    ? `@media print {\n` +
+  // ── CSS impression : branche iOS vs Android ──────────────────────────────
+  let mobileScaleCss = "";
+  if (mobile && ios) {
+    // iOS : rangées-blocs avec zoom + break-inside: avoid
+    mobileScaleCss =
+      `@media print {\n` +
       `  html.vn-print-mobile body {\n` +
       `    width: ${A4_PX}px !important;\n` +
       `    max-width: none !important;\n` +
@@ -272,14 +270,32 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
       `    display: flex !important;\n` +
       `    flex-wrap: nowrap !important;\n` +
       `    align-items: flex-start !important;\n` +
-      `    width: ${rowWidthPx}px !important;\n` +
+      `    width: ${gridWidthPx}px !important;\n` +
       `    max-width: none !important;\n` +
       (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
       `    break-inside: avoid !important;\n` +
       `    page-break-inside: avoid !important;\n` +
       `  }\n` +
-      `}\n`
-    : "";
+      `}\n`;
+  } else if (mobile) {
+    // Android : zoom sur le flex container — remplissage libre par le moteur flex
+    mobileScaleCss =
+      `@media print {\n` +
+      `  html.vn-print-mobile body {\n` +
+      `    width: ${A4_PX}px !important;\n` +
+      `    max-width: none !important;\n` +
+      `    overflow-x: hidden !important;\n` +
+      `    overflow-y: visible !important;\n` +
+      `  }\n` +
+      `  html.vn-print-mobile #vn-print-scale-root {\n` +
+      `    display: flex !important;\n` +
+      `    flex-wrap: wrap !important;\n` +
+      `    width: ${gridWidthPx}px !important;\n` +
+      `    max-width: none !important;\n` +
+      (zoom !== 1 ? `    zoom: ${zf} !important;\n` : ``) +
+      `  }\n` +
+      `}\n`;
+  }
 
   const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
   const bodyInner = mobile
