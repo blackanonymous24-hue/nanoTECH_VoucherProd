@@ -41,10 +41,19 @@ function isNativeWebView(): boolean {
 }
 
 function isMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
   if (/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
   // iPadOS 13+ s'identifie comme Macintosh mais possède le multi-touch
-  if (typeof navigator !== "undefined" && navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return true;
+  if (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return true;
   return false;
+}
+
+/** iOS Safari (inclut iPadOS 13+) — `zoom` CSS n'affecte pas le layout flex sur cette plateforme. */
+function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return true;
+  // iPadOS 13+ se signale comme Macintosh mais a le multi-touch
+  return navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent);
 }
 
 /** Navigateur mobile ou APK : layout + zoom d’impression dédiés (Safari / WebView gèrent mal `zoom` sur `html`). */
@@ -165,6 +174,7 @@ html.vn-print-mobile table.voucher {
 function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTicketsHtml: string): string {
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const mobile = isVoucherPrintMobileLayout();
+  const ios = isIOS();
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
   const zf = Number(zoom.toFixed(6));
 
@@ -172,18 +182,19 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   // Desktop : `html { zoom }` — bien pris en charge par Chromium.
   const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
-  // Mobile : `zoom` appliqué sur le **wrapper** (#vn-print-scale-root), PAS sur chaque ticket.
-  // Pourquoi : sur iOS Safari, `zoom` sur un flex-item n'affecte pas la taille allouée par
-  // le moteur flex — le ticket rétrécit visuellement mais occupe toujours 160px dans le layout.
-  // En appliquant `zoom` sur le conteneur + en élargissant sa `width` à `100%/zf`, le moteur
-  // flex voit un espace plus grand → plus de colonnes. Le zoom ramène la taille physique à 100%.
-  //   Logique :  wrapper_width_css = 100%/zf  (ex. 133% à zf=0.75)
-  //              wrapper_physical   = css_width × zf = 100%  ✓ (tient dans la page)
-  //              flex voit          = css_width (133%) → plus de tickets par ligne ✓
-  //              tickets rendus à   = taille naturelle × zf (héritage du zoom parent) ✓
+  // Android/Chrome mobile : zoom sur le wrapper + largeur étendue.
+  //   wrapper_width_css = 100%/zf  → le moteur flex voit plus d'espace → plus de colonnes.
+  //   wrapper_physical  = css_width × zf = 100%  → tient dans la page.
+  //
+  // iOS Safari : `zoom` CSS n'affecte PAS le layout flex (ni sur les items ni sur le conteneur).
+  //   On utilise à la place la largeur du <meta viewport> pour contrôler l'échelle d'impression.
+  //   iOS Safari adapte l'impression en faisant tenir le viewport dans la largeur du papier.
+  //   Base ≈ 780px = 206mm (A4 avec 2mm de marges) → impression 1:1.
+  //   À zf=0.75 : viewport = 780/0.75 = 1040px → iOS imprime à ≈75%, flex place plus de colonnes.
+  const IOS_BASE_VIEWPORT = 780;
   const scalePct = (100 / zf).toFixed(6);
   const mobileScaleCss =
-    mobile && zoom !== 1
+    mobile && !ios && zoom !== 1
       ? `html.vn-print-mobile #vn-print-scale-root { zoom: ${zf}; width: ${scalePct}%; max-width: ${scalePct}%; }\n`
       : "";
 
@@ -198,9 +209,12 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     ? `setTimeout(function(){try{window.focus();}catch(_){}window.print();},400)`
     : `window.print()`;
 
-  const viewport = mobile
-    ? `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />`
-    : `<meta name="viewport" content="width=device-width, initial-scale=1" />`;
+  const iosViewportWidth = Math.round(IOS_BASE_VIEWPORT / zf);
+  const viewport = ios
+    ? `<meta name="viewport" content="width=${iosViewportWidth}, initial-scale=1" />`
+    : mobile
+      ? `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />`
+      : `<meta name="viewport" content="width=device-width, initial-scale=1" />`;
   const htmlClass = mobile ? ` class="vn-print-mobile"` : "";
   const bodyClass = mobile ? ` class="vn-print-mobile-body"` : "";
   return `<!doctype html>
