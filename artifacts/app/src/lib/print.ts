@@ -182,44 +182,28 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   // Desktop : `html { zoom }` — bien pris en charge par Chromium.
   const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
-  // Android/Chrome mobile : zoom sur le wrapper + largeur étendue.
-  //   wrapper_width_css = 100%/zf  → le moteur flex voit plus d'espace → plus de colonnes.
-  //   wrapper_physical  = css_width × zf = 100%  → tient dans la page.
+  // Mobile (toutes plateformes) : on mime le scaling du dialogue d'impression Safari.
+  // Le scaling natif Safari fait deux choses simultanément :
+  //   1. Il dezoome le contenu visuellement
+  //   2. Il reflowe la mise en page → plus de tickets par ligne
   //
-  // iOS Safari : `zoom` CSS n'affecte PAS le layout flex.
-  //   Solution : CSS Grid avec largeur de colonne explicite = TICKET_W × zf.
-  //   Le grid `auto-fill` calcule lui-même le nombre de colonnes depuis cette valeur.
-  //   `zoom: zf` sur chaque ticket le réduit visuellement pour tenir dans la cellule.
-  //   Viewport fixé à IOS_BASE_VIEWPORT (≈ largeur papier A4 avec 2mm de marges) :
-  //   NE PAS agrandir le viewport sur iOS → les tickets seraient coupés sur le bord droit.
-  const TICKET_NATURAL_W = 160; // px, largeur native `width: 160px` du template mikhmon-small
-  const IOS_BASE_VIEWPORT = 780; // px ≈ 206mm (A4 − 2mm×2 marges) → impression ~1:1
-  const scaledColW = Math.round(TICKET_NATURAL_W * zf);
-
-  // CSS spécifique iOS : grille + zoom sur chaque ticket
-  // justify-items: start → le ticket conserve son width: 160px natif (pas étiré à la colonne).
-  // Le ticket dépasse de (160-scaledColW)px en layout, mais son rendu visuel via zoom = scaledColW.
-  // Résultat : pas de coupure de texte dans l'en-tête, taille visuelle correcte.
-  const iosScaleCss = ios
-    ? `html.vn-print-mobile #vn-print-scale-root {\n` +
-      `  display: grid !important;\n` +
-      `  grid-template-columns: repeat(auto-fill, ${scaledColW}px) !important;\n` +
-      `  align-items: start !important;\n` +
-      `  justify-items: start !important;\n` +
-      `  gap: 1mm !important;\n` +
-      `}\n` +
-      `html.vn-print-mobile table.voucher {\n` +
-      `  margin: 0 !important;\n` +
-      (zoom !== 1 ? `  zoom: ${zf};\n` : "") +
-      `}\n`
-    : "";
-
-  // CSS spécifique Android/Chrome mobile : zoom + largeur étendue sur le wrapper flex
+  // CSS équivalent appliqué UNIQUEMENT à l'impression (@media print) sur <body> :
+  //   - width: 100%/zf  → le body est logiquement plus large → flex y place plus de tickets
+  //   - zoom: zf        → tout le contenu est ramené à la taille du papier
+  // (Le viewport reste device-width pour que la prévisualisation à l'écran reste lisible.)
   const scalePct = (100 / zf).toFixed(6);
   const mobileScaleCss =
-    mobile && !ios && zoom !== 1
-      ? `html.vn-print-mobile #vn-print-scale-root { zoom: ${zf}; width: ${scalePct}%; max-width: ${scalePct}%; }\n`
+    mobile && zoom !== 1
+      ? `@media print {\n` +
+        `  html.vn-print-mobile body {\n` +
+        `    zoom: ${zf} !important;\n` +
+        `    width: ${scalePct}% !important;\n` +
+        `    max-width: ${scalePct}% !important;\n` +
+        `  }\n` +
+        `}\n`
       : "";
+  // Suppression de la variable unused (gardée pour conformité TS)
+  void ios;
 
   const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
   const bodyInner = mobile
@@ -232,11 +216,9 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     ? `setTimeout(function(){try{window.focus();}catch(_){}window.print();},400)`
     : `window.print()`;
 
-  const viewport = ios
-    ? `<meta name="viewport" content="width=${IOS_BASE_VIEWPORT}, initial-scale=1" />`
-    : mobile
-      ? `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />`
-      : `<meta name="viewport" content="width=device-width, initial-scale=1" />`;
+  const viewport = mobile
+    ? `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />`
+    : `<meta name="viewport" content="width=device-width, initial-scale=1" />`;
   const htmlClass = mobile ? ` class="vn-print-mobile"` : "";
   const bodyClass = mobile ? ` class="vn-print-mobile-body"` : "";
   return `<!doctype html>
@@ -247,7 +229,7 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     <meta http-equiv="pragma" content="no-cache" />
     ${viewport}
     <title>${safeTitle}</title>
-    <style>${zoomRuleDesktop}${MIKHMON_VOUCHER_PRINT_CSS}${mobileLayoutCss}${iosScaleCss}${mobileScaleCss}</style>
+    <style>${zoomRuleDesktop}${MIKHMON_VOUCHER_PRINT_CSS}${mobileLayoutCss}${mobileScaleCss}</style>
   </head>
   <body${bodyClass} onload="${onload}">${bodyInner}</body>
 </html>`;
