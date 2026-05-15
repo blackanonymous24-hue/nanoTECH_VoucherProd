@@ -18,7 +18,10 @@ function isNativeWebView(): boolean {
 
 function isMobileUserAgent(): boolean {
   if (typeof navigator === "undefined") return false;
-  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+  // iPadOS 13+ s'identifie comme Macintosh mais possède le multi-touch
+  if (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return true;
+  return false;
 }
 
 /** Profil actif pour lecture / écriture (impression incluse). */

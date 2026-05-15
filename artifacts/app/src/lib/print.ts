@@ -41,7 +41,10 @@ function isNativeWebView(): boolean {
 }
 
 function isMobile(): boolean {
-  return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+  // iPadOS 13+ s'identifie comme Macintosh mais possède le multi-touch
+  if (typeof navigator !== "undefined" && navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return true;
+  return false;
 }
 
 /** Navigateur mobile ou APK : layout + zoom d’impression dédiés (Safari / WebView gèrent mal `zoom` sur `html`). */
@@ -170,19 +173,45 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const mobile = isVoucherPrintMobileLayout();
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
-  const zoomRuleDesktop =
-    !mobile && zoom !== 1
-      ? `html { zoom: ${Number(zoom.toFixed(6))}; }\n`
+  const zf = Number(zoom.toFixed(6));
+
+  // ── CSS scale ──────────────────────────────────────────────────────────────
+  // Desktop : `html { zoom }` — bien pris en charge par Chromium.
+  const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
+
+  // Mobile : double approche pour couvrir Chrome Android ET iOS Safari.
+  //   • `zoom` inline sur #vn-print-scale-root (écran + Chrome Android print)
+  //   • `@media print body { transform: scale() }` (iOS Safari print)
+  //     → avec width compensatoire pour que le contenu remplisse la feuille
+  const invPct = Math.round(100 / zoom);
+  const mobileScaleCss =
+    mobile && zoom !== 1
+      ? `#vn-print-scale-root { zoom: ${zf}; }
+@media print {
+  body {
+    -webkit-transform: scale(${zf});
+    transform: scale(${zf});
+    -webkit-transform-origin: 0 0;
+    transform-origin: 0 0;
+    width: ${invPct}% !important;
+    max-width: ${invPct}% !important;
+  }
+}
+`
       : "";
+
   const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
-  const zoomStyle =
-    mobile && zoom !== 1 ? ` style="zoom:${Number(zoom.toFixed(6))}"` : "";
+  const zoomStyle = mobile && zoom !== 1 ? ` style="zoom:${zf}"` : "";
   const bodyInner = mobile
     ? `<div id="vn-print-scale-root"${zoomStyle}>${bodyTicketsHtml}</div>`
     : bodyTicketsHtml;
+
+  // Sur mobile : délai 400 ms pour laisser le moteur de rendu appliquer le zoom
+  // avant l'ouverture de la boîte de dialogue d'impression.
   const onload = mobile
     ? `setTimeout(function(){try{window.focus();}catch(_){}window.print();},400)`
     : `window.print()`;
+
   const viewport = mobile
     ? `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />`
     : `<meta name="viewport" content="width=device-width, initial-scale=1" />`;
@@ -196,7 +225,7 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     <meta http-equiv="pragma" content="no-cache" />
     ${viewport}
     <title>${safeTitle}</title>
-    <style>${zoomRuleDesktop}${MIKHMON_VOUCHER_PRINT_CSS}${mobileLayoutCss}</style>
+    <style>${zoomRuleDesktop}${MIKHMON_VOUCHER_PRINT_CSS}${mobileLayoutCss}${mobileScaleCss}</style>
   </head>
   <body${bodyClass} onload="${onload}">${bodyInner}</body>
 </html>`;
