@@ -172,20 +172,22 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   // Desktop : `html { zoom }` — bien pris en charge par Chromium.
   const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
-  // Mobile : `zoom` appliqué sur **chaque ticket** (pas sur le wrapper).
-  // Pourquoi : `zoom` sur un conteneur flex ne modifie pas le layout interne —
-  // les enfants conservent leurs dimensions non-zoomées pour le calcul des colonnes.
-  // En appliquant `zoom` sur `table.voucher`, le moteur flex tient compte
-  // de la taille réduite → plus de colonnes quand l'échelle diminue.
-  // WebKit (iOS Safari + Chrome Android) respecte `zoom` sur les éléments
-  // à l'écran ET à l'impression, donc un seul mécanisme suffit.
+  // Mobile : `zoom` appliqué sur le **wrapper** (#vn-print-scale-root), PAS sur chaque ticket.
+  // Pourquoi : sur iOS Safari, `zoom` sur un flex-item n'affecte pas la taille allouée par
+  // le moteur flex — le ticket rétrécit visuellement mais occupe toujours 160px dans le layout.
+  // En appliquant `zoom` sur le conteneur + en élargissant sa `width` à `100%/zf`, le moteur
+  // flex voit un espace plus grand → plus de colonnes. Le zoom ramène la taille physique à 100%.
+  //   Logique :  wrapper_width_css = 100%/zf  (ex. 133% à zf=0.75)
+  //              wrapper_physical   = css_width × zf = 100%  ✓ (tient dans la page)
+  //              flex voit          = css_width (133%) → plus de tickets par ligne ✓
+  //              tickets rendus à   = taille naturelle × zf (héritage du zoom parent) ✓
+  const scalePct = (100 / zf).toFixed(6);
   const mobileScaleCss =
     mobile && zoom !== 1
-      ? `html.vn-print-mobile table.voucher { zoom: ${zf}; }\n`
+      ? `html.vn-print-mobile #vn-print-scale-root { zoom: ${zf}; width: ${scalePct}%; max-width: ${scalePct}%; }\n`
       : "";
 
   const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
-  // Plus de zoom sur le wrapper : c'est chaque ticket qui porte le zoom.
   const bodyInner = mobile
     ? `<div id="vn-print-scale-root">${bodyTicketsHtml}</div>`
     : bodyTicketsHtml;
