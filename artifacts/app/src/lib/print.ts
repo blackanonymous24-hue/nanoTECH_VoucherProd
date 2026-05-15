@@ -132,9 +132,9 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
   const zf = Number(zoom.toFixed(6));
 
-  // Desktop uniquement : `html { zoom }` (bien pris en charge par Chromium).
-  // Mobile : aucune règle d'échelle — flux mikhmonv3 brut.
-  const zoomRule = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
+  // `html { zoom }` appliqué pour tous les profils (web / android / ios) si ≠ 100 %.
+  // Chaque profil a son propre curseur → l'utilisateur règle indépendamment.
+  const zoomRule = zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
   return `<!doctype html>
 <html>
