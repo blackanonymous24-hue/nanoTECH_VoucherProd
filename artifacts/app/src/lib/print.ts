@@ -149,19 +149,14 @@ html.vn-print-mobile #vn-print-scale-root {
   overflow: visible !important;
 }
 html.vn-print-mobile table.voucher {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: inline-block !important;
   vertical-align: top !important;
   width: auto !important;
-  max-width: min(100%, 260px) !important;
+  max-width: 260px !important;
   min-width: 0;
   box-sizing: border-box !important;
   margin: 1mm !important;
-}
-@media print {
-  html.vn-print-mobile table.voucher {
-    max-width: 100% !important;
-  }
 }
 `;
 }
