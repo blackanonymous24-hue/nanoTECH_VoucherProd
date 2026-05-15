@@ -185,6 +185,14 @@ function buildVoucherPrintScaleWrapReinforceCss(scalePercent: number): string {
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   isolation: isolate;
+  text-align: left;
+  font-size: 0;
+  line-height: 0;
+}
+#vn-print-scale-root table.voucher {
+  font-size: 14px;
+  line-height: normal;
+  vertical-align: top;
 }
 @media print {
   #vn-print-scale-root {
@@ -197,6 +205,14 @@ function buildVoucherPrintScaleWrapReinforceCss(scalePercent: number): string {
     overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    text-align: left !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+  }
+  #vn-print-scale-root table.voucher {
+    font-size: 14px !important;
+    line-height: normal !important;
+    vertical-align: top !important;
   }
   html, body {
     overflow: visible !important;
@@ -314,19 +330,27 @@ ${scriptTag}
 
 /** Feuille de styles de `mikhmonv3/voucher/print.php` (bloc &lt;style&gt; du &lt;head&gt;). */
 export const MIKHMON_VOUCHER_PRINT_CSS = `
+html {
+  text-align: left;
+}
 body {
   color: #000000;
   background-color: #FFFFFF;
-  font-size: 14px;
   font-family:  'Helvetica', arial, sans-serif;
   margin: 0px;
+  text-align: left;
+  font-size: 0;
+  line-height: 0;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
 table.voucher {
   display: inline-block;
+  vertical-align: top;
   border: 2px solid black;
   margin: 2px;
+  font-size: 14px;
+  line-height: normal;
 }
 @page
 {
@@ -338,6 +362,21 @@ table.voucher {
 }
 @media print
 {
+  html, body {
+    text-align: left !important;
+  }
+  body, #vn-print-scale-root {
+    font-size: 0 !important;
+    line-height: 0 !important;
+  }
+  #vn-print-scale-root {
+    text-align: left !important;
+  }
+  table.voucher {
+    font-size: 14px !important;
+    line-height: normal !important;
+    vertical-align: top !important;
+  }
   table { page-break-after:auto }
   tr    { page-break-inside:avoid; page-break-after:auto }
   td    { page-break-inside:avoid; page-break-after:auto }
