@@ -23,6 +23,7 @@ import {
   findMatchingPresetId,
 } from "@/lib/voucher-ticket-presets";
 import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
+import { setCurrentPrintTemplateId } from "@/lib/voucher-print-scale";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -35,6 +36,8 @@ export default function TicketTemplate() {
   const [saving, setSaving] = useState(false);
   const [presetValue, setPresetValue] = useState<TicketTemplatePresetId | "custom">("mikhmon-small");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setCurrentPrintTemplateId(presetValue); }, [presetValue]);
 
   useEffect(() => {
     if (!token) {
@@ -216,7 +219,7 @@ export default function TicketTemplate() {
               Importer .php
             </Button>
             <input ref={fileRef} type="file" accept=".php,.html,.txt" className="hidden" onChange={handleImport} />
-            <VoucherPrintScaleButton />
+            <VoucherPrintScaleButton templateId={presetValue} />
             <Button type="button" variant="outline" size="sm" onClick={handleSetAsDefault} className="gap-1.5 text-blue-700 border-blue-200">
               <BookMarked className="h-3.5 w-3.5" />
               Définir par défaut (local)

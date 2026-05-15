@@ -1,6 +1,7 @@
 import {
   getVoucherPrintScalePercent,
   getVoucherPrintZoomFactorFromPercent,
+  getCurrentPrintTemplateId,
 } from "@/lib/voucher-print-scale";
 
 const REPORT_CSS = `
@@ -129,7 +130,7 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
 function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTicketsHtml: string): string {
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const mobile = isVoucherPrintMobileLayout();
-  const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
+  const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent(getCurrentPrintTemplateId()));
   const zf = Number(zoom.toFixed(6));
 
   // Desktop uniquement : `html { zoom }` (bien pris en charge par Chromium).

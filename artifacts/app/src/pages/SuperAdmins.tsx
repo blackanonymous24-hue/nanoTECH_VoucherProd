@@ -43,6 +43,7 @@ import { foldText } from "@/lib/text";
 import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 import { getListRoutersQueryKey } from "@workspace/api-client-react";
 import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
+import { setCurrentPrintTemplateId } from "@/lib/voucher-print-scale";
 
 interface RouterRow {
   id: number;
@@ -1724,6 +1725,8 @@ function TemplateDialog({ admin, onClose }: {
   const [presetValue, setPresetValue] = useState<TicketTemplatePresetId | "custom">("mikhmon-small");
   const fileRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => { setCurrentPrintTemplateId(presetValue); }, [presetValue]);
+
   useEffect(() => {
     setLoading(true);
     fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, { headers: authHeaders })
@@ -1891,7 +1894,7 @@ function TemplateDialog({ admin, onClose }: {
             <BookMarked className="h-3.5 w-3.5" />
             Définir par défaut (local)
           </Button>
-          <VoucherPrintScaleButton />
+          <VoucherPrintScaleButton templateId={presetValue} />
         </div>
 
         {loading ? (

@@ -132,16 +132,17 @@ export async function ensureVerificationCodeColumn(): Promise<void> {
 }
 
 /**
- * Colonnes print_scale_web / print_scale_mobile (0–100) — sync multi-appareils.
- * Remplacent l'ancien stockage localStorage-only.
+ * Colonnes print_scale_web / print_scale_mobile (0–100) — legacy, conservées.
+ * Colonne print_scales (JSON per-template) — version actuelle.
  */
 export async function ensurePrintScaleColumns(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS print_scale_web integer`);
     await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS print_scale_mobile integer`);
-    logger.info("DB compat: colonnes admin_settings.print_scale_web/mobile vérifiées / ajoutées");
+    await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS print_scales text`);
+    logger.info("DB compat: colonnes admin_settings.print_scale_web/mobile/scales vérifiées / ajoutées");
   } catch (err) {
-    logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.print_scale_web/mobile");
+    logger.error({ err }, "DB compat: impossible d'ajouter admin_settings.print_scale*");
   }
 }
 

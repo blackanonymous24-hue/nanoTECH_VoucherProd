@@ -15,24 +15,25 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type VoucherPrintScaleButtonProps = {
   className?: string;
+  templateId: string;
 };
 
 /**
  * Visible uniquement pour le super admin.
- * Lit l'échelle depuis l'API au montage et à chaque ouverture.
- * Sauvegarde en localStorage ET en base à chaque modification.
- * Bouton "Appliquer à tous" diffuse la valeur à tous les comptes.
+ * Gère l'échelle d'impression par template (localStorage + API).
+ * Le bouton "Appliquer à tous" est affiché seulement pour les templates intégrés (pas "custom").
  */
-export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonProps) {
+export function VoucherPrintScaleButton({ className, templateId }: VoucherPrintScaleButtonProps) {
   const { token, isSuperAdmin } = useAuth();
 
   if (!isSuperAdmin) return null;
 
+  const isBuiltIn = templateId !== "custom";
   const authHeaders = { Authorization: `Bearer ${token ?? ""}` };
 
-  const [open, setOpen]           = useState(false);
-  const [pct, setPct]             = useState(() => getVoucherPrintScalePercent());
-  const [synced, setSynced]       = useState(false);
+  const [open, setOpen]               = useState(false);
+  const [pct, setPct]                 = useState(() => getVoucherPrintScalePercent(templateId));
+  const [synced, setSynced]           = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastOk, setBroadcastOk]   = useState(false);
 
@@ -43,10 +44,11 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
     try {
       const r = await fetch(`${BASE}/api/admin/print-scale`, { headers: authHeaders });
       if (!r.ok) return;
-      const data = (await r.json()) as { scaleWeb: number | null };
-      if (data.scaleWeb !== null && data.scaleWeb !== undefined) {
-        setVoucherPrintScalePercent(data.scaleWeb);
-        setPct(data.scaleWeb);
+      const data = (await r.json()) as { scales: Record<string, number> };
+      const val = data.scales?.[templateId];
+      if (val !== null && val !== undefined) {
+        setVoucherPrintScalePercent(templateId, val);
+        setPct(val);
       }
       setSynced(true);
     } catch {
@@ -61,7 +63,7 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
       fetch(`${BASE}/api/admin/print-scale`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ scaleWeb: val }),
+        body: JSON.stringify({ templateId, scale: val }),
       }).catch(() => { /* ignore réseau */ });
     }, 600);
   };
@@ -69,7 +71,13 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
   useEffect(() => {
     fetchFromServer();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, templateId]);
+
+  useEffect(() => {
+    setPct(getVoucherPrintScalePercent(templateId));
+    setSynced(false);
+    setBroadcastOk(false);
+  }, [templateId]);
 
   useEffect(() => {
     if (!open) { setBroadcastOk(false); return; }
@@ -80,7 +88,7 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
   const handleChange = (v: number[]) => {
     const next = v[0] ?? 85;
     setPct(next);
-    setVoucherPrintScalePercent(next);
+    setVoucherPrintScalePercent(templateId, next);
     setBroadcastOk(false);
     saveToServer(next);
   };
@@ -92,7 +100,8 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
     try {
       const r = await fetch(`${BASE}/api/admin/print-scale/broadcast`, {
         method: "POST",
-        headers: authHeaders,
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ templateId }),
       });
       if (r.ok) setBroadcastOk(true);
     } catch {
@@ -114,13 +123,11 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
         <div className="space-y-3">
           <div className="space-y-1">
             <Label className="text-xs font-medium leading-snug">
-              Mise à l&apos;échelle d&apos;impression
+              Échelle — {templateId === "custom" ? "Modèle personnalisé" : templateId}
             </Label>
             <p className="text-[11px] text-muted-foreground leading-snug">
-              Définissez l&apos;échelle puis diffusez-la à tous les comptes.{" "}
-              {synced && (
-                <span className="text-green-600 font-medium">✓ synchronisé</span>
-              )}
+              Propre à ce template, synchronisé avec le serveur.{" "}
+              {synced && <span className="text-green-600 font-medium">✓ synchronisé</span>}
             </p>
           </div>
 
@@ -138,19 +145,29 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
             />
           </div>
 
-          <Button
-            type="button"
-            size="sm"
-            className="w-full"
-            disabled={broadcasting}
-            onClick={handleBroadcast}
-          >
-            {broadcasting ? "Diffusion…" : "Appliquer à tous les comptes"}
-          </Button>
+          {isBuiltIn && (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                className="w-full"
+                disabled={broadcasting}
+                onClick={handleBroadcast}
+              >
+                {broadcasting ? "Diffusion…" : "Appliquer à tous les comptes"}
+              </Button>
 
-          {broadcastOk && (
-            <p className="text-[11px] text-green-600 font-medium text-center">
-              ✓ Échelle diffusée à tous les comptes
+              {broadcastOk && (
+                <p className="text-[11px] text-green-600 font-medium text-center">
+                  ✓ Échelle diffusée à tous les comptes
+                </p>
+              )}
+            </>
+          )}
+
+          {!isBuiltIn && (
+            <p className="text-[10px] text-muted-foreground border-t pt-2 leading-snug">
+              La diffusion n&apos;est disponible que pour les templates intégrés.
             </p>
           )}
         </div>

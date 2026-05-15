@@ -1,84 +1,62 @@
-/** Pourcentage 0–100 : même logique que la « Mise à l’échelle » du dialogue d’impression Chromium (Chrome / Edge). */
-const LEGACY_STORAGE_KEY = "vouchernet_voucher_print_scale_pct_v1";
-const STORAGE_KEY_WEB = "vouchernet_voucher_print_scale_pct_web_v1";
-const STORAGE_KEY_MOBILE = "vouchernet_voucher_print_scale_pct_mobile_v1";
-const DEFAULT_PERCENT = 100;
+/**
+ * Échelle d'impression vouchers — per-template (0–100).
+ * Chaque templateId a sa propre valeur en localStorage et en base.
+ */
 
-export type VoucherPrintScaleProfile = "web" | "mobile";
+const DEFAULT_PERCENT = 85;
+const STORAGE_KEY_PREFIX   = "vouchernet_print_scale_v2_";
+const CURRENT_TEMPLATE_KEY = "vouchernet_current_print_template_v1";
 
 function clampPercent(n: number): number {
   if (!Number.isFinite(n)) return DEFAULT_PERCENT;
   return Math.min(100, Math.max(0, Math.round(n)));
 }
 
-/** WebView Expo / React Native : même profil que navigateur mobile. */
-function isNativeWebView(): boolean {
-  return typeof window !== "undefined" && !!window.ReactNativeWebView;
-}
-
-function isMobileUserAgent(): boolean {
-  if (typeof navigator === "undefined") return false;
-  if (/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
-  // iPadOS 13+ s'identifie comme Macintosh mais possède le multi-touch
-  if (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return true;
-  return false;
-}
-
-/** Profil actif pour lecture / écriture (impression incluse). */
-export function getActiveVoucherPrintScaleProfile(): VoucherPrintScaleProfile {
-  if (typeof window === "undefined") return "web";
-  if (isNativeWebView() || isMobileUserAgent()) return "mobile";
-  return "web";
-}
-
-function storageKey(profile: VoucherPrintScaleProfile): string {
-  return profile === "web" ? STORAGE_KEY_WEB : STORAGE_KEY_MOBILE;
-}
-
-/**
- * Lecture pour un profil donné. L’ancienne clé unique est migrée **vers le web uniquement**
- * (l’échelle mobile peut différer volontairement).
- */
-export function getVoucherPrintScalePercentFor(profile: VoucherPrintScaleProfile): number {
+/** Retourne l'échelle pour un templateId donné (défaut 85 %). */
+export function getVoucherPrintScalePercent(templateId?: string): number {
+  const id = templateId ?? getCurrentPrintTemplateId();
   try {
-    const key = storageKey(profile);
-    let raw = localStorage.getItem(key);
-    if ((raw == null || raw === "") && profile === "web") {
-      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (legacy != null && legacy !== "") {
-        raw = legacy;
-        localStorage.setItem(key, legacy);
-        localStorage.removeItem(LEGACY_STORAGE_KEY);
-      }
-    }
-    if (raw == null || raw === "") return DEFAULT_PERCENT;
-    return clampPercent(Number.parseFloat(raw));
+    const raw = localStorage.getItem(STORAGE_KEY_PREFIX + id);
+    if (raw != null && raw !== "") return clampPercent(Number.parseFloat(raw));
+    // Migration depuis l'ancienne clé globale (avant per-template).
+    const legacy = localStorage.getItem("vouchernet_voucher_print_scale_pct_web_v1");
+    if (legacy != null && legacy !== "") return clampPercent(Number.parseFloat(legacy));
   } catch {
-    return DEFAULT_PERCENT;
+    /* ignore */
   }
+  return DEFAULT_PERCENT;
 }
 
-export function setVoucherPrintScalePercentFor(profile: VoucherPrintScaleProfile, percent: number): void {
+/** Sauvegarde l'échelle pour un templateId en localStorage. */
+export function setVoucherPrintScalePercent(templateId: string, percent: number): void {
   try {
-    localStorage.setItem(storageKey(profile), String(clampPercent(percent)));
+    localStorage.setItem(STORAGE_KEY_PREFIX + templateId, String(clampPercent(percent)));
   } catch {
     /* ignore */
   }
 }
 
-/** Valeur utilisée à l’impression selon l’environnement courant (web vs mobile / APK). */
-export function getVoucherPrintScalePercent(): number {
-  return getVoucherPrintScalePercentFor(getActiveVoucherPrintScaleProfile());
+/** Template actif pour l'impression (mis à jour quand l'utilisateur change de template). */
+export function getCurrentPrintTemplateId(): string {
+  try {
+    return localStorage.getItem(CURRENT_TEMPLATE_KEY) ?? "nanotech-normal";
+  } catch {
+    return "nanotech-normal";
+  }
 }
 
-/** Sauvegarde pour le profil courant (web ou mobile). */
-export function setVoucherPrintScalePercent(percent: number): void {
-  setVoucherPrintScalePercentFor(getActiveVoucherPrintScaleProfile(), percent);
+/** À appeler quand le template actif change (TicketTemplate, SuperAdmins). */
+export function setCurrentPrintTemplateId(id: string): void {
+  try {
+    localStorage.setItem(CURRENT_TEMPLATE_KEY, id);
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
- * Facteur pour `html { zoom: … }` — préféré à `transform: scale()` en impression Chromium.
- * 100 % → 1 ; 0 % → 0,01 (évite un zoom nul).
+ * Facteur pour `html { zoom: … }`.
+ * 100 % → 1 ; 0 % → 0.01 (évite un zoom nul).
  */
 export function getVoucherPrintZoomFactorFromPercent(percent: number): number {
   const p = clampPercent(percent);
