@@ -369,20 +369,33 @@ table.voucher {
 }
 `;
 
-/** Aligné sur le client : `html { zoom }` (mikrotik-hotspot-manager `tenantDocumentZoomCss`). */
+/** Aligné sur le client : zoom sans unité sur `html` + bloc `@media print` + attribut racine. */
 function voucherPrintZoomCssForHead(scalePercent: number): string {
   const pct = Math.max(0, Math.min(100, Math.round(scalePercent)));
   if (pct <= 0 || pct >= 100) return "";
   const factor = pct / 100;
   if (factor >= 0.999 && factor <= 1.001) return "";
-  const percent = Math.round(factor * 1000) / 10;
+  const u = factor.toFixed(6);
   return `
 html {
-  zoom: ${percent}%;
+  zoom: ${u};
   margin: 0;
   padding: 0;
+  -webkit-text-size-adjust: 100%;
+}
+@media print {
+  html {
+    zoom: ${u} !important;
+  }
 }
 `;
+}
+
+function voucherPrintZoomHtmlRootAttrs(scalePercent: number): string | undefined {
+  const pct = Math.max(0, Math.min(100, Math.round(scalePercent)));
+  if (pct <= 0 || pct >= 100) return undefined;
+  const u = (pct / 100).toFixed(6);
+  return `style="zoom:${u};margin:0;padding:0;-webkit-text-size-adjust:100%"`;
 }
 
 export function buildStandaloneVoucherPrintHtml(
@@ -392,7 +405,9 @@ export function buildStandaloneVoucherPrintHtml(
 ): string {
   const scale = opts?.scalePercent ?? 100;
   const zoomCss = voucherPrintZoomCssForHead(scale);
+  const htmlAttrs = voucherPrintZoomHtmlRootAttrs(scale);
   const styleCss = zoomCss ? `${zoomCss}\n${MIKHMON_VOUCHER_PRINT_CSS}` : MIKHMON_VOUCHER_PRINT_CSS;
+  const htmlOpen = htmlAttrs ? `<html ${htmlAttrs}>` : "<html>";
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
   const printScript =
@@ -400,10 +415,10 @@ export function buildStandaloneVoucherPrintHtml(
       ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
       : `window.onload=function(){window.focus();window.print();};`;
   return `<!doctype html>
-<html>
+${htmlOpen}
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no" />
     <title>${safeTitle}</title>
     <style>${styleCss}</style>
     <script>${printScript}<\/script>

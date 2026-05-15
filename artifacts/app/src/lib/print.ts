@@ -63,23 +63,64 @@ function voucherPrintScalePercentForCurrentContext(): number {
 }
 
 /**
- * Échelle document sur `<html>` via `zoom` — même principe que `tenantDocumentZoomCss` dans
- * mikrotik-hotspot-manager (zoom navigateur façon Edge/Chrome, pas `transform` sur `body` qui casse
- * la pagination / le contexte d’empilement sur mobile).
+ * Échelle document sur `<html>` via `zoom` (facteur sans unité, comme le chemin mobile de
+ * mikrotik-hotspot-manager) + duplication `@media print` (Safari iOS n’applique parfois le zoom
+ * qu’à l’aperçu d’impression) + `-webkit-text-size-adjust` pour limiter les réécritures de taille.
  */
 export function buildVoucherPrintZoomCssForHead(scalePercent: number): string {
   const pct = clampVoucherPrintScale(scalePercent);
   if (pct <= 0 || pct >= 100) return "";
   const factor = pct / 100;
   if (factor >= 0.999 && factor <= 1.001) return "";
-  const percent = Math.round(factor * 1000) / 10;
+  const u = factor.toFixed(6);
   return `
 html {
-  zoom: ${percent}%;
+  zoom: ${u};
   margin: 0;
   padding: 0;
+  -webkit-text-size-adjust: 100%;
+}
+@media print {
+  html {
+    zoom: ${u} !important;
+  }
 }
 `;
+}
+
+/** `style="…"` pour la balise `<html>` (renfort WebKit / expo-print quand la feuille seule suffit). */
+export function buildVoucherPrintZoomHtmlRootAttrs(scalePercent: number): string | undefined {
+  const pct = clampVoucherPrintScale(scalePercent);
+  if (pct <= 0 || pct >= 100) return undefined;
+  const u = (pct / 100).toFixed(6);
+  return `style="zoom:${u};margin:0;padding:0;-webkit-text-size-adjust:100%"`;
+}
+
+/** Force le zoom sur le document d’impression (onglet) avant `print()` — contourne certains Safari. */
+function syncVoucherPrintZoomToDocument(doc: Document, scalePercent: number): void {
+  const pct = clampVoucherPrintScale(scalePercent);
+  if (pct <= 0 || pct >= 100) return;
+  const u = (pct / 100).toFixed(6);
+  try {
+    const root = doc.documentElement;
+    root.style.setProperty("zoom", u);
+    root.style.setProperty("-webkit-text-size-adjust", "100%");
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Expo Print (APK) : le WKWebView / moteur PDF applique souvent mal `zoom` sur `<html>`.
+ * Un conteneur unique avec `transform: scale` autour du corps est en général respecté pour le PDF.
+ */
+export function wrapVoucherTicketsForExpoPrintScale(bodyTicketsHtml: string, scalePercent: number): string {
+  const pct = clampVoucherPrintScale(scalePercent);
+  if (pct <= 0 || pct >= 100) return bodyTicketsHtml;
+  const f = pct / 100;
+  const fs = f.toFixed(6);
+  const w = (100 / f).toFixed(6);
+  return `<div id="vn-expo-print-scale" style="box-sizing:border-box;margin:0;transform:scale(${fs});-webkit-transform:scale(${fs});transform-origin:0 0;-webkit-transform-origin:0 0;width:${w}%;overflow:visible;-webkit-print-color-adjust:exact;print-color-adjust:exact">${bodyTicketsHtml}</div>`;
 }
 
 /**
@@ -163,21 +204,22 @@ export function buildStandalonePrintHtml(
   title: string,
   styleCss: string,
   bodyHtml: string,
-  opts?: { deferPrintMs?: number; autoprint?: boolean },
+  opts?: { deferPrintMs?: number; autoprint?: boolean; htmlAttrs?: string },
 ): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
   const autoprint = opts?.autoprint !== false;
+  const htmlOpen = opts?.htmlAttrs?.trim() ? `<html ${opts.htmlAttrs.trim()}>` : "<html>";
   const printScript =
     defer > 0
       ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
       : `window.onload=function(){window.focus();window.print();};`;
   const scriptTag = autoprint ? `    <script>${printScript}<\/script>` : "";
   return `<!doctype html>
-<html>
+${htmlOpen}
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no" />
     <title>${safeTitle}</title>
     <style>${styleCss}</style>
 ${scriptTag}
@@ -229,16 +271,34 @@ table.voucher {
 }
 `;
 
+/** Assemble CSS + attributs racine pour une échelle donnée (navigateur — pas APK). Utile aux tests. */
+export function buildMikhmonVoucherPrintStylePayload(scalePercent: number): {
+  styleCss: string;
+  htmlAttrs: string | undefined;
+} {
+  const zoomCss = buildVoucherPrintZoomCssForHead(scalePercent);
+  const htmlAttrs = buildVoucherPrintZoomHtmlRootAttrs(scalePercent);
+  return {
+    styleCss: zoomCss ? `${zoomCss}\n${MIKHMON_VOUCHER_PRINT_CSS}` : MIKHMON_VOUCHER_PRINT_CSS,
+    htmlAttrs,
+  };
+}
+
 function buildMikhmonVoucherPrintDocumentHtml(
   bodyTicketsHtml: string,
   documentTitle: string,
   opts?: { autoprint?: boolean },
 ): string {
-  const zoomCss = buildVoucherPrintZoomCssForHead(voucherPrintScalePercentForCurrentContext());
+  const scalePct = voucherPrintScalePercentForCurrentContext();
+  const native = isNativeWebView();
+  const body = native ? wrapVoucherTicketsForExpoPrintScale(bodyTicketsHtml, scalePct) : bodyTicketsHtml;
+  const zoomCss = native ? "" : buildVoucherPrintZoomCssForHead(scalePct);
+  const htmlAttrs = native ? undefined : buildVoucherPrintZoomHtmlRootAttrs(scalePct);
   const styleCss = zoomCss ? `${zoomCss}\n${MIKHMON_VOUCHER_PRINT_CSS}` : MIKHMON_VOUCHER_PRINT_CSS;
-  return buildStandalonePrintHtml(documentTitle, styleCss, bodyTicketsHtml, {
+  return buildStandalonePrintHtml(documentTitle, styleCss, body, {
     deferPrintMs: 150,
     autoprint: opts?.autoprint !== false,
+    htmlAttrs,
   });
 }
 
@@ -307,6 +367,7 @@ export function applyMikhmonVoucherPrintHtmlToTab(
    * On injecte le HTML **sans** script d’impression et on appelle `print()` après un court délai
    * (mise en page / QR) depuis ce contexte.
    */
+  const scalePct = voucherPrintScalePercentForCurrentContext();
   const html = buildMikhmonVoucherPrintDocumentHtml(bodyTicketsHtml, documentTitle, { autoprint: false });
   win.document.open();
   win.document.write(html);
@@ -316,15 +377,27 @@ export function applyMikhmonVoucherPrintHtmlToTab(
   } catch {
     /* ignore */
   }
+  syncVoucherPrintZoomToDocument(win.document, scalePct);
   const invokePrint = (): void => {
     try {
+      syncVoucherPrintZoomToDocument(win.document, scalePct);
       win.focus();
       win.print();
     } catch {
       /* ignore */
     }
   };
-  win.setTimeout(invokePrint, 320);
+  const delayMs = isMobileUa() ? 520 : 320;
+  const schedule = (): void => {
+    win.setTimeout(invokePrint, delayMs);
+  };
+  if (typeof win.requestAnimationFrame === "function") {
+    win.requestAnimationFrame(() => {
+      win.requestAnimationFrame(schedule);
+    });
+  } else {
+    schedule();
+  }
 }
 
 export function showMikhmonVoucherPrintErrorInTab(win: Window, message: string): void {
