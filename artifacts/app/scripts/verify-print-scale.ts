@@ -36,7 +36,9 @@ function main(): void {
 
   const inner = '<table class="voucher"></table>';
   const wrapped = wrapVoucherTicketsForExpoPrintScale(inner, 80);
-  assert.ok(wrapped.includes('id="vn-expo-print-scale"'));
+  assert.ok(wrapped.includes('id="vn-print-scale-root"'));
+  assert.ok(wrapped.includes("transform-origin:left top"));
+  assert.ok(wrapped.includes("-webkit-backface-visibility:hidden"));
   assert.ok(wrapped.includes("transform:scale(0.800000)"));
   assert.ok(wrapped.includes("-webkit-transform:scale(0.800000)"));
   assert.ok(wrapped.includes("width:125.000000%"));

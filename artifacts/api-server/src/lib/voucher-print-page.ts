@@ -369,33 +369,80 @@ table.voucher {
 }
 `;
 
-/** Aligné sur le client : zoom sans unité sur `html` + bloc `@media print` + attribut racine. */
-function voucherPrintZoomCssForHead(scalePercent: number): string {
-  const pct = Math.max(0, Math.min(100, Math.round(scalePercent)));
+function clampPrintScale(n: number): number {
+  if (!Number.isFinite(n)) return 100;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function wrapVoucherBodyWithPrintTransform(bodyTicketsHtml: string, scalePercent: number): string {
+  const pct = clampPrintScale(scalePercent);
+  if (pct <= 0 || pct >= 100) return bodyTicketsHtml;
+  const f = pct / 100;
+  const fs = f.toFixed(6);
+  const w = (100 / f).toFixed(6);
+  return `<div id="vn-print-scale-root" style="box-sizing:border-box;margin:0;position:relative;-webkit-backface-visibility:hidden;backface-visibility:hidden;transform:scale(${fs});-webkit-transform:scale(${fs});transform-origin:left top;-webkit-transform-origin:left top;width:${w}%;overflow:visible;-webkit-print-color-adjust:exact;print-color-adjust:exact">${bodyTicketsHtml}</div>`;
+}
+
+function printScaleWrapReinforceCss(scalePercent: number): string {
+  const pct = clampPrintScale(scalePercent);
   if (pct <= 0 || pct >= 100) return "";
-  const factor = pct / 100;
-  if (factor >= 0.999 && factor <= 1.001) return "";
-  const u = factor.toFixed(6);
+  const f = pct / 100;
+  const fs = f.toFixed(6);
+  const w = (100 / f).toFixed(6);
   return `
-html {
-  zoom: ${u};
-  margin: 0;
-  padding: 0;
-  -webkit-text-size-adjust: 100%;
+#vn-print-scale-root {
+  position: relative;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  isolation: isolate;
 }
 @media print {
-  html {
-    zoom: ${u} !important;
+  #vn-print-scale-root {
+    transform: scale(${fs}) !important;
+    -webkit-transform: scale(${fs}) !important;
+    transform-origin: left top !important;
+    -webkit-transform-origin: left top !important;
+    width: ${w}% !important;
+    max-width: none !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  html, body {
+    overflow: visible !important;
+    height: auto !important;
+    max-width: none !important;
   }
 }
 `;
 }
 
-function voucherPrintZoomHtmlRootAttrs(scalePercent: number): string | undefined {
-  const pct = Math.max(0, Math.min(100, Math.round(scalePercent)));
-  if (pct <= 0 || pct >= 100) return undefined;
-  const u = (pct / 100).toFixed(6);
-  return `style="zoom:${u};margin:0;padding:0;-webkit-text-size-adjust:100%"`;
+function printScaleRuntimeScript(scalePercent: number): string {
+  const pct = clampPrintScale(scalePercent);
+  if (pct <= 0 || pct >= 100) return "";
+  return `<script>(function(){
+var P=${pct};
+function F(){
+  var n=document.getElementById("vn-print-scale-root");
+  if(!n)return;
+  var f=P/100;
+  var w=(100/f).toFixed(6);
+  n.style.setProperty("transform","scale("+f+")");
+  n.style.setProperty("-webkit-transform","scale("+f+")");
+  n.style.setProperty("transform-origin","left top");
+  n.style.setProperty("-webkit-transform-origin","left top");
+  n.style.setProperty("width",w+"%");
+}
+window.addEventListener("beforeprint",F);
+try{window.addEventListener("webkitBeforePrint",F);}catch(e){}
+try{
+  var mq=window.matchMedia("print");
+  if(mq&&mq.addEventListener)mq.addEventListener("change",function(){if(mq.matches)F();});
+  else if(mq&&mq.addListener)mq.addListener(function(){if(mq.matches)F();});
+}catch(e){}
+if(document.readyState==="complete")setTimeout(F,0);
+else window.addEventListener("load",function(){setTimeout(F,0);});
+})();<\/script>`;
 }
 
 export function buildStandaloneVoucherPrintHtml(
@@ -404,10 +451,16 @@ export function buildStandaloneVoucherPrintHtml(
   opts?: { deferPrintMs?: number; scalePercent?: number },
 ): string {
   const scale = opts?.scalePercent ?? 100;
-  const zoomCss = voucherPrintZoomCssForHead(scale);
-  const htmlAttrs = voucherPrintZoomHtmlRootAttrs(scale);
-  const styleCss = zoomCss ? `${zoomCss}\n${MIKHMON_VOUCHER_PRINT_CSS}` : MIKHMON_VOUCHER_PRINT_CSS;
-  const htmlOpen = htmlAttrs ? `<html ${htmlAttrs}>` : "<html>";
+  const pct = clampPrintScale(scale);
+  let body = bodyTicketsHtml;
+  let reinforce = "";
+  let tailScript = "";
+  if (pct > 0 && pct < 100) {
+    body = wrapVoucherBodyWithPrintTransform(bodyTicketsHtml, pct);
+    reinforce = printScaleWrapReinforceCss(pct);
+    tailScript = printScaleRuntimeScript(pct);
+  }
+  const styleCss = reinforce ? `${MIKHMON_VOUCHER_PRINT_CSS}\n${reinforce}` : MIKHMON_VOUCHER_PRINT_CSS;
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const defer = opts?.deferPrintMs ?? 0;
   const printScript =
@@ -415,7 +468,7 @@ export function buildStandaloneVoucherPrintHtml(
       ? `window.onload=function(){window.focus();setTimeout(function(){window.print();},${defer});};`
       : `window.onload=function(){window.focus();window.print();};`;
   return `<!doctype html>
-${htmlOpen}
+<html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no" />
@@ -423,7 +476,7 @@ ${htmlOpen}
     <style>${styleCss}</style>
     <script>${printScript}<\/script>
   </head>
-  <body>${bodyTicketsHtml}</body>
+  <body>${body}${tailScript}</body>
 </html>`;
 }
 

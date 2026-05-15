@@ -111,8 +111,8 @@ function syncVoucherPrintZoomToDocument(doc: Document, scalePercent: number): vo
 }
 
 /**
- * Expo Print (APK) : le WKWebView / moteur PDF applique souvent mal `zoom` sur `<html>`.
- * Un conteneur unique avec `transform: scale` autour du corps est en général respecté pour le PDF.
+ * Conteneur unique avec `transform: scale` — fiable pour l’impression mobile, expo-print (APK),
+ * et WKWebView ; `zoom` sur `<html>` est souvent ignoré à l’aperçu d’impression sur iOS/Android.
  */
 export function wrapVoucherTicketsForExpoPrintScale(bodyTicketsHtml: string, scalePercent: number): string {
   const pct = clampVoucherPrintScale(scalePercent);
@@ -120,7 +120,91 @@ export function wrapVoucherTicketsForExpoPrintScale(bodyTicketsHtml: string, sca
   const f = pct / 100;
   const fs = f.toFixed(6);
   const w = (100 / f).toFixed(6);
-  return `<div id="vn-expo-print-scale" style="box-sizing:border-box;margin:0;transform:scale(${fs});-webkit-transform:scale(${fs});transform-origin:0 0;-webkit-transform-origin:0 0;width:${w}%;overflow:visible;-webkit-print-color-adjust:exact;print-color-adjust:exact">${bodyTicketsHtml}</div>`;
+  return `<div id="vn-print-scale-root" style="box-sizing:border-box;margin:0;position:relative;-webkit-backface-visibility:hidden;backface-visibility:hidden;transform:scale(${fs});-webkit-transform:scale(${fs});transform-origin:left top;-webkit-transform-origin:left top;width:${w}%;overflow:visible;-webkit-print-color-adjust:exact;print-color-adjust:exact">${bodyTicketsHtml}</div>`;
+}
+
+/** Réapplique le transform sur la racine (Safari / Chrome Android avant l’aperçu d’impression). */
+function syncPrintScaleTransformRoot(doc: Document, scalePercent: number): void {
+  const pct = clampVoucherPrintScale(scalePercent);
+  if (pct <= 0 || pct >= 100) return;
+  const el = doc.getElementById("vn-print-scale-root");
+  if (!el) return;
+  const f = pct / 100;
+  const fs = f.toFixed(6);
+  const w = (100 / f).toFixed(6);
+  try {
+    el.style.setProperty("transform", `scale(${fs})`);
+    el.style.setProperty("-webkit-transform", `scale(${fs})`);
+    el.style.setProperty("transform-origin", "left top");
+    el.style.setProperty("-webkit-transform-origin", "left top");
+    el.style.setProperty("width", `${w}%`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Script inline : Safari iOS et Chrome Android réécrivent parfois les styles à l’entrée en mode impression. */
+function buildWebKitAndroidPrintScaleRuntimeScript(scalePercent: number): string {
+  const pct = Math.round(clampVoucherPrintScale(scalePercent));
+  if (pct <= 0 || pct >= 100) return "";
+  return `<script>(function(){
+var P=${pct};
+function F(){
+  var n=document.getElementById("vn-print-scale-root");
+  if(!n)return;
+  var f=P/100;
+  var w=(100/f).toFixed(6);
+  n.style.setProperty("transform","scale("+f+")");
+  n.style.setProperty("-webkit-transform","scale("+f+")");
+  n.style.setProperty("transform-origin","left top");
+  n.style.setProperty("-webkit-transform-origin","left top");
+  n.style.setProperty("width",w+"%");
+}
+window.addEventListener("beforeprint",F);
+try{window.addEventListener("webkitBeforePrint",F);}catch(e){}
+try{
+  var mq=window.matchMedia("print");
+  if(mq&&mq.addEventListener)mq.addEventListener("change",function(){if(mq.matches)F();});
+  else if(mq&&mq.addListener)mq.addListener(function(){if(mq.matches)F();});
+}catch(e){}
+if(document.readyState==="complete")setTimeout(F,0);
+else window.addEventListener("load",function(){setTimeout(F,0);});
+})();<\/script>`;
+}
+
+/** Renforce le `transform` en `@media print` (Safari peut rafraîchir les styles à l’aperçu). */
+function buildVoucherPrintScaleWrapReinforceCss(scalePercent: number): string {
+  const pct = clampVoucherPrintScale(scalePercent);
+  if (pct <= 0 || pct >= 100) return "";
+  const f = pct / 100;
+  const fs = f.toFixed(6);
+  const w = (100 / f).toFixed(6);
+  return `
+#vn-print-scale-root {
+  position: relative;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  isolation: isolate;
+}
+@media print {
+  #vn-print-scale-root {
+    transform: scale(${fs}) !important;
+    -webkit-transform: scale(${fs}) !important;
+    transform-origin: left top !important;
+    -webkit-transform-origin: left top !important;
+    width: ${w}% !important;
+    max-width: none !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  html, body {
+    overflow: visible !important;
+    height: auto !important;
+    max-width: none !important;
+  }
+}
+`;
 }
 
 /**
@@ -290,11 +374,28 @@ function buildMikhmonVoucherPrintDocumentHtml(
   opts?: { autoprint?: boolean },
 ): string {
   const scalePct = voucherPrintScalePercentForCurrentContext();
-  const native = isNativeWebView();
-  const body = native ? wrapVoucherTicketsForExpoPrintScale(bodyTicketsHtml, scalePct) : bodyTicketsHtml;
-  const zoomCss = native ? "" : buildVoucherPrintZoomCssForHead(scalePct);
-  const htmlAttrs = native ? undefined : buildVoucherPrintZoomHtmlRootAttrs(scalePct);
-  const styleCss = zoomCss ? `${zoomCss}\n${MIKHMON_VOUCHER_PRINT_CSS}` : MIKHMON_VOUCHER_PRINT_CSS;
+  const scaled = scalePct > 0 && scalePct < 100;
+  const mobileLike = isNativeWebView() || isMobileUa();
+
+  let body = bodyTicketsHtml;
+  let zoomCss = "";
+  let htmlAttrs: string | undefined = undefined;
+  let reinforceCss = "";
+
+  if (scaled) {
+    if (mobileLike) {
+      body =
+        wrapVoucherTicketsForExpoPrintScale(bodyTicketsHtml, scalePct) +
+        buildWebKitAndroidPrintScaleRuntimeScript(scalePct);
+      reinforceCss = buildVoucherPrintScaleWrapReinforceCss(scalePct);
+    } else {
+      zoomCss = buildVoucherPrintZoomCssForHead(scalePct);
+      htmlAttrs = buildVoucherPrintZoomHtmlRootAttrs(scalePct);
+    }
+  }
+
+  const styleCss = [zoomCss, MIKHMON_VOUCHER_PRINT_CSS, reinforceCss].filter((s) => s.length > 0).join("\n");
+
   return buildStandalonePrintHtml(documentTitle, styleCss, body, {
     deferPrintMs: 150,
     autoprint: opts?.autoprint !== false,
@@ -377,10 +478,18 @@ export function applyMikhmonVoucherPrintHtmlToTab(
   } catch {
     /* ignore */
   }
-  syncVoucherPrintZoomToDocument(win.document, scalePct);
+  if (!isMobileUa()) {
+    syncVoucherPrintZoomToDocument(win.document, scalePct);
+  } else if (scalePct > 0 && scalePct < 100) {
+    syncPrintScaleTransformRoot(win.document, scalePct);
+  }
   const invokePrint = (): void => {
     try {
-      syncVoucherPrintZoomToDocument(win.document, scalePct);
+      if (!isMobileUa()) {
+        syncVoucherPrintZoomToDocument(win.document, scalePct);
+      } else if (scalePct > 0 && scalePct < 100) {
+        syncPrintScaleTransformRoot(win.document, scalePct);
+      }
       win.focus();
       win.print();
     } catch {
