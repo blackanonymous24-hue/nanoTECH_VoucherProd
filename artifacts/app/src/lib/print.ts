@@ -151,15 +151,10 @@ html.vn-print-mobile .vn-ticket-row {
   display: block !important;
   break-inside: avoid !important;
   page-break-inside: avoid !important;
-  font-size: 0;
+  white-space: nowrap !important;
 }
-html.vn-print-mobile .vn-ticket-row > table {
-  display: inline-block !important;
-  vertical-align: top !important;
-  box-sizing: border-box !important;
-  margin: 2mm !important;
-  font-size: 12px;
-}
+/* Pas d'override sur les tables internes — on laisse le template piloter
+   son propre style (display, width, margin, padding, border, overflow…). */
 `;
 }
 
