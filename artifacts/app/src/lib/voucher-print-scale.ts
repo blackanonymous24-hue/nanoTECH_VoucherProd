@@ -1,56 +1,43 @@
-/** Pourcentage 0–100 : même logique que la « Mise à l'échelle » du dialogue d'impression Chromium (Chrome / Edge). */
+/** Pourcentage 0–100 : même logique que la « Mise à l’échelle » du dialogue d’impression Chromium (Chrome / Edge). */
 const LEGACY_STORAGE_KEY = "vouchernet_voucher_print_scale_pct_v1";
-const STORAGE_KEY_WEB    = "vouchernet_voucher_print_scale_pct_web_v1";
+const STORAGE_KEY_WEB = "vouchernet_voucher_print_scale_pct_web_v1";
 const STORAGE_KEY_MOBILE = "vouchernet_voucher_print_scale_pct_mobile_v1";
-const STORAGE_KEY_IOS    = "vouchernet_voucher_print_scale_pct_ios_v1";
 const DEFAULT_PERCENT = 100;
 
-export type VoucherPrintScaleProfile = "web" | "mobile" | "ios";
+export type VoucherPrintScaleProfile = "web" | "mobile";
 
 function clampPercent(n: number): number {
   if (!Number.isFinite(n)) return DEFAULT_PERCENT;
   return Math.min(100, Math.max(0, Math.round(n)));
 }
 
+/** WebView Expo / React Native : même profil que navigateur mobile. */
 function isNativeWebView(): boolean {
   return typeof window !== "undefined" && !!window.ReactNativeWebView;
 }
 
-function isIOSUserAgent(): boolean {
+function isMobileUserAgent(): boolean {
   if (typeof navigator === "undefined") return false;
-  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return true;
+  if (/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
   // iPadOS 13+ s'identifie comme Macintosh mais possède le multi-touch
   if (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return true;
   return false;
 }
 
-function isAndroidUserAgent(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /Android/i.test(navigator.userAgent);
-}
-
-function isMobileUserAgent(): boolean {
-  return isIOSUserAgent() || isAndroidUserAgent() ||
-    (typeof navigator !== "undefined" &&
-      /Mobi|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
-}
-
 /** Profil actif pour lecture / écriture (impression incluse). */
 export function getActiveVoucherPrintScaleProfile(): VoucherPrintScaleProfile {
   if (typeof window === "undefined") return "web";
-  if (!isNativeWebView() && !isMobileUserAgent()) return "web";
-  if (isIOSUserAgent()) return "ios";
-  return "mobile"; // Android + autres mobiles
+  if (isNativeWebView() || isMobileUserAgent()) return "mobile";
+  return "web";
 }
 
 function storageKey(profile: VoucherPrintScaleProfile): string {
-  if (profile === "ios")    return STORAGE_KEY_IOS;
-  if (profile === "mobile") return STORAGE_KEY_MOBILE;
-  return STORAGE_KEY_WEB;
+  return profile === "web" ? STORAGE_KEY_WEB : STORAGE_KEY_MOBILE;
 }
 
 /**
- * Lecture pour un profil donné. L'ancienne clé unique est migrée vers le web uniquement.
+ * Lecture pour un profil donné. L’ancienne clé unique est migrée **vers le web uniquement**
+ * (l’échelle mobile peut différer volontairement).
  */
 export function getVoucherPrintScalePercentFor(profile: VoucherPrintScaleProfile): number {
   try {
@@ -79,12 +66,12 @@ export function setVoucherPrintScalePercentFor(profile: VoucherPrintScaleProfile
   }
 }
 
-/** Valeur utilisée à l'impression selon l'environnement courant (web / android / ios). */
+/** Valeur utilisée à l’impression selon l’environnement courant (web vs mobile / APK). */
 export function getVoucherPrintScalePercent(): number {
   return getVoucherPrintScalePercentFor(getActiveVoucherPrintScaleProfile());
 }
 
-/** Sauvegarde pour le profil courant. */
+/** Sauvegarde pour le profil courant (web ou mobile). */
 export function setVoucherPrintScalePercent(percent: number): void {
   setVoucherPrintScalePercentFor(getActiveVoucherPrintScaleProfile(), percent);
 }

@@ -21,7 +21,6 @@ export const adminSettingsTable = pgTable("admin_settings", {
   // Échelle d'impression (0–100), stockée en base pour sync multi-appareils.
   printScaleWeb: integer("print_scale_web"),
   printScaleMobile: integer("print_scale_mobile"),
-  printScaleIos: integer("print_scale_ios"),
   passwordPlain: text("password_plain"),
   verificationCode: text("verification_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -1,5 +1,4 @@
 import {
-  getActiveVoucherPrintScaleProfile,
   getVoucherPrintScalePercent,
   getVoucherPrintZoomFactorFromPercent,
 } from "@/lib/voucher-print-scale";
@@ -49,15 +48,15 @@ function isMobile(): boolean {
   return false;
 }
 
-/** Navigateur mobile ou APK : layout dedie (Safari / WebView gèrent mal zoom sur html). */
+/** Navigateur mobile ou APK : layout + zoom d’impression dédiés (Safari / WebView gèrent mal `zoom` sur `html`). */
 function isVoucherPrintMobileLayout(): boolean {
   return isNativeWebView() || isMobile();
 }
 
 /**
  * Impression depuis une page HTML complète (rapports vendeur, etc.).
- * APK (React Native WebView) : postMessage → expo-print
- * Navigateur mobile : nouvel onglet + document.write
+ * — APK (React Native WebView) : postMessage → expo-print
+ * — Navigateur mobile : nouvel onglet + document.write
  */
 export function openPrintHtmlWindow(html: string, title: string): void {
   if (isNativeWebView()) {
@@ -98,7 +97,9 @@ function buildReportHtml(bodyHtml: string, title: string, autoprint = true): str
 </html>`;
 }
 
-/** Document HTML autonome pour l'impression (suivi vendeurs, hebdo, etc.). */
+/**
+ * Document HTML autonome pour l’impression (suivi vendeurs, hebdo, etc.).
+ */
 export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHtml: string): string {
   const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return `<!doctype html>
@@ -114,73 +115,26 @@ export function buildStandalonePrintHtml(title: string, styleCss: string, bodyHt
 </html>`;
 }
 
-// ── CSS additionnel iOS ────────────────────────────────────────────────────
-// Override le @page de MIKHMON_VOUCHER_PRINT_CSS (marges uniformes 5 mm),
-// renforce fidélité couleur et non-coupure des tickets.
-// Le scale sur body est appliqué par JS (vnIosPrint) pour garantir reflow avant print.
-const IOS_PRINT_CSS = `
-@page {
-  margin: 5mm;
-  size: auto;
-}
-@media print {
-  html, body {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  .voucher {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-}
-`;
-
 /**
- * Script iOS inline injecté avant </body>.
- * Appelé depuis body onload="vnIosPrint()".
+ * Document d’impression vouchers — flux pur et identique à `mikhmonv3/voucher/print.php`
+ * pour TOUS les appareils (desktop + mobile) :
+ *   - nouvel onglet, HTML complet
+ *   - `<body onload="window.print()">` (pas d'iframe, pas d'autre déclencheur)
+ *   - aucun CSS mobile additionnel, aucun wrap en rangées, aucun script de mesure
  *
- * Séquence :
- *   1. Applique transform: scale(zf) + compensation de largeur sur body
- *   2. Attend reflow/repaint (double rAF + setTimeout 50 ms)
- *   3. Lance window.print()
+ * Seule règle additionnelle : `html { zoom }` desktop si l'utilisateur a réglé
+ * le sélecteur d'échelle ≠ 100 %. Sur mobile : aucune règle d'échelle (le navigateur
+ * applique son rendu naturel d'impression mikhmonv3).
  */
-function buildIosPrintScript(zf: number): string {
-  const scale = Number(zf.toFixed(6));
-  const widthPct = Number((100 / scale).toFixed(4));
-  const applyTransform = scale < 1
-    ? `var b=document.body;b.style.transformOrigin='top left';b.style.transform='scale(${scale})';b.style.width='${widthPct}%';`
-    : ``;
-  return `<script>
-function vnIosPrint(){
-  ${applyTransform}
-  function doPrint(){try{window.focus();}catch(_){}window.print();}
-  if(typeof requestAnimationFrame==='function'){
-    requestAnimationFrame(function(){requestAnimationFrame(function(){setTimeout(doPrint,50);});});
-  }else{setTimeout(doPrint,150);}
-}
-<\/script>`;
-}
-
-// ── Document d'impression vouchers ────────────────────────────────────────
-// Flux aligné sur mikhmonv3/voucher/print.php.
-//
-// Profil web / Android : html { zoom: zf } — Chromium/WebKit desktop.
-// Profil iOS           : transform: scale(zf) appliqué par JS avant window.print()
-//                        (Safari ignore html { zoom } à l'impression).
 function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTicketsHtml: string): string {
   const safeTitle = documentTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const profile = getActiveVoucherPrintScaleProfile();
+  const mobile = isVoucherPrintMobileLayout();
   const zoom = getVoucherPrintZoomFactorFromPercent(getVoucherPrintScalePercent());
   const zf = Number(zoom.toFixed(6));
 
-  const isIos = profile === "ios";
-
-  // Web/Android : html { zoom } — ignoré par Safari → géré via JS pour iOS.
-  const zoomRule = !isIos && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
-
-  const iosCss    = isIos ? IOS_PRINT_CSS : "";
-  const iosScript = isIos ? buildIosPrintScript(zf) : "";
-  const onload    = isIos ? `vnIosPrint()` : `window.print()`;
+  // Desktop uniquement : `html { zoom }` (bien pris en charge par Chromium).
+  // Mobile : aucune règle d'échelle — flux mikhmonv3 brut.
+  const zoomRule = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
   return `<!doctype html>
 <html>
@@ -190,13 +144,13 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
     <meta http-equiv="pragma" content="no-cache" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${safeTitle}</title>
-    <style>${zoomRule}${MIKHMON_VOUCHER_PRINT_CSS}${iosCss}</style>
+    <style>${zoomRule}${MIKHMON_VOUCHER_PRINT_CSS}</style>
   </head>
-  <body onload="${onload}">${bodyTicketsHtml}${iosScript}</body>
+  <body onload="window.print()">${bodyTicketsHtml}</body>
 </html>`;
 }
 
-/** Feuille de styles de mikhmonv3/voucher/print.php (bloc style du head). */
+/** Feuille de styles de `mikhmonv3/voucher/print.php` (bloc &lt;style&gt; du &lt;head&gt;). */
 export const MIKHMON_VOUCHER_PRINT_CSS = `
 body {
   color: #000000;
@@ -245,9 +199,9 @@ table.voucher {
 `;
 
 /**
- * Impression vouchers — un seul flux, aligné sur Mikhmon v3 (voucher/print.php) :
- * window.open + document HTML complet + body onload="window.print()".
- * (WebView native : pont d'impression, seul environnement sans window.open utilisable.)
+ * Impression vouchers — **un seul flux**, aligné sur Mikhmon v3 (`voucher/print.php`) :
+ * `window.open` + document HTML complet + `body onload="window.print()"`.
+ * (WebView native : pont d’impression, seul environnement sans `window.open` utilisable.)
  */
 export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle: string): void {
   const html = buildMikhmonVoucherPrintDocumentHtml(documentTitle, bodyTicketsHtml);
@@ -282,7 +236,9 @@ function printWithNativeBridge(html: string, title: string): void {
   }
 }
 
-/** Imprime un rapport de ventes depuis le portail vendeur. */
+/**
+ * Imprime un rapport de ventes depuis le portail vendeur.
+ */
 export function printReport(title: string): void {
   const section = document.getElementById("report-print-section");
 

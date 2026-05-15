@@ -28,9 +28,8 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
 
   const [open, setOpen] = useState(false);
   const [activeProfile, setActiveProfile] = useState(() => getActiveVoucherPrintScaleProfile());
-  const [pctWeb, setPctWeb]       = useState(() => getVoucherPrintScalePercentFor("web"));
+  const [pctWeb, setPctWeb] = useState(() => getVoucherPrintScalePercentFor("web"));
   const [pctMobile, setPctMobile] = useState(() => getVoucherPrintScalePercentFor("mobile"));
-  const [pctIos, setPctIos]       = useState(() => getVoucherPrintScalePercentFor("ios"));
   const [synced, setSynced] = useState(false);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -40,11 +39,7 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
     try {
       const r = await fetch(`${BASE}/api/admin/print-scale`, { headers: authHeaders });
       if (!r.ok) return;
-      const data = (await r.json()) as {
-        scaleWeb: number | null;
-        scaleMobile: number | null;
-        scaleIos: number | null;
-      };
+      const data = (await r.json()) as { scaleWeb: number | null; scaleMobile: number | null };
       if (data.scaleWeb !== null && data.scaleWeb !== undefined) {
         setVoucherPrintScalePercentFor("web", data.scaleWeb);
         setPctWeb(data.scaleWeb);
@@ -53,24 +48,20 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
         setVoucherPrintScalePercentFor("mobile", data.scaleMobile);
         setPctMobile(data.scaleMobile);
       }
-      if (data.scaleIos !== null && data.scaleIos !== undefined) {
-        setVoucherPrintScalePercentFor("ios", data.scaleIos);
-        setPctIos(data.scaleIos);
-      }
       setSynced(true);
     } catch {
       /* offline — localStorage conservé */
     }
   };
 
-  const saveToServer = (web: number, mobile: number, ios: number) => {
+  const saveToServer = (web: number, mobile: number) => {
     if (!token) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       fetch(`${BASE}/api/admin/print-scale`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ scaleWeb: web, scaleMobile: mobile, scaleIos: ios }),
+        body: JSON.stringify({ scaleWeb: web, scaleMobile: mobile }),
       }).catch(() => { /* ignore réseau */ });
     }, 600);
   };
@@ -91,27 +82,15 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
     const next = v[0] ?? 100;
     setPctWeb(next);
     setVoucherPrintScalePercentFor("web", next);
-    saveToServer(next, pctMobile, pctIos);
+    saveToServer(next, pctMobile);
   };
 
   const handleMobileChange = (v: number[]) => {
     const next = v[0] ?? 100;
     setPctMobile(next);
     setVoucherPrintScalePercentFor("mobile", next);
-    saveToServer(pctWeb, next, pctIos);
+    saveToServer(pctWeb, next);
   };
-
-  const handleIosChange = (v: number[]) => {
-    const next = v[0] ?? 100;
-    setPctIos(next);
-    setVoucherPrintScalePercentFor("ios", next);
-    saveToServer(pctWeb, pctMobile, next);
-  };
-
-  const profileLabel =
-    activeProfile === "ios"    ? "iOS (Safari / Chrome)" :
-    activeProfile === "mobile" ? "Android / APK" :
-    "Navigateur web (bureau)";
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -125,7 +104,7 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
         <div className="space-y-3">
           <div className="space-y-1">
             <Label className="text-xs font-medium leading-snug">
-              Mise à l&apos;échelle impression
+              Mise à l&apos;échelle (Chrome / Edge)
             </Label>
             <p className="text-[11px] text-muted-foreground leading-snug">
               Réglages synchronisés entre tous vos appareils via le serveur.{" "}
@@ -140,28 +119,35 @@ export function VoucherPrintScaleButton({ className }: VoucherPrintScaleButtonPr
               <span className="text-xs font-medium leading-tight">Navigateur web (bureau)</span>
               <span className="text-xl font-semibold tabular-nums tracking-tight">{pctWeb}%</span>
             </div>
-            <Slider min={0} max={100} step={1} value={[pctWeb]} onValueChange={handleWebChange} />
+            <Slider
+              min={0}
+              max={100}
+              step={1}
+              value={[pctWeb]}
+              onValueChange={handleWebChange}
+            />
           </div>
 
           <div className="space-y-2.5 rounded-md border bg-muted/20 p-2.5">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs font-medium leading-tight">Android / APK</span>
+              <span className="text-xs font-medium leading-tight">Mobile / APK</span>
               <span className="text-xl font-semibold tabular-nums tracking-tight">{pctMobile}%</span>
             </div>
-            <Slider min={0} max={100} step={1} value={[pctMobile]} onValueChange={handleMobileChange} />
-          </div>
-
-          <div className="space-y-2.5 rounded-md border bg-muted/20 p-2.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs font-medium leading-tight">iOS (Safari / Chrome)</span>
-              <span className="text-xl font-semibold tabular-nums tracking-tight">{pctIos}%</span>
-            </div>
-            <Slider min={0} max={100} step={1} value={[pctIos]} onValueChange={handleIosChange} />
+            <Slider
+              min={0}
+              max={100}
+              step={1}
+              value={[pctMobile]}
+              onValueChange={handleMobileChange}
+            />
           </div>
 
           <p className="text-[10px] text-muted-foreground leading-snug border-t pt-2">
             Depuis cet appareil, l&apos;impression utilise actuellement l&apos;échelle{" "}
-            <strong className="font-medium text-foreground">{profileLabel}</strong>.
+            <strong className="font-medium text-foreground">
+              {activeProfile === "web" ? "Web" : "Mobile / APK"}
+            </strong>
+            .
           </p>
         </div>
       </PopoverContent>
