@@ -182,28 +182,45 @@ function buildMikhmonVoucherPrintDocumentHtml(documentTitle: string, bodyTickets
   // Desktop : `html { zoom }` — bien pris en charge par Chromium.
   const zoomRuleDesktop = !mobile && zoom !== 1 ? `html { zoom: ${zf}; }\n` : "";
 
-  // Mobile (toutes plateformes) : on mime le scaling du dialogue d'impression Safari.
-  // Le scaling natif Safari fait deux choses simultanément :
-  //   1. Il dezoome le contenu visuellement
-  //   2. Il reflowe la mise en page → plus de tickets par ligne
+  // ── Mobile print scaling ───────────────────────────────────────────────────
   //
-  // CSS équivalent appliqué UNIQUEMENT à l'impression (@media print) sur <body> :
-  //   - width: 100%/zf  → le body est logiquement plus large → flex y place plus de tickets
-  //   - zoom: zf        → tout le contenu est ramené à la taille du papier
-  // (Le viewport reste device-width pour que la prévisualisation à l'écran reste lisible.)
-  const scalePct = (100 / zf).toFixed(6);
-  const mobileScaleCss =
-    mobile && zoom !== 1
-      ? `@media print {\n` +
-        `  html.vn-print-mobile body {\n` +
-        `    zoom: ${zf} !important;\n` +
-        `    width: ${scalePct}% !important;\n` +
-        `    max-width: ${scalePct}% !important;\n` +
-        `  }\n` +
-        `}\n`
-      : "";
-  // Suppression de la variable unused (gardée pour conformité TS)
-  void ios;
+  // PROBLÈME :
+  //   • `zoom` sur un conteneur flex ne recalcule pas le layout flex sur iOS (WebKit).
+  //   • `zoom` cascadé sur body réduit la largeur interne des tickets → texte coupé.
+  //   • Changer le viewport provoque des débordements horizontaux (coupure côté droit).
+  //
+  // SOLUTION : `transform: scale(zf)` sur le wrapper, en @media print uniquement.
+  //   `transform` ne cascade PAS → les tickets gardent leurs 160 px internes.
+  //   Le wrapper voit une largeur logique = A4_PX/zf → flex y place le bon nombre de colonnes.
+  //   Le transform ramène le visuel à A4_PX → tient exactement sur le papier.
+  //
+  //   A4_PX = 206 mm (A4 - marges 2 mm×2) × 96 px/in ÷ 25,4 = 779 px (CSS 96 dpi)
+  //   numCols = floor(A4_PX / (160 × zf))  — calculé implicitement par le flex
+  //   gridW   = A4_PX / zf                 — largeur logique du wrapper
+  //   visual  = gridW × zf = A4_PX         ✓
+  //
+  // Fonctionne identiquement sur Android Chrome et iOS Safari.
+  const A4_PX = Math.round((206 / 25.4) * 96); // 779 px (A4 utilisable à 96 dpi CSS)
+  const gridWidthPx = mobile && zoom !== 1 ? Math.round(A4_PX / zf) : A4_PX;
+  void ios; // non utilisé maintenant (approche unifiée)
+
+  const mobileScaleCss = mobile
+    ? `@media print {\n` +
+      `  html.vn-print-mobile body {\n` +
+      `    width: ${A4_PX}px !important;\n` +
+      `    max-width: none !important;\n` +
+      `    overflow: visible !important;\n` +
+      `  }\n` +
+      `  html.vn-print-mobile #vn-print-scale-root {\n` +
+      `    width: ${gridWidthPx}px !important;\n` +
+      `    max-width: none !important;\n` +
+      (zoom !== 1
+        ? `    transform: scale(${zf}) !important;\n` +
+          `    transform-origin: top left !important;\n`
+        : "") +
+      `  }\n` +
+      `}\n`
+    : "";
 
   const mobileLayoutCss = mobile ? buildVoucherPrintMobileLayoutCss() : "";
   const bodyInner = mobile
