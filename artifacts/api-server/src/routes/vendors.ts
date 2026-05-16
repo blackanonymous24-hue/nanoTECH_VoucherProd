@@ -415,6 +415,7 @@ router.delete("/vendors/:id", async (req, res): Promise<void> => {
 const LOW_STOCK_THRESHOLD = 100;
 
 router.get("/vendors/stock-alerts", async (req, res): Promise<void> => {
+  try {
   const scope = getAdminScopeOptional(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
@@ -492,6 +493,10 @@ router.get("/vendors/stock-alerts", async (req, res): Promise<void> => {
       vendorName: a.vendorId ? (vendorNameMap.get(a.vendorId) ?? "") : "",
     })),
   });
+  } catch (err: unknown) {
+    logger.error({ err }, "stock-alerts error");
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 router.get("/vendors/reports/summary", async (req, res): Promise<void> => {

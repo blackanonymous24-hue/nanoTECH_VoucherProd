@@ -147,6 +147,22 @@ export async function ensurePrintScaleColumns(): Promise<void> {
 }
 
 /**
+ * Colonne session_epoch sur admin_settings, vendors, managers et collaborateurs.
+ * Utilisée par sessionEpochMiddleware pour invalider les sessions sur logout / idle.
+ */
+export async function ensureSessionEpochColumns(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS session_epoch integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE vendors        ADD COLUMN IF NOT EXISTS session_epoch integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE managers       ADD COLUMN IF NOT EXISTS session_epoch integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE collaborateurs ADD COLUMN IF NOT EXISTS session_epoch integer NOT NULL DEFAULT 0`);
+    logger.info("DB compat: colonne session_epoch vérifiée / ajoutée (admin_settings, vendors, managers, collaborateurs)");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter session_epoch");
+  }
+}
+
+/**
  * Backfill password_plain = 'root' pour les super admins créés avant l'ajout
  * de la colonne (le compte initial admin/root n'avait pas de mot de passe en clair stocké).
  * Idempotent : ne touche que les lignes où password_plain IS NULL.
