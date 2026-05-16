@@ -15,6 +15,7 @@ import {
 import { WebView, type WebViewNavigation, type WebViewMessageEvent } from "react-native-webview";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { BrandLogo } from "./components/BrandLogo";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import Constants from "expo-constants";
@@ -26,7 +27,6 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 const DEFAULT_WEB_URL = "https://nanovoucher.com";
 const extraUrl = (Constants.expoConfig?.extra as { webAppUrl?: string } | undefined)?.webAppUrl?.trim();
 const PROD_URL = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || extraUrl || DEFAULT_WEB_URL;
-const APP_VERSION = Constants.expoConfig?.version ?? "1.0.2";
 /** Même UA que la V1.3 fonctionnelle (détection côté web). */
 const WEBVIEW_USER_AGENT = "nanoTECH-VouchersBills-Mobile/1.0";
 const RELOAD_SPINNER_TIMEOUT = 8000;
@@ -198,12 +198,11 @@ function WebAppShell() {
 
         <TouchableOpacity onPress={handleHome} style={styles.headerTitle}>
           <View style={styles.logoRow}>
-            <Feather name="wifi" size={18} color="#60a5fa" />
+            <BrandLogo size="sm" />
             <Text style={styles.titleText} numberOfLines={1}>
               {isVendorPortal ? "Portail Vendeur" : "nanoTECH Vouchers"}
             </Text>
           </View>
-          <Text style={styles.versionText}>v{APP_VERSION}</Text>
           {isVendorPortal && (
             <Text style={styles.subtitleText}>Vouchers</Text>
           )}
@@ -307,12 +306,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "400",
     marginTop: 1,
-  },
-  versionText: {
-    color: "#64748b",
-    fontSize: 9,
-    fontWeight: "500",
-    marginTop: 2,
   },
   headerBtn: {
     padding: 4,
