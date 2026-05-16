@@ -3,26 +3,48 @@
  * `readSalesQuickFromDb` + rapport de ventes : scripts par suffixe de lot,
  * bons hors doublon script même login + même jour UTC.
  */
-import { and, desc, eq, isNotNull, notExists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, notExists, sql } from "drizzle-orm";
 import { db, scriptSalesTable, vendorsTable, vouchersTable } from "@workspace/db";
 
-/** Ligne synthétique « Non attribué » dans le classement (pas de fiche vendeur). */
+/** Ligne synthétique ventes sans suffixe reconnu (pas de fiche vendeur). */
 export const UNATTRIBUTED_VENDOR_ID = 0;
-export const UNATTRIBUTED_VENDOR_NAME = "Non attribué";
+export const UNATTRIBUTED_VENDOR_NAME = "Vente sans identifiant";
 
 export type VendorPeriodAggRow = {
   vendorId: number;
   name: string;
   dailySold: number;
   monthlySold: number;
+  dailyAmount: number;
+  monthlyAmount: number;
 };
+
+export type VendorPeriod = "today" | "yesterday" | "week" | "month";
 
 type VendorSuffixRow = {
   id: number;
   name: string;
+  isDemo: boolean;
   commentSuffix: string | null;
   commentSuffix2: string | null;
+  ticketLetter: string | null;
 };
+
+/** Tous les vendeurs du routeur (dont démo) pour l'attribution ; le classement admin n'expose que les non-démo. */
+async function loadRouterVendorsForAttribution(routerId: number): Promise<VendorSuffixRow[]> {
+  return db
+    .select({
+      id: vendorsTable.id,
+      name: vendorsTable.name,
+      isDemo: vendorsTable.isDemo,
+      commentSuffix: vendorsTable.commentSuffix,
+      commentSuffix2: vendorsTable.commentSuffix2,
+      ticketLetter: vendorsTable.ticketLetter,
+    })
+    .from(vendorsTable)
+    .where(eq(vendorsTable.routerId, routerId))
+    .orderBy(asc(vendorsTable.name));
+}
 
 function voucherNotCoveredByScriptSameUtcDay() {
   return notExists(
@@ -118,6 +140,82 @@ function inPeriodUtc(d: Date, period: UnattributedPeriod, yUtc: number, mUtc: nu
   return isUtcMonth(d, yUtc, mUtc);
 }
 
+function utcYesterdayParts(now = new Date()) {
+  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  return utcParts(prev);
+}
+
+/** Dernière semaine calendaire (lun → dim) en UTC, alignée portail admin. */
+function inUtcLastWeek(d: Date, now = new Date()): boolean {
+  const dow = now.getUTCDay();
+  const diffToMonday = dow === 0 ? -6 : 1 - dow;
+  const thisMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diffToMonday));
+  const lastMonday = new Date(thisMonday.getTime() - 7 * 86_400_000);
+  const t = d.getTime();
+  return t >= lastMonday.getTime() && t < thisMonday.getTime();
+}
+
+function inVendorPeriod(d: Date, period: VendorPeriod, now = new Date()): boolean {
+  const { y: yUtc, m: mUtc, day: dUtc } = utcParts(now);
+  if (period === "today") return isUtcDay(d, yUtc, mUtc, dUtc);
+  if (period === "yesterday") {
+    const yp = utcYesterdayParts(now);
+    return isUtcDay(d, yp.y, yp.m, yp.day);
+  }
+  if (period === "week") return inUtcLastWeek(d, now);
+  return isUtcMonth(d, yUtc, mUtc);
+}
+
+const PERIOD_LABELS: Record<VendorPeriod, string> = {
+  today: "Aujourd'hui",
+  yesterday: "Hier",
+  week: "Semaine dernière",
+  month: "Mois en cours",
+};
+
+/** Vente rattachée au vendeur : vendorId, suffixe lot/commentaire, ou préfixe ticketLetter. */
+export function saleBelongsToVendor(
+  vendor: VendorSuffixRow,
+  opts: {
+    vendorId?: number | null;
+    comment?: string | null;
+    batch?: string | null;
+    username?: string | null;
+  },
+): boolean {
+  if (opts.vendorId === vendor.id) return true;
+  const text = opts.comment ?? opts.batch ?? "";
+  if (resolveVendorIdBySuffix(text, [vendor]) === vendor.id) return true;
+  const letter = vendor.ticketLetter?.trim();
+  if (!letter) return false;
+  const low = letter.toLowerCase();
+  const u = opts.username?.trim();
+  if (u && u.toLowerCase().startsWith(low)) return true;
+  const b = opts.batch?.trim();
+  if (b && (b.toLowerCase().endsWith(low) || b.toLowerCase().includes(low))) return true;
+  const c = opts.comment?.trim();
+  if (c && c.toLowerCase().endsWith(low)) return true;
+  return false;
+}
+
+function resolveVendorIdFromSale(
+  vendors: VendorSuffixRow[],
+  opts: {
+    vendorId?: number | null;
+    comment?: string | null;
+    batch?: string | null;
+    username?: string | null;
+  },
+): number | null {
+  if (opts.vendorId != null && vendors.some((v) => v.id === opts.vendorId)) return opts.vendorId;
+  const bySuffix = resolveVendorIdBySuffix(opts.comment ?? opts.batch, vendors);
+  if (bySuffix != null) return bySuffix;
+  for (const v of vendors) {
+    if (saleBelongsToVendor(v, opts)) return v.id;
+  }
+  return null;
+}
+
 /** Détail des ventes non rattachées à un suffixe vendeur (scripts + bons hors doublon). */
 export async function fetchUnattributedPeriodSales(
   routerId: number,
@@ -131,15 +229,7 @@ export async function fetchUnattributedPeriodSales(
   };
 
   try {
-    const vendors = await db
-      .select({
-        id: vendorsTable.id,
-        name: vendorsTable.name,
-        commentSuffix: vendorsTable.commentSuffix,
-        commentSuffix2: vendorsTable.commentSuffix2,
-      })
-      .from(vendorsTable)
-      .where(and(eq(vendorsTable.routerId, routerId), eq(vendorsTable.isDemo, false)));
+    const vendors = await loadRouterVendorsForAttribution(routerId);
 
     const lines: UnattributedSaleLine[] = [];
 
@@ -167,7 +257,7 @@ export async function fetchUnattributedPeriodSales(
       .orderBy(desc(scriptSalesTable.saleDate));
 
     for (const row of scriptRows) {
-      if (resolveVendorIdBySuffix(row.batch, vendors) != null) continue;
+      if (resolveVendorIdFromSale(vendors, { batch: row.batch, username: row.username }) != null) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
       if (Number.isNaN(saleDate.getTime()) || !inPeriodUtc(saleDate, period, yUtc, mUtc, dUtc)) continue;
       lines.push({
@@ -202,7 +292,11 @@ export async function fetchUnattributedPeriodSales(
       .orderBy(desc(vouchersTable.usedAt));
 
     for (const row of voucherRows) {
-      const vendorId = row.vendorId ?? resolveVendorIdBySuffix(row.comment, vendors);
+      const vendorId = resolveVendorIdFromSale(vendors, {
+        vendorId: row.vendorId,
+        comment: row.comment,
+        username: row.username,
+      });
       if (vendorId != null) continue;
       const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
       if (Number.isNaN(usedAt.getTime()) || !inPeriodUtc(usedAt, period, yUtc, mUtc, dUtc)) continue;
@@ -264,36 +358,41 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
   const { y: yUtc, m: mUtc, day: dUtc } = utcParts(now);
 
   try {
-    const vendors = await db
-      .select({
-        id: vendorsTable.id,
-        name: vendorsTable.name,
-        commentSuffix: vendorsTable.commentSuffix,
-        commentSuffix2: vendorsTable.commentSuffix2,
-      })
-      .from(vendorsTable)
-      .where(and(eq(vendorsTable.routerId, routerId), eq(vendorsTable.isDemo, false)))
-      .orderBy(vendorsTable.name);
+    const vendors = await loadRouterVendorsForAttribution(routerId);
+    const reportingVendors = vendors.filter((v) => !v.isDemo);
+    const demoVendorIds = new Set(vendors.filter((v) => v.isDemo).map((v) => v.id));
 
-    if (vendors.length === 0) return [];
+    if (reportingVendors.length === 0 && demoVendorIds.size === 0) return [];
 
     const dailyByVendor = new Map<number, number>();
     const monthlyByVendor = new Map<number, number>();
+    const dailyAmountByVendor = new Map<number, number>();
+    const monthlyAmountByVendor = new Map<number, number>();
     let unattrDaily = 0;
     let unattrMonthly = 0;
-    const bump = (vendorId: number, daily: boolean, monthly: boolean) => {
-      if (daily) dailyByVendor.set(vendorId, (dailyByVendor.get(vendorId) ?? 0) + 1);
-      if (monthly) monthlyByVendor.set(vendorId, (monthlyByVendor.get(vendorId) ?? 0) + 1);
+    let unattrDailyAmount = 0;
+    let unattrMonthlyAmount = 0;
+    const bump = (vendorId: number, daily: boolean, monthly: boolean, amount: number) => {
+      if (daily) {
+        dailyByVendor.set(vendorId, (dailyByVendor.get(vendorId) ?? 0) + 1);
+        dailyAmountByVendor.set(vendorId, (dailyAmountByVendor.get(vendorId) ?? 0) + amount);
+      }
+      if (monthly) {
+        monthlyByVendor.set(vendorId, (monthlyByVendor.get(vendorId) ?? 0) + 1);
+        monthlyAmountByVendor.set(vendorId, (monthlyAmountByVendor.get(vendorId) ?? 0) + amount);
+      }
     };
-    const bumpUnattr = (daily: boolean, monthly: boolean) => {
-      if (daily) unattrDaily += 1;
-      if (monthly) unattrMonthly += 1;
+    const bumpUnattr = (daily: boolean, monthly: boolean, amount: number) => {
+      if (daily) { unattrDaily += 1; unattrDailyAmount += amount; }
+      if (monthly) { unattrMonthly += 1; unattrMonthlyAmount += amount; }
     };
 
     const scriptRows = await db
       .select({
         batch: scriptSalesTable.batch,
+        username: scriptSalesTable.username,
         saleDate: scriptSalesTable.saleDate,
+        price: scriptSalesTable.price,
       })
       .from(scriptSalesTable)
       .where(
@@ -305,23 +404,28 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
       );
 
     for (const row of scriptRows) {
-      const vendorId = resolveVendorIdBySuffix(row.batch, vendors);
+      const vendorId = resolveVendorIdFromSale(vendors, { batch: row.batch, username: row.username });
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
       if (Number.isNaN(saleDate.getTime())) continue;
       const daily = isUtcDay(saleDate, yUtc, mUtc, dUtc);
       const monthly = isUtcMonth(saleDate, yUtc, mUtc);
+      const amount = parsePriceNum(row.price);
       if (vendorId == null) {
-        bumpUnattr(daily, monthly);
+        bumpUnattr(daily, monthly, amount);
         continue;
       }
-      bump(vendorId, daily, monthly);
+      if (demoVendorIds.has(vendorId)) continue;
+      bump(vendorId, daily, monthly, amount);
     }
 
     const voucherRows = await db
       .select({
         vendorId: vouchersTable.vendorId,
         comment: vouchersTable.comment,
+        username: vouchersTable.username,
         usedAt: vouchersTable.usedAt,
+        salePrice: vouchersTable.salePrice,
+        price: vouchersTable.price,
       })
       .from(vouchersTable)
       .where(
@@ -335,23 +439,31 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
       );
 
     for (const row of voucherRows) {
-      const vendorId = row.vendorId ?? resolveVendorIdBySuffix(row.comment, vendors);
+      const vendorId = resolveVendorIdFromSale(vendors, {
+        vendorId: row.vendorId,
+        comment: row.comment,
+        username: row.username,
+      });
       const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
       if (Number.isNaN(usedAt.getTime())) continue;
       const daily = isUtcDay(usedAt, yUtc, mUtc, dUtc);
       const monthly = isUtcMonth(usedAt, yUtc, mUtc);
+      const amount = parsePriceNum(row.salePrice ?? row.price);
       if (vendorId == null) {
-        bumpUnattr(daily, monthly);
+        bumpUnattr(daily, monthly, amount);
         continue;
       }
-      bump(vendorId, daily, monthly);
+      if (demoVendorIds.has(vendorId)) continue;
+      bump(vendorId, daily, monthly, amount);
     }
 
-    const rows: VendorPeriodAggRow[] = vendors.map((v) => ({
+    const rows: VendorPeriodAggRow[] = reportingVendors.map((v) => ({
       vendorId: v.id,
       name: v.name,
       dailySold: dailyByVendor.get(v.id) ?? 0,
       monthlySold: monthlyByVendor.get(v.id) ?? 0,
+      dailyAmount: dailyAmountByVendor.get(v.id) ?? 0,
+      monthlyAmount: monthlyAmountByVendor.get(v.id) ?? 0,
     }));
     if (unattrDaily > 0 || unattrMonthly > 0) {
       rows.push({
@@ -359,9 +471,165 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
         name: UNATTRIBUTED_VENDOR_NAME,
         dailySold: unattrDaily,
         monthlySold: unattrMonthly,
+        dailyAmount: unattrDailyAmount,
+        monthlyAmount: unattrMonthlyAmount,
       });
     }
     return rows;
+  } catch {
+    return null;
+  }
+}
+
+export type VendorPeriodSalesResult = {
+  vendorName: string;
+  period: VendorPeriod;
+  label: string;
+  total: number;
+  revenue: number;
+  byProfile: { profileName: string; count: number; revenue: number }[];
+  vouchers: UnattributedSaleLine[];
+};
+
+/** Ventes d'un vendeur (bons + scripts), alignées sur le classement admin. */
+export async function fetchVendorPeriodSales(
+  vendorId: number,
+  routerId: number,
+  period: VendorPeriod,
+): Promise<VendorPeriodSalesResult | null> {
+  try {
+    const [vendor] = await db
+      .select({
+        id: vendorsTable.id,
+        name: vendorsTable.name,
+        isDemo: vendorsTable.isDemo,
+        commentSuffix: vendorsTable.commentSuffix,
+        commentSuffix2: vendorsTable.commentSuffix2,
+        ticketLetter: vendorsTable.ticketLetter,
+      })
+      .from(vendorsTable)
+      .where(eq(vendorsTable.id, vendorId));
+    if (!vendor) return null;
+
+    const vendorRow: VendorSuffixRow = vendor;
+    const now = new Date();
+    const { y: yUtc, m: mUtc } = utcParts(now);
+    const lines: UnattributedSaleLine[] = [];
+
+    const scriptRows = await db
+      .select({
+        id: scriptSalesTable.id,
+        username: scriptSalesTable.username,
+        saleDate: scriptSalesTable.saleDate,
+        price: scriptSalesTable.price,
+        ip: scriptSalesTable.ip,
+        mac: scriptSalesTable.mac,
+        validity: scriptSalesTable.validity,
+        label: scriptSalesTable.label,
+        batch: scriptSalesTable.batch,
+        createdAt: scriptSalesTable.createdAt,
+      })
+      .from(scriptSalesTable)
+      .where(
+        and(
+          eq(scriptSalesTable.routerId, routerId),
+          sql`EXTRACT(YEAR FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}`,
+          sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}`,
+        ),
+      )
+      .orderBy(desc(scriptSalesTable.saleDate));
+
+    for (const row of scriptRows) {
+      if (!saleBelongsToVendor(vendorRow, { batch: row.batch, username: row.username })) continue;
+      const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
+      if (Number.isNaN(saleDate.getTime()) || !inVendorPeriod(saleDate, period, now)) continue;
+      lines.push({
+        id: -row.id,
+        username: row.username,
+        password: "",
+        profileName: row.label?.trim() || row.validity?.trim() || "Script MikHmon",
+        price: row.price ?? "",
+        salePrice: row.price ?? "",
+        saleIp: row.ip || null,
+        macAddress: row.mac || null,
+        printedAt: null,
+        usedAt: saleDate.toISOString(),
+        createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
+        lotOrComment: row.batch?.trim() || null,
+        source: "script",
+      });
+    }
+
+    const voucherRows = await db
+      .select()
+      .from(vouchersTable)
+      .where(
+        and(
+          eq(vouchersTable.routerId, routerId),
+          isNotNull(vouchersTable.usedAt),
+          voucherNotCoveredByScriptSameUtcDay(),
+          sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}`,
+          sql`EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}`,
+        ),
+      )
+      .orderBy(desc(vouchersTable.usedAt));
+
+    for (const row of voucherRows) {
+      if (!saleBelongsToVendor(vendorRow, {
+        vendorId: row.vendorId,
+        comment: row.comment,
+        username: row.username,
+      })) continue;
+      const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
+      if (Number.isNaN(usedAt.getTime()) || !inVendorPeriod(usedAt, period, now)) continue;
+      lines.push({
+        id: row.id,
+        username: row.username,
+        password: row.password,
+        profileName: row.profileName,
+        price: row.price ?? "",
+        salePrice: row.salePrice,
+        saleIp: row.saleIp,
+        macAddress: row.macAddress,
+        printedAt: row.printedAt ? (row.printedAt instanceof Date ? row.printedAt : new Date(row.printedAt)).toISOString() : null,
+        usedAt: usedAt.toISOString(),
+        createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
+        lotOrComment: row.comment?.trim() || null,
+        source: "voucher",
+      });
+    }
+
+    lines.sort((a, b) => {
+      const ta = a.usedAt ? new Date(a.usedAt).getTime() : 0;
+      const tb = b.usedAt ? new Date(b.usedAt).getTime() : 0;
+      return tb - ta;
+    });
+
+    const byProfileMap = new Map<string, { count: number; revenue: number }>();
+    let revenue = 0;
+    for (const v of lines) {
+      const p = parsePriceNum(v.salePrice || v.price);
+      revenue += p;
+      const name = v.profileName?.trim() || "—";
+      const cur = byProfileMap.get(name) ?? { count: 0, revenue: 0 };
+      cur.count += 1;
+      cur.revenue += p;
+      byProfileMap.set(name, cur);
+    }
+
+    const byProfile = [...byProfileMap.entries()]
+      .map(([profileName, { count, revenue: rev }]) => ({ profileName, count, revenue: rev }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      vendorName: vendor.name,
+      period,
+      label: PERIOD_LABELS[period],
+      total: lines.length,
+      revenue,
+      byProfile,
+      vouchers: lines,
+    };
   } catch {
     return null;
   }

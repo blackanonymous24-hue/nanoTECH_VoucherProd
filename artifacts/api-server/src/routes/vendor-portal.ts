@@ -13,6 +13,7 @@ import {
   vendorDateAmountMaps,
 } from "../lib/vendor-settlement.js";
 import { type RouterConnection } from "../lib/mikrotik.js";
+import { aggregateVendorPeriodSales, fetchVendorPeriodSales, type VendorPeriod } from "../lib/vendor-period-sales-aggregate.js";
 
 const router = Router();
 
@@ -148,6 +149,55 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
     lastMonthAmount: Number(periodStatsRow?.lastMonthAmount  ?? 0),
   };
 
+  if (vendor.routerId) {
+    if (vendor.isDemo) {
+      const [todayAgg, monthAgg] = await Promise.all([
+        fetchVendorPeriodSales(vendor.id, vendor.routerId, "today"),
+        fetchVendorPeriodSales(vendor.id, vendor.routerId, "month"),
+      ]);
+      if (todayAgg) {
+        salesStats.todaySold = todayAgg.total;
+        salesStats.todayAmount = todayAgg.revenue;
+      }
+      if (monthAgg) {
+        salesStats.lastMonthSold = monthAgg.total;
+        salesStats.lastMonthAmount = monthAgg.revenue;
+      }
+    } else {
+      const aggRows = await aggregateVendorPeriodSales(vendor.routerId);
+      const mine = aggRows?.find((r) => r.vendorId === vendor.id);
+      if (mine) {
+        salesStats.todaySold = mine.dailySold;
+        salesStats.todayAmount = mine.dailyAmount;
+        salesStats.lastMonthSold = mine.monthlySold;
+        salesStats.lastMonthAmount = mine.monthlyAmount;
+      }
+    }
+  }
+
+  let recentFromAgg = recentSales;
+  if (vendor.routerId) {
+    const todayAgg = await fetchVendorPeriodSales(vendor.id, vendor.routerId, "today");
+    if (todayAgg && todayAgg.vouchers.length > 0) {
+      recentFromAgg = todayAgg.vouchers.slice(0, 300).map((v) => ({
+        id: v.id,
+        vendorId: vendor.id,
+        routerId: vendor.routerId,
+        username: v.username,
+        password: v.password,
+        profileName: v.profileName,
+        price: v.price,
+        salePrice: v.salePrice,
+        saleIp: v.saleIp,
+        macAddress: v.macAddress,
+        printedAt: v.printedAt ? new Date(v.printedAt) : null,
+        usedAt: v.usedAt ? new Date(v.usedAt) : null,
+        createdAt: new Date(v.createdAt),
+        comment: v.lotOrComment,
+      })) as typeof recentSales;
+    }
+  }
+
   const dashPayload = {
     lastFreshAt: new Date().toISOString(),
     vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
@@ -158,7 +208,7 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
     totalUsed:      Number(totals?.used    ?? 0),
     salesStats,
     byProfile,
-    recentSales: recentSales.map((v) => ({
+    recentSales: recentFromAgg.map((v) => ({
       ...v,
       price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
     })),
@@ -330,70 +380,57 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
   if (!vendor || !vendor.isActive) { res.status(403).json({ error: "Compte introuvable ou désactivé" }); return; }
 
-  const id = payload.vendorId;
+  if (!vendor.routerId) {
+    res.status(400).json({ error: "Routeur non associé" });
+    return;
+  }
 
-  const periodFilter =
-    period === "today"
-      ? sql`${vouchersTable.usedAt} is not null and ${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day'`
-    : period === "yesterday"
-      ? sql`${vouchersTable.usedAt} is not null and ${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date`
-    : period === "week"
-      ? sql`${vouchersTable.usedAt} is not null and ${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date)`
-      : sql`${vouchersTable.usedAt} is not null and ${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month'`;
+  const agg = await fetchVendorPeriodSales(vendor.id, vendor.routerId, period as VendorPeriod);
+  if (!agg) {
+    res.status(500).json({ error: "Impossible de charger les ventes" });
+    return;
+  }
 
-  const labels: Record<string, string> = {
-    today: "Aujourd'hui",
-    yesterday: "Hier",
-    week: "Semaine dernière",
-    month: "Mois en cours",
-  };
-
-  // Run vouchers, byProfile, router details and profilesCache all in parallel
-  const [vouchers, byProfileRaw, routerRow, cachedPeriodProfiles] = await Promise.all([
-    db
-      .select()
-      .from(vouchersTable)
-      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
-      .orderBy(desc(vouchersTable.usedAt)),
-    db
-      .select({
-        profileName: vouchersTable.profileName,
-        count: count(),
-        revenue: sql<number>`coalesce(sum(coalesce(nullif(trim(${vouchersTable.salePrice}),''), nullif(trim(${vouchersTable.price}),''), '0')::numeric), 0)`,
-      })
-      .from(vouchersTable)
-      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
-      .groupBy(vouchersTable.profileName)
-      .orderBy(desc(count())),
-    vendor.routerId
-      ? db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then(r => r[0] ?? null)
-      : Promise.resolve(null),
-    vendor.routerId
-      ? db.select({ profileName: profilesCacheTable.profileName }).from(profilesCacheTable).where(eq(profilesCacheTable.routerId, vendor.routerId))
-      : Promise.resolve([] as { profileName: string }[]),
+  const [routerRow, cachedPeriodProfiles] = await Promise.all([
+    db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null),
+    db.select({ profileName: profilesCacheTable.profileName }).from(profilesCacheTable).where(eq(profilesCacheTable.routerId, vendor.routerId)),
   ]);
 
-  // Enrich byProfile with real prices — Sync version: returns instantly from
-  // in-memory cache and triggers a background MikroTik refresh if stale.
   let periodPriceMap = new Map<string, string>();
   if (routerRow) {
     const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
-    periodPriceMap = getCachedProfilePricesSync(vendor.routerId!, conn);
+    periodPriceMap = getCachedProfilePricesSync(vendor.routerId, conn);
   }
 
   const validPeriodProfileNames = new Set(cachedPeriodProfiles.map((c) => c.profileName));
+  const byProfile = agg.byProfile
+    .filter((row) => row.profileName && (validPeriodProfileNames.size === 0 || validPeriodProfileNames.has(row.profileName)))
+    .map((row) => ({ ...row, price: periodPriceMap.get(row.profileName) ?? "" }));
 
-  const filteredByProfileRaw = byProfileRaw.filter(
-    (row) =>
-      row.profileName &&
-      row.profileName.trim() !== "" &&
-      (validPeriodProfileNames.size === 0 || validPeriodProfileNames.has(row.profileName)),
-  );
-  const byProfile = filteredByProfileRaw.map((row) => ({ ...row, price: periodPriceMap.get(row.profileName) ?? "" }));
+  const vouchers = agg.vouchers.map((v) => ({
+    id: v.id,
+    username: v.username,
+    password: v.password,
+    profileName: v.profileName,
+    price: v.salePrice || v.price || periodPriceMap.get(v.profileName) || "",
+    salePrice: v.salePrice,
+    saleIp: v.saleIp,
+    macAddress: v.macAddress,
+    printedAt: v.printedAt,
+    usedAt: v.usedAt,
+    createdAt: v.createdAt,
+    lotOrComment: v.lotOrComment,
+    source: v.source,
+  }));
 
-  const revenue = vouchers.reduce((acc, v) => acc + (parseFloat(v.salePrice || v.price || "0") || 0), 0);
-
-  const result = { period, label: labels[period!], total: vouchers.length, revenue, byProfile, vouchers };
+  const result = {
+    period: agg.period,
+    label: agg.label,
+    total: agg.total,
+    revenue: agg.revenue,
+    byProfile,
+    vouchers,
+  };
   cSet(cacheKey, PSC_TTL[period!] ?? 45_000, result);
   res.json(result);
 });

@@ -320,7 +320,7 @@ export function PersonForm({
               {hasTicketLetter && (
                 <Input
                   id="pf-ticket-letter"
-                  className="h-7 w-12 px-1.5 text-center text-sm font-mono uppercase flex-shrink-0"
+                  className="h-7 w-12 px-1.5 text-center text-sm font-mono flex-shrink-0"
                   placeholder="K"
                   maxLength={3}
                   value={ticketLetter}

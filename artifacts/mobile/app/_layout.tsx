@@ -1,3 +1,4 @@
+import "react-native-gesture-handler";
 import {
   Inter_400Regular,
   Inter_600SemiBold,
@@ -29,9 +30,17 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
+
+  // Évite un écran bloqué si le chargement des polices échoue silencieusement sur certains appareils
+  useEffect(() => {
+    const t = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 4000);
+    return () => clearTimeout(t);
+  }, []);
 
   if (!fontsLoaded && !fontError) return null;
 

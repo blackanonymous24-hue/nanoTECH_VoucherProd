@@ -15,7 +15,7 @@ export interface VendorRankingRow {
   monthlySold: number;
 }
 
-/** Classement : ventes sans suffixe vendeur reconnu (`vendorId === 0`). */
+/** Classement : ventes sans identifiant vendeur (`vendorId === 0`). */
 export const UNATTRIBUTED_VENDOR_ID = 0;
 
 export interface PrioritySnapshot {

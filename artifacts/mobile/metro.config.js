@@ -40,11 +40,13 @@ config.resolver.extraNodeModules = {
 // directly into the transform pipeline, reaching every worker process.
 // This is the only reliable fix for EAS Build monorepo setups.
 const appRoot = process.env.EXPO_ROUTER_APP_ROOT || path.join(projectRoot, "app");
+const importMode = process.env.EXPO_ROUTER_IMPORT_MODE || "sync";
 config.transformer = {
   ...(config.transformer || {}),
   define: {
     ...((config.transformer || {}).define || {}),
     "process.env.EXPO_ROUTER_APP_ROOT": JSON.stringify(appRoot),
+    "process.env.EXPO_ROUTER_IMPORT_MODE": JSON.stringify(importMode),
   },
 };
 

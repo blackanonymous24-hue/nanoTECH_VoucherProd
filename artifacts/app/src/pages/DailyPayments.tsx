@@ -83,11 +83,21 @@ function ArrearRow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ routerId, date: entry.date, amount: Math.round(amt) }),
       });
-      if (res.ok) { setDone(true); onDone(); }
+      if (res.ok) {
+        setDone(true);
+        onDone();
+        return;
+      }
+      const errBody = await res.json().catch(() => null) as { error?: string } | null;
+      toast({
+        title: "Versement refusé",
+        description: errBody?.error ?? `Erreur ${res.status}`,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
-  }, [vendorId, routerId, entry.date, loading, onDone]);
+  }, [vendorId, routerId, entry.date, loading, onDone, toast]);
 
   const deletePayment = useCallback(async (paymentId: number, paymentAmount: number) => {
     if (deletingId !== null) return;

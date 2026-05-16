@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists } from "drizzle-orm";
+import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, asc, notExists } from "drizzle-orm";
 import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable, profilesCacheTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
@@ -380,12 +380,12 @@ router.get("/routers", async (req, res): Promise<void> => {
         ownerCond = or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId))!;
       }
     }
-    res.json(await baseSelect.where(ownerCond).orderBy(routersTable.name));
+    res.json(await baseSelect.where(ownerCond).orderBy(asc(routersTable.createdAt), asc(routersTable.id)));
     return;
   }
   // manager / vendor / collaborateur: only the routers they're assigned to.
   if (scope.routerIds.length === 0) { res.json([]); return; }
-  res.json(await baseSelect.where(inArray(routersTable.id, scope.routerIds)).orderBy(routersTable.name));
+  res.json(await baseSelect.where(inArray(routersTable.id, scope.routerIds)).orderBy(asc(routersTable.createdAt), asc(routersTable.id)));
 });
 
 router.post("/routers", async (req, res): Promise<void> => {

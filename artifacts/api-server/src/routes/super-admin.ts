@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, sql, and, or, isNull } from "drizzle-orm";
+import { eq, sql, and, or, isNull, asc } from "drizzle-orm";
 import { db, adminSettingsTable, routersTable, vendorsTable } from "@workspace/db";
 import { hashPassword } from "../lib/admin-auth.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
@@ -442,7 +442,7 @@ router.get("/super/admins/:id/routers", async (req, res): Promise<void> => {
     })
     .from(routersTable)
     .where(ownerFilter)
-    .orderBy(routersTable.name);
+    .orderBy(asc(routersTable.createdAt), asc(routersTable.id));
   res.json(rows);
 });
 
@@ -715,7 +715,7 @@ router.get("/super/own-routers", async (req, res): Promise<void> => {
     .select({ id: routersTable.id, name: routersTable.name, host: routersTable.host, port: routersTable.port })
     .from(routersTable)
     .where(ownerFilter)
-    .orderBy(routersTable.name);
+    .orderBy(asc(routersTable.createdAt), asc(routersTable.id));
   res.json(rows);
 });
 

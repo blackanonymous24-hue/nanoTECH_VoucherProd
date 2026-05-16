@@ -14,6 +14,7 @@
         "EXPO_MONOREPO_ROOT": "../../",
         "NODE_ENV": "production",
         "EXPO_ROUTER_APP_ROOT": "/home/expo/workingdir/build/artifacts/mobile/app",
+        "EXPO_ROUTER_IMPORT_MODE": "sync",
         "EXPO_PUBLIC_WEB_APP_URL": "https://nanovoucher.com"
       }
     },
@@ -25,6 +26,7 @@
         "EXPO_MONOREPO_ROOT": "../../",
         "NODE_ENV": "production",
         "EXPO_ROUTER_APP_ROOT": "/home/expo/workingdir/build/artifacts/mobile/app",
+        "EXPO_ROUTER_IMPORT_MODE": "sync",
         "EXPO_PUBLIC_WEB_APP_URL": "https://nanovoucher.com"
       }
     }

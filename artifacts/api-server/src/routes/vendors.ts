@@ -8,7 +8,13 @@ import { withRouterLock } from "../lib/router-lock.js";
 import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
-import { aggregateVendorPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
+import {
+  aggregateVendorPeriodSales,
+  fetchVendorPeriodSales,
+  UNATTRIBUTED_VENDOR_ID,
+  UNATTRIBUTED_VENDOR_NAME,
+  type VendorPeriod,
+} from "../lib/vendor-period-sales-aggregate.js";
 import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { invalidateVendorPortalCache } from "./vendor-portal.js";
@@ -564,12 +570,25 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
     routerPriceMaps.set(routerRow.id, getCachedProfilePricesSync(routerRow.id, conn));
   }
 
-  const periodAggByRouter = new Map<number, Map<number, { dailySold: number; monthlySold: number }>>();
+  const periodAggByRouter = new Map<number, Map<number, {
+    dailySold: number;
+    monthlySold: number;
+    dailyAmount: number;
+    monthlyAmount: number;
+  }>>();
   const loadPeriodAgg = async (rid: number) => {
     let m = periodAggByRouter.get(rid);
     if (!m) {
       const rows = await aggregateVendorPeriodSales(rid);
-      m = new Map((rows ?? []).map((r) => [r.vendorId, { dailySold: r.dailySold, monthlySold: r.monthlySold }]));
+      m = new Map((rows ?? []).map((r) => [
+        r.vendorId,
+        {
+          dailySold: r.dailySold,
+          monthlySold: r.monthlySold,
+          dailyAmount: r.dailyAmount,
+          monthlyAmount: r.monthlyAmount,
+        },
+      ]));
       periodAggByRouter.set(rid, m);
     }
     return m;
@@ -589,6 +608,8 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
         if (agg) {
           salesStats.todaySold = agg.dailySold;
           salesStats.thisMonthSold = agg.monthlySold;
+          salesStats.todayAmount = agg.dailyAmount;
+          salesStats.thisMonthAmount = agg.monthlyAmount;
         }
       }
 
@@ -601,6 +622,38 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
       };
     }),
   );
+
+  if (routerId) {
+    const aggRows = await aggregateVendorPeriodSales(routerId);
+    const unattr = aggRows?.find((r) => r.vendorId === UNATTRIBUTED_VENDOR_ID);
+    if (unattr && (unattr.dailySold > 0 || unattr.monthlySold > 0)) {
+      summaries.push({
+        vendor: {
+          id: UNATTRIBUTED_VENDOR_ID,
+          name: UNATTRIBUTED_VENDOR_NAME,
+          phone: null,
+          isActive: true,
+        },
+        totalVouchers: 0,
+        totalPrinted: 0,
+        totalUsed: 0,
+        salesStats: {
+          todaySold: unattr.dailySold,
+          todayAmount: unattr.dailyAmount,
+          yesterdaySold: 0,
+          yesterdayAmount: 0,
+          weekSold: 0,
+          weekAmount: 0,
+          lastWeekSold: 0,
+          lastWeekAmount: 0,
+          thisMonthSold: unattr.monthlySold,
+          thisMonthAmount: unattr.monthlyAmount,
+          lastMonthSold: 0,
+          lastMonthAmount: 0,
+        },
+      });
+    }
+  }
 
   res.json(summaries);
 });
@@ -749,79 +802,51 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 
-  const utcToday = sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(YEAR FROM (now() AT TIME ZONE 'UTC'))
-    AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(MONTH FROM (now() AT TIME ZONE 'UTC'))
-    AND EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(DAY FROM (now() AT TIME ZONE 'UTC'))`;
-  const periodFilter =
-    period === "today"
-      ? utcToday
-    : period === "yesterday"
-      ? sql`(${vouchersTable.usedAt} AT TIME ZONE 'UTC')::date = ((now() AT TIME ZONE 'UTC')::date - interval '1 day')`
-    : period === "week"
-      ? sql`${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date)`
-      : sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(YEAR FROM (now() AT TIME ZONE 'UTC'))
-        AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(MONTH FROM (now() AT TIME ZONE 'UTC'))`;
+  if (!vendor.routerId) {
+    res.status(400).json({ error: "Routeur non associé au vendeur" });
+    return;
+  }
 
-  const labels: Record<string, string> = {
-    today: "Aujourd'hui",
-    yesterday: "Hier",
-    week: "Semaine dernière",
-    month: "Mois en cours",
-  };
-
-  const [vouchers, byProfileRaw] = await Promise.all([
-    db
-      .select()
-      .from(vouchersTable)
-      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
-      .orderBy(desc(vouchersTable.usedAt)),
-    db
-      .select({
-        profileName: vouchersTable.profileName,
-        count: count(),
-        revenue: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
-      })
-      .from(vouchersTable)
-      .where(and(eq(vouchersTable.vendorId, id), periodFilter))
-      .groupBy(vouchersTable.profileName)
-      .orderBy(desc(count())),
-  ]);
+  const agg = await fetchVendorPeriodSales(id, vendor.routerId, period as VendorPeriod);
+  if (!agg) {
+    res.status(500).json({ error: "Impossible de charger les ventes" });
+    return;
+  }
 
   let priceMap = new Map<string, string>();
-  if (vendor.routerId) {
-    const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
-    if (routerRow) {
-      const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
-      priceMap = getCachedProfilePricesSync(vendor.routerId, conn);
-    }
+  const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
+  if (routerRow) {
+    const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+    priceMap = getCachedProfilePricesSync(vendor.routerId, conn);
   }
 
-  let validProfileNames = new Set<string>();
-  if (vendor.routerId) {
-    const cached = await db
-      .select({ profileName: profilesCacheTable.profileName })
-      .from(profilesCacheTable)
-      .where(eq(profilesCacheTable.routerId, vendor.routerId));
-    validProfileNames = new Set(cached.map((c) => c.profileName));
-  }
-
-  const byProfile = byProfileRaw
-    .filter((row) => row.profileName && row.profileName.trim() !== "" && (validProfileNames.size === 0 || validProfileNames.has(row.profileName)))
-    .map((row) => ({ ...row, price: priceMap.get(row.profileName) ?? "" }));
-
-  const enrichedVouchers = vouchers.map((v) => ({
-    ...v,
+  const enrichedVouchers = agg.vouchers.map((v) => ({
+    id: v.id,
+    username: v.username,
+    password: v.password,
+    profileName: v.profileName,
     price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
+    salePrice: v.salePrice,
+    saleIp: v.saleIp,
+    macAddress: v.macAddress,
+    printedAt: v.printedAt,
+    usedAt: v.usedAt,
+    createdAt: v.createdAt,
+    lotOrComment: v.lotOrComment,
+    source: v.source,
   }));
 
-  const revenue = enrichedVouchers.reduce((acc, v) => acc + (parseFloat(v.price ?? "0") || 0), 0);
+  const byProfile = agg.byProfile.map((row) => ({
+    ...row,
+    price: priceMap.get(row.profileName) ?? "",
+  }));
 
   const result = {
-    vendorName: vendor.name,
-    period,
-    label: labels[period!],
-    total: enrichedVouchers.length,
-    revenue,
+    vendorName: agg.vendorName,
+    period: agg.period,
+    label: agg.label,
+    total: agg.total,
+    revenue: agg.revenue,
     byProfile,
     vouchers: enrichedVouchers,
   };
@@ -1423,56 +1448,141 @@ router.post("/vendors/:id/daily-payments", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 
-  const [salesRow] = await db
-    .select({
-      amount: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
-    })
-    .from(vouchersTable)
-    .where(and(
-      eq(vouchersTable.routerId, routerId),
-      eq(vouchersTable.vendorId, vendorId),
-      isNotNull(vouchersTable.usedAt),
-      sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
-      sql`${vouchersTable.usedAt} < ${wEnd.toISOString()}`,
-    ));
-
-  const [weeklyPaidRow] = await db
-    .select({ amount: sql<number>`coalesce(sum(${vendorPaymentsTable.amount}), 0)::int` })
-    .from(vendorPaymentsTable)
-    .where(and(
-      eq(vendorPaymentsTable.routerId, routerId),
-      eq(vendorPaymentsTable.vendorId, vendorId),
-      eq(vendorPaymentsTable.weekStart, weekStart),
-    ));
-
-  const [dailyPaidRow] = await db
-    .select({ amount: sql<number>`coalesce(sum(${vendorDailyPaymentsTable.amount}), 0)::int` })
-    .from(vendorDailyPaymentsTable)
-    .where(and(
-      eq(vendorDailyPaymentsTable.routerId, routerId),
-      eq(vendorDailyPaymentsTable.vendorId, vendorId),
-      gte(vendorDailyPaymentsTable.date, weekStart),
-      lte(vendorDailyPaymentsTable.date, new Date(wEnd.getTime() - 1).toISOString().slice(0, 10)),
-    ));
-
-  const salesAmount = Number(salesRow?.amount ?? 0);
-  const commission = weekEnded && (vendor.commissionRate ?? 0) > 0
-    ? Math.round(salesAmount * (vendor.commissionRate ?? 0)) / 100
-    : 0;
-  const expectedNet = Math.max(0, salesAmount - commission);
-  const alreadyPaid = Number(weeklyPaidRow?.amount ?? 0) + Number(dailyPaidRow?.amount ?? 0);
-  const remaining = Math.max(0, Math.round(expectedNet - alreadyPaid));
-  if (remaining <= 0) {
-    res.status(400).json({ error: "Semaine déjà soldée (commission déduite)" });
-    return;
-  }
-
+  const dailySettlement = isDailySettlementVendor(vendor);
   const requested = Math.round(amount);
-  const appliedAmount = Math.min(requested, remaining);
+  let appliedAmount: number;
+  let expectedNet: number;
+  let remainingAfter: number;
+
+  if (dailySettlement) {
+    const [daySalesRow] = await db
+      .select({
+        amount: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
+      })
+      .from(vouchersTable)
+      .where(and(
+        eq(vouchersTable.routerId, routerId),
+        eq(vouchersTable.vendorId, vendorId),
+        isNotNull(vouchersTable.usedAt),
+        sql`(${vouchersTable.usedAt})::date = ${date}::date`,
+      ));
+
+    const [dayPaidRow] = await db
+      .select({ amount: sql<number>`coalesce(sum(${vendorDailyPaymentsTable.amount}), 0)::int` })
+      .from(vendorDailyPaymentsTable)
+      .where(and(
+        eq(vendorDailyPaymentsTable.routerId, routerId),
+        eq(vendorDailyPaymentsTable.vendorId, vendorId),
+        eq(vendorDailyPaymentsTable.date, date),
+      ));
+
+    const daySales = Number(daySalesRow?.amount ?? 0);
+    const dayPaid = Number(dayPaidRow?.amount ?? 0);
+    expectedNet = Math.max(0, Math.round(daySales));
+    const dayRemaining = Math.max(0, expectedNet - dayPaid);
+    if (dayRemaining <= 0) {
+      res.status(400).json({ error: "Jour déjà soldé" });
+      return;
+    }
+    appliedAmount = Math.min(requested, dayRemaining);
+    remainingAfter = Math.max(0, dayRemaining - appliedAmount);
+  } else {
+    const [salesRow] = await db
+      .select({
+        amount: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
+      })
+      .from(vouchersTable)
+      .where(and(
+        eq(vouchersTable.routerId, routerId),
+        eq(vouchersTable.vendorId, vendorId),
+        isNotNull(vouchersTable.usedAt),
+        sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+        sql`${vouchersTable.usedAt} < ${wEnd.toISOString()}`,
+      ));
+
+    const [weeklyPaidRow] = await db
+      .select({ amount: sql<number>`coalesce(sum(${vendorPaymentsTable.amount}), 0)::int` })
+      .from(vendorPaymentsTable)
+      .where(and(
+        eq(vendorPaymentsTable.routerId, routerId),
+        eq(vendorPaymentsTable.vendorId, vendorId),
+        eq(vendorPaymentsTable.weekStart, weekStart),
+      ));
+
+    const [dailyPaidRow] = await db
+      .select({ amount: sql<number>`coalesce(sum(${vendorDailyPaymentsTable.amount}), 0)::int` })
+      .from(vendorDailyPaymentsTable)
+      .where(and(
+        eq(vendorDailyPaymentsTable.routerId, routerId),
+        eq(vendorDailyPaymentsTable.vendorId, vendorId),
+        gte(vendorDailyPaymentsTable.date, weekStart),
+        lte(vendorDailyPaymentsTable.date, new Date(wEnd.getTime() - 1).toISOString().slice(0, 10)),
+      ));
+
+    const salesAmount = Number(salesRow?.amount ?? 0);
+    const commission = weekEnded && (vendor.commissionRate ?? 0) > 0
+      ? Math.round(salesAmount * (vendor.commissionRate ?? 0)) / 100
+      : 0;
+    expectedNet = Math.max(0, salesAmount - commission);
+    const alreadyPaid = Number(weeklyPaidRow?.amount ?? 0) + Number(dailyPaidRow?.amount ?? 0);
+    const remaining = Math.max(0, Math.round(expectedNet - alreadyPaid));
+    if (remaining <= 0) {
+      res.status(400).json({ error: "Semaine déjà soldée (commission déduite)" });
+      return;
+    }
+    appliedAmount = Math.min(requested, remaining);
+    remainingAfter = Math.max(0, remaining - appliedAmount);
+  }
   const [row] = await db
     .insert(vendorDailyPaymentsTable)
     .values({ vendorId, routerId, date, amount: appliedAmount, note: note ?? null })
     .returning();
+
+  if (dailySettlement) {
+    const weekEndStr = new Date(wEnd.getTime() - 1).toISOString().slice(0, 10);
+    const [weekSalesRow] = await db
+      .select({
+        amount: sql<number>`coalesce(sum(coalesce(nullif(${vouchersTable.salePrice}, '')::numeric, nullif(${vouchersTable.price}, '')::numeric, 0)), 0)`,
+      })
+      .from(vouchersTable)
+      .where(and(
+        eq(vouchersTable.routerId, routerId),
+        eq(vouchersTable.vendorId, vendorId),
+        isNotNull(vouchersTable.usedAt),
+        sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+        sql`${vouchersTable.usedAt} < ${wEnd.toISOString()}`,
+      ));
+    const [weekDailyPaidRow] = await db
+      .select({ amount: sql<number>`coalesce(sum(${vendorDailyPaymentsTable.amount}), 0)::int` })
+      .from(vendorDailyPaymentsTable)
+      .where(and(
+        eq(vendorDailyPaymentsTable.routerId, routerId),
+        eq(vendorDailyPaymentsTable.vendorId, vendorId),
+        gte(vendorDailyPaymentsTable.date, weekStart),
+        lte(vendorDailyPaymentsTable.date, weekEndStr),
+      ));
+    const [weekLumpRow] = await db
+      .select({ amount: sql<number>`coalesce(sum(${vendorPaymentsTable.amount}), 0)::int` })
+      .from(vendorPaymentsTable)
+      .where(and(
+        eq(vendorPaymentsTable.routerId, routerId),
+        eq(vendorPaymentsTable.vendorId, vendorId),
+        eq(vendorPaymentsTable.weekStart, weekStart),
+      ));
+    const weekGross = Math.round(Number(weekSalesRow?.amount ?? 0));
+    const weekPaid =
+      Number(weekDailyPaidRow?.amount ?? 0) + Number(weekLumpRow?.amount ?? 0);
+    if (weekGross > 0 && weekPaid >= Math.max(0, weekGross - 1)) {
+      await autoSettleDailyRowsForValidatedWeek(
+        routerId,
+        vendorId,
+        weekStart,
+        vendor.commissionRate ?? 0,
+        true,
+      );
+    }
+  }
+
   invalidateVendorPortalCache(vendorId);
   res.json({
     ...row,
@@ -1481,7 +1591,7 @@ router.post("/vendors/:id/daily-payments", async (req, res): Promise<void> => {
     adjusted: appliedAmount !== requested,
     weekStart,
     expectedNet,
-    remainingAfter: Math.max(0, remaining - appliedAmount),
+    remainingAfter,
   });
 });
 
@@ -1693,6 +1803,55 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
       }
     }
 
+    const vendorRow = vendors.find((v) => v.id === vendorId);
+    const commissionRate = vendorRow?.commissionRate ?? 0;
+    const dailySettlement = vendorRow ? isDailySettlementVendor(vendorRow) : true;
+    let didAutoSettle = false;
+    for (const monday of weekMondaysFinal) {
+      const ws = new Date(monday + "T00:00:00Z");
+      const weekDates = Array.from({ length: 7 }, (_, i) =>
+        new Date(ws.getTime() + i * 86_400_000).toISOString().slice(0, 10),
+      );
+      const expectedWeek = expectedByWeek.get(monday) ?? 0;
+      const dailyPaidWeek = weekDates.reduce((s, d) => s + (paidMapV.get(d) ?? 0), 0);
+      const weeklyLump = weeklyLumpMap.get(`${vendorId}|${monday}`) ?? 0;
+      if (weeklyLump + dailyPaidWeek >= Math.max(0, expectedWeek - 1)) {
+        const inserted = await autoSettleDailyRowsForValidatedWeek(
+          routerId,
+          vendorId,
+          monday,
+          commissionRate,
+          dailySettlement,
+        );
+        if (inserted) didAutoSettle = true;
+      }
+    }
+    if (didAutoSettle) {
+      const refreshedDaily = await db
+        .select()
+        .from(vendorDailyPaymentsTable)
+        .where(
+          and(
+            eq(vendorDailyPaymentsTable.routerId, routerId),
+            eq(vendorDailyPaymentsTable.vendorId, vendorId),
+            sql`${vendorDailyPaymentsTable.date} >= ${wStartStr}`,
+            sql`${vendorDailyPaymentsTable.date} <= ${wEndStr}`,
+          ),
+        );
+      paidMapV.clear();
+      for (const key of [...dailyPaidMap.keys()]) {
+        if (key.startsWith(`${vendorId}|`)) dailyPaidMap.delete(key);
+      }
+      for (const p of refreshedDaily) {
+        paidMapV.set(p.date, (paidMapV.get(p.date) ?? 0) + p.amount);
+        const k = `${vendorId}|${p.date}`;
+        if (!dailyPaidMap.has(k)) dailyPaidMap.set(k, { paidAmount: 0, payments: [] });
+        const entry = dailyPaidMap.get(k)!;
+        entry.paidAmount += p.amount;
+        entry.payments.push({ id: p.id, amount: p.amount });
+      }
+    }
+
     // Allouer les versements hebdomadaires (lump-sum) jour par jour en FIFO :
     // chaque versement hebdo solde d'abord les jours les plus anciens de SA
     // semaine. Sans ça, un versement hebdo partiel laisse les arriérés
@@ -1780,7 +1939,8 @@ async function autoSettleDailyRowsForValidatedWeek(
   vendorId: number,
   weekStart: string,
   commissionRate: number,
-) {
+  dailySettlement: boolean,
+): Promise<boolean> {
   const wStart = new Date(weekStart + "T00:00:00Z");
   const wEnd = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
   const weekEnded = wEnd.getTime() <= Date.now();
@@ -1819,7 +1979,12 @@ async function autoSettleDailyRowsForValidatedWeek(
   const weekSales = salesRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const weekCommission = weekEnded && commissionRate > 0 ? Math.round(weekSales * commissionRate) / 100 : 0;
   const weekExpected = Math.max(0, weekSales - weekCommission);
-  const factor = weekSales > 0 ? (weekExpected / weekSales) : 1;
+  // Versement journalier : solder chaque jour au brut vendu. Hebdomadaire : répartir le net après commission.
+  const factor = dailySettlement
+    ? 1
+    : weekSales > 0
+      ? weekExpected / weekSales
+      : 1;
 
   const toInsert: Array<{ vendorId: number; routerId: number; date: string; amount: number; note: string }> = [];
   for (const r of salesRows) {
@@ -1837,7 +2002,9 @@ async function autoSettleDailyRowsForValidatedWeek(
       });
     }
   }
-  if (toInsert.length > 0) await db.insert(vendorDailyPaymentsTable).values(toInsert);
+  if (toInsert.length === 0) return false;
+  await db.insert(vendorDailyPaymentsTable).values(toInsert);
+  return true;
 }
 
 /**
@@ -2110,7 +2277,13 @@ router.post("/vendors/payments", async (req, res): Promise<void> => {
       .returning();
     const remainingAfter = Math.max(0, remaining - appliedAmount);
     if (remainingAfter === 0) {
-      await autoSettleDailyRowsForValidatedWeek(+routerId, +vendorId, ws, vendor.commissionRate ?? 0);
+      await autoSettleDailyRowsForValidatedWeek(
+        +routerId,
+        +vendorId,
+        ws,
+        vendor.commissionRate ?? 0,
+        dailySettlement,
+      );
     }
     invalidateVendorPortalCache(+vendorId);
     res.json({

@@ -1,17 +1,15 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
-import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
 import { UNATTRIBUTED_VENDOR_ID } from "@/lib/dashboard-priority";
 import { Link } from "wouter";
-import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer, BarChart3, Loader2 } from "lucide-react";
+import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer, BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { printReport } from "@/lib/print";
-/** Repli HTTP si le SSE dashboard-priority est coupé (même source que le tableau de bord). */
-const LIVE_SALES_POLL_MS = 20_000;
+const SUMMARY_STALE_MS = 60_000;
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -25,8 +23,8 @@ interface VendorSummary {
   salesStats: {
     todaySold: number;
     thisMonthSold: number;
-    weekSold: number;
-    lastMonthSold: number;
+    todayAmount: number;
+    thisMonthAmount: number;
   };
   totalVouchers: number;
   totalPrinted: number;
@@ -65,7 +63,7 @@ function getRankStyle(rank: number) {
   return { bg: "bg-white border-gray-100", badge: "bg-gray-100 text-gray-600", icon: null };
 }
 
-/* ── Rapport période d'un vendeur ou « Non attribué » (vue admin) ─ */
+/* ── Rapport période d'un vendeur ou « Vente sans identifiant » ─ */
 function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: {
   vendorId: number;
   vendorName: string;
@@ -88,9 +86,8 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
       return res.json();
     },
     enabled: !isUnattributed || routerId != null,
-    staleTime: 8_000,
-    refetchInterval: isVisible ? LIVE_SALES_POLL_MS : false,
-    refetchIntervalInBackground: false,
+    staleTime: SUMMARY_STALE_MS,
+    refetchInterval: false,
     placeholderData: (previousData) => previousData,
   });
 
@@ -114,7 +111,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
           <p className="text-sm font-semibold text-gray-900 truncate">{data?.vendorName ?? vendorName}</p>
           <p className="text-xs text-gray-500 capitalize">{subtitle}</p>
           {isUnattributed && (
-            <p className="text-[11px] text-slate-500 mt-0.5">Ventes sans suffixe vendeur reconnu</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Vente sans identifiant</p>
           )}
         </div>
         {data && data.total > 0 && (
@@ -343,18 +340,6 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
   const [selectedVendor, setSelectedVendor] = useState<{ id: number; name: string } | null>(null);
   const queryClient = useQueryClient();
 
-  const {
-    livePriority,
-    sales,
-    salesKpiReady,
-    rankingReady,
-    salesFetching,
-    sseConnected,
-    priorityLoading,
-    liveSnapshotAgeMs,
-  } = useRouterDashboardPriority(selectedRouterId);
-
-  // Retour au classement si on change de routeur pendant la vue détail vendeur
   useEffect(() => { setSelectedVendor(null); }, [selectedRouterId]);
 
   const isDaily = period === "daily";
@@ -373,29 +358,35 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<VendorSummary[]>;
     },
-    enabled: isVisible && !!selectedRouterId && (!rankingReady || !sseConnected),
-    refetchInterval: isVisible && !!selectedRouterId && !sseConnected ? LIVE_SALES_POLL_MS : false,
-    refetchIntervalInBackground: false,
-    staleTime: 8_000,
+    enabled: isVisible && !!selectedRouterId,
+    staleTime: SUMMARY_STALE_MS,
+    refetchInterval: false,
   });
 
   useEffect(() => {
-    if (!selectedRouterId || !livePriority?.serverTs) return;
-    void queryClient.invalidateQueries({ queryKey: ["vendors-summary", selectedRouterId] });
-  }, [livePriority?.serverTs, selectedRouterId, queryClient]);
-
-  /* Pre-fetch each vendor's period report as soon as the list is loaded,
-     so clicking a vendor is instant instead of waiting for the API. */
-  useEffect(() => {
     const reportPeriod = isDaily ? "today" : "month";
-    const vendorIds =
-      livePriority?.vendorRanking
-        ?.filter((r) => r.vendorId !== UNATTRIBUTED_VENDOR_ID)
-        .map((r) => r.vendorId)
-      ?? data?.map((d) => d.vendor.id)
-      ?? [];
-    if (vendorIds.length === 0) return;
-    for (const vendorId of vendorIds) {
+    const rows = (data ?? []).filter((d) =>
+      (isDaily ? d.salesStats.todaySold : d.salesStats.thisMonthSold) > 0,
+    );
+    if (rows.length === 0) return;
+    for (const row of rows) {
+      const vendorId = row.vendor.id;
+      if (vendorId === UNATTRIBUTED_VENDOR_ID) {
+        if (!selectedRouterId) continue;
+        queryClient.prefetchQuery({
+          queryKey: ["unattributed-period-sales", selectedRouterId, reportPeriod],
+          queryFn: async ({ signal }) => {
+            const res = await fetch(
+              `${BASE}/api/routers/${selectedRouterId}/unattributed-period-sales?period=${reportPeriod}`,
+              { signal },
+            );
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json() as Promise<PeriodSalesData>;
+          },
+          staleTime: SUMMARY_STALE_MS,
+        });
+        continue;
+      }
       queryClient.prefetchQuery({
         queryKey: ["vendor-period-sales", vendorId, reportPeriod],
         queryFn: async ({ signal }) => {
@@ -403,45 +394,32 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json() as Promise<PeriodSalesData>;
         },
-        staleTime: 8_000,
+        staleTime: SUMMARY_STALE_MS,
       });
     }
-  }, [data, livePriority?.vendorRanking, isDaily, queryClient]);
+  }, [data, isDaily, queryClient, selectedRouterId]);
 
-  type RankRow = { vendor: { id: number; name: string }; count: number };
+  type RankRow = { vendor: { id: number; name: string }; count: number; amount: number };
 
-  const sorted: RankRow[] = useMemo(() => {
-    if (rankingReady && livePriority?.vendorRanking?.length) {
-      return [...livePriority.vendorRanking]
-        .map((r) => ({
-          vendor: { id: r.vendorId, name: r.name },
-          count: isDaily ? r.dailySold : r.monthlySold,
-        }))
-        .sort((a, b) => b.count - a.count);
-    }
-    return (data ?? [])
+  const sorted: RankRow[] = useMemo(() => (
+    (data ?? [])
       .map((d) => ({
         vendor: d.vendor,
         count: isDaily ? d.salesStats.todaySold : d.salesStats.thisMonthSold,
+        amount: Math.round(isDaily ? d.salesStats.todayAmount : d.salesStats.thisMonthAmount),
       }))
-      .sort((a, b) => b.count - a.count);
-  }, [rankingReady, livePriority?.vendorRanking, data, isDaily]);
+      .filter((e) => e.count > 0)
+      .sort((a, b) => b.amount - a.amount || b.count - a.count)
+  ), [data, isDaily]);
 
-  const total =
-    salesKpiReady && sales
-      ? (isDaily ? sales.dailyCount : sales.monthlyCount)
-      : sorted.reduce((sum, d) => sum + d.count, 0);
+  const totalTickets = sorted.reduce((sum, d) => sum + d.count, 0);
+  const totalAmount = sorted.reduce((sum, d) => sum + d.amount, 0);
 
-  const updatedTime = livePriority?.serverTs
-    ? new Date(livePriority.serverTs).toLocaleTimeString("fr-FR")
-    : dataUpdatedAt
-      ? new Date(dataUpdatedAt).toLocaleTimeString("fr-FR")
-      : null;
+  const updatedTime = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString("fr-FR")
+    : null;
 
-  const listLoading =
-    !!selectedRouterId &&
-    sorted.length === 0 &&
-    (priorityLoading || (!rankingReady && isLoading));
+  const listLoading = !!selectedRouterId && isLoading;
   const rankingPrintTitle = "Rapport de ventes";
 
   if (selectedVendor) {
@@ -465,18 +443,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
           </Link>
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-            <p className="text-sm text-gray-500 flex items-center gap-2 flex-wrap">
-              <span>{subtitle}</span>
-              {selectedRouterId && sseConnected && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" aria-hidden />
-                  Temps réel
-                </span>
-              )}
-              {selectedRouterId && salesFetching && (
-                <Loader2 className="h-3 w-3 animate-spin text-gray-400" aria-hidden />
-              )}
-            </p>
+            <p className="text-sm text-gray-500">{subtitle}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {sorted.length > 0 && (
@@ -492,14 +459,12 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
             </Link>
             <button
               type="button"
-              onClick={() => {
-                void refetch();
-                void queryClient.invalidateQueries({ queryKey: ["router-dashboard-priority", selectedRouterId] });
-              }}
-              disabled={isFetching || salesFetching}
+              onClick={() => void refetch()}
+              disabled={isFetching}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+              title="Actualiser"
             >
-              <RefreshCw className={`h-4 w-4 ${isFetching || salesFetching ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
             </button>
           </div>
         </div>
@@ -518,8 +483,10 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
                 <span>Voir la performance de vente</span>
               </Link>
                 <div className="text-right">
-                  <span className="text-xl font-bold text-gray-900">{total.toLocaleString()}</span>
-                  <span className="text-sm text-gray-500 ml-1">tickets vendus</span>
+                  <p className="text-xl font-bold text-gray-900 tabular-nums">
+                    {totalAmount.toLocaleString("fr-FR")} <span className="text-sm font-semibold text-gray-500">FCFA</span>
+                  </p>
+                  <p className="text-xs text-gray-500">{totalTickets.toLocaleString("fr-FR")} tickets vendus</p>
                 </div>
               </div>
             </CardContent>
@@ -534,7 +501,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
           ) : sorted.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-gray-400">
-                Aucun vendeur enregistré
+                Aucune vente sur cette période
               </CardContent>
             </Card>
           ) : (
@@ -545,7 +512,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
                 const { bg, badge, icon } = isUnattributed
                   ? { bg: "bg-slate-50 border-slate-200", badge: "bg-slate-300 text-slate-700", icon: null }
                   : getRankStyle(rank);
-                const pct = total > 0 ? Math.round((entry.count / total) * 100) : 0;
+                const pct = totalAmount > 0 ? Math.round((entry.amount / totalAmount) * 100) : 0;
 
                 return (
                   <div
@@ -557,19 +524,17 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
                       {icon ?? (isUnattributed ? "—" : rank)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="font-semibold text-gray-900 truncate">
-                          {entry.vendor.name}
-                          {isUnattributed && (
-                            <span className="block text-[11px] font-normal text-slate-500">
-                              Ventes sans suffixe vendeur reconnu
-                            </span>
-                          )}
-                        </p>
-                        <span className="text-lg font-bold text-gray-900 ml-2 flex-shrink-0">
-                          {entry.count.toLocaleString()}
-                          <span className="text-xs font-normal text-gray-400 ml-1">tickets vendus</span>
-                        </span>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <p className="font-semibold text-gray-900 truncate min-w-0">{entry.vendor.name}</p>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-lg font-bold text-emerald-700 tabular-nums leading-tight">
+                            {entry.amount.toLocaleString("fr-FR")}
+                            <span className="text-[10px] font-semibold text-emerald-600/80 ml-0.5">FCFA</span>
+                          </p>
+                          <p className="text-[10px] text-gray-400 tabular-nums">
+                            {entry.count.toLocaleString("fr-FR")} ticket{entry.count !== 1 ? "s" : ""}
+                          </p>
+                        </div>
                       </div>
                       <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                         <div
@@ -596,9 +561,9 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
             <p className="report-print-meta">
               {title} — {subtitle}
               {" "}
-              &nbsp;·&nbsp; {sorted.length} vendeur{sorted.length !== 1 ? "s" : ""}
+              &nbsp;·&nbsp; {sorted.length} entrée{sorted.length !== 1 ? "s" : ""}
               {" "}
-              &nbsp;·&nbsp; {total.toLocaleString("fr-FR")} tickets
+              &nbsp;·&nbsp; {totalAmount.toLocaleString("fr-FR")} FCFA ({totalTickets.toLocaleString("fr-FR")} tickets)
               {" "}
               &nbsp;·&nbsp; Imprimé le{" "}
               {new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
@@ -609,20 +574,22 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
                 <tr>
                   <th>Rang</th>
                   <th>Vendeur</th>
-                  <th>Tickets vendus</th>
+                  <th>Montant FCFA</th>
+                  <th>Tickets</th>
                   <th>Part</th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((entry, idx) => {
                   const rank = idx + 1;
-                  const pct = total > 0 ? Math.round((entry.count / total) * 100) : 0;
+                  const pctPrint = totalAmount > 0 ? Math.round((entry.amount / totalAmount) * 100) : 0;
                   return (
                     <tr key={entry.vendor.id}>
                       <td>{rank}</td>
                       <td>{entry.vendor.name}</td>
+                      <td>{entry.amount.toLocaleString("fr-FR")}</td>
                       <td>{entry.count.toLocaleString("fr-FR")}</td>
-                      <td>{pct}%</td>
+                      <td>{pctPrint}%</td>
                     </tr>
                   );
                 })}
