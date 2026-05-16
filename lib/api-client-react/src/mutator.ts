@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse, isAxiosError } from "axios";
 import { VOUCHERNET_API_PAUSE_REASON, VOUCHERNET_SESSION_REVOKED_EVENT } from "./apiPauseError";
+import { type VouchernetApiPauseState, vouchernetPauseAllowsResolvedUrl } from "./apiPauseScope";
 
 const TOKEN_KEY = "vouchernet_admin_token";
 
@@ -18,26 +19,10 @@ const apiClient = axios.create({
   baseURL: "",
 });
 
-function apiPathTailFromSitePath(pathname: string): string {
-  const i = pathname.indexOf("/api/");
-  return i >= 0 ? pathname.slice(i) : pathname;
-}
-
-function pathnameMatchesPausePattern(pathname: string, re: RegExp): boolean {
-  return re.test(pathname) || re.test(apiPathTailFromSitePath(pathname));
-}
-
 function voucherNetApiPauseAllowsResolvedUrl(resolvedUrl: string): boolean {
   try {
-    const w = window as Window & {
-      __vouchernetApiPause?: { paused: boolean; allowPathPatterns: RegExp[] };
-    };
-    const state = w.__vouchernetApiPause;
-    if (!state?.paused) return true;
-    const path = new URL(resolvedUrl, window.location.origin).pathname;
-    if (pathnameMatchesPausePattern(path, /\/api\/login(?:$|[/?#])/)) return true;
-    if (pathnameMatchesPausePattern(path, /\/api\/session\/revoke(?:$|[/?#])/)) return true;
-    return state.allowPathPatterns.some((re) => pathnameMatchesPausePattern(path, re));
+    const w = window as Window & { __vouchernetApiPause?: VouchernetApiPauseState };
+    return vouchernetPauseAllowsResolvedUrl(w.__vouchernetApiPause, resolvedUrl);
   } catch {
     return true;
   }

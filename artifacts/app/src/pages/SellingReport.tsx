@@ -188,14 +188,13 @@ export default function SellingReport() {
   );
 
   const totalAmount = useMemo(() => orderedFiltered.reduce((s, e) => s + e.price, 0), [orderedFiltered]);
+  /** Base locale = toutes les lignes du rapport (DB). MikroTik = sous-ensemble encore présent sur le routeur. */
   const sourceCounts = useMemo(() => {
-    let mikrotik = 0;
-    let localOnly = 0;
+    let onMikrotik = 0;
     for (const e of orderedFiltered) {
-      if (e.source === "mikrotik+local") mikrotik++;
-      else localOnly++;
+      if (e.source === "mikrotik+local") onMikrotik++;
     }
-    return { mikrotik, localOnly };
+    return { localDb: orderedFiltered.length, onMikrotik };
   }, [orderedFiltered]);
   const tableRows = useMemo(
     () => orderedFiltered.map((e, i) => (
@@ -348,11 +347,12 @@ export default function SellingReport() {
                   <span className="text-xs text-gray-500 tabular-nums leading-tight">
                     {orderedFiltered.length} vente{orderedFiltered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
                   </span>
-                  <span className="text-[11px] tabular-nums text-emerald-700 leading-tight">
-                    {sourceCounts.mikrotik} MikroTik
-                  </span>
                   <span className="text-[11px] tabular-nums text-amber-700 leading-tight">
-                    {sourceCounts.localOnly} base locale
+                    {sourceCounts.localDb.toLocaleString("fr-FR")} base locale
+                  </span>
+                  <span className="text-[11px] tabular-nums text-emerald-700 leading-tight">
+                    {sourceCounts.onMikrotik.toLocaleString("fr-FR")} sur MikroTik
+                    {presenceRefreshing ? " …" : ""}
                   </span>
                 </div>
               )}

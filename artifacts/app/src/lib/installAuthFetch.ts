@@ -1,4 +1,9 @@
-import { VOUCHERNET_SESSION_REVOKED_EVENT } from "@workspace/api-client-react";
+import {
+  VOUCHERNET_SESSION_REVOKED_EVENT,
+  type VouchernetApiPauseState,
+  vouchernetPauseAllowsResolvedUrl,
+  resolvedUrlIsSubjectToScopedPause,
+} from "@workspace/api-client-react";
 
 const TOKEN_KEY = "vouchernet_admin_token";
 const API_FETCH_ABORT_REASON = "auth-logout";
@@ -32,10 +37,7 @@ declare global {
   interface Window {
     __vouchernetAuthFetchInstalled?: boolean;
     __vouchernetApiFetchControllers?: Set<AbortController>;
-    __vouchernetApiPause?: {
-      paused: boolean;
-      allowPathPatterns: RegExp[];
-    };
+    __vouchernetApiPause?: VouchernetApiPauseState;
   }
 }
 
@@ -58,36 +60,51 @@ export function abortAllApiRequests(): void {
   ctrls.clear();
 }
 
-function getApiPauseState() {
+/** Annule seulement les fetch enveloppés encore en cours pour le routeur concerné (pause toggle / génération). */
+function abortInFlightRequestsForScopedPause(scopeRouterId: number): void {
+  const ctrls = getApiControllers();
+  for (const c of [...ctrls]) {
+    const url = fetchUrlByController.get(c);
+    if (url == null || url === "") continue;
+    if (!resolvedUrlIsSubjectToScopedPause(url, scopeRouterId)) continue;
+    try {
+      c.abort(API_FETCH_ABORT_REASON);
+    } catch {
+      // ignore
+    }
+    ctrls.delete(c);
+  }
+}
+
+function getApiPauseState(): VouchernetApiPauseState {
   if (!window.__vouchernetApiPause) {
     window.__vouchernetApiPause = { paused: false, allowPathPatterns: [] };
   }
   return window.__vouchernetApiPause;
 }
 
+const fetchUrlByController = new WeakMap<AbortController, string>();
+
 export function setApiRequestPause(
   paused: boolean,
-  options?: { allowPathPatterns?: RegExp[] },
+  options?: { allowPathPatterns?: RegExp[]; scopeRouterId?: number | null },
 ): void {
   const state = getApiPauseState();
-  state.paused = paused;
-  state.allowPathPatterns = paused ? (options?.allowPathPatterns ?? []) : [];
-  if (paused) {
+  if (!paused) {
+    state.paused = false;
+    state.allowPathPatterns = [];
+    state.scopeRouterId = null;
+    return;
+  }
+  state.paused = true;
+  state.allowPathPatterns = options?.allowPathPatterns ?? [];
+  const scope = options?.scopeRouterId;
+  state.scopeRouterId = scope != null && Number.isFinite(scope) ? scope : null;
+  if (state.scopeRouterId != null) {
+    abortInFlightRequestsForScopedPause(state.scopeRouterId);
+  } else {
     abortAllApiRequests();
   }
-}
-
-/**
- * Pathname réel peut être `{base}/api/...` (Vite `base` / déploiement sous-dossier).
- * Les motifs de pause autorisée ciblent `/api/...` depuis la racine site.
- */
-function apiPathTailFromSitePath(pathname: string): string {
-  const i = pathname.indexOf("/api/");
-  return i >= 0 ? pathname.slice(i) : pathname;
-}
-
-function pathnameMatchesPausePattern(pathname: string, re: RegExp): boolean {
-  return re.test(pathname) || re.test(apiPathTailFromSitePath(pathname));
 }
 
 /** URL autorisées pendant la pause API (toggle hotspot par paquets — verrou routeur). */
@@ -99,21 +116,6 @@ export const HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS: RegExp[] = [
   /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
 ];
 
-function getApiPath(input: RequestInfo | URL): string {
-  try {
-    const raw =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.href
-          : input.url;
-    const u = new URL(raw, window.location.origin);
-    return u.pathname;
-  } catch {
-    return "";
-  }
-}
-
 export function installAuthFetch(): void {
   if (window.__vouchernetAuthFetchInstalled) return;
   window.__vouchernetAuthFetchInstalled = true;
@@ -122,19 +124,21 @@ export function installAuthFetch(): void {
   const original = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (!isApiRequest(input)) return original(input, init);
+    let resolvedUrl = "";
+    try {
+      const raw =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      resolvedUrl = new URL(raw, window.location.origin).href;
+    } catch {
+      /* noop */
+    }
     const pauseState = getApiPauseState();
-    if (pauseState.paused) {
-      const path = getApiPath(input);
-      const allowed =
-        pathnameMatchesPausePattern(path, /\/api\/login(?:$|[/?#])/) ||
-        pathnameMatchesPausePattern(path, /\/api\/session\/revoke(?:$|[/?#])/) ||
-        pauseState.allowPathPatterns.some((re) => pathnameMatchesPausePattern(path, re));
-      if (!allowed) {
-        throw new DOMException(API_FETCH_PAUSED_REASON, "AbortError");
-      }
+    if (pauseState.paused && !vouchernetPauseAllowsResolvedUrl(pauseState, resolvedUrl)) {
+      throw new DOMException(API_FETCH_PAUSED_REASON, "AbortError");
     }
     const controllers = getApiControllers();
     const ctrl = new AbortController();
+    if (resolvedUrl) fetchUrlByController.set(ctrl, resolvedUrl);
     controllers.add(ctrl);
     const externalSignal = init?.signal;
     const relayAbort = () => {

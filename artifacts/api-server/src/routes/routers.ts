@@ -12,6 +12,7 @@ import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
 import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
+import { aggregateVendorPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -2163,6 +2164,10 @@ async function readSalesQuickFromDb(routerId: number): Promise<{
   }
 }
 
+async function readVendorRankingQuickFromDb(routerId: number) {
+  return aggregateVendorPeriodSales(routerId);
+}
+
 async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host: string, port: number, username: string, password: string) {
   if (salesRefreshing.has(id)) return;
   salesRefreshing.add(id);
@@ -2416,7 +2421,10 @@ async function buildDashboardPrioritySnapshot(id: number) {
 
   // Jour / mois : agrégation DB (alignée rapport local). Autres périodes : cache RAM live si dispo.
   const salesCached = salesCache.get(sc);
-  const dbQuickSales = await readSalesQuickFromDb(id);
+  const [dbQuickSales, vendorRanking] = await Promise.all([
+    readSalesQuickFromDb(id),
+    readVendorRankingQuickFromDb(id),
+  ]);
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
   const d = String(new Date().getDate()).padStart(2, "0");
@@ -2454,12 +2462,14 @@ async function buildDashboardPrioritySnapshot(id: number) {
     sessionsCount,
     users,
     sales,
+    vendorRanking,
     info,
     availability: {
       // sessionsKnown : vrai si le cache plein OU le fast count (cold-start parallèle) ont des données
       sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
       usersKnown: !!usersCached,
       salesKnown: dbQuickSales != null || !!salesCached,
+      vendorRankingKnown: vendorRanking != null,
       infoKnown: !!(infoFreshAfter || infoStaleAfter),
     },
   };

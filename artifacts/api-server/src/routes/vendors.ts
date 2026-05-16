@@ -6,6 +6,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
+import { aggregateVendorPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { invalidateVendorPortalCache } from "./vendor-portal.js";
@@ -519,6 +520,17 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
     routerPriceMaps.set(routerRow.id, getCachedProfilePricesSync(routerRow.id, conn));
   }
 
+  const periodAggByRouter = new Map<number, Map<number, { dailySold: number; monthlySold: number }>>();
+  const loadPeriodAgg = async (rid: number) => {
+    let m = periodAggByRouter.get(rid);
+    if (!m) {
+      const rows = await aggregateVendorPeriodSales(rid);
+      m = new Map((rows ?? []).map((r) => [r.vendorId, { dailySold: r.dailySold, monthlySold: r.monthlySold }]));
+      periodAggByRouter.set(rid, m);
+    }
+    return m;
+  };
+
   const summaries = await Promise.all(
     vendors.map(async (vendor) => {
       const [[row], profileCounts] = await Promise.all([
@@ -528,6 +540,13 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
 
       const priceMap = (vendor.routerId ? routerPriceMaps.get(vendor.routerId) : undefined) ?? new Map<string, string>();
       const salesStats = computeSalesStats(profileCounts, priceMap);
+      if (vendor.routerId) {
+        const agg = (await loadPeriodAgg(vendor.routerId)).get(vendor.id);
+        if (agg) {
+          salesStats.todaySold = agg.dailySold;
+          salesStats.thisMonthSold = agg.monthlySold;
+        }
+      }
 
       return {
         vendor: safeVendor(vendor),
@@ -686,14 +705,18 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 
+  const utcToday = sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(YEAR FROM (now() AT TIME ZONE 'UTC'))
+    AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(MONTH FROM (now() AT TIME ZONE 'UTC'))
+    AND EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(DAY FROM (now() AT TIME ZONE 'UTC'))`;
   const periodFilter =
     period === "today"
-      ? sql`${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day'`
+      ? utcToday
     : period === "yesterday"
-      ? sql`${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date`
+      ? sql`(${vouchersTable.usedAt} AT TIME ZONE 'UTC')::date = ((now() AT TIME ZONE 'UTC')::date - interval '1 day')`
     : period === "week"
       ? sql`${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date)`
-      : sql`${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month'`;
+      : sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(YEAR FROM (now() AT TIME ZONE 'UTC'))
+        AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(MONTH FROM (now() AT TIME ZONE 'UTC'))`;
 
   const labels: Record<string, string> = {
     today: "Aujourd'hui",

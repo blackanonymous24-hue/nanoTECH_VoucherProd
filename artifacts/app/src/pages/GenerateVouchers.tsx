@@ -3,6 +3,7 @@ import {
   useGenerateVouchers,
   getListVouchersQueryKey,
   getListRouterProfilesQueryKey,
+  isApiPauseError,
 } from "@workspace/api-client-react";
 import type { HotspotProfile } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -545,6 +546,7 @@ export default function GenerateVouchers() {
         // automatique ne peut jamais détecter que le routeur est de nouveau en ligne.
         /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
       ],
+      scopeRouterId: selectedRouterId,
     });
 
     const total = parseInt(qty, 10);
@@ -1235,7 +1237,9 @@ export default function GenerateVouchers() {
                 )}
               </div>
 
-              {generateMutation.isError && !genPaused && (
+              {generateMutation.isError &&
+                !genPaused &&
+                !isApiPauseError(generateMutation.error) && (
                 <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded p-2">
                   Erreur : Impossible de contacter le routeur. Vérifiez les paramètres de connexion.
                 </div>

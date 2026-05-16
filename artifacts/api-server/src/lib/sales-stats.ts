@@ -21,19 +21,26 @@ export function buildProfilePeriodCounts(vendorId: number, routerId?: number | n
     ...(routerId != null ? [eq(vouchersTable.routerId, routerId)] : []),
   ];
 
+  const utcToday = sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(YEAR FROM (now() AT TIME ZONE 'UTC'))
+    AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(MONTH FROM (now() AT TIME ZONE 'UTC'))
+    AND EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(DAY FROM (now() AT TIME ZONE 'UTC'))`;
+  const utcYesterday = sql`(${vouchersTable.usedAt} AT TIME ZONE 'UTC')::date = ((now() AT TIME ZONE 'UTC')::date - interval '1 day')`;
+  const utcThisMonth = sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(YEAR FROM (now() AT TIME ZONE 'UTC'))
+    AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(MONTH FROM (now() AT TIME ZONE 'UTC'))`;
+
   return db
     .select({
       profileName:       vouchersTable.profileName,
-      todaySold:         sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day')`,
-      todayAmount:       sql<number>`coalesce(sum(${effectivePrice}) filter (where ${vouchersTable.usedAt} >= current_date and ${vouchersTable.usedAt} < current_date + interval '1 day'), 0)`,
-      yesterdaySold:     sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date)`,
-      yesterdayAmount:   sql<number>`coalesce(sum(${effectivePrice}) filter (where ${vouchersTable.usedAt} >= current_date - interval '1 day' and ${vouchersTable.usedAt} < current_date), 0)`,
+      todaySold:         sql<number>`count(*) filter (where ${utcToday})`,
+      todayAmount:       sql<number>`coalesce(sum(${effectivePrice}) filter (where ${utcToday}), 0)`,
+      yesterdaySold:     sql<number>`count(*) filter (where ${utcYesterday})`,
+      yesterdayAmount:   sql<number>`coalesce(sum(${effectivePrice}) filter (where ${utcYesterday}), 0)`,
       weekSold:          sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('week', current_date) and ${vouchersTable.usedAt} < current_date + interval '1 day')`,
       weekAmount:        sql<number>`coalesce(sum(${effectivePrice}) filter (where ${vouchersTable.usedAt} >= date_trunc('week', current_date) and ${vouchersTable.usedAt} < current_date + interval '1 day'), 0)`,
       lastWeekSold:      sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date))`,
       lastWeekAmount:    sql<number>`coalesce(sum(${effectivePrice}) filter (where ${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date)), 0)`,
-      thisMonthSold:     sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month')`,
-      thisMonthAmount:   sql<number>`coalesce(sum(${effectivePrice}) filter (where ${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date) + interval '1 month'), 0)`,
+      thisMonthSold:     sql<number>`count(*) filter (where ${utcThisMonth})`,
+      thisMonthAmount:   sql<number>`coalesce(sum(${effectivePrice}) filter (where ${utcThisMonth}), 0)`,
       lastMonthSold:     sql<number>`count(*) filter (where ${vouchersTable.usedAt} >= date_trunc('month', current_date - interval '1 month') and ${vouchersTable.usedAt} < date_trunc('month', current_date))`,
       lastMonthAmount:   sql<number>`coalesce(sum(${effectivePrice}) filter (where ${vouchersTable.usedAt} >= date_trunc('month', current_date - interval '1 month') and ${vouchersTable.usedAt} < date_trunc('month', current_date)), 0)`,
     })

@@ -52,6 +52,10 @@ export type RunHotspotUserToggleBatchesOptions = {
   showProgress?: boolean;
   onProgress?: (p: HotspotBulkProgressState | null) => void;
   onPaused?: (paused: boolean) => void;
+  /** Par défaut true. Mettre false pour laisser l’état « terminé » jusqu’à ce que l’appelant appelle `onProgress(null)`. */
+  clearProgressOnDone?: boolean;
+  /** Routeur concerné : limite la pause API aux requêtes de ce routeur (défaut : un seul plan → son routerId). */
+  scopeRouterId?: number | null;
 };
 
 export async function runHotspotUserToggleBatches(
@@ -69,9 +73,14 @@ export async function runHotspotUserToggleBatches(
   const showProgress = options?.showProgress ?? total >= TOGGLE_BATCH_THRESHOLD;
   const onProgress = options?.onProgress;
   const onPaused = options?.onPaused ?? (() => {});
+  const clearProgressOnDone = options?.clearProgressOnDone !== false;
+
+  const scopeRouterId =
+    options?.scopeRouterId ?? (plansFiltered.length === 1 ? plansFiltered[0]!.routerId : undefined);
 
   setApiRequestPause(true, {
     allowPathPatterns: [...HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS],
+    ...(scopeRouterId != null && Number.isFinite(scopeRouterId) ? { scopeRouterId } : {}),
   });
 
   if (showProgress) {
@@ -142,8 +151,10 @@ export async function runHotspotUserToggleBatches(
     }
   } finally {
     setApiRequestPause(false);
-    if (showProgress) {
+    if (showProgress && clearProgressOnDone) {
       onProgress?.(null);
+    }
+    if (showProgress) {
       onPaused(false);
     }
   }

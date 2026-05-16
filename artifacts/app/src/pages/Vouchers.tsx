@@ -97,7 +97,11 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { HotspotBulkProgressState } from "@/lib/hotspot-bulk-toggle";
+import {
+  type HotspotBulkProgressState,
+  runHotspotUserToggleBatches,
+  TOGGLE_BATCH_THRESHOLD,
+} from "@/lib/hotspot-bulk-toggle";
 
 /** Compteurs hotspot : bytesIn = download (↓), bytesOut = upload (↑) — voir `hotspotTrafficBytesFromRouter` côté API. */
 function formatUserTrafficBytes(bytes: string | null | undefined): string {
@@ -246,6 +250,47 @@ const showHotspotBulkProgressInLotStrip = (
   filterComment: string,
   selectedSize: number,
 ): boolean => view === "list" && filterComment !== "all" && selectedSize === 0;
+
+async function collectLotToggleUsernames(
+  base: string,
+  routerId: number,
+  comment: string,
+): Promise<string[]> {
+  const enc = encodeURIComponent(comment);
+  const settled = await Promise.allSettled([
+    fetch(`${base}/api/vouchers/lot-usernames?routerId=${routerId}&comment=${enc}`).then(
+      async (r): Promise<string[]> => {
+        if (!r.ok) return [];
+        const body = (await r.json()) as { usernames?: string[] };
+        return Array.isArray(body.usernames) ? body.usernames : [];
+      },
+    ),
+    fetch(`${base}/api/routers/${routerId}/users?comment=${enc}&limit=999999`).then(
+      async (r): Promise<string[]> => {
+        if (!r.ok) return [];
+        const body = (await r.json()) as { users?: Array<{ username?: string }> };
+        return (body.users ?? []).map((u) => String(u.username ?? "").trim()).filter(Boolean);
+      },
+    ),
+  ]);
+
+  const fromDb = settled[0].status === "fulfilled" ? settled[0].value : [];
+  const fromRouter = settled[1].status === "fulfilled" ? settled[1].value : [];
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (raw: string | undefined) => {
+    const u = String(raw ?? "").trim();
+    if (!u) return;
+    const k = u.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(u);
+  };
+  for (const u of fromDb) add(u);
+  for (const u of fromRouter) add(u);
+  return out;
+}
 
 // Module-level cache — persists across component unmount/remount (tab navigation).
 // Provides instant display on re-visit without waiting for React Query to refetch.
@@ -607,7 +652,7 @@ export default function Vouchers() {
     isLoading: usersLoading,
     isFetching,
     refetch: refetchUsers,
-    error,
+    error: usersQueryError,
   } = useListRouterUsers(
     activeRouterId ?? 0,
     usersParams,
@@ -626,6 +671,10 @@ export default function Vouchers() {
       },
     },
   );
+
+  /** La pause API (toggle lot / génération) fait échouer le refetch interval — ce n’est pas une panne routeur. */
+  const usersListBlockingError =
+    usersQueryError != null && !isApiPauseError(usersQueryError) ? usersQueryError : null;
 
   // Update module cache when unfiltered users data arrives
   useEffect(() => {
@@ -746,7 +795,7 @@ export default function Vouchers() {
     [profilesList],
   );
 
-  // ── Lot disable/enable — un seul POST serveur : tout est appliqué sur MikroTik dans une session routeur (comme la génération). ──
+  // ── Lot disable/enable : gros lots → paquets + barre de progression ; petits lots → POST serveur unique. ──
   const handleDisableLot = async (comment: string, enable: boolean) => {
     if (!activeRouterId || isDisabling) return;
 
@@ -754,26 +803,42 @@ export default function Vouchers() {
     setIsDisabling(true);
     setDisablingLotComment(comment);
 
-    const optimisticNames = new Set<string>();
-    for (const u of allUsersData?.users ?? []) {
-      if (String(u.comment ?? "").trim() === comment) {
-        const un = String(u.username ?? "").trim();
-        if (un) optimisticNames.add(un);
-      }
-    }
-    const lotRow = lots.find((l) => l.name === comment);
-    if (lotRow?.preview?.length) {
-      for (const u of lotRow.preview) {
-        const un = String(u.username ?? "").trim();
-        if (un) optimisticNames.add(un);
-      }
-    }
     let snapshot: ReturnType<typeof optimisticSetDisabled> | null = null;
-    if (optimisticNames.size > 0) {
-      snapshot = optimisticSetDisabled(activeRouterId, optimisticNames, !enable);
-    }
 
     try {
+      const toggleUsernames = await collectLotToggleUsernames(BASE, activeRouterId, comment);
+
+      if (toggleUsernames.length > 0) {
+        snapshot = optimisticSetDisabled(activeRouterId, new Set(toggleUsernames), !enable);
+      }
+
+      if (toggleUsernames.length >= TOGGLE_BATCH_THRESHOLD) {
+        await runHotspotUserToggleBatches(
+          BASE,
+          [{ routerId: activeRouterId, usernames: toggleUsernames }],
+          enable,
+          {
+            showProgress: true,
+            onProgress: setHotspotBulkProgress,
+            onPaused: setHotspotBulkPaused,
+            clearProgressOnDone: false,
+          },
+        );
+        toast({
+          title: enable
+            ? `${toggleUsernames.length} compte(s) réactivé(s) sur MikroTik`
+            : `${toggleUsernames.length} compte(s) désactivé(s) sur MikroTik`,
+          description: `Lot : ${comment}`,
+        });
+        if (filterComment === comment) {
+          setFilterComment("all");
+          setPage(0);
+        }
+        void refetchLots();
+        void refetchUsers();
+        return;
+      }
+
       const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -799,17 +864,26 @@ export default function Vouchers() {
         title: enable ? `${done} compte(s) réactivé(s) sur MikroTik` : `${done} compte(s) désactivé(s) sur MikroTik`,
         description: `Lot : ${comment}`,
       });
+      if (filterComment === comment) {
+        setFilterComment("all");
+        setPage(0);
+      }
       void refetchLots();
       void refetchUsers();
     } catch (err) {
       if (snapshot && snapshot.length > 0) {
         for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       }
-      toast({
-        title: enable ? "Erreur réactivation" : "Erreur désactivation",
-        description: describeVoucherHotspotApplyError(err),
-        variant: "destructive",
-      });
+      if (!isApiPauseError(err)) {
+        toast({
+          title: enable ? "Erreur réactivation" : "Erreur désactivation",
+          description: describeVoucherHotspotApplyError(err),
+          variant: "destructive",
+        });
+      } else {
+        void refetchUsers();
+        void refetchLots();
+      }
     } finally {
       setLotTogglePhase(null);
       setIsDisabling(false);
@@ -1597,7 +1671,7 @@ export default function Vouchers() {
           {/* ─── LIST VIEW ─── */}
           {view === "list" && (
             <>
-              {error ? (
+              {usersListBlockingError ? (
                 <Card>
                   <CardContent className="py-12 text-center">
                     <WifiOff className="h-10 w-10 text-red-300 mx-auto mb-3" />

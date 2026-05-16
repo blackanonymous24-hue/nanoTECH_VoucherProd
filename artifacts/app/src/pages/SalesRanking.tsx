@@ -1,14 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
+import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
+import { UNATTRIBUTED_VENDOR_ID } from "@/lib/dashboard-priority";
 import { Link } from "wouter";
-import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer, BarChart3 } from "lucide-react";
+import { Trophy, Medal, Users, ArrowLeft, RefreshCw, ShoppingCart, Banknote, ChevronLeft, Printer, BarChart3, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { printReport } from "@/lib/print";
-const LIVE_SALES_POLL_MS = 10_000;
+/** Repli HTTP si le SSE dashboard-priority est coupé (même source que le tableau de bord). */
+const LIVE_SALES_POLL_MS = 20_000;
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -322,6 +325,17 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
   const [selectedVendor, setSelectedVendor] = useState<{ id: number; name: string } | null>(null);
   const queryClient = useQueryClient();
 
+  const {
+    livePriority,
+    sales,
+    salesKpiReady,
+    rankingReady,
+    salesFetching,
+    sseConnected,
+    priorityLoading,
+    liveSnapshotAgeMs,
+  } = useRouterDashboardPriority(selectedRouterId);
+
   // Retour au classement si on change de routeur pendant la vue détail vendeur
   useEffect(() => { setSelectedVendor(null); }, [selectedRouterId]);
 
@@ -341,18 +355,29 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<VendorSummary[]>;
     },
-    refetchInterval: isVisible ? LIVE_SALES_POLL_MS : false,
+    enabled: isVisible && !!selectedRouterId && (!rankingReady || !sseConnected),
+    refetchInterval: isVisible && !!selectedRouterId && !sseConnected ? LIVE_SALES_POLL_MS : false,
     refetchIntervalInBackground: false,
     staleTime: 8_000,
   });
 
+  useEffect(() => {
+    if (!selectedRouterId || !livePriority?.serverTs) return;
+    void queryClient.invalidateQueries({ queryKey: ["vendors-summary", selectedRouterId] });
+  }, [livePriority?.serverTs, selectedRouterId, queryClient]);
+
   /* Pre-fetch each vendor's period report as soon as the list is loaded,
      so clicking a vendor is instant instead of waiting for the API. */
   useEffect(() => {
-    if (!data) return;
     const reportPeriod = isDaily ? "today" : "month";
-    for (const entry of data) {
-      const vendorId = entry.vendor.id;
+    const vendorIds =
+      livePriority?.vendorRanking
+        ?.filter((r) => r.vendorId !== UNATTRIBUTED_VENDOR_ID)
+        .map((r) => r.vendorId)
+      ?? data?.map((d) => d.vendor.id)
+      ?? [];
+    if (vendorIds.length === 0) return;
+    for (const vendorId of vendorIds) {
       queryClient.prefetchQuery({
         queryKey: ["vendor-period-sales", vendorId, reportPeriod],
         queryFn: async ({ signal }) => {
@@ -363,7 +388,43 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
         staleTime: 8_000,
       });
     }
-  }, [data, isDaily, queryClient]);
+  }, [data, livePriority?.vendorRanking, isDaily, queryClient]);
+
+  type RankRow = { vendor: { id: number; name: string }; count: number };
+
+  const sorted: RankRow[] = useMemo(() => {
+    if (rankingReady && livePriority?.vendorRanking?.length) {
+      return [...livePriority.vendorRanking]
+        .map((r) => ({
+          vendor: { id: r.vendorId, name: r.name },
+          count: isDaily ? r.dailySold : r.monthlySold,
+        }))
+        .sort((a, b) => b.count - a.count);
+    }
+    return (data ?? [])
+      .map((d) => ({
+        vendor: d.vendor,
+        count: isDaily ? d.salesStats.todaySold : d.salesStats.thisMonthSold,
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [rankingReady, livePriority?.vendorRanking, data, isDaily]);
+
+  const total =
+    salesKpiReady && sales
+      ? (isDaily ? sales.dailyCount : sales.monthlyCount)
+      : sorted.reduce((sum, d) => sum + d.count, 0);
+
+  const updatedTime = livePriority?.serverTs
+    ? new Date(livePriority.serverTs).toLocaleTimeString("fr-FR")
+    : dataUpdatedAt
+      ? new Date(dataUpdatedAt).toLocaleTimeString("fr-FR")
+      : null;
+
+  const listLoading =
+    !!selectedRouterId &&
+    sorted.length === 0 &&
+    (priorityLoading || (!rankingReady && isLoading));
+  const rankingPrintTitle = "Rapport de ventes";
 
   if (selectedVendor) {
     return (
@@ -376,14 +437,6 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
     );
   }
 
-  const sorted = (data ?? [])
-    .map((d) => ({ ...d, count: isDaily ? d.salesStats.todaySold : d.salesStats.thisMonthSold }))
-    .sort((a, b) => b.count - a.count);
-
-  const total = sorted.reduce((sum, d) => sum + d.count, 0);
-  const updatedTime = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("fr-FR") : null;
-  const rankingPrintTitle = "Rapport de ventes";
-
   return (
     <div className="max-w-2xl mx-auto px-6">
       <header className="no-print pt-6 pb-0">
@@ -393,7 +446,18 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
           </Link>
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-            <p className="text-sm text-gray-500">{subtitle}</p>
+            <p className="text-sm text-gray-500 flex items-center gap-2 flex-wrap">
+              <span>{subtitle}</span>
+              {selectedRouterId && sseConnected && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" aria-hidden />
+                  Temps réel
+                </span>
+              )}
+              {selectedRouterId && salesFetching && (
+                <Loader2 className="h-3 w-3 animate-spin text-gray-400" aria-hidden />
+              )}
+            </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {sorted.length > 0 && (
@@ -409,11 +473,14 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
             </Link>
             <button
               type="button"
-              onClick={() => refetch()}
-              disabled={isFetching}
+              onClick={() => {
+                void refetch();
+                void queryClient.invalidateQueries({ queryKey: ["router-dashboard-priority", selectedRouterId] });
+              }}
+              disabled={isFetching || salesFetching}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
             >
-              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 ${isFetching || salesFetching ? "animate-spin" : ""}`} />
             </button>
           </div>
         </div>
@@ -439,7 +506,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
             </CardContent>
           </Card>
 
-          {isLoading ? (
+          {listLoading ? (
             <div className="space-y-2">
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />
@@ -455,21 +522,37 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
             <div className="space-y-2">
               {sorted.map((entry, idx) => {
                 const rank = idx + 1;
-                const { bg, badge, icon } = getRankStyle(rank);
+                const isUnattributed = entry.vendor.id === UNATTRIBUTED_VENDOR_ID;
+                const { bg, badge, icon } = isUnattributed
+                  ? { bg: "bg-slate-50 border-slate-200", badge: "bg-slate-300 text-slate-700", icon: null }
+                  : getRankStyle(rank);
                 const pct = total > 0 ? Math.round((entry.count / total) * 100) : 0;
 
                 return (
                   <div
                     key={entry.vendor.id}
-                    onClick={() => setSelectedVendor({ id: entry.vendor.id, name: entry.vendor.name })}
-                    className={`border rounded-xl px-4 py-3 flex items-center gap-4 transition-shadow ${bg} cursor-pointer hover:shadow-sm`}
+                    onClick={
+                      isUnattributed
+                        ? undefined
+                        : () => setSelectedVendor({ id: entry.vendor.id, name: entry.vendor.name })
+                    }
+                    className={`border rounded-xl px-4 py-3 flex items-center gap-4 transition-shadow ${bg} ${
+                      isUnattributed ? "cursor-default" : "cursor-pointer hover:shadow-sm"
+                    }`}
                   >
                     <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold flex-shrink-0 ${badge}`}>
-                      {icon ?? rank}
+                      {icon ?? (isUnattributed ? "—" : rank)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="font-semibold text-gray-900 truncate">{entry.vendor.name}</p>
+                        <p className="font-semibold text-gray-900 truncate">
+                          {entry.vendor.name}
+                          {isUnattributed && (
+                            <span className="block text-[11px] font-normal text-slate-500">
+                              Ventes sans suffixe vendeur reconnu
+                            </span>
+                          )}
+                        </p>
                         <span className="text-lg font-bold text-gray-900 ml-2 flex-shrink-0">
                           {entry.count.toLocaleString()}
                           <span className="text-xs font-normal text-gray-400 ml-1">tickets vendus</span>
