@@ -44,6 +44,8 @@ interface Voucher {
   printedAt: string | null;
   usedAt: string | null;
   createdAt: string;
+  lotOrComment?: string | null;
+  source?: "script" | "voucher";
 }
 
 interface PeriodSalesData {
@@ -63,21 +65,29 @@ function getRankStyle(rank: number) {
   return { bg: "bg-white border-gray-100", badge: "bg-gray-100 text-gray-600", icon: null };
 }
 
-/* ── Rapport période d'un vendeur (vue admin) ─────────────────── */
-function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
+/* ── Rapport période d'un vendeur ou « Non attribué » (vue admin) ─ */
+function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: {
   vendorId: number;
   vendorName: string;
+  routerId: number | null;
   period: "today" | "month";
   onBack: () => void;
 }) {
+  const isUnattributed = vendorId === UNATTRIBUTED_VENDOR_ID;
   const isVisible = usePageVisibility();
   const { data, isLoading, error } = useQuery<PeriodSalesData>({
-    queryKey: ["vendor-period-sales", vendorId, period],
+    queryKey: isUnattributed
+      ? ["unattributed-period-sales", routerId, period]
+      : ["vendor-period-sales", vendorId, period],
     queryFn: async ({ signal }) => {
-      const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=${period}`, { signal });
+      const url = isUnattributed
+        ? `${BASE}/api/routers/${routerId}/unattributed-period-sales?period=${period}`
+        : `${BASE}/api/vendors/${vendorId}/period-sales?period=${period}`;
+      const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     },
+    enabled: !isUnattributed || routerId != null,
     staleTime: 8_000,
     refetchInterval: isVisible ? LIVE_SALES_POLL_MS : false,
     refetchIntervalInBackground: false,
@@ -103,6 +113,9 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-gray-900 truncate">{data?.vendorName ?? vendorName}</p>
           <p className="text-xs text-gray-500 capitalize">{subtitle}</p>
+          {isUnattributed && (
+            <p className="text-[11px] text-slate-500 mt-0.5">Ventes sans suffixe vendeur reconnu</p>
+          )}
         </div>
         {data && data.total > 0 && (
           <Button size="sm" variant="outline" onClick={() => printReport(printTitle)} className="gap-1.5">
@@ -223,6 +236,11 @@ function VendorPeriodReport({ vendorId, vendorName, period, onBack }: {
                                 <td className="px-3 py-2 max-w-[120px]">
                                   <p className="font-mono font-semibold text-gray-800 truncate">{v.username}</p>
                                   <p className="text-[10px] text-gray-400 truncate">{v.profileName}</p>
+                                  {v.lotOrComment && (
+                                    <p className="text-[10px] text-slate-500 truncate" title={v.lotOrComment}>
+                                      Lot : {v.lotOrComment}
+                                    </p>
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-right whitespace-nowrap">
                                   {displayPrice ? (
@@ -431,6 +449,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
       <VendorPeriodReport
         vendorId={selectedVendor.id}
         vendorName={selectedVendor.name}
+        routerId={selectedRouterId}
         period={isDaily ? "today" : "month"}
         onBack={() => setSelectedVendor(null)}
       />
@@ -531,14 +550,8 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
                 return (
                   <div
                     key={entry.vendor.id}
-                    onClick={
-                      isUnattributed
-                        ? undefined
-                        : () => setSelectedVendor({ id: entry.vendor.id, name: entry.vendor.name })
-                    }
-                    className={`border rounded-xl px-4 py-3 flex items-center gap-4 transition-shadow ${bg} ${
-                      isUnattributed ? "cursor-default" : "cursor-pointer hover:shadow-sm"
-                    }`}
+                    onClick={() => setSelectedVendor({ id: entry.vendor.id, name: entry.vendor.name })}
+                    className={`border rounded-xl px-4 py-3 flex items-center gap-4 transition-shadow cursor-pointer hover:shadow-sm ${bg}`}
                   >
                     <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold flex-shrink-0 ${badge}`}>
                       {icon ?? (isUnattributed ? "—" : rank)}

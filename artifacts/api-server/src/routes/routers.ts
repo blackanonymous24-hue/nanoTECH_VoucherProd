@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, notExists } from "drizzle-orm";
-import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
+import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable, profilesCacheTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
@@ -12,7 +12,8 @@ import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
 import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
-import { aggregateVendorPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
+import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
+import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -2558,6 +2559,51 @@ router.get("/routers/:id/dashboard-priority", async (req, res): Promise<void> =>
     }
     res.status(502).json({ error: err instanceof Error ? err.message : "Erreur routeur" });
   }
+});
+
+/**
+ * GET /routers/:id/unattributed-period-sales?period=today|month
+ * Détail des ventes sans suffixe vendeur reconnu (scripts + bons).
+ */
+router.get("/routers/:id/unattributed-period-sales", async (req, res): Promise<void> => {
+  const adminScope = getAdminScopeFromHeader(req);
+  if (!adminScope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  if (!adminScope.isSuperAdmin || adminScope.isImpersonating) {
+    const [r] = await db.select({ owner: routersTable.ownerAdminId })
+      .from(routersTable).where(eq(routersTable.id, id));
+    if (!r || r.owner !== adminScope.adminId) { res.status(403).json({ error: "Accès refusé" }); return; }
+  }
+
+  const { period } = req.query as { period?: string };
+  if (period !== "today" && period !== "month") {
+    res.status(400).json({ error: "Période invalide (today ou month)" });
+    return;
+  }
+
+  const result = await fetchUnattributedPeriodSales(id, period);
+  if (!result) { res.status(500).json({ error: "Impossible de charger les ventes non attribuées" }); return; }
+
+  const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  let priceMap = new Map<string, string>();
+  if (routerRow) {
+    const conn: RouterConnection = {
+      host: routerRow.host,
+      port: routerRow.port,
+      username: routerRow.username,
+      password: routerRow.password,
+    };
+    priceMap = getCachedProfilePricesSync(id, conn);
+  }
+
+  const enrichedVouchers = result.vouchers.map((v) => ({
+    ...v,
+    price: v.salePrice || v.price || priceMap.get(v.profileName) || v.price,
+  }));
+
+  res.json({ ...result, vouchers: enrichedVouchers });
 });
 
 /**

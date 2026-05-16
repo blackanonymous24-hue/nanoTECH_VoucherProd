@@ -3298,8 +3298,8 @@ function hotspotUserMacAuthLocked(
 /**
  * Ligne d’un utilisateur hotspot (Mes tickets) :
  * - **Login** : pseudo (`user.username`) — `mes-tickets-username`. **Desktop** : si **verrouillage MAC forfait** (`macAuthLocked`), la MAC s’affiche sous le login en **parenthèses** (`absolute`, sans augmenter la hauteur de flux de la ligne). **Mobile** : si **expiré**, la mention `(EXPIRÉ)` sous le login en **parenthèses**, police minimale et `absolute` (même principe — pas de hauteur supplémentaire dans le flux).
- * - **Userinfo** : `mes-tickets-userinfo`. **Mobile** : **profil + cadenas** puis **commentaire + poubelle** uniquement (pas de MAC, uptime ni trafic). Login **centré verticalement**. **`sm+`** : colonnes MAC, profil, uptime, trafic, commentaire.
- * - **Cadenas / poubelle** : **`sm+`** colonne à droite ; **mobile** sur la 1re et la 2e ligne (profil / commentaire).
+ * - **Userinfo** : `mes-tickets-userinfo`. **Mobile** : login à gauche ; profil + commentaire **alignés à droite** (colonne, sans chevauchement) ; cadenas sur les 2 lignes. **`sm+`** : colonnes MAC, profil, uptime, trafic, commentaire.
+ * - **Cadenas / poubelle** : **`sm+`** colonne à droite ; **mobile** : cadenas seul (hauteur profil + commentaire).
  */
 function UserRow({
   user,
@@ -3342,7 +3342,7 @@ function UserRow({
       className={`mes-tickets-row flex items-stretch justify-between gap-2 px-3 sm:px-4 py-1.5 sm:py-3 sm:items-center hover:bg-gray-50 group cursor-pointer ${selected ? "bg-blue-50" : ""}`}
     >
       <div className="flex min-w-0 flex-1 flex-nowrap items-stretch gap-2 sm:items-center sm:gap-x-3">
-        <div className="flex min-w-0 max-w-full shrink-0 items-stretch gap-2">
+        <div className="flex min-w-0 shrink-0 items-stretch gap-2 sm:items-center">
           <input
             type="checkbox"
             checked={selected}
@@ -3381,15 +3381,15 @@ function UserRow({
             ) : null}
           </div>
         </div>
-        {/* Desktop sm+ : colonnes ; mobile : profil + cadenas | commentaire + poubelle (pas MAC/uptime/trafic) */}
+        {/* Desktop sm+ : colonnes ; mobile : profil + commentaire à droite (colonne) */}
         <div
-          className="mes-tickets-userinfo flex min-w-0 flex-1 flex-col justify-center sm:w-auto sm:basis-auto sm:flex-1"
+          className="mes-tickets-userinfo flex min-w-0 flex-1 flex-col justify-center overflow-hidden sm:flex-1"
           data-userinfo
         >
-          {/* —— mobile : profil + cadenas | commentaire + poubelle —— */}
-          <div className="mes-tickets-userinfo-mobile flex min-w-0 flex-col gap-px leading-none sm:hidden">
-            <div className="flex min-w-0 items-center justify-between gap-1.5">
-              <div className="min-w-0 flex-1">
+          {/* —— mobile : colonne profil/commentaire à droite + cadenas —— */}
+          <div className="mes-tickets-userinfo-mobile flex min-w-0 flex-1 items-stretch justify-end gap-1.5 leading-none sm:hidden">
+            <div className="flex min-w-0 max-w-[calc(100%-2.25rem)] flex-col items-end justify-center gap-0.5 overflow-hidden">
+              <div className="min-w-0 max-w-full">
                 {user.profile ? (
                   <span
                     className="inline-block max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-px text-[11px] font-medium text-violet-700/70"
@@ -3399,55 +3399,40 @@ function UserRow({
                   </span>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMikrotikToggle();
-                }}
-                disabled={rowActionsDisabled}
-                title={user.disabled ? "Réactiver ce compte sur MikroTik" : "Désactiver ce compte sur MikroTik"}
-                aria-label={user.disabled ? "Réactiver sur MikroTik" : "Désactiver sur MikroTik"}
-                className={`shrink-0 rounded p-0.5 hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-40 ${
-                  user.disabled
-                    ? "text-orange-400 hover:text-orange-600"
-                    : "text-emerald-500/80 hover:text-emerald-700"
-                }`}
-              >
-                {mikrotikBusyThis ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                ) : user.disabled ? (
-                  <Lock className="h-3.5 w-3.5" aria-hidden />
-                ) : (
-                  <Unlock className="h-3.5 w-3.5" aria-hidden />
-                )}
-              </button>
-            </div>
-            <div className="flex min-w-0 items-center justify-between gap-1.5">
-              <div className="mes-tickets-comment min-w-0 flex-1" data-userinfo-comment>
+              <div className="mes-tickets-comment min-w-0 max-w-full" data-userinfo-comment>
                 {user.comment ? (
                   <span
-                    className={`inline-block max-w-full truncate rounded border px-1 py-px text-left font-mono text-[11px] tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
+                    className={`inline-block max-w-full truncate rounded border px-1 py-px text-right font-mono text-[11px] tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
                     title={user.comment}
                   >
                     {user.comment}
                   </span>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRequestDelete();
-                }}
-                disabled={rowActionsDisabled}
-                title="Supprimer ce compte sur MikroTik"
-                aria-label="Supprimer sur MikroTik"
-                className="shrink-0 rounded p-0.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
-              >
-                <Trash2 className="h-3.5 w-3.5" aria-hidden />
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMikrotikToggle();
+              }}
+              disabled={rowActionsDisabled}
+              title={user.disabled ? "Réactiver ce compte sur MikroTik" : "Désactiver ce compte sur MikroTik"}
+              aria-label={user.disabled ? "Réactiver sur MikroTik" : "Désactiver sur MikroTik"}
+              className={`flex shrink-0 items-center justify-center self-stretch rounded px-1 hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-40 ${
+                user.disabled
+                  ? "text-orange-400 hover:text-orange-600"
+                  : "text-emerald-500/80 hover:text-emerald-700"
+              }`}
+            >
+              {mikrotikBusyThis ? (
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+              ) : user.disabled ? (
+                <Lock className="h-5 w-5" aria-hidden />
+              ) : (
+                <Unlock className="h-5 w-5" aria-hidden />
+              )}
+            </button>
           </div>
           {/* —— sm+ : colonnes alignées —— */}
           <div className="mes-tickets-userinfo-columns hidden min-w-0 flex-nowrap items-center justify-end gap-x-0 overflow-x-auto text-xs leading-tight sm:flex">
