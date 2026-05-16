@@ -28,6 +28,7 @@ import {
   Zap, Printer, Trash2, Router as RouterIcon, RefreshCw, Table2, CheckCircle2, Check, Copy, ChevronsUpDown, Clock, Package, Loader2, WifiOff,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { printMikhmonSmallVouchers } from "@/lib/print";
@@ -48,6 +49,10 @@ import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-temp
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
+
+/** Style d’origine du bouton Générer (bleu), distinct du bouton Imprimer (violet par défaut). */
+const GENERATE_BTN_CLASS =
+  "w-full gap-1.5 h-9 text-sm border-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-sm shadow-blue-200/40 hover:from-blue-700 hover:to-blue-800 focus-visible:ring-blue-500";
 const FORFAITS_PROFILES_CACHE_KEY = "forfaits-cache";
 
 type LastLot = {
@@ -300,10 +305,18 @@ async function loadMostRecentLotFromRouter(
       price: prof?.price ?? "",
       validity: prof?.validity ?? "",
       vendorName: "",
-      generatedAt: new Date().toISOString(),
+      generatedAt: generatedAtFromLotComment(apiLot.name),
     };
   }
   return null;
+}
+
+/** Date affichée pour un lot identifié par son commentaire (ex. vc-123-04.11.26). */
+function generatedAtFromLotComment(comment: string): string {
+  const m = comment.match(/(\d{2})\.(\d{2})\.(\d{2})/);
+  if (!m) return new Date().toISOString();
+  const [, mm, dd, yy] = m;
+  return new Date(2000 + parseInt(yy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10)).toISOString();
 }
 
 function makeBatchId(mode: "vc" | "up" = "vc"): string {
@@ -345,18 +358,13 @@ export default function GenerateVouchers() {
   const [genPaused, setGenPaused] = useState(false);
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false);
   const [vendorPopoverOpen, setVendorPopoverOpen] = useState(false);
-  const autoLoadAttempted = useState(() => new Set<number>())[0];
 
   useEffect(() => {
-    if (selectedRouterId) {
-      // Re-allow auto-load flow on each router switch so loading UI stays consistent.
-      autoLoadAttempted.delete(selectedRouterId);
-    }
-    setLastLot(loadLastLot(selectedRouterId));
-    // Réinitialise le vendeur et le profil sélectionnés (spécifiques à chaque routeur)
+    setLastLot(null);
+    setLoadingLastLot(!!selectedRouterId);
     setVendorId("");
     setProfile("");
-  }, [selectedRouterId, autoLoadAttempted]);
+  }, [selectedRouterId]);
 
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
   useEffect(() => {
@@ -468,12 +476,14 @@ export default function GenerateVouchers() {
     };
   }, [selectedRouterId, queryClient]);
 
-  // Auto-load the most recent lot from API when localStorage is empty
+  // Dernier lot = le plus récent sur MikroTik (y compris lots créés hors app).
   useEffect(() => {
-    if (lastLot !== null) return;
-    if (!selectedRouterId) return;
-    if (autoLoadAttempted.has(selectedRouterId)) return;
-    autoLoadAttempted.add(selectedRouterId);
+    if (!selectedRouterId) {
+      setLastLot(null);
+      setLoadingLastLot(false);
+      return;
+    }
+    if (profilesForRouterId !== selectedRouterId) return;
 
     const controller = new AbortController();
     setLoadingLastLot(true);
@@ -487,19 +497,19 @@ export default function GenerateVouchers() {
           selectedRouter?.name ?? "",
           controller.signal,
         );
-        if (lot) {
-          setLastLot(lot);
-          saveLastLot(lot);
-        }
+        if (controller.signal.aborted) return;
+        setLastLot(lot);
+        if (lot) saveLastLot(lot);
+        else clearLastLot(selectedRouterId);
       } catch {
-        // Router offline or aborted — keep "Aucun lot" state, user can generate
+        if (!controller.signal.aborted) setLastLot(null);
       } finally {
-        setLoadingLastLot(false);
+        if (!controller.signal.aborted) setLoadingLastLot(false);
       }
     })();
 
     return () => controller.abort();
-  }, [selectedRouterId, lastLot, displayedProfilesSorted, selectedRouter, autoLoadAttempted]);
+  }, [selectedRouterId, profilesForRouterId, displayedProfilesSorted, selectedRouter]);
 
   const selectedProfile = displayedProfilesSorted.find((p) => p.name === profile);
   const selectedProfileMonitorOk = selectedProfile?.schedulerMonitorActive === true;
@@ -807,7 +817,6 @@ export default function GenerateVouchers() {
         saveLastLot(nextLot);
       } else {
         clearLastLot(lot.routerId);
-        autoLoadAttempted.delete(lot.routerId);
         setLoadingLastLot(true);
         setLastLot(null);
       }
@@ -837,6 +846,9 @@ export default function GenerateVouchers() {
     setCopiedLot(true);
     setTimeout(() => setCopiedLot(false), 2000);
   };
+
+  /** Après génération : profil vidé → bouton principal = Imprimer (pas pendant l’envoi). */
+  const showFormPrintButton = Boolean(lastLot && !profile && !progress);
 
   const handleExportCsv = (lot: LastLot) => {
     const header = "N°,Username,Password,Profil,Validité,Prix\n";
@@ -1173,7 +1185,7 @@ export default function GenerateVouchers() {
               )}
 
               <div>
-                {lastLot && !profile ? (
+                {showFormPrintButton && lastLot ? (
                   <Button
                     type="button"
                     className="w-full gap-1.5"
@@ -1185,15 +1197,16 @@ export default function GenerateVouchers() {
                     ) : (
                       <Printer className="h-3.5 w-3.5 shrink-0" />
                     )}
-                    <span className="hidden sm:inline">
+                    <span>
                       {isPrintingSmall ? "Impression en cours…" : "Imprimer"}
                     </span>
                   </Button>
                 ) : (
                   <Button
                     type="submit"
-                    className="w-full gap-1.5 h-9 text-sm"
-                    disabled={!selectedRouterId || !profile || !!progress}
+                    variant="default"
+                    className={GENERATE_BTN_CLASS}
+                    disabled={!selectedRouterId || !profile || Boolean(progress)}
                   >
                     <Zap className="h-3.5 w-3.5" />
                     {progress ? "Génération en cours..." : `Générer ${qty} voucher(s)`}
@@ -1203,7 +1216,7 @@ export default function GenerateVouchers() {
                   <div className="mt-2 space-y-1.5">
                     <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
-                        className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${genPaused ? "bg-amber-400" : "bg-orange-500"}`}
+                        className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${genPaused ? "bg-amber-400" : "bg-blue-600"}`}
                         style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
                       />
                       {!genPaused && (
@@ -1222,9 +1235,14 @@ export default function GenerateVouchers() {
                           <WifiOff className="h-3 w-3" />
                           Routeur inaccessible — reprise automatique…
                         </span>
+                      ) : progress.done === 0 ? (
+                        <span className="flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
+                          Préparation du routeur…
+                        </span>
                       ) : (
                         <span className="flex items-center gap-1">
-                          <Loader2 className="h-3 w-3 animate-spin text-orange-500" />
+                          <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
                           Envoi vers MikroTik…
                         </span>
                       )}
@@ -1309,7 +1327,7 @@ export default function GenerateVouchers() {
                   ) : (
                     <Printer className="h-3.5 w-3.5 shrink-0" />
                   )}
-                  <span className="hidden sm:inline">
+                  <span>
                     {isPrintingSmall ? "Impression en cours…" : "Imprimer"}
                   </span>
                 </Button>

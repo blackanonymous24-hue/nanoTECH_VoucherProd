@@ -12,8 +12,9 @@
       },
       "env": {
         "EXPO_MONOREPO_ROOT": "../../",
-        "NODE_ENV": "development",
-        "EXPO_ROUTER_APP_ROOT": "/home/expo/workingdir/build/artifacts/mobile/app"
+        "NODE_ENV": "production",
+        "EXPO_ROUTER_APP_ROOT": "/home/expo/workingdir/build/artifacts/mobile/app",
+        "EXPO_PUBLIC_WEB_APP_URL": "https://nanovoucher.com"
       }
     },
     "production": {
@@ -22,8 +23,9 @@
       },
       "env": {
         "EXPO_MONOREPO_ROOT": "../../",
-        "NODE_ENV": "development",
-        "EXPO_ROUTER_APP_ROOT": "/home/expo/workingdir/build/artifacts/mobile/app"
+        "NODE_ENV": "production",
+        "EXPO_ROUTER_APP_ROOT": "/home/expo/workingdir/build/artifacts/mobile/app",
+        "EXPO_PUBLIC_WEB_APP_URL": "https://nanovoucher.com"
       }
     }
   }

@@ -8,6 +8,7 @@ import {
   Eye, EyeOff, ChevronsUpDown, Check, Save, Loader2, Pencil, FilePlus2,
   PowerOff, RefreshCw, Cpu,
 } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { cn } from "@/lib/utils";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
@@ -35,6 +36,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PasswordInput } from "@/components/ui/password-input";
+import {
+  makeClientCommentForCredentials,
+  resolveHotspotClientComment,
+} from "@/lib/hotspot-client-comment";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -111,15 +116,6 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
       ) : null}
     </div>
   );
-}
-
-function makeClientBatchId(mode: "vc" | "up"): string {
-  const now = new Date();
-  const M = String(now.getMonth() + 1).padStart(2, "0");
-  const D = String(now.getDate()).padStart(2, "0");
-  const Y = String(now.getFullYear()).slice(-2);
-  const rand = String(Math.floor(Math.random() * 900) + 100);
-  return `${mode}-${rand}-${M}.${D}.${Y}`;
 }
 
 function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mobileDrawer?: boolean }) {
@@ -359,6 +355,11 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!showAddUser || addDialogMode !== "create") return;
+    setAddComment(makeClientCommentForCredentials(addName, addPassword));
+  }, [showAddUser, addDialogMode, addName, addPassword]);
+
   async function handleAddHotspotUser() {
     setAddError("");
     if (!addName.trim())    { setAddError("Le nom d'utilisateur est requis."); return; }
@@ -382,7 +383,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           password: addPassword.trim(),
           profile: addProfile,
           server: addServer === "all" ? undefined : addServer,
-          comment: addComment.trim() || undefined,
+          comment: resolveHotspotClientComment(addComment, addName, addPassword),
           limitUptime: addLimitUptime.trim() || undefined,
           limitBytesTotal,
         }),
@@ -625,9 +626,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       {/* ── Brand ── */}
       <div className="px-5 pt-5 pb-4 flex-shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-xl bg-blue-500/15 ring-1 ring-blue-500/30">
-            <Wifi className="h-4 w-4 text-blue-400" />
-          </div>
+          <BrandLogo size="md" />
           <div className="min-w-0">
             <p className="text-sm font-bold text-white leading-none">nanoTECH Vouchers</p>
             <p className="text-[10px] text-gray-500 mt-0.5 leading-none truncate">
@@ -1296,7 +1295,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                     <button key={p.name} type="button" onClick={() => {
                       setAddProfile(p.name);
                       setAddProfilePopoverOpen(false);
-                      setAddComment(makeClientBatchId(p.validity ? "vc" : "up"));
                     }}
                       className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
                       <Check className={`h-3 w-3 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
@@ -1433,9 +1431,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   : <Menu className="h-5 w-5 transition-transform duration-200" />}
               </Button>
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30 flex-shrink-0">
-                  <Wifi className="h-3.5 w-3.5 text-blue-400" />
-                </div>
+                <BrandLogo size="sm" />
                 <span className="font-bold text-white truncate text-sm leading-none">nanoTECH Vouchers</span>
               </div>
             </div>

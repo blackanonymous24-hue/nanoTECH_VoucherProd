@@ -32,6 +32,7 @@ import { isAxiosError } from "axios";
 import {
   formatRouterConnectionTestLabel,
   routerConnectionStatusShortLabel,
+  ROUTER_OFFLINE_LABEL,
   pingRouterTcpApi,
 } from "@/lib/router-connection-test";
 
@@ -318,21 +319,16 @@ export default function Routers() {
       const data = await pingRouterTcpApi(id, token, { force: true });
       setTestResultWithAutoExpiry(id, {
         success: data.success,
-        message: formatRouterConnectionTestLabel(data),
+        message: data.success ? formatRouterConnectionTestLabel(data) : ROUTER_OFFLINE_LABEL,
       });
       if (!data.success) {
         toast({
-          title: "Impossible de contacter le routeur",
-          description:
-            data.message && data.message !== "Impossible de contacter le routeur"
-              ? data.message
-              : undefined,
+          title: ROUTER_OFFLINE_LABEL,
           variant: "destructive",
         });
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Impossible de contacter le routeur";
-      setTestResultWithAutoExpiry(id, { success: false, message });
+    } catch {
+      setTestResultWithAutoExpiry(id, { success: false, message: ROUTER_OFFLINE_LABEL });
     } finally {
       setPingingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
     }
@@ -353,16 +349,14 @@ export default function Routers() {
         setSelectedRouterId(id);
         navigate("/");
       } else {
-        const msg = data.message || "Impossible de contacter le routeur";
-        setTestResultWithAutoExpiry(id, { success: false, message: msg });
+        setTestResultWithAutoExpiry(id, { success: false, message: ROUTER_OFFLINE_LABEL });
         toast({
-          title: "Impossible de contacter le routeur",
-          description: msg !== "Impossible de contacter le routeur" ? msg : undefined,
+          title: ROUTER_OFFLINE_LABEL,
           variant: "destructive",
         });
       }
     } catch {
-      setTestResultWithAutoExpiry(id, { success: false, message: "Impossible de contacter le routeur" });
+      setTestResultWithAutoExpiry(id, { success: false, message: ROUTER_OFFLINE_LABEL });
     } finally {
       setConnectingId(null);
     }
@@ -561,11 +555,6 @@ export default function Routers() {
                         <p className="text-[11px] text-gray-500 leading-tight truncate">
                           {r.host}:{r.port}
                         </p>
-                        {testResults[r.id] && !testResults[r.id].success && (
-                          <p className="text-[10px] text-red-600 leading-snug line-clamp-2" title={testResults[r.id].message}>
-                            {testResults[r.id].message}
-                          </p>
-                        )}
                       </div>
                     </div>
                     <div

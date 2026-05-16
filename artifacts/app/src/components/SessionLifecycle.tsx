@@ -3,25 +3,35 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { queryClient } from "@/lib/queryClient";
+import {
+  AUTH_TOKEN_LS_KEY,
+  broadcastSessionLogout,
+  readSessionLogoutBroadcastTs,
+  readSharedLastActivityTs,
+  SESSION_LOGOUT_BROADCAST_LS_KEY,
+  writeSharedLastActivityTs,
+} from "@/lib/session-cross-tab";
 
 /**
  * Cycle de vie session — périmètre :
  *
  * • Bureau et mobile en navigation web : pause API si l’onglet / l’app reste « absents »
- *   après TAB_HIDE_API_PAUSE_GRACE_MS ; BroadcastChannel entre onglets ; déconnexion après
- *   SESSION_IDLE_LOGOUT_MS sans activité sauf si « Se souvenir de moi » (jeton localStorage) :
- *   dans ce cas pas de déconnexion idle, mais la pause API après la période de grâce s’applique toujours.
+ *   après TAB_HIDE_API_PAUSE_GRACE_MS ; activité et déconnexion synchronisées entre onglets
+ *   (BroadcastChannel + localStorage) ; déconnexion après inactivité :
+ *   {@link SESSION_IDLE_LOGOUT_MS} (session onglet) ou
+ *   {@link SESSION_IDLE_LOGOUT_REMEMBER_MS} si « Se souvenir de moi ».
  *
- * • APK nanoTECH (WebView Expo, UA `nanoTECH-VouchersBills-Mobile` / classe `native-app`) :
- *   pas de déconnexion idle pour admin/vendeur ; même délai de grâce via l’événement
- *   {@link APK_APP_STATE_EVENT} (AppState natif, plus fiable que visibility seul).
+ * • APK nanoTECH (WebView Expo) : pas de déconnexion idle pour admin/vendeur.
  */
+/** Déconnexion auto sans « Se souvenir de moi » (jeton sessionStorage). */
 export const SESSION_IDLE_LOGOUT_MS = 10 * 60 * 1000;
+/** Déconnexion auto navigation web avec « Se souvenir de moi » (jeton localStorage). */
+export const SESSION_IDLE_LOGOUT_REMEMBER_MS = 30 * 60 * 1000;
 
 /** Délai après masquage de l’onglet / passage de l’app en arrière-plan avant pause API. */
 export const TAB_HIDE_API_PAUSE_GRACE_MS = 2 * 60 * 1000;
 
-/** Émis par Expo (`injectJavaScript`) quand React Native AppState ≠ active ; `detail`: app en arrière-plan. */
+/** Émis par Expo (`injectJavaScript`) quand React Native AppState ≠ active. */
 export const APK_APP_STATE_EVENT = "vouchernet-apk-app-state";
 
 const BC_NAME = "vouchernet-auth-session-v1";
@@ -36,9 +46,10 @@ function isApkRelaxedSessionMode(role: string | null): boolean {
   return isNativeAppShell() && (role === "vendor" || role === "admin");
 }
 
-type BcMsg = { type: "activity"; t: number } | { type: "logout-all"; reason: string };
+type BcMsg = { type: "activity"; t: number } | { type: "logout-all"; reason: string; t: number };
 
 function postActivity(bc: BroadcastChannel | null, t: number) {
+  writeSharedLastActivityTs(t);
   try {
     bc?.postMessage({ type: "activity", t } satisfies BcMsg);
   } catch {
@@ -46,15 +57,19 @@ function postActivity(bc: BroadcastChannel | null, t: number) {
   }
 }
 
+function sharedLastActivityMs(localRef: number): number {
+  return Math.max(localRef, readSharedLastActivityTs());
+}
+
 export function SessionLifecycle() {
   const { isAuthenticated, logout, role, sessionPersisted } = useAuth();
   const apkRelaxed = isApkRelaxedSessionMode(role);
   const lastLocalPulse = useRef(0);
   const lastSharedRef = useRef(Date.now());
-  /** Minuteur avant pause API lorsque la session est considérée « absente » (grâce TAB_HIDE_API_PAUSE_GRACE_MS). */
   const tabHidePauseTimerRef = useRef<number | null>(null);
-  /** APK : dernier état envoyé par l’AppState natif ({@link APK_APP_STATE_EVENT}), `true` = arrière-plan / inactive. */
   const apkAwayRef = useRef(false);
+  const loggingOutRef = useRef(false);
+  const logoutBroadcastSeenRef = useRef(0);
 
   useEffect(() => {
     const clearTabHidePauseTimer = () => {
@@ -67,11 +82,14 @@ export function SessionLifecycle() {
     if (!isAuthenticated) {
       clearTabHidePauseTimer();
       apkAwayRef.current = false;
+      loggingOutRef.current = false;
       setApiRequestPause(false);
       return;
     }
 
-    lastSharedRef.current = Date.now();
+    const lsActivity = readSharedLastActivityTs();
+    lastSharedRef.current = Math.max(Date.now(), lsActivity);
+    logoutBroadcastSeenRef.current = readSessionLogoutBroadcastTs();
 
     let bc: BroadcastChannel | null = null;
     try {
@@ -79,8 +97,34 @@ export function SessionLifecycle() {
     } catch {
       bc = null;
     }
+
     const bumpShared = (t: number) => {
       if (t > lastSharedRef.current) lastSharedRef.current = t;
+    };
+
+    const performIdleLogout = (opts: { revoke: boolean; showToast: boolean }) => {
+      if (loggingOutRef.current) return;
+      loggingOutRef.current = true;
+      broadcastSessionLogout();
+      setApiRequestPause(false);
+      if (opts.showToast) {
+        toast.info("Session fermée (inactivité prolongée).", {
+          id: "vouchernet-session-idle",
+          duration: 4500,
+        });
+      }
+      void logout(opts.revoke ? undefined : { skipRevoke: true });
+    };
+
+    const applyRemoteLogout = (broadcastTs: number) => {
+      if (broadcastTs <= logoutBroadcastSeenRef.current) return;
+      logoutBroadcastSeenRef.current = broadcastTs;
+      performIdleLogout({ revoke: false, showToast: true });
+    };
+
+    const checkLogoutBroadcast = () => {
+      const ts = readSessionLogoutBroadcastTs();
+      if (ts > 0) applyRemoteLogout(ts);
     };
 
     const onBcMessage = (ev: MessageEvent<BcMsg>) => {
@@ -88,12 +132,23 @@ export function SessionLifecycle() {
       if (!data || typeof data !== "object") return;
       if (data.type === "activity") bumpShared(data.t);
       if (data.type === "logout-all") {
-        setApiRequestPause(false);
-        toast.info("Session fermée (inactivité prolongée).", { id: "vouchernet-session-idle", duration: 4500 });
-        void logout({ skipRevoke: true });
+        applyRemoteLogout(typeof data.t === "number" ? data.t : readSessionLogoutBroadcastTs());
       }
     };
     bc?.addEventListener("message", onBcMessage);
+
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.storageArea !== localStorage) return;
+      if (ev.key === SESSION_LOGOUT_BROADCAST_LS_KEY && ev.newValue) {
+        const ts = Number.parseInt(ev.newValue, 10);
+        if (Number.isFinite(ts)) applyRemoteLogout(ts);
+        return;
+      }
+      if (ev.key === AUTH_TOKEN_LS_KEY && ev.oldValue && !ev.newValue) {
+        applyRemoteLogout(Date.now());
+      }
+    };
+    window.addEventListener("storage", onStorage);
 
     const pulse = (source: "input" | "visible") => {
       const now = Date.now();
@@ -120,7 +175,6 @@ export function SessionLifecycle() {
         tabHidePauseTimerRef.current = window.setTimeout(() => {
           tabHidePauseTimerRef.current = null;
           const st = typeof window !== "undefined" ? window.__vouchernetApiPause : undefined;
-          /** Ne pas remplacer une pause déjà levée par Génération / toggle lot (allowPathPatterns). */
           if (st?.paused) return;
           setApiRequestPause(true);
         }, TAB_HIDE_API_PAUSE_GRACE_MS);
@@ -128,6 +182,9 @@ export function SessionLifecycle() {
         clearTabHidePauseTimer();
         setApiRequestPause(false);
         pulse("visible");
+        checkLogoutBroadcast();
+        const lsAct = readSharedLastActivityTs();
+        if (lsAct > lastSharedRef.current) lastSharedRef.current = lsAct;
         if (apkRelaxed) {
           void queryClient.invalidateQueries();
         }
@@ -151,19 +208,25 @@ export function SessionLifecycle() {
     recomputeAwayAndPauseApi();
     document.addEventListener("visibilitychange", onDomVisibilityChange);
 
+    const idleLogoutMs = sessionPersisted
+      ? SESSION_IDLE_LOGOUT_REMEMBER_MS
+      : SESSION_IDLE_LOGOUT_MS;
+
     let intervalId: number | undefined;
-    if (!apkRelaxed && !sessionPersisted) {
+    if (!apkRelaxed) {
       intervalId = window.setInterval(() => {
-        if (Date.now() - lastSharedRef.current >= SESSION_IDLE_LOGOUT_MS) {
-          try {
-            bc?.postMessage({ type: "logout-all", reason: "idle" } satisfies BcMsg);
-          } catch {
-            /* noop */
-          }
-          setApiRequestPause(false);
-          toast.info("Session fermée (inactivité prolongée).", { id: "vouchernet-session-idle", duration: 4500 });
-          void logout();
+        checkLogoutBroadcast();
+        const last = sharedLastActivityMs(lastSharedRef.current);
+        if (last > lastSharedRef.current) lastSharedRef.current = last;
+        if (Date.now() - last < idleLogoutMs) return;
+
+        const ts = Date.now();
+        try {
+          bc?.postMessage({ type: "logout-all", reason: "idle", t: ts } satisfies BcMsg);
+        } catch {
+          /* noop */
         }
+        performIdleLogout({ revoke: true, showToast: true });
       }, 10_000) as unknown as number;
     }
 
@@ -178,6 +241,7 @@ export function SessionLifecycle() {
       window.removeEventListener("keydown", onActivity, opts);
       window.removeEventListener("wheel", onActivity, opts);
       window.removeEventListener("touchstart", onActivity, opts);
+      window.removeEventListener("storage", onStorage);
       bc?.removeEventListener("message", onBcMessage);
       bc?.close();
       if (intervalId !== undefined) window.clearInterval(intervalId);

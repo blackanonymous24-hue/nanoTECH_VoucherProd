@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { pingRouterTcpApi } from "@/lib/router-connection-test";
+import { pingRouterTcpApi, ROUTER_OFFLINE_LABEL } from "@/lib/router-connection-test";
 
 /**
  * Ping TCP (`/ping?force=1`) avant connexion (2 tentatives courtes), toujours un test réel sans cache.
@@ -42,11 +42,7 @@ export function useSelectRouterWithPing() {
           break;
         }
 
-        toast.error("Impossible de contacter le routeur", {
-          description:
-            data.message && data.message !== "Impossible de contacter le routeur"
-              ? data.message
-              : undefined,
+        toast.error(ROUTER_OFFLINE_LABEL, {
           duration: 3000,
           id: "router-ping-fail",
         });

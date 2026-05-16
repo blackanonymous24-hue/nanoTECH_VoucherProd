@@ -53,6 +53,61 @@ function invalidateProfileListCache(ownerAdminId: number | null, routerId: numbe
 /** Profile names that are internal to RouterOS / MikHmon and must never be shown or imported. */
 const SYSTEM_PROFILE_NAMES = new Set(["trial", "default-trial"]);
 
+type HotspotProfileWriteBody = {
+  name: string;
+  validity: string;
+  price: string;
+  sellingPrice: string;
+  sharedUsers: string;
+  addrPool: string;
+  rateLimit: string;
+  expiredMode: string;
+  lockMac: boolean;
+  parentQueue: string;
+  mikrotikId?: string;
+};
+
+function isProfileExpirationModeNone(mode: string | undefined): boolean {
+  const m = (mode ?? "None").trim().toLowerCase();
+  return m === "none" || m === "nothing" || m === "0" || m === "-";
+}
+
+function parseHotspotProfileWriteBody(
+  raw: Record<string, unknown>,
+): { ok: true; body: HotspotProfileWriteBody } | { ok: false; error: string } {
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!name) return { ok: false, error: "Le nom est obligatoire." };
+
+  const expiredMode =
+    typeof raw.expiredMode === "string" && raw.expiredMode.trim()
+      ? raw.expiredMode.trim()
+      : "None";
+  const validityRaw = typeof raw.validity === "string" ? raw.validity.trim() : "";
+
+  return {
+    ok: true,
+    body: {
+      name,
+      validity: isProfileExpirationModeNone(expiredMode) ? "" : validityRaw,
+      price: typeof raw.price === "string" ? raw.price.trim() : "",
+      sellingPrice: typeof raw.sellingPrice === "string" ? raw.sellingPrice.trim() : "",
+      sharedUsers:
+        typeof raw.sharedUsers === "string" && raw.sharedUsers.trim()
+          ? raw.sharedUsers.trim()
+          : "1",
+      addrPool: typeof raw.addrPool === "string" ? raw.addrPool.trim() : "",
+      rateLimit: typeof raw.rateLimit === "string" ? raw.rateLimit.trim() : "",
+      expiredMode,
+      lockMac: raw.lockMac === true,
+      parentQueue: typeof raw.parentQueue === "string" ? raw.parentQueue.trim() : "",
+      mikrotikId:
+        typeof raw.mikrotikId === "string" && raw.mikrotikId.trim()
+          ? raw.mikrotikId.trim()
+          : undefined,
+    },
+  };
+}
+
 /** Returns true if the user is a regular voucher user (not a system/demo account). */
 function isRealUser(u: { username: string; profile: string }): boolean {
   const uname = u.username.toLowerCase();
@@ -769,30 +824,18 @@ router.post("/routers/:id/profiles", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const { name, validity, price, sellingPrice, sharedUsers, addrPool, rateLimit, expiredMode, lockMac, parentQueue } = req.body as {
-    name?: string; validity?: string; price?: string; sellingPrice?: string;
-    sharedUsers?: string; addrPool?: string; rateLimit?: string;
-    expiredMode?: string; lockMac?: boolean; parentQueue?: string;
-  };
-  if (!name || !price || !validity) {
-    res.status(400).json({ error: "Champs obligatoires manquants : name, price, validity" }); return;
+  const parsed = parseHotspotProfileWriteBody(
+    (req.body ?? {}) as Record<string, unknown>,
+  );
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
   }
 
   try {
     await createProfile(
       { host: r.host, port: r.port, username: r.username, password: r.password },
-      {
-        name: name.trim(),
-        validity: validity.trim(),
-        price: price.trim(),
-        sellingPrice: (sellingPrice ?? "").trim(),
-        sharedUsers: (sharedUsers ?? "1").trim(),
-        addrPool: (addrPool ?? "").trim(),
-        rateLimit: (rateLimit ?? "").trim(),
-        expiredMode: (expiredMode ?? "None").trim(),
-        lockMac: lockMac === true,
-        parentQueue: (parentQueue ?? "").trim(),
-      },
+      parsed.body,
     );
     invalidateProfileListCache(r.ownerAdminId, id);
     // Pré-chauffer le cache profil en background : quand le frontend refetch juste
@@ -813,33 +856,19 @@ router.put("/routers/:id/profiles/:profileName", async (req, res): Promise<void>
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const { name, validity, price, sellingPrice, sharedUsers, addrPool, rateLimit, expiredMode, lockMac, parentQueue, mikrotikId } = req.body as {
-    name?: string; validity?: string; price?: string; sellingPrice?: string;
-    sharedUsers?: string; addrPool?: string; rateLimit?: string;
-    expiredMode?: string; lockMac?: boolean; parentQueue?: string;
-    mikrotikId?: string;
-  };
-  if (!name || !price || !validity) {
-    res.status(400).json({ error: "Champs obligatoires manquants : name, price, validity" }); return;
+  const parsed = parseHotspotProfileWriteBody(
+    (req.body ?? {}) as Record<string, unknown>,
+  );
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
   }
 
   try {
     await updateProfile(
       { host: r.host, port: r.port, username: r.username, password: r.password },
       originalName,
-      {
-        name: name.trim(),
-        validity: validity.trim(),
-        price: price.trim(),
-        sellingPrice: (sellingPrice ?? "").trim(),
-        sharedUsers: (sharedUsers ?? "1").trim(),
-        addrPool: (addrPool ?? "").trim(),
-        rateLimit: (rateLimit ?? "").trim(),
-        expiredMode: (expiredMode ?? "None").trim(),
-        lockMac: lockMac === true,
-        parentQueue: (parentQueue ?? "").trim(),
-        mikrotikId: typeof mikrotikId === "string" ? mikrotikId.trim() : undefined,
-      },
+      parsed.body,
     );
     invalidateProfileListCache(r.ownerAdminId, id);
     void fetchProfilesWithCache(r.ownerAdminId, id, { host: r.host, port: r.port, username: r.username, password: r.password }).catch(() => undefined);

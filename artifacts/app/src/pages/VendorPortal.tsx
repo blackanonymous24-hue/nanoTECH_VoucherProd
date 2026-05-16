@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { BrandLogo } from "@/components/BrandLogo";
 import {
   Wifi, LogOut, TrendingUp, ShoppingCart, Calendar, Ticket,
   User, RefreshCw, Clock, ChevronLeft, ChevronRight, Search, Banknote, Printer, LogIn,
@@ -393,9 +394,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-lg">
-            <Wifi className="h-8 w-8 text-white" />
-          </div>
+          <BrandLogo size="lg" className="mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-white">nanoTECH Vouchers</h1>
           <p className="text-sm text-gray-400 mt-1">Gestion Hotspot MikroTik</p>
         </div>

@@ -33,6 +33,10 @@ import {
   saveSavedPrintLot,
 } from "@/lib/voucher-print-lot-persist";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
+import {
+  makeClientCommentForCredentials,
+  resolveHotspotClientComment,
+} from "@/lib/hotspot-client-comment";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,7 +53,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
-import { TOAST_PROVIDER_DURATION_MS } from "@/components/ui/toaster";
 import {
   Printer,
   Loader2,
@@ -348,15 +351,6 @@ function downloadFile(content: string, filename: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-function makeClientBatchId(mode: "vc" | "up"): string {
-  const now = new Date();
-  const M = String(now.getMonth() + 1).padStart(2, "0");
-  const D = String(now.getDate()).padStart(2, "0");
-  const Y = String(now.getFullYear()).slice(-2);
-  const rand = String(Math.floor(Math.random() * 900) + 100);
-  return `${mode}-${rand}-${M}.${D}.${Y}`;
-}
-
 /** Message utilisateur pour échec toggle lot / MikroTik (pause API, verrou routeur, 502, etc.). */
 function describeVoucherHotspotApplyError(err: unknown): string {
   if (isApiPauseError(err)) {
@@ -462,6 +456,7 @@ export default function Vouchers() {
   }, []);
 
   const [editUserNow, setEditUserNow] = useState(Date.now());
+  const isEditUserBusy = isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser;
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
@@ -1247,7 +1242,7 @@ export default function Vouchers() {
   }, [reopenEditUserPending]);
 
   const handleRenameUser = async () => {
-    if (!activeRouterId || !editingUser) return;
+    if (!activeRouterId || !editingUser || isEditUserBusy) return;
     const nextUsername = editUsername.trim();
     const nextPassword = editPassword.trim();
     const nextProfile = editProfile.trim();
@@ -1275,7 +1270,10 @@ export default function Vouchers() {
       nextPassword === editingUser.password &&
       nextProfile === editingUser.profile &&
       (!linkBypass || nextBypassMac === (editingUser.macAddress ?? ""));
-    if (nothingChanged) { setEditingUser(null); return; }
+    if (nothingChanged) {
+      toast({ title: "Aucune modification", description: "Rien à enregistrer." });
+      return;
+    }
 
     const previousUsername = editingUser.username;
     const payload = {
@@ -1286,30 +1284,41 @@ export default function Vouchers() {
       bypassMacAddress: linkBypass ? nextBypassMac : undefined,
       bypassComment: linkBypass ? editBypassComment.trim() : undefined,
     };
-    setEditingUser(null);
-    setIsSavingRename(false);
-    toast({ title: "Modification lancée", description: `${previousUsername} → ${nextUsername}` });
-    void (async () => {
-      try {
-        const res = await fetch(
-          `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(previousUsername)}`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          },
-        );
-        if (!res.ok) {
-          const err = await res.json() as { error?: string };
-          throw new Error(err.error ?? `HTTP ${res.status}`);
-        }
-        toast({ title: "Utilisateur modifié", description: `${previousUsername} mis à jour.` });
-      } catch (err) {
-        toast({ title: "Erreur modification", description: String(err), variant: "destructive" });
-      } finally {
-        void Promise.all([refetchUsers(), refetchLots()]);
+    setIsSavingRename(true);
+    try {
+      const res = await fetch(
+        `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(previousUsername)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
       }
-    })();
+      const data = (await res.json()) as { newUsername?: string };
+      const finalUsername = data.newUsername?.trim() || nextUsername;
+      setEditingUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              username: finalUsername,
+              password: nextPassword,
+              profile: nextProfile,
+              macAddress: linkBypass && nextBypassMac ? nextBypassMac : prev.macAddress,
+            }
+          : null,
+      );
+      setEditUsername(finalUsername);
+      toast({ title: "Utilisateur modifié", description: `${previousUsername} mis à jour.` });
+      void Promise.all([refetchUsers(), refetchLots()]);
+    } catch (err) {
+      toast({ title: "Erreur modification", description: String(err), variant: "destructive" });
+    } finally {
+      setIsSavingRename(false);
+    }
   };
 
 
@@ -1412,14 +1421,11 @@ export default function Vouchers() {
       }
       void Promise.all([refetchUsers(), refetchLots()]);
       clearExtendPostSuccessTimer();
-      extendDialogCloseAfterToastRef.current = setTimeout(() => {
-        extendDialogCloseAfterToastRef.current = null;
-        setExtendUser(null);
-        setExtendRouterOsVersion(null);
-        returnToEditBaselineUserRef.current = null;
-        reopenEditAfterExtendRef.current = false;
-        if (mergedReopen) setReopenEditUserPending(mergedReopen);
-      }, TOAST_PROVIDER_DURATION_MS + 400);
+      setExtendUser(null);
+      setExtendRouterOsVersion(null);
+      returnToEditBaselineUserRef.current = null;
+      reopenEditAfterExtendRef.current = false;
+      if (mergedReopen) setReopenEditUserPending(mergedReopen);
     } catch (err) {
       toast({
         title: isExpired ? "Échec de la réinitialisation" : "Échec de la prolongation",
@@ -1452,6 +1458,11 @@ export default function Vouchers() {
     setAddEditLoading(false);
     setAddRecapUser(null);
   }
+
+  useEffect(() => {
+    if (!addUserOpen || addDialogMode !== "create") return;
+    setAddComment(makeClientCommentForCredentials(addName, addPassword));
+  }, [addUserOpen, addDialogMode, addName, addPassword]);
 
   function bytesFromInput(value: string, unit: "MB" | "GB"): string | undefined {
     const v = value.trim();
@@ -1501,7 +1512,7 @@ export default function Vouchers() {
     if (addTimeLimit.trim()) body.limitUptime = addTimeLimit.trim();
     const bytes = bytesFromInput(addDataLimit, addDataUnit);
     if (bytes) body.limitBytesTotal = bytes;
-    if (addComment.trim()) body.comment = addComment.trim();
+    body.comment = resolveHotspotClientComment(addComment, addName, addPassword);
 
     setIsSavingUser(true);
     try {
@@ -2643,12 +2654,16 @@ export default function Vouchers() {
 
       {/* Edit user dialog — thème app + actions icônes (ordre : Fermer / Enregistrer / Activer·Désactiver / Supprimer / Réinitialiser) */}
       <Dialog open={!!editingUser} onOpenChange={(o) => {
-        if (!o && !isSavingRename && !isTogglingEditUserDisabled && !isDeletingEditUser) {
+        if (!o && !isEditUserBusy) {
           setConfirmDeleteEditUser(null);
           setEditingUser(null);
         }
       }}>
-        <DialogContent className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:hidden">
+        <DialogContent
+          className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:hidden"
+          onPointerDownOutside={(e) => { if (isEditUserBusy) e.preventDefault(); }}
+          onEscapeKeyDown={(e) => { if (isEditUserBusy) e.preventDefault(); }}
+        >
           <div className="space-y-1.5 border-b bg-muted/30 px-6 py-4">
             <DialogHeader className="space-y-1.5 text-left">
               <DialogTitle>{"Modifier l'utilisateur"}</DialogTitle>
@@ -2666,7 +2681,7 @@ export default function Vouchers() {
                       setConfirmDeleteEditUser(null);
                       setEditingUser(null);
                     }}
-                    disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser}
+                    disabled={isEditUserBusy}
                     aria-label="Fermer"
                   >
                     <X className="h-4 w-4" />
@@ -2688,9 +2703,7 @@ export default function Vouchers() {
                     className="shrink-0 border-blue-400 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
                     onClick={() => void handleRenameUser()}
                     disabled={
-                      isSavingRename ||
-                      isTogglingEditUserDisabled ||
-                      isDeletingEditUser ||
+                      isEditUserBusy ||
                       !editUsername.trim() ||
                       !editPassword.trim() ||
                       !editProfile.trim()
@@ -2713,7 +2726,7 @@ export default function Vouchers() {
                         ? "shrink-0 border-orange-500 bg-orange-500 text-white hover:bg-orange-600 hover:border-orange-600"
                         : "shrink-0 border-green-500 bg-green-500 text-white hover:bg-green-600 hover:border-green-600"
                     }
-                    disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser || !editingUser || !activeRouterId}
+                    disabled={isEditUserBusy || !editingUser || !activeRouterId}
                     onClick={() => void handleToggleEditUserDisabled()}
                     aria-label={editingUser?.disabled ? "Activer" : "Désactiver"}
                   >
@@ -2740,9 +2753,9 @@ export default function Vouchers() {
                     size="icon"
                     variant="outline"
                     className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || isDeletingEditUser}
+                    disabled={isEditUserBusy || !editingUser}
                     onClick={() => {
-                      if (!editingUser) return;
+                      if (!editingUser || isEditUserBusy) return;
                       setConfirmDeleteEditUser(editingUser);
                     }}
                     aria-label="Supprimer"
@@ -2764,9 +2777,9 @@ export default function Vouchers() {
                       size="sm"
                       variant="outline"
                       className="shrink-0 gap-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
-                      disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser || !editingUser}
+                      disabled={isEditUserBusy || !editingUser}
                       onClick={() => {
-                        if (!editingUser) return;
+                        if (!editingUser || isEditUserBusy) return;
                         const u = editingUser;
                         setEditingUser(null);
                         openExtendUser(u, { returnToEdit: true });
@@ -2792,7 +2805,7 @@ export default function Vouchers() {
                 onKeyDown={(e) => { if (e.key === "Enter") void handleRenameUser(); }}
                 placeholder="Code ou nom d'utilisateur"
                 className="font-mono"
-                disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser}
+                disabled={isEditUserBusy}
               />
             </div>
             {editingUser && hotspotUserMacAuthLocked(editingUser, profileLockMacByName) ? (
@@ -2818,7 +2831,7 @@ export default function Vouchers() {
                 value={editPassword}
                 onChange={(e) => setEditPassword(e.target.value)}
                 className="font-mono"
-                disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser}
+                disabled={isEditUserBusy}
               />
             </div>
             <div className="space-y-1.5">
@@ -2832,7 +2845,7 @@ export default function Vouchers() {
                 )}
                 value={editProfile}
                 onChange={(e) => setEditProfile(e.target.value)}
-                disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser}
+                disabled={isEditUserBusy}
               >
                 <option value="">Choisir un forfait</option>
                 {sortedProfiles.map((p) => (
@@ -3110,7 +3123,6 @@ export default function Vouchers() {
                       onClick={() => {
                         setAddProfile(p.name);
                         setAddProfilePopoverOpen(false);
-                        setAddComment(makeClientBatchId(p.validity ? "vc" : "up"));
                       }}
                       className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
                       <Check className={`h-3 w-3 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
@@ -3339,7 +3351,7 @@ function mesTicketsInfoClass(pill: string, plain: string): string {
  * Ligne d’un utilisateur hotspot (Mes tickets) :
  * - **Login** : pseudo (`user.username`) — `mes-tickets-username`. **Desktop** : si **verrouillage MAC forfait** (`macAuthLocked`), la MAC s’affiche sous le login en **parenthèses** (`absolute`, sans augmenter la hauteur de flux de la ligne). **Mobile** : si **expiré**, la mention `(EXPIRÉ)` sous le login en **parenthèses**, police minimale et `absolute` (même principe — pas de hauteur supplémentaire dans le flux).
  * - **Userinfo** : profil / commentaire / MAC… en texte coloré ou pastilles (`MES_TICKETS_USER_INFO_PILLS`). **Mobile** : colonne à droite + cadenas. **`sm+`** : colonnes alignées.
- * - **Cadenas / poubelle** : **`sm+`** colonne à droite ; **mobile** : cadenas seul (hauteur profil + commentaire).
+ * - **Cadenas / poubelle** : **`sm+`** colonne à droite ; **mobile** : cadenas séparé (zone tactile 44px, écart du profil/commentaire).
  */
 function UserRow({
   user,
@@ -3427,8 +3439,8 @@ function UserRow({
           data-userinfo
         >
           {/* —— mobile : colonne profil/commentaire à droite + cadenas —— */}
-          <div className="mes-tickets-userinfo-mobile flex min-w-0 flex-1 items-stretch justify-end gap-1.5 leading-none sm:hidden">
-            <div className="flex min-w-0 max-w-[calc(100%-2.25rem)] flex-col items-end justify-center gap-0.5 overflow-hidden">
+          <div className="mes-tickets-userinfo-mobile flex min-w-0 flex-1 items-stretch justify-end gap-4 leading-none sm:hidden">
+            <div className="flex min-w-0 max-w-[calc(100%-3.75rem)] flex-col items-end justify-center gap-0.5 overflow-hidden pr-2 border-r border-gray-100">
               <div className="flex min-h-[1.125rem] w-full max-w-full items-center justify-end">
                 {user.profile ? (
                   <span
@@ -3472,7 +3484,7 @@ function UserRow({
               disabled={rowActionsDisabled}
               title={user.disabled ? "Réactiver ce compte sur MikroTik" : "Désactiver ce compte sur MikroTik"}
               aria-label={user.disabled ? "Réactiver sur MikroTik" : "Désactiver sur MikroTik"}
-              className={`flex shrink-0 items-center justify-center self-stretch rounded px-1 hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-40 ${
+              className={`mes-tickets-lock-btn flex shrink-0 items-center justify-center self-center min-h-[2.75rem] min-w-[2.75rem] rounded-md -mr-1 touch-manipulation hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-40 ${
                 user.disabled
                   ? "text-orange-400 hover:text-orange-600"
                   : "text-emerald-500/80 hover:text-emerald-700"

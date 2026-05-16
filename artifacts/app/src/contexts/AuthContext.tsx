@@ -44,7 +44,7 @@ interface AuthContextValue {
   collaborateurRouterIds: number[];
   isSuperAdmin: boolean;
   isAuthenticated: boolean;
-  /** Jeton stocké en localStorage (« Se souvenir de moi ») — pas de déconnexion auto après inactivité (pause API inchangée). */
+  /** Jeton stocké en localStorage (« Se souvenir de moi ») — déconnexion auto après 30 min d’inactivité (web). */
   sessionPersisted: boolean;
   connectedName: string | null;
   connectedUsername: string | null;

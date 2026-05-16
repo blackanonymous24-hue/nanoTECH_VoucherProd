@@ -18,8 +18,8 @@ import { Feather } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 
-/** URL du front web (Vite) chargé dans la WebView. Définir `EXPO_PUBLIC_WEB_APP_URL` pour la prod ou un LAN (voir DEVELOPMENT.md). */
-const PROD_URL = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://127.0.0.1:4173";
+/** URL du front web (Vite) chargé dans la WebView. Surcharger avec `EXPO_PUBLIC_WEB_APP_URL` pour le dev local (voir DEVELOPMENT.md). */
+const PROD_URL = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "https://nanovoucher.com";
 const RELOAD_SPINNER_TIMEOUT = 8000;
 
 /** Doit être identique à `APK_APP_STATE_EVENT` dans `artifacts/app/src/components/SessionLifecycle.tsx`. */

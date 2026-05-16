@@ -159,9 +159,9 @@ export const updateRouterProfileParams = zod.object({
 })
 
 export const updateRouterProfileBody = zod.object({
-  "name": zod.string(),
-  "validity": zod.string(),
-  "price": zod.string(),
+  "name": zod.string().min(1),
+  "validity": zod.string().optional().default(""),
+  "price": zod.string().optional().default(""),
   "sellingPrice": zod.string().optional(),
   "sharedUsers": zod.string().optional(),
   "addrPool": zod.string().optional(),

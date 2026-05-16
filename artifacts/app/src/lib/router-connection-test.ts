@@ -7,16 +7,15 @@ export type RouterConnectionTestResult = {
   version?: string | null;
 };
 
-/** Libellé court pour badge / liste (erreur détaillée, pas « Hors ligne » générique). */
+export const ROUTER_OFFLINE_LABEL = "Hors ligne";
+
+/** Libellé court pour badge / liste routeurs. */
 export function routerConnectionStatusShortLabel(result: {
   success: boolean;
   message?: string;
 }): string {
   if (result.success) return "En ligne";
-  const msg = result.message?.trim();
-  if (!msg) return "Échec API";
-  if (msg.length <= 48) return msg;
-  return `${msg.slice(0, 45)}…`;
+  return ROUTER_OFFLINE_LABEL;
 }
 
 /**
@@ -34,23 +33,22 @@ export async function pingRouterTcpApi(
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      const errMsg = body.error?.trim();
+      await res.json().catch(() => ({}));
       return {
         success: false,
-        message: errMsg && errMsg.length > 0 ? errMsg : "Impossible de contacter le routeur",
+        message: ROUTER_OFFLINE_LABEL,
       };
     }
     const data = (await res.json()) as { success?: boolean };
     const ok = data.success === true;
     return {
       success: ok,
-      message: ok ? "En ligne" : "Impossible de contacter le routeur",
+      message: ok ? "En ligne" : ROUTER_OFFLINE_LABEL,
     };
-  } catch (err) {
+  } catch {
     return {
       success: false,
-      message: err instanceof Error ? err.message : "Erreur réseau",
+      message: ROUTER_OFFLINE_LABEL,
     };
   }
 }

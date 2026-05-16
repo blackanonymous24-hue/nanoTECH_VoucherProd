@@ -871,14 +871,16 @@ components:
 
     UpdateHotspotProfileRequest:
       type: object
-      required: [name, price, validity]
+      required: [name]
       properties:
         name:
           type: string
         validity:
           type: string
+          description: Vide si mode d'expiration « Aucun » ou forfait illimité.
         price:
           type: string
+          description: Optionnel (vide autorisé).
         sellingPrice:
           type: string
         sharedUsers:

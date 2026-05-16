@@ -152,6 +152,8 @@ export default function Forfaits() {
     setForm((f) => ({ ...f, [key]: val }));
   }
 
+  const expirationModeIsNone = form.expiredMode === "None";
+
   async function fetchPools(force = false) {
     if (!selectedRouterId) return;
     if (!force) {
@@ -189,17 +191,18 @@ export default function Forfaits() {
     setEditingName(p.name);
     const mid = p.mikrotikId?.trim();
     setEditingMikrotikId(mid || null);
+    const expiredMode = expiredModeFromBackend(p.expiredMode);
     setForm({
       name: p.name,
       addrPool: p.addrPool ?? "",
       sharedUsers: p.sharedUsers ?? "1",
       rateLimit: p.rateLimit ?? "",
-      expiredMode: expiredModeFromBackend(p.expiredMode),
+      expiredMode,
       price: p.price ?? "",
       sellingPrice: p.sellingPrice ?? "",
       lockMac: p.lockMac ?? false,
       parentQueue: p.parentQueue ?? "",
-      validity: p.validity ?? "",
+      validity: expiredMode === "None" ? "" : (p.validity ?? ""),
     });
     if (selectedRouterId && _poolsCache[selectedRouterId]) setPools(_poolsCache[selectedRouterId]);
     setShowDialog(true);
@@ -209,8 +212,8 @@ export default function Forfaits() {
   async function handleSave() {
     setError(null);
     if (!selectedRouterId) { setError("Sélectionnez un routeur d'abord."); return; }
-    if (!form.name.trim() || !form.price.trim()) {
-      setError("Nom et prix sont obligatoires."); return;
+    if (!form.name.trim()) {
+      setError("Le nom est obligatoire."); return;
     }
     setSaving(true);
     try {
@@ -218,10 +221,19 @@ export default function Forfaits() {
         ? `/api/routers/${selectedRouterId}/profiles/${encodeURIComponent(editingName)}`
         : `/api/routers/${selectedRouterId}/profiles`;
       const method = editingName ? "PUT" : "POST";
-      const body =
-        editingName && editingMikrotikId
-          ? { ...form, mikrotikId: editingMikrotikId }
-          : form;
+      const body = {
+        name: form.name.trim(),
+        validity: expirationModeIsNone ? "" : form.validity.trim(),
+        price: form.price.trim(),
+        sellingPrice: form.sellingPrice.trim(),
+        sharedUsers: form.sharedUsers.trim() || "1",
+        addrPool: form.addrPool.trim(),
+        rateLimit: form.rateLimit.trim(),
+        expiredMode: form.expiredMode,
+        lockMac: form.lockMac,
+        parentQueue: form.parentQueue.trim(),
+        ...(editingName && editingMikrotikId ? { mikrotikId: editingMikrotikId } : {}),
+      };
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -512,7 +524,16 @@ export default function Forfaits() {
 
             <div className="col-span-2 space-y-1.5">
               <Label>Mode d&apos;expiration</Label>
-              <Select value={form.expiredMode} onValueChange={(v) => setField("expiredMode", v)}>
+              <Select
+                value={form.expiredMode}
+                onValueChange={(v) => {
+                  setForm((f) => ({
+                    ...f,
+                    expiredMode: v,
+                    validity: v === "None" ? "" : f.validity,
+                  }));
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -527,7 +548,7 @@ export default function Forfaits() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Prix FCFA <span className="text-red-500">*</span></Label>
+              <Label>Prix FCFA</Label>
               <Input
                 placeholder="ex: 100"
                 type="number"
@@ -548,14 +569,16 @@ export default function Forfaits() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Validité <span className="text-gray-400 text-xs font-normal ml-1">(vide = illimité)</span></Label>
-              <Input
-                placeholder="ex: 3h, 1d, 7d — laisser vide pour illimité"
-                value={form.validity}
-                onChange={(e) => setField("validity", e.target.value)}
-              />
-            </div>
+            {!expirationModeIsNone && (
+              <div className="space-y-1.5">
+                <Label>Validité <span className="text-gray-400 text-xs font-normal ml-1">(vide = illimité)</span></Label>
+                <Input
+                  placeholder="ex: 3h, 1d, 7d — laisser vide pour illimité"
+                  value={form.validity}
+                  onChange={(e) => setField("validity", e.target.value)}
+                />
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label>File parente</Label>

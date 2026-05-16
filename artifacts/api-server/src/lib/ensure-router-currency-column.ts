@@ -70,6 +70,22 @@ export async function ensureTicketTemplateColumn(): Promise<void> {
   }
 }
 
+/** Preset ticket (mikhmon / nanotech) — requis pour POST /api/login (SELECT admin_settings). */
+export async function ensureTicketTemplatePresetColumn(): Promise<void> {
+  try {
+    await db.execute(sql`
+      ALTER TABLE admin_settings
+      ADD COLUMN IF NOT EXISTS ticket_template_preset text
+    `);
+    logger.info("DB compat: colonne admin_settings.ticket_template_preset vérifiée / ajoutée");
+  } catch (err) {
+    logger.error(
+      { err },
+      "DB compat: impossible d'ajouter admin_settings.ticket_template_preset — exécutez lib/db/scripts/add-ticket-template-preset.sql",
+    );
+  }
+}
+
 /**
  * Ajoute la colonne password_plain sur admin_settings si elle n'existe pas.
  * Stocke le mot de passe en clair pour affichage dans l'interface super-admin.

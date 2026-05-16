@@ -47,8 +47,29 @@ function fromWin1252(str: string): string {
     for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xff;
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    return str;
+    // Données stockées en Win1252 natif (ex. é = 0xE9) — pas une séquence UTF-8.
+    try {
+      const buf = Buffer.from(Array.from(str, (c) => c.charCodeAt(0) & 0xff));
+      return iconv.decode(buf, "win1252");
+    } catch {
+      return str;
+    }
   }
+}
+
+/** Filtre scheduler par nom de profil (UTF-8 + forme Win1252 sur le fil). */
+async function printSchedulersByProfileName(
+  api: RouterOSAPI,
+  profileName: string,
+): Promise<Record<string, unknown>[]> {
+  const trimmed = profileName.trim();
+  if (!trimmed) return [];
+  const variants = Array.from(new Set([trimmed, toWin1252(trimmed)]));
+  for (const v of variants) {
+    const rows = await api.write("/system/scheduler/print", [`?name=${v}`]).catch(() => []);
+    if (rows.length > 0) return rows;
+  }
+  return [];
 }
 
 export function tcpPing(host: string, port: number, timeoutMs = 3000): Promise<boolean> {
@@ -599,9 +620,9 @@ export async function updateProfile(conn: RouterConnection, originalName: string
       needProfileLookup
         ? api.write("/ip/hotspot/user/profile/print", [`?name=${originalName}`]).catch(() => [] as Record<string, unknown>[])
         : Promise.resolve([] as Record<string, unknown>[]),
-      api.write("/system/scheduler/print", [`?name=${opts.name}`]).catch(() => [] as Record<string, unknown>[]),
+      printSchedulersByProfileName(api, opts.name),
       nameChanging
-        ? api.write("/system/scheduler/print", [`?name=${originalName}`]).catch(() => [] as Record<string, unknown>[])
+        ? printSchedulersByProfileName(api, originalName)
         : Promise.resolve([] as Record<string, unknown>[]),
     ]);
 
@@ -660,7 +681,7 @@ export async function deleteProfile(conn: RouterConnection, name: string): Promi
     // ── Étape 1 : trouver profil + scheduler en parallèle (style Mikhmon) ───
     const [found, schedulers] = await Promise.all([
       findByName(target),
-      api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => [] as Record<string, unknown>[]),
+      printSchedulersByProfileName(api, name),
     ]);
 
     // Fallbacks encodage (séquentiels seulement si le 1er lookup échoue)
@@ -1184,7 +1205,7 @@ async function upsertProfileScheduler(
   expmode: string,
   routerVersion?: string | null,
 ): Promise<void> {
-  const existing = await api.write("/system/scheduler/print", [`?name=${profileName}`]).catch(() => []);
+  const existing = await printSchedulersByProfileName(api, profileName);
   await applyProfileScheduler(api, profileName, expmode, existing, routerVersion);
 }
 
@@ -1207,12 +1228,14 @@ async function applyProfileScheduler(
     }
     return;
   }
-  const onEvent = generateProfileSchedulerOnEvent(profileName, expmode, routerVersion);
+  const onEvent = toWin1252(generateProfileSchedulerOnEvent(profileName, expmode, routerVersion));
+  const schedName = toWin1252(profileName);
   if (existing.length > 0) {
     const id = existing[0][".id"] as string | undefined;
     if (!id) return;
     await api.write("/system/scheduler/set", [
       `=.id=${id}`,
+      `=name=${schedName}`,
       "=disabled=no",
       "=interval=00:02:54",
       `=on-event=${onEvent}`,
@@ -1220,7 +1243,7 @@ async function applyProfileScheduler(
     return;
   }
   await api.write("/system/scheduler/add", [
-    `=name=${profileName}`,
+    `=name=${schedName}`,
     "=disabled=no",
     "=interval=00:02:54",
     `=on-event=${onEvent}`,
@@ -2542,7 +2565,7 @@ export async function resetHotspotUser(
 
     // 3) Supprimer le scheduler par nom — identique à Mikhmon
     let schedulerRemoved = 0;
-    const schedulers = await api.write("/system/scheduler/print", [`?name=${name}`]).catch(() => []);
+    const schedulers = await printSchedulersByProfileName(api, decodeRouterText(name) || username);
     for (const sch of schedulers) {
       const sid = sch[".id"] as string | undefined;
       if (!sid) continue;

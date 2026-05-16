@@ -7,8 +7,8 @@
 
 export interface UpdateHotspotProfileRequest {
   name: string;
-  validity: string;
-  price: string;
+  validity?: string;
+  price?: string;
   sellingPrice?: string;
   sharedUsers?: string;
   addrPool?: string;

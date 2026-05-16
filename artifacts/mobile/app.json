@@ -1,13 +1,13 @@
 {
   "expo": {
     "name": "nanoTECH Vouchers",
-    "slug": "nanotech-vouchers",
+    "slug": "nanotech-vouchers-bills",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "nanotech",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
@@ -35,7 +35,7 @@
       [
         "expo-router",
         {
-          "origin": "http://127.0.0.1:4173"
+          "origin": "https://nanovoucher.com"
         }
       ],
       "expo-font",
@@ -46,8 +46,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "e98e0147-dde6-40d9-b38f-e22cbd92fcc4"
+        "projectId": "12fb732a-dfe0-48e8-b8a5-e89ffc872705"
       }
-    }
+    },
+    "owner": "skongnon"
   }
 }
