@@ -5,6 +5,9 @@ import bodyNanotechSmall from "./ticket-templates/nanotech-small.php.txt?raw";
 /** Identifiants des 3 seuls modèles embarqués (fichiers `ticket-templates/*.php.txt`). */
 export type TicketTemplatePresetId = "mikhmon-small" | "nanotech-normal" | "nanotech-small";
 
+/** Modèle choisi en UI / en base (intégré ou personnalisé). */
+export type TicketTemplateSelectionId = TicketTemplatePresetId | "custom";
+
 export const DEFAULT_TICKET_PRESET_ID: TicketTemplatePresetId = "mikhmon-small";
 
 /** Dernier modèle prédéfini choisi (utilisé quand le serveur n’a pas encore de modèle). */
@@ -26,17 +29,18 @@ export function getPresetBody(id: TicketTemplatePresetId): string {
   return BODIES[id];
 }
 
-export function getStoredTicketPresetId(): TicketTemplatePresetId {
+export function getStoredTicketPresetId(): TicketTemplateSelectionId {
   try {
     const v = localStorage.getItem(TICKET_PRESET_STORAGE_KEY);
     if (v === "mikhmon-small" || v === "nanotech-normal" || v === "nanotech-small") return v;
+    if (v === "custom") return "custom";
   } catch {
     /* ignore */
   }
   return DEFAULT_TICKET_PRESET_ID;
 }
 
-export function setStoredTicketPresetId(id: TicketTemplatePresetId): void {
+export function setStoredTicketPresetId(id: TicketTemplateSelectionId): void {
   try {
     localStorage.setItem(TICKET_PRESET_STORAGE_KEY, id);
   } catch {
@@ -56,11 +60,51 @@ export function normalizeTicketTemplateForCompare(source: string): string {
     .replace(/\n+$/g, "");
 }
 
-/** Repère si le contenu correspond exactement à un des trois modèles fournis. */
+/**
+ * Empreinte pour comparer au gabarit embarqué : écarts fréquents entre fichier
+ * bundle, API / MySQL et éditeur (indentation avant `<?php` ou `<table`, fin de fichier).
+ */
+function fingerprintForPresetMatch(source: string): string {
+  return normalizeTicketTemplateForCompare(source)
+    .replace(/^[ \t\r\f\v]+/, "")
+    .trimEnd();
+}
+
+/** Valeurs `preset_id` acceptées côté API / base. */
+const SERVER_PRESET_IDS = new Set<string>([
+  "mikhmon-small",
+  "nanotech-normal",
+  "nanotech-small",
+  "custom",
+]);
+
+/** Interprète la colonne serveur `ticket_template_preset`. */
+export function parseServerTicketTemplatePresetId(raw: unknown): TicketTemplateSelectionId | null {
+  if (typeof raw !== "string" || !SERVER_PRESET_IDS.has(raw)) return null;
+  return raw as TicketTemplateSelectionId;
+}
+
+/**
+ * Choix de modèle affiché : la valeur en base l’emporte ; sinon déduction depuis le contenu ;
+ * si contenu vide, repli sur le dernier choix local (legacy).
+ */
+export function resolveTicketTemplateSelection(args: {
+  templateBody: string;
+  serverPresetId: unknown;
+}): TicketTemplateSelectionId {
+  const fromDb = parseServerTicketTemplatePresetId(args.serverPresetId);
+  if (fromDb != null) return fromDb;
+
+  const trimmed = args.templateBody.trim();
+  if (!trimmed) return getStoredTicketPresetId();
+  return findMatchingPresetId(args.templateBody);
+}
+
+/** Repère si le contenu correspond à un des trois modèles fournis (comparaison assouplie). */
 export function findMatchingPresetId(code: string): TicketTemplatePresetId | "custom" {
-  const t = normalizeTicketTemplateForCompare(code);
+  const t = fingerprintForPresetMatch(code);
   for (const id of Object.keys(BODIES) as TicketTemplatePresetId[]) {
-    if (normalizeTicketTemplateForCompare(BODIES[id]) === t) return id;
+    if (fingerprintForPresetMatch(BODIES[id]) === t) return id;
   }
   return "custom";
 }

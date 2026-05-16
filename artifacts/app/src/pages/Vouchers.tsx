@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import {
@@ -11,6 +11,7 @@ import {
   type HotspotUserListResponse,
 } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
+import { formatHotspotExpiryCommentForRouter } from "@/lib/hotspot-expiry-comment-format";
 import { printMikhmonSmallVouchers } from "@/lib/print";
 import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 import {
@@ -48,6 +49,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
+import { TOAST_PROVIDER_DURATION_MS } from "@/components/ui/toaster";
 import {
   Printer,
   Loader2,
@@ -387,9 +389,43 @@ export default function Vouchers() {
   /** Username du voucher en cours d’activation/désactivation MikroTik (ligne Mes tickets). */
   const [userRowMikrotikToggle, setUserRowMikrotikToggle] = useState<string | null>(null);
   const [extendUser, setExtendUser] = useState<HotspotUser | null>(null);
+  /** Version RouterOS (`GET /routers/:id/info`) pour choisir le format de date du commentaire à la prolongation. */
+  const [extendRouterOsVersion, setExtendRouterOsVersion] = useState<string | null>(null);
+  /** Après fermeture prolonger/réinitialiser : rouvrir « Modifier l’utilisateur » (flush via effet). */
+  const [reopenEditUserPending, setReopenEditUserPending] = useState<HotspotUser | null>(null);
+  /** Après succès prolonger / réinitialiser : fermer le dialog quand le toast a fini (~durée provider + animation). */
+  const extendDialogCloseAfterToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Prolonger ouvert depuis « Modifier » : rouvrir l’édition après fermeture (succès ou Annuler). */
+  const reopenEditAfterExtendRef = useRef(false);
+  /** Copie utilisateur à la ouverture du dialog prolonger (pour Annuler / fermeture sans succès). */
+  const returnToEditBaselineUserRef = useRef<HotspotUser | null>(null);
   const [extendAmount, setExtendAmount] = useState("1");
   const [extendUnit, setExtendUnit] = useState<"Heure" | "Jour" | "Mois">("Mois");
   const [isExtending, setIsExtending] = useState(false);
+  const clearExtendPostSuccessTimer = () => {
+    if (extendDialogCloseAfterToastRef.current) {
+      clearTimeout(extendDialogCloseAfterToastRef.current);
+      extendDialogCloseAfterToastRef.current = null;
+    }
+  };
+  const closeExtendDialog = () => {
+    clearExtendPostSuccessTimer();
+    const wantReturn = reopenEditAfterExtendRef.current;
+    const baseline = returnToEditBaselineUserRef.current;
+    reopenEditAfterExtendRef.current = false;
+    returnToEditBaselineUserRef.current = null;
+    setExtendUser(null);
+    setExtendRouterOsVersion(null);
+    if (wantReturn && baseline) setReopenEditUserPending(baseline);
+  };
+
+  useEffect(() => () => {
+    if (extendDialogCloseAfterToastRef.current) {
+      clearTimeout(extendDialogCloseAfterToastRef.current);
+      extendDialogCloseAfterToastRef.current = null;
+    }
+  }, []);
+
   const [editUserNow, setEditUserNow] = useState(Date.now());
   const [lotsSearch, setLotsSearch] = useState("");
   const [lotsFilterProfile, setLotsFilterProfile] = useState<string>("all");
@@ -940,13 +976,14 @@ export default function Vouchers() {
         next.delete(user.username);
         return next;
       });
+      setConfirmDeleteEditUser(null);
+      setEditingUser(null);
+      void refetchUsers();
+      void refetchLots();
     } catch (err) {
       toast({ title: "Erreur suppression", description: String(err), variant: "destructive" });
     } finally {
       setIsDeletingEditUser(false);
-      setConfirmDeleteEditUser(null);
-      void refetchUsers();
-      void refetchLots();
     }
   };
 
@@ -1112,6 +1149,13 @@ export default function Vouchers() {
     setLinkBypass(false);
   };
 
+  useEffect(() => {
+    if (!reopenEditUserPending) return;
+    const u = reopenEditUserPending;
+    setReopenEditUserPending(null);
+    openEditUser(u);
+  }, [reopenEditUserPending]);
+
   const handleRenameUser = async () => {
     if (!activeRouterId || !editingUser) return;
     const nextUsername = editUsername.trim();
@@ -1179,10 +1223,28 @@ export default function Vouchers() {
   };
 
 
-  const openExtendUser = (user: HotspotUser) => {
+  const openExtendUser = (user: HotspotUser, opts?: { returnToEdit?: boolean }) => {
+    clearExtendPostSuccessTimer();
+    reopenEditAfterExtendRef.current = !!opts?.returnToEdit;
+    if (opts?.returnToEdit) returnToEditBaselineUserRef.current = user;
+    else returnToEditBaselineUserRef.current = null;
+    setExtendRouterOsVersion(null);
     setExtendUser(user);
     setExtendAmount("1");
     setExtendUnit("Mois");
+    const rid = activeRouterId;
+    if (rid) {
+      void (async () => {
+        try {
+          const r = await fetch(`${BASE}/api/routers/${rid}/info`);
+          if (!r.ok) return;
+          const j = (await r.json()) as { routerOsVersion?: string | null };
+          setExtendRouterOsVersion(j.routerOsVersion ?? null);
+        } catch {
+          /* format d’expiration déduit du commentaire seul */
+        }
+      })();
+    }
   };
 
   const handleExtend = async () => {
@@ -1201,7 +1263,8 @@ export default function Vouchers() {
       }
     }
 
-    setExtendUser(null);
+    let mergedReopen: HotspotUser | null = null;
+
     setIsExtending(true);
     try {
       if (isExpired) {
@@ -1218,6 +1281,18 @@ export default function Vouchers() {
           title: "Réinitialisation réussie",
           description: `Le compte "${user.username}" a été remis à zéro. Il peut se reconnecter normalement.`,
         });
+        if (reopenEditAfterExtendRef.current) {
+          mergedReopen = {
+            ...user,
+            comment: null,
+            limitUptime: null,
+            limitBytesTotal: null,
+            macAddress: null,
+            uptime: null,
+            bytesIn: null,
+            bytesOut: null,
+          };
+        }
       } else {
         // Pas de date ou forfait encore actif → prolonger depuis la date existante (ou maintenant si aucune)
         const n = parseInt(extendAmount, 10);
@@ -1225,8 +1300,9 @@ export default function Vouchers() {
         const next = new Date(base);
         if (extendUnit === "Heure") next.setHours(next.getHours() + n);
         else if (extendUnit === "Jour") next.setDate(next.getDate() + n);
-        else next.setMonth(next.getMonth() + n);
-        const newComment = formatMikrotikDate(next);
+        // Mois forfait = 30 jours (Mikhmon / facturation), pas un mois calendaire.
+        else next.setDate(next.getDate() + n * 30);
+        const newComment = formatHotspotExpiryCommentForRouter(next, user.comment, extendRouterOsVersion);
 
         const patchRes = await fetch(
           `${BASE}/api/routers/${activeRouterId}/users/${encodeURIComponent(user.username)}`,
@@ -1240,8 +1316,20 @@ export default function Vouchers() {
           title: "Forfait prolongé avec succès",
           description: `"${user.username}" — nouvelle expiration : ${newComment}`,
         });
+        if (reopenEditAfterExtendRef.current) {
+          mergedReopen = { ...user, comment: newComment };
+        }
       }
       void Promise.all([refetchUsers(), refetchLots()]);
+      clearExtendPostSuccessTimer();
+      extendDialogCloseAfterToastRef.current = setTimeout(() => {
+        extendDialogCloseAfterToastRef.current = null;
+        setExtendUser(null);
+        setExtendRouterOsVersion(null);
+        returnToEditBaselineUserRef.current = null;
+        reopenEditAfterExtendRef.current = false;
+        if (mergedReopen) setReopenEditUserPending(mergedReopen);
+      }, TOAST_PROVIDER_DURATION_MS + 400);
     } catch (err) {
       toast({
         title: isExpired ? "Échec de la réinitialisation" : "Échec de la prolongation",
@@ -2364,8 +2452,12 @@ export default function Vouchers() {
       )}
 
       {/* Prolonger dialog */}
-      <Dialog open={!!extendUser} onOpenChange={(o) => { if (!o && !isExtending) setExtendUser(null); }}>
-        <DialogContent className="max-w-sm gap-0 overflow-hidden p-0 [&>button]:hidden">
+      <Dialog open={!!extendUser} onOpenChange={(o) => { if (!o && !isExtending) closeExtendDialog(); }}>
+        <DialogContent
+          className="max-w-sm gap-0 overflow-hidden p-0 [&>button]:hidden"
+          onPointerDownOutside={(e) => { if (isExtending) e.preventDefault(); }}
+          onEscapeKeyDown={(e) => { if (isExtending) e.preventDefault(); }}
+        >
           {(() => {
             const expDate = extendUser ? parseExpirationDate(extendUser.comment) : null;
             const alreadyExpired = !!expDate && expDate.getTime() <= Date.now();
@@ -2424,7 +2516,7 @@ export default function Vouchers() {
                       type="button"
                       variant="outline"
                       className="flex-1"
-                      onClick={() => setExtendUser(null)}
+                      onClick={() => closeExtendDialog()}
                       disabled={isExtending}
                     >
                       Annuler
@@ -2450,7 +2542,12 @@ export default function Vouchers() {
       </Dialog>
 
       {/* Edit user dialog — thème app + actions icônes (ordre : Fermer / Enregistrer / Activer·Désactiver / Supprimer / Réinitialiser) */}
-      <Dialog open={!!editingUser} onOpenChange={(o) => { if (!o && !isSavingRename && !isTogglingEditUserDisabled) setEditingUser(null); }}>
+      <Dialog open={!!editingUser} onOpenChange={(o) => {
+        if (!o && !isSavingRename && !isTogglingEditUserDisabled && !isDeletingEditUser) {
+          setConfirmDeleteEditUser(null);
+          setEditingUser(null);
+        }
+      }}>
         <DialogContent className="max-w-md gap-0 overflow-hidden p-0 sm:max-w-md [&>button]:hidden">
           <div className="space-y-1.5 border-b bg-muted/30 px-6 py-4">
             <DialogHeader className="space-y-1.5 text-left">
@@ -2465,8 +2562,11 @@ export default function Vouchers() {
                     size="icon"
                     variant="destructive"
                     className="shrink-0"
-                    onClick={() => setEditingUser(null)}
-                    disabled={isSavingRename || isTogglingEditUserDisabled}
+                    onClick={() => {
+                      setConfirmDeleteEditUser(null);
+                      setEditingUser(null);
+                    }}
+                    disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser}
                     aria-label="Fermer"
                   >
                     <X className="h-4 w-4" />
@@ -2490,6 +2590,7 @@ export default function Vouchers() {
                     disabled={
                       isSavingRename ||
                       isTogglingEditUserDisabled ||
+                      isDeletingEditUser ||
                       !editUsername.trim() ||
                       !editPassword.trim() ||
                       !editProfile.trim()
@@ -2512,7 +2613,7 @@ export default function Vouchers() {
                         ? "shrink-0 border-orange-500 bg-orange-500 text-white hover:bg-orange-600 hover:border-orange-600"
                         : "shrink-0 border-green-500 bg-green-500 text-white hover:bg-green-600 hover:border-green-600"
                     }
-                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || !activeRouterId}
+                    disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser || !editingUser || !activeRouterId}
                     onClick={() => void handleToggleEditUserDisabled()}
                     aria-label={editingUser?.disabled ? "Activer" : "Désactiver"}
                   >
@@ -2539,16 +2640,18 @@ export default function Vouchers() {
                     size="icon"
                     variant="outline"
                     className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
+                    disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser || isDeletingEditUser}
                     onClick={() => {
                       if (!editingUser) return;
-                      const u = editingUser;
-                      setEditingUser(null);
-                      setConfirmDeleteEditUser(u);
+                      setConfirmDeleteEditUser(editingUser);
                     }}
                     aria-label="Supprimer"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    {isDeletingEditUser ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                    )}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Supprimer</TooltipContent>
@@ -2561,12 +2664,12 @@ export default function Vouchers() {
                       size="sm"
                       variant="outline"
                       className="shrink-0 gap-1.5 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
-                      disabled={isSavingRename || isTogglingEditUserDisabled || !editingUser}
+                      disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser || !editingUser}
                       onClick={() => {
                         if (!editingUser) return;
                         const u = editingUser;
                         setEditingUser(null);
-                        openExtendUser(u);
+                        openExtendUser(u, { returnToEdit: true });
                       }}
                       aria-label="Prolonger"
                     >
@@ -2589,7 +2692,7 @@ export default function Vouchers() {
                 onKeyDown={(e) => { if (e.key === "Enter") void handleRenameUser(); }}
                 placeholder="Code ou nom d'utilisateur"
                 className="font-mono"
-                disabled={isSavingRename || isTogglingEditUserDisabled}
+                disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser}
               />
             </div>
             {editingUser && hotspotUserMacAuthLocked(editingUser, profileLockMacByName) ? (
@@ -2615,7 +2718,7 @@ export default function Vouchers() {
                 value={editPassword}
                 onChange={(e) => setEditPassword(e.target.value)}
                 className="font-mono"
-                disabled={isSavingRename || isTogglingEditUserDisabled}
+                disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser}
               />
             </div>
             <div className="space-y-1.5">
@@ -2629,7 +2732,7 @@ export default function Vouchers() {
                 )}
                 value={editProfile}
                 onChange={(e) => setEditProfile(e.target.value)}
-                disabled={isSavingRename || isTogglingEditUserDisabled}
+                disabled={isSavingRename || isTogglingEditUserDisabled || isDeletingEditUser}
               >
                 <option value="">Choisir un forfait</option>
                 {sortedProfiles.map((p) => (
@@ -2653,6 +2756,10 @@ export default function Vouchers() {
               const isLotTag = !!(comment && /^(vc|up)[-_]/i.test(comment.trim()));
               const expDate = parseExpirationDate(comment);
               const isVoucher = isLotTag || !!expDate;
+              const looksSoldByActivity =
+                hotspotUserUptimeIsMeaningful(editingUser?.uptime)
+                || hotspotUserHasTraffic(editingUser?.bytesIn, editingUser?.bytesOut)
+                || !!String(editingUser?.macAddress ?? "").trim();
               const disabledLabel = isVoucher ? "ticket" : "utilisateur";
               const disabledSuffix = disabled
                 ? <span className="font-semibold text-orange-500 dark:text-orange-400">&nbsp;— {disabledLabel} désactivé</span>
@@ -2667,8 +2774,25 @@ export default function Vouchers() {
                 );
               }
 
-              // Unsold lot voucher
-              if (isLotTag) {
+              // Date d’expiration dans le commentaire (prioritaire sur le libellé « lot » seul)
+              if (expDate) {
+                const msLeft = expDate.getTime() - editUserNow;
+                if (msLeft <= 0) {
+                  return (
+                    <div className="flex items-center flex-wrap gap-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400">
+                      Ce forfait est expiré&nbsp;!!!{disabledSuffix}
+                    </div>
+                  );
+                }
+                return (
+                  <div className="flex items-center flex-wrap gap-1 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-400">
+                    Ce forfait expire dans&nbsp;<span className="font-mono font-semibold">{formatCountdown(msLeft)}</span>{disabledSuffix}
+                  </div>
+                );
+              }
+
+              // Lot sans date parsable : « non vendu » seulement si aucune session / trafic (sinon compte déjà utilisé)
+              if (isLotTag && !looksSoldByActivity) {
                 return (
                   <div className="flex items-center flex-wrap gap-1 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs font-medium text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400">
                     Ce ticket n'a pas encore été vendu{disabledSuffix}
@@ -2676,26 +2800,17 @@ export default function Vouchers() {
                 );
               }
 
-              // No parseable date and not unlimited → treat as unlimited
-              if (!expDate) {
+              if (isLotTag) {
                 return (
-                  <div className="flex items-center flex-wrap gap-1 rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                    Cet utilisateur est sur un forfait illimité{disabledSuffix}
+                  <div className="flex items-center flex-wrap gap-1 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300">
+                    Ticket utilisé — aucune date d&apos;expiration lisible dans le commentaire.{disabledSuffix}
                   </div>
                 );
               }
 
-              const msLeft = expDate.getTime() - editUserNow;
-              if (msLeft <= 0) {
-                return (
-                  <div className="flex items-center flex-wrap gap-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400">
-                    Ce forfait est expiré&nbsp;!!!{disabledSuffix}
-                  </div>
-                );
-              }
               return (
-                <div className="flex items-center flex-wrap gap-1 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-400">
-                  Ce forfait expire dans&nbsp;<span className="font-mono font-semibold">{formatCountdown(msLeft)}</span>{disabledSuffix}
+                <div className="flex items-center flex-wrap gap-1 rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  Cet utilisateur est sur un forfait illimité{disabledSuffix}
                 </div>
               );
             })()}
@@ -3021,18 +3136,6 @@ export default function Vouchers() {
   );
 }
 
-// Format a Date as MikroTik hotspot comment date: "mmm/dd/yyyy HH:mm:ss"
-const MK_MONTHS_OUT = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-function formatMikrotikDate(d: Date): string {
-  const mon = MK_MONTHS_OUT[d.getMonth()];
-  const day = String(d.getDate()).padStart(2, "0");
-  const yr = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${mon}/${day}/${yr} ${hh}:${mm}:${ss}`;
-}
-
 // Parse a MikroTik comment that may contain an expiration date set by the
 // hotspot on-login script. Common formats observed:
 //   "mmm/dd/yyyy HH:mm:ss"   e.g. "jan/12/2026 14:30:00"
@@ -3120,9 +3223,9 @@ function hotspotUserMacAuthLocked(
 
 /**
  * Ligne d’un utilisateur hotspot (Mes tickets) :
- * - **Login** : pseudo (`user.username`) — `mes-tickets-username`. **Desktop** : si **verrouillage MAC forfait** (`macAuthLocked`), la MAC s’affiche sous le login en **parenthèses** (`absolute`, sans augmenter la hauteur de flux de la ligne).
- * - **Userinfo** : `mes-tickets-userinfo`. **Mobile** : forfait (profil) puis **commentaire** dessous — pas d’octets, uptime ni MAC. **`sm+`** : `mes-tickets-userinfo-columns` — MAC (si pas affichée sous le login), profil, uptime, bytes in/out, commentaire.
- * - **Cadenas** : activation / désactivation MikroTik. **Poubelle** : suppression (dialogue). **Mobile** : cadenas au-dessus de la poubelle (`flex-col`) pour gagner de la largeur et compacter la ligne.
+ * - **Login** : pseudo (`user.username`) — `mes-tickets-username`. **Desktop** : si **verrouillage MAC forfait** (`macAuthLocked`), la MAC s’affiche sous le login en **parenthèses** (`absolute`, sans augmenter la hauteur de flux de la ligne). **Mobile** : si **expiré**, la mention `(EXPIRÉ)` sous le login en **parenthèses**, police minimale et `absolute` (même principe — pas de hauteur supplémentaire dans le flux).
+ * - **Userinfo** : `mes-tickets-userinfo`. **Mobile** : **profil + cadenas** puis **commentaire + poubelle** uniquement (pas de MAC, uptime ni trafic). Login **centré verticalement**. **`sm+`** : colonnes MAC, profil, uptime, trafic, commentaire.
+ * - **Cadenas / poubelle** : **`sm+`** colonne à droite ; **mobile** sur la 1re et la 2e ligne (profil / commentaire).
  */
 function UserRow({
   user,
@@ -3162,18 +3265,18 @@ function UserRow({
           onEdit();
         }
       }}
-      className={`mes-tickets-row flex items-start justify-between gap-2 px-3 sm:px-4 py-2 sm:py-3 sm:items-center hover:bg-gray-50 group cursor-pointer ${selected ? "bg-blue-50" : ""}`}
+      className={`mes-tickets-row flex items-stretch justify-between gap-2 px-3 sm:px-4 py-1.5 sm:py-3 sm:items-center hover:bg-gray-50 group cursor-pointer ${selected ? "bg-blue-50" : ""}`}
     >
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1 sm:flex-nowrap sm:gap-x-3 sm:gap-y-0">
-        <div className="flex min-w-0 max-w-full shrink-0 items-center gap-2">
+      <div className="flex min-w-0 flex-1 flex-nowrap items-stretch gap-2 sm:items-center sm:gap-x-3">
+        <div className="flex min-w-0 max-w-full shrink-0 items-stretch gap-2">
           <input
             type="checkbox"
             checked={selected}
             onChange={onToggle}
             onClick={(e) => e.stopPropagation()}
-            className="h-4 w-4 shrink-0 rounded"
+            className="h-4 w-4 shrink-0 self-center rounded"
           />
-          <div className="mes-tickets-username relative flex min-w-0 max-w-[min(100%,11rem)] items-center gap-2 text-sm leading-tight sm:max-w-[14rem]">
+          <div className="mes-tickets-username relative flex min-w-0 max-w-[min(100%,11rem)] items-center gap-2 self-stretch text-sm leading-tight sm:max-w-[14rem]">
             <button
               type="button"
               onClick={onEdit}
@@ -3182,11 +3285,18 @@ function UserRow({
             >
               {user.username}
             </button>
-            {expired && (
-              <span className="shrink-0 text-[10px] font-semibold uppercase leading-none tracking-wide text-red-700 bg-red-100 px-1.5 py-0.5 rounded">
-                Expiré
-              </span>
-            )}
+            {expired ? (
+              <>
+                <span className="hidden shrink-0 text-[10px] font-semibold uppercase leading-none tracking-wide text-red-700 bg-red-100 px-1.5 py-0.5 rounded sm:inline-flex">
+                  Expiré
+                </span>
+                <span
+                  className="pointer-events-none absolute left-0 top-full z-[1] mt-px font-sans text-[7px] font-semibold uppercase leading-none tracking-wide text-red-700/90 sm:hidden"
+                >
+                  (EXPIRÉ)
+                </span>
+              </>
+            ) : null}
             {macAuthLocked ? (
               <span
                 className="pointer-events-none absolute left-0 top-full z-[1] mt-0.5 hidden max-w-[min(100%,14rem)] truncate font-mono text-[10px] leading-none text-gray-500 sm:block"
@@ -3197,33 +3307,73 @@ function UserRow({
             ) : null}
           </div>
         </div>
-        {/* Desktop sm+ : colonnes ; mobile : profil + commentaire uniquement */}
+        {/* Desktop sm+ : colonnes ; mobile : profil + cadenas | commentaire + poubelle (pas MAC/uptime/trafic) */}
         <div
-          className="mes-tickets-userinfo min-w-0 w-full basis-full sm:w-auto sm:basis-auto sm:flex-1"
+          className="mes-tickets-userinfo flex min-w-0 flex-1 flex-col justify-center sm:w-auto sm:basis-auto sm:flex-1"
           data-userinfo
         >
-          {/* —— sous sm : profil puis commentaire (pas trafic / uptime / MAC) —— */}
-          <div className="mes-tickets-userinfo-mobile flex min-w-0 w-full flex-col gap-0.5 sm:hidden">
-            {user.profile ? (
-              <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-1 gap-y-0.5 text-[11px] leading-none">
-                <span
-                  className="max-w-[10rem] truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-px text-[11px] font-medium text-violet-700/70"
-                  title={user.profile}
-                >
-                  {user.profile}
-                </span>
+          {/* —— mobile : profil + cadenas | commentaire + poubelle —— */}
+          <div className="mes-tickets-userinfo-mobile flex min-w-0 flex-col gap-px leading-none sm:hidden">
+            <div className="flex min-w-0 items-center justify-between gap-1.5">
+              <div className="min-w-0 flex-1">
+                {user.profile ? (
+                  <span
+                    className="inline-block max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-px text-[11px] font-medium text-violet-700/70"
+                    title={user.profile}
+                  >
+                    {user.profile}
+                  </span>
+                ) : null}
               </div>
-            ) : null}
-            {user.comment ? (
-              <div className="mes-tickets-comment flex w-full min-w-0 justify-end" data-userinfo-comment>
-                <span
-                  className={`max-w-full truncate rounded border px-1 py-px text-right font-mono text-[11px] tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
-                  title={user.comment}
-                >
-                  {user.comment}
-                </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMikrotikToggle();
+                }}
+                disabled={rowActionsDisabled}
+                title={user.disabled ? "Réactiver ce compte sur MikroTik" : "Désactiver ce compte sur MikroTik"}
+                aria-label={user.disabled ? "Réactiver sur MikroTik" : "Désactiver sur MikroTik"}
+                className={`shrink-0 rounded p-0.5 hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-40 ${
+                  user.disabled
+                    ? "text-orange-400 hover:text-orange-600"
+                    : "text-emerald-500/80 hover:text-emerald-700"
+                }`}
+              >
+                {mikrotikBusyThis ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : user.disabled ? (
+                  <Lock className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <Unlock className="h-3.5 w-3.5" aria-hidden />
+                )}
+              </button>
+            </div>
+            <div className="flex min-w-0 items-center justify-between gap-1.5">
+              <div className="mes-tickets-comment min-w-0 flex-1" data-userinfo-comment>
+                {user.comment ? (
+                  <span
+                    className={`inline-block max-w-full truncate rounded border px-1 py-px text-left font-mono text-[11px] tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
+                    title={user.comment}
+                  >
+                    {user.comment}
+                  </span>
+                ) : null}
               </div>
-            ) : null}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRequestDelete();
+                }}
+                disabled={rowActionsDisabled}
+                title="Supprimer ce compte sur MikroTik"
+                aria-label="Supprimer sur MikroTik"
+                className="shrink-0 rounded p-0.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
           </div>
           {/* —— sm+ : colonnes alignées —— */}
           <div className="mes-tickets-userinfo-columns hidden min-w-0 flex-nowrap items-center justify-end gap-x-0 overflow-x-auto text-xs leading-tight sm:flex">
@@ -3294,7 +3444,7 @@ function UserRow({
         </div>
       </div>
 
-      <div className="ml-1 flex shrink-0 flex-col items-center gap-0 sm:ml-2 sm:flex-row sm:gap-0.5 sm:items-center">
+      <div className="ml-1 hidden shrink-0 flex-col items-center gap-0 sm:ml-2 sm:flex sm:flex-row sm:gap-0.5 sm:items-center">
         <button
           type="button"
           onClick={(e) => {

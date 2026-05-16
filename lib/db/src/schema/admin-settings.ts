@@ -18,6 +18,8 @@ export const adminSettingsTable = pgTable("admin_settings", {
   extraRouterSlots: integer("extra_router_slots").notNull().default(0),
   // Template PHP / HTML Mikhmon v3 (optionnel) — édition « Modèle de ticket », sync multi-appareils.
   ticketTemplate: text("ticket_template"),
+  /** mikhmon-small | nanotech-normal | nanotech-small | custom — null = legacy (déduit du contenu côté client). */
+  ticketTemplatePreset: text("ticket_template_preset"),
   // Échelle d'impression par template (JSON: { [templateId]: number 0–100 }), sync multi-appareils.
   printScales: text("print_scales"),
   // Colonnes legacy conservées pour compatibilité (non utilisées).

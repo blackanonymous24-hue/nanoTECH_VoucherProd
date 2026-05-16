@@ -270,5 +270,7 @@ export async function fetchEffectiveTicketTemplate(apiBase: string): Promise<str
     /* ignore */
   }
   if (fromServer) return fromServer;
-  return getCustomDefault() || getPresetBody(getStoredTicketPresetId());
+  const stored = getStoredTicketPresetId();
+  if (stored === "custom") return getCustomDefault() || "";
+  return getCustomDefault() || getPresetBody(stored);
 }

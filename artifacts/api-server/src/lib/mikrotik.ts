@@ -1912,14 +1912,14 @@ export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 13):
   return details;
 }
 
-/**
- * Enable or disable a list of hotspot users on a MikroTik router.
- * Fetches all users in one shot, then sends one set-command per target user.
- * Uses a long timeout (120 s) to handle large vendor voucher batches.
- * Users not found on the router are silently skipped.
- */
 /** Écritures hotspot concurrentes (même principe que {@link generateVouchers}). */
 const HOTSPOT_PARALLEL_WRITES = 64;
+
+/**
+ * Au-delà de ce nombre de comptes encore introuvables après le print par commentaire,
+ * un seul print complet reste plus efficace que des centaines de `?name=`.
+ */
+const LOT_MISSING_NAME_LOOKUP_BEFORE_FULL_SCAN = 200;
 
 async function parallelPoolWrites<T>(
   api: RouterOSAPI,
@@ -1940,6 +1940,67 @@ async function parallelPoolWrites<T>(
   );
 }
 
+/**
+ * Après désactivation : expulse les sessions actives et supprime les cookies hotspot
+ * pour les logins donnés (`/ip/hotspot/active/print`, `/ip/hotspot/cookie/print`).
+ */
+async function kickDisabledHotspotSessionsAndCookies(
+  api: RouterOSAPI,
+  foundNames: readonly string[],
+): Promise<{ sessionsKicked: number; cookiesRemoved: number }> {
+  if (foundNames.length === 0) return { sessionsKicked: 0, cookiesRemoved: 0 };
+  const disabledSet = new Set(foundNames.map((u) => u.toLowerCase()));
+
+  const sessions = await api.write("/ip/hotspot/active/print");
+  const sessionIds: string[] = [];
+  for (const s of sessions) {
+    const rawUser = fixEncoding((s["user"] as string) ?? "").trim();
+    if (disabledSet.has(rawUser.toLowerCase())) {
+      const sid = (s[".id"] as string) ?? "";
+      if (sid) sessionIds.push(sid);
+    }
+  }
+  await parallelPoolWrites(api, sessionIds, (sid) =>
+    api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]),
+  );
+  const sessionsKicked = sessionIds.length;
+
+  const cookies = await api.write("/ip/hotspot/cookie/print");
+  const cookieIds: string[] = [];
+  for (const c of cookies) {
+    const rawUser = fixEncoding((c["user"] as string) ?? "").trim();
+    if (disabledSet.has(rawUser.toLowerCase())) {
+      const cid = (c[".id"] as string) ?? "";
+      if (cid) cookieIds.push(cid);
+    }
+  }
+  await parallelPoolWrites(api, cookieIds, (cid) =>
+    api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]),
+  );
+  const cookiesRemoved = cookieIds.length;
+
+  return { sessionsKicked, cookiesRemoved };
+}
+
+/**
+ * Commentaire encore « sur le lot » (ex. `vc-554-04.07.26`) : même logique que l’UI —
+ * préfixe `vc` / `up` puis `_` ou `-`. Pas d’expulsion `/ip/hotspot/active/*` ni cookies
+ * lors d’une désactivation par sélection de noms.
+ */
+function hotspotCommentLooksLikeUnsoldLotTag(comment: string | null | undefined): boolean {
+  const t = String(comment ?? "").trim();
+  if (!t) return false;
+  return /^(vc|up)[-_]/i.test(t);
+}
+
+/**
+ * Enable or disable a list of hotspot users on a MikroTik router.
+ * Fetches all users in one shot, then sends one set-command per target user.
+ * Uses a long timeout (120 s) to handle large vendor voucher batches.
+ * Users not found on the router are silently skipped.
+ * After disable: kick active sessions + remove cookies sauf si le commentaire
+ * ressemble à un voucher encore au lot (`vc-…`, `up-…`, ex. `vc-554-04.07.26`).
+ */
 export async function enableDisableHotspotUsers(
   conn: RouterConnection,
   usernames: string[],
@@ -1950,12 +2011,12 @@ export async function enableDisableHotspotUsers(
   const target = new Set(usernames.map((u) => u.toLowerCase()));
 
   return withRouter(conn, async (api) => {
-    // Fetch all hotspot users once (colonnes minimales — matching par nom uniquement)
-    const all = await api.write("/ip/hotspot/user/print", ["=.proplist=.id,name"]);
+    // Besoin du commentaire pour exclure le kick/cookie sur les tags lot (ex. vc-554-04.07.26)
+    const all = await api.write("/ip/hotspot/user/print", ["=.proplist=.id,name,comment"]);
 
     const toSet: string[] = [];
     const found = new Set<string>();
-    const foundNames: string[] = []; // original casing for session/cookie matching
+    const namesForSessionKick = new Set<string>();
 
     for (const u of all) {
       const decoded = fixEncoding((u["name"] as string) ?? "");
@@ -1965,7 +2026,9 @@ export async function enableDisableHotspotUsers(
       if (target.has(nameLower)) {
         toSet.push(id);
         found.add(nameLower);
-        foundNames.push(decoded);
+        if (!hotspotCommentLooksLikeUnsoldLotTag(u["comment"] as string | undefined)) {
+          namesForSessionKick.add(decoded);
+        }
       }
     }
 
@@ -1978,40 +2041,10 @@ export async function enableDisableHotspotUsers(
 
     let sessionsKicked = 0;
     let cookiesRemoved = 0;
-
-    // When DISABLING: kick active sessions and remove cookies for affected users
-    if (!enable && foundNames.length > 0) {
-      const disabledSet = new Set(foundNames.map((u) => u.toLowerCase()));
-
-      // 1. Kick active sessions
-      const sessions = await api.write("/ip/hotspot/active/print");
-      const sessionIds: string[] = [];
-      for (const s of sessions) {
-        const rawUser = fixEncoding((s["user"] as string) ?? "").trim();
-        if (disabledSet.has(rawUser.toLowerCase())) {
-          const sid = (s[".id"] as string) ?? "";
-          if (sid) sessionIds.push(sid);
-        }
-      }
-      await parallelPoolWrites(api, sessionIds, (sid) =>
-        api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]),
-      );
-      sessionsKicked = sessionIds.length;
-
-      // 2. Remove hotspot cookies
-      const cookies = await api.write("/ip/hotspot/cookie/print");
-      const cookieIds: string[] = [];
-      for (const c of cookies) {
-        const rawUser = fixEncoding((c["user"] as string) ?? "").trim();
-        if (disabledSet.has(rawUser.toLowerCase())) {
-          const cid = (c[".id"] as string) ?? "";
-          if (cid) cookieIds.push(cid);
-        }
-      }
-      await parallelPoolWrites(api, cookieIds, (cid) =>
-        api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]),
-      );
-      cookiesRemoved = cookieIds.length;
+    if (!enable && namesForSessionKick.size > 0) {
+      const k = await kickDisabledHotspotSessionsAndCookies(api, [...namesForSessionKick]);
+      sessionsKicked = k.sessionsKicked;
+      cookiesRemoved = k.cookiesRemoved;
     }
 
     return { done: toSet.length, notFound, sessionsKicked, cookiesRemoved };
@@ -2022,6 +2055,14 @@ export async function enableDisableHotspotUsers(
  * Désactive / réactive un lot : commentaire MikroTik **ou** liste de noms (ex. DB).
  * Couvre les comptes dont le commentaire a été remplacé par une date d'expiration
  * après connexion (script on-login Mikhmon) mais dont le lot est encore connu par username.
+ *
+ * Évite un print complet de tous les hotspot users lorsque le print par commentaire
+ * couvre déjà toute la liste DB ; sinon résout les noms manquants par `?name=` en parallèle
+ * puis ne fait un scan complet qu'en dernier recours.
+ *
+ * Après désactivation : **pas** d’appel `/ip/hotspot/active/*` ni `/ip/hotspot/cookie/*` —
+ * opération « lot » : les comptes déjà vendus sont retirés du tag lot sur le routeur,
+ * le reste ne nécessite pas d’expulsion de session ni purge cookie.
  */
 export async function enableDisableHotspotLot(
   conn: RouterConnection,
@@ -2061,10 +2102,42 @@ export async function enableDisableHotspotLot(
     }
     for (const u of commentFiltered) consider(u);
 
-    const needFullScan = targetNames.size > 0 || commentFiltered.length === 0;
-    if (needFullScan) {
-      const all = await api.write("/ip/hotspot/user/print", [userMatchProplist]);
-      for (const u of all) consider(u);
+    const recomputeMissingUsernames = (): string[] => {
+      const foundLower = new Set(foundNames.map((n) => n.toLowerCase()));
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const raw of alsoUsernames) {
+        const t = raw.trim();
+        const k = t.toLowerCase();
+        if (!k || foundLower.has(k) || seen.has(k)) continue;
+        seen.add(k);
+        out.push(t);
+      }
+      return out;
+    };
+
+    let missing = recomputeMissingUsernames();
+    if (missing.length > 0) {
+      if (missing.length <= LOT_MISSING_NAME_LOOKUP_BEFORE_FULL_SCAN) {
+        await parallelPoolWrites(api, missing, async (name) => {
+          for (const v of [name, toWin1252(name)]) {
+            try {
+              const rows = await api.write("/ip/hotspot/user/print", [`?name=${v}`, userMatchProplist]);
+              if (rows.length > 0) {
+                for (const row of rows) consider(row);
+                break;
+              }
+            } catch {
+              // variante suivante ou repli scan plus bas
+            }
+          }
+        });
+        missing = recomputeMissingUsernames();
+      }
+      if (missing.length > 0) {
+        const all = await api.write("/ip/hotspot/user/print", [userMatchProplist]);
+        for (const u of all) consider(u);
+      }
     }
 
     const toSet = [...matchedIds];
@@ -2077,45 +2150,10 @@ export async function enableDisableHotspotLot(
       api.write("/ip/hotspot/user/set", [`=.id=${id}`, `=disabled=${disabledVal}`]),
     );
 
-    let sessionsKicked = 0;
-    let cookiesRemoved = 0;
-
-    if (!enable && foundNames.length > 0) {
-      const disabledSet = new Set(foundNames.map((u) => u.toLowerCase()));
-
-      const sessions = await api.write("/ip/hotspot/active/print");
-      const sessionIds: string[] = [];
-      for (const s of sessions) {
-        const rawUser = fixEncoding((s["user"] as string) ?? "").trim();
-        if (disabledSet.has(rawUser.toLowerCase())) {
-          const sid = (s[".id"] as string) ?? "";
-          if (sid) sessionIds.push(sid);
-        }
-      }
-      await parallelPoolWrites(api, sessionIds, (sid) =>
-        api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]),
-      );
-      sessionsKicked = sessionIds.length;
-
-      const cookies = await api.write("/ip/hotspot/cookie/print");
-      const cookieIds: string[] = [];
-      for (const c of cookies) {
-        const rawUser = fixEncoding((c["user"] as string) ?? "").trim();
-        if (disabledSet.has(rawUser.toLowerCase())) {
-          const cid = (c[".id"] as string) ?? "";
-          if (cid) cookieIds.push(cid);
-        }
-      }
-      await parallelPoolWrites(api, cookieIds, (cid) =>
-        api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]),
-      );
-      cookiesRemoved = cookieIds.length;
-    }
-
     const foundLower = new Set(foundNames.map((u) => u.toLowerCase()));
     const notFound = alsoUsernames.filter((u) => !foundLower.has(u.trim().toLowerCase()));
 
-    return { done: toSet.length, notFound, sessionsKicked, cookiesRemoved };
+    return { done: toSet.length, notFound, sessionsKicked: 0, cookiesRemoved: 0 };
   }, 240_000, "high");
 }
 
@@ -2123,6 +2161,8 @@ export async function enableDisableHotspotLot(
  * Active/désactive tous les hotspot users dont le commentaire correspond exactement
  * à `comment` — **une** requête print ciblée (ou repli scan), puis sets, sans second
  * print complet comme {@link enableDisableHotspotUsers} sur une longue liste de noms.
+ * Cas typique : désactivation d’un **lot** sur le routeur — pas d’`/ip/hotspot/active/*` ni
+ * `/ip/hotspot/cookie/*` (même logique que {@link enableDisableHotspotLot}).
  */
 export async function enableDisableHotspotUsersByComment(
   conn: RouterConnection,
@@ -2149,13 +2189,10 @@ export async function enableDisableHotspotUsersByComment(
     }
 
     const toSet: string[] = [];
-    const foundNames: string[] = [];
     for (const u of rows) {
       const id = (u[".id"] as string) ?? "";
-      const raw = (u["name"] as string) ?? "";
       if (!id) continue;
       toSet.push(id);
-      foundNames.push(fixEncoding(raw));
     }
 
     if (toSet.length === 0) {
@@ -2167,42 +2204,7 @@ export async function enableDisableHotspotUsersByComment(
       api.write("/ip/hotspot/user/set", [`=.id=${id}`, `=disabled=${disabledVal}`]),
     );
 
-    let sessionsKicked = 0;
-    let cookiesRemoved = 0;
-
-    if (!enable && foundNames.length > 0) {
-      const disabledSet = new Set(foundNames.map((u) => u.toLowerCase()));
-
-      const sessions = await api.write("/ip/hotspot/active/print");
-      const sessionIds: string[] = [];
-      for (const s of sessions) {
-        const rawUser = fixEncoding((s["user"] as string) ?? "").trim();
-        if (disabledSet.has(rawUser.toLowerCase())) {
-          const sid = (s[".id"] as string) ?? "";
-          if (sid) sessionIds.push(sid);
-        }
-      }
-      await parallelPoolWrites(api, sessionIds, (sid) =>
-        api.write("/ip/hotspot/active/remove", [`=.id=${sid}`]),
-      );
-      sessionsKicked = sessionIds.length;
-
-      const cookies = await api.write("/ip/hotspot/cookie/print");
-      const cookieIds: string[] = [];
-      for (const c of cookies) {
-        const rawUser = fixEncoding((c["user"] as string) ?? "").trim();
-        if (disabledSet.has(rawUser.toLowerCase())) {
-          const cid = (c[".id"] as string) ?? "";
-          if (cid) cookieIds.push(cid);
-        }
-      }
-      await parallelPoolWrites(api, cookieIds, (cid) =>
-        api.write("/ip/hotspot/cookie/remove", [`=.id=${cid}`]),
-      );
-      cookiesRemoved = cookieIds.length;
-    }
-
-    return { done: toSet.length, notFound: [], sessionsKicked, cookiesRemoved };
+    return { done: toSet.length, notFound: [], sessionsKicked: 0, cookiesRemoved: 0 };
   }, 240_000, "high");
 }
 

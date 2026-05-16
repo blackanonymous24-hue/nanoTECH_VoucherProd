@@ -10,6 +10,20 @@ const router = Router();
 const BASE_ROUTER_SLOTS = 5;
 const CREDITS_PER_EXTRA_ROUTER = 10;
 
+const TICKET_TEMPLATE_PRESET_IDS = new Set([
+  "mikhmon-small",
+  "nanotech-normal",
+  "nanotech-small",
+  "custom",
+]);
+
+function parseTicketTemplatePresetBody(raw: unknown): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw === "string" && TICKET_TEMPLATE_PRESET_IDS.has(raw)) return raw;
+  return undefined;
+}
+
 // Allowed forfait durations, in months. Maps the user-facing labels
 // (1 mois … 6 mois, 1 an) to a single integer.
 const VALID_MONTHS = new Set<number>([1, 2, 3, 4, 5, 6, 12]);
@@ -626,16 +640,22 @@ router.get("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .select({
+      ticketTemplate: adminSettingsTable.ticketTemplate,
+      ticketTemplatePreset: adminSettingsTable.ticketTemplatePreset,
+    })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, id));
   if (!row) { res.status(404).json({ error: "Admin introuvable" }); return; }
 
-  res.json({ template: row.ticketTemplate ?? null });
+  res.json({
+    template: row.ticketTemplate ?? null,
+    presetId: row.ticketTemplatePreset ?? null,
+  });
 });
 
 // ---------------------------------------------------------------------------
-// PUT /api/super/admins/:id/ticket-template — body: { template: string }
+// PUT /api/super/admins/:id/ticket-template — body: { template: string, presetId?: string | null }
 // ---------------------------------------------------------------------------
 router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> => {
   if (!requireSuperAdminScope(req, res)) return;
@@ -643,7 +663,7 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   const id = parseInt(req.params.id, 10);
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { template } = req.body as { template?: string };
+  const { template, presetId } = req.body as { template?: unknown; presetId?: unknown };
   if (typeof template !== "string") {
     res.status(400).json({ error: "Champ template requis (string)" });
     return;
@@ -652,9 +672,18 @@ router.put("/super/admins/:id/ticket-template", async (req, res): Promise<void> 
   const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, id));
   if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
 
+  const presetField = parseTicketTemplatePresetBody(presetId);
+  const setPayload: {
+    ticketTemplate: string | null;
+    ticketTemplatePreset?: string | null;
+  } = { ticketTemplate: template.trim() || null };
+  if (presetField !== undefined) {
+    setPayload.ticketTemplatePreset = presetField;
+  }
+
   const [updated] = await db
     .update(adminSettingsTable)
-    .set({ ticketTemplate: template.trim() || null })
+    .set(setPayload)
     .where(eq(adminSettingsTable.id, id))
     .returning();
 

@@ -8,11 +8,14 @@ import {
   ToastViewport,
 } from "@/components/ui/toast"
 
+/** Durée d’affichage des toasts — à garder alignée avec les délais de fermeture de dialogs (ex. prolonger / réinitialiser). */
+export const TOAST_PROVIDER_DURATION_MS = 3000
+
 export function Toaster() {
   const { toasts } = useToast()
 
   return (
-    <ToastProvider duration={3000}>
+    <ToastProvider duration={TOAST_PROVIDER_DURATION_MS}>
       {toasts.map(function ({ id, title, description, action, ...props }) {
         return (
           <Toast key={id} {...props}>

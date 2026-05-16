@@ -23,10 +23,12 @@ import {
 import {
   TICKET_TEMPLATE_PRESETS,
   type TicketTemplatePresetId,
+  type TicketTemplateSelectionId,
   getPresetBody,
   getStoredTicketPresetId,
   setStoredTicketPresetId,
   findMatchingPresetId,
+  resolveTicketTemplateSelection,
 } from "@/lib/voucher-ticket-presets";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
@@ -1737,7 +1739,7 @@ function TemplateDialog({ admin, onClose }: {
   const [templateCode, setTemplateCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [presetValue, setPresetValue] = useState<TicketTemplatePresetId | "custom">("mikhmon-small");
+  const [presetValue, setPresetValue] = useState<TicketTemplateSelectionId>("mikhmon-small");
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setCurrentPrintTemplateId(presetValue); }, [presetValue]);
@@ -1745,36 +1747,53 @@ function TemplateDialog({ admin, onClose }: {
   useEffect(() => {
     setLoading(true);
     fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, { headers: authHeaders })
-      .then((r) => (r.ok ? r.json() : { template: null }))
-      .then((data: { template: string | null }) => {
-        const fromServer = data.template?.trim() ?? "";
+      .then((r) => (r.ok ? r.json() : { template: null, presetId: null }))
+      .then((data: { template: string | null; presetId?: string | null }) => {
+        const raw = data.template ?? "";
+        const fromServer = raw.trim() === "" ? "" : raw;
+        const resolved = resolveTicketTemplateSelection({
+          templateBody: fromServer,
+          serverPresetId: data.presetId,
+        });
+        setPresetValue(resolved);
+        setStoredTicketPresetId(resolved);
         if (fromServer) {
           setTemplateCode(fromServer);
-          setPresetValue(findMatchingPresetId(fromServer));
+        } else if (resolved !== "custom") {
+          setTemplateCode(getCustomDefault() || getPresetBody(resolved));
         } else {
-          const stored = getStoredTicketPresetId();
-          setPresetValue(stored);
-          setTemplateCode(getCustomDefault() || getPresetBody(stored));
+          setTemplateCode(getCustomDefault() || "");
         }
       })
       .catch(() => {
         const stored = getStoredTicketPresetId();
         setPresetValue(stored);
-        setTemplateCode(getCustomDefault() || getPresetBody(stored));
+        setStoredTicketPresetId(stored);
+        if (stored === "custom") {
+          setTemplateCode(getCustomDefault() || "");
+        } else {
+          setTemplateCode(getCustomDefault() || getPresetBody(stored));
+        }
       })
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin.id]);
 
-  const persistTemplate = async (template: string, closeOnSuccess: boolean): Promise<boolean> => {
+  const persistTemplate = async (
+    template: string,
+    presetForApi: TicketTemplateSelectionId,
+    closeOnSuccess: boolean,
+  ): Promise<boolean> => {
     setSaving(true);
     try {
       const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ template }),
+        body: JSON.stringify({ template, presetId: presetForApi }),
       });
       if (r.ok) {
+        setPresetValue(presetForApi);
+        setStoredTicketPresetId(presetForApi);
         if (closeOnSuccess) onClose();
         return true;
       }
@@ -1790,7 +1809,7 @@ function TemplateDialog({ admin, onClose }: {
   };
 
   const handleSave = async () => {
-    const ok = await persistTemplate(templateCode, true);
+    const ok = await persistTemplate(templateCode, presetValue, true);
     if (ok) {
       toast({ title: "Modèle sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
     }
@@ -1798,6 +1817,7 @@ function TemplateDialog({ admin, onClose }: {
 
   const handlePresetChange = (v: string) => {
     if (v === "custom") {
+      setStoredTicketPresetId("custom");
       setPresetValue("custom");
       return;
     }
@@ -1814,10 +1834,7 @@ function TemplateDialog({ admin, onClose }: {
     toast({ title: "Modèle chargé", description: label });
   };
 
-  const isCustomTemplate = useMemo(
-    () => !loading && findMatchingPresetId(templateCode) === "custom",
-    [loading, templateCode],
-  );
+  const isCustomTemplate = useMemo(() => !loading && presetValue === "custom", [loading, presetValue]);
 
   const handleReset = async () => {
     const body = DEFAULT_MIKHMON_PHP;
@@ -1828,7 +1845,7 @@ function TemplateDialog({ admin, onClose }: {
       localStorage.setItem(PHP_KEY, body);
       localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
     } catch { /* ignore */ }
-    const saved = await persistTemplate(body, false);
+    const saved = await persistTemplate(body, "mikhmon-small", false);
     if (saved) {
       toast({
         title: "Réinitialisé",
@@ -1889,7 +1906,7 @@ function TemplateDialog({ admin, onClose }: {
             Modèle intégré
           </Label>
           <Select
-            value={loading ? presetValue : findMatchingPresetId(templateCode)}
+            value={presetValue}
             onValueChange={handlePresetChange}
             disabled={loading || saving}
           >
@@ -1902,7 +1919,7 @@ function TemplateDialog({ admin, onClose }: {
                   {label}
                 </SelectItem>
               ))}
-              {isCustomTemplate ? (
+              {presetValue === "custom" ? (
                 <SelectItem value="custom" className="text-sm text-muted-foreground">
                   Personnalisé (contenu hors modèles)
                 </SelectItem>

@@ -20,6 +20,21 @@ function parsePrintScales(raw: string | null | undefined): Record<string, number
   try { return (raw ? JSON.parse(raw) : {}) as Record<string, number>; } catch { return {}; }
 }
 
+const TICKET_TEMPLATE_PRESET_IDS = new Set([
+  "mikhmon-small",
+  "nanotech-normal",
+  "nanotech-small",
+  "custom",
+]);
+
+/** undefined = ne pas modifier la colonne ; sinon valeur à enregistrer (y compris null explicite). */
+function parseTicketTemplatePresetBody(raw: unknown): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw === "string" && TICKET_TEMPLATE_PRESET_IDS.has(raw)) return raw;
+  return undefined;
+}
+
 /**
  * Ensure that at least one super-admin exists. On a fresh database we seed
  * one with login="admin" / password="root". On an existing database we make
@@ -405,11 +420,17 @@ router.get("/tenant/ticket-template", async (req, res): Promise<void> => {
   }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .select({
+      ticketTemplate: adminSettingsTable.ticketTemplate,
+      ticketTemplatePreset: adminSettingsTable.ticketTemplatePreset,
+    })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, tenantAdminId));
 
-  res.json({ template: row?.ticketTemplate ?? null });
+  res.json({
+    template: row?.ticketTemplate ?? null,
+    presetId: row?.ticketTemplatePreset ?? null,
+  });
 });
 
 /**
@@ -421,11 +442,17 @@ router.get("/admin/ticket-template", async (req, res): Promise<void> => {
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
   const [row] = await db
-    .select({ ticketTemplate: adminSettingsTable.ticketTemplate })
+    .select({
+      ticketTemplate: adminSettingsTable.ticketTemplate,
+      ticketTemplatePreset: adminSettingsTable.ticketTemplatePreset,
+    })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.id, claims.adminId));
 
-  res.json({ template: row?.ticketTemplate ?? null });
+  res.json({
+    template: row?.ticketTemplate ?? null,
+    presetId: row?.ticketTemplatePreset ?? null,
+  });
 });
 
 /**
@@ -480,7 +507,7 @@ router.put("/admin/print-scale", async (req, res): Promise<void> => {
 /**
  * POST /api/admin/print-scale/broadcast — super admin seulement.
  * Copie l'échelle du template demandé vers TOUS les comptes.
- * body: { templateId: string }
+ * body: { templateId: string, scale?: number } — si `scale` est fourni (0–100), cette valeur est appliquée ; sinon l'échelle enregistrée pour le compte super admin pour ce template.
  */
 router.post("/admin/print-scale/broadcast", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -488,19 +515,24 @@ router.post("/admin/print-scale/broadcast", async (req, res): Promise<void> => {
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
   if (!claims.isSuperAdmin) { res.status(403).json({ error: "Réservé au super admin" }); return; }
 
-  const { templateId } = req.body as { templateId?: unknown };
+  const { templateId, scale } = req.body as { templateId?: unknown; scale?: unknown };
   if (typeof templateId !== "string" || !templateId) {
     res.status(400).json({ error: "Champ templateId requis (string)" });
     return;
   }
 
-  const [superRow] = await db
-    .select({ printScales: adminSettingsTable.printScales })
-    .from(adminSettingsTable)
-    .where(eq(adminSettingsTable.id, claims.adminId));
+  let scaleVal: number;
+  if (typeof scale === "number" && Number.isFinite(scale)) {
+    scaleVal = Math.min(100, Math.max(0, Math.round(scale)));
+  } else {
+    const [superRow] = await db
+      .select({ printScales: adminSettingsTable.printScales })
+      .from(adminSettingsTable)
+      .where(eq(adminSettingsTable.id, claims.adminId));
 
-  const superScales = parsePrintScales(superRow?.printScales);
-  const scaleVal = superScales[templateId] ?? 85;
+    const superScales = parsePrintScales(superRow?.printScales);
+    scaleVal = superScales[templateId] ?? 85;
+  }
 
   const allRows = await db
     .select({ id: adminSettingsTable.id, printScales: adminSettingsTable.printScales })
@@ -518,22 +550,32 @@ router.post("/admin/print-scale/broadcast", async (req, res): Promise<void> => {
 });
 
 /**
- * PUT /api/admin/ticket-template — body: { template: string } (vide = réinitialiser).
+ * PUT /api/admin/ticket-template — body: { template: string, presetId?: string | null }
+ * (vide = réinitialiser le HTML ; presetId omis = ne pas changer la colonne preset).
  */
 router.put("/admin/ticket-template", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   const claims = auth?.startsWith("Bearer ") ? verifyAdminTokenFull(auth.slice(7)) : null;
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
 
-  const { template } = req.body as { template?: string };
+  const { template, presetId } = req.body as { template?: unknown; presetId?: unknown };
   if (typeof template !== "string") {
     res.status(400).json({ error: "Champ template requis (string)" });
     return;
   }
 
+  const presetField = parseTicketTemplatePresetBody(presetId);
+  const setPayload: {
+    ticketTemplate: string | null;
+    ticketTemplatePreset?: string | null;
+  } = { ticketTemplate: template.trim() || null };
+  if (presetField !== undefined) {
+    setPayload.ticketTemplatePreset = presetField;
+  }
+
   await db
     .update(adminSettingsTable)
-    .set({ ticketTemplate: template.trim() || null })
+    .set(setPayload)
     .where(eq(adminSettingsTable.id, claims.adminId));
 
   res.json({ ok: true });

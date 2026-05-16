@@ -12,10 +12,11 @@ import {
   TICKET_TEMPLATE_PRESETS,
   DEFAULT_TICKET_PRESET_ID,
   type TicketTemplatePresetId,
+  type TicketTemplateSelectionId,
   getPresetBody,
-  getStoredTicketPresetId,
   setStoredTicketPresetId,
   findMatchingPresetId,
+  resolveTicketTemplateSelection,
 } from "@/lib/voucher-ticket-presets";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { TicketPhpEditor } from "@/components/TicketPhpEditor";
@@ -36,7 +37,7 @@ export default function TicketTemplate() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [presetValue, setPresetValue] = useState<TicketTemplatePresetId | "custom">("mikhmon-small");
+  const [presetValue, setPresetValue] = useState<TicketTemplateSelectionId>("mikhmon-small");
   const [editorEpoch, setEditorEpoch] = useState(0);
   const templateCardRef = useRef<HTMLDivElement>(null);
   const loadRequestRef = useRef(0);
@@ -75,13 +76,19 @@ export default function TicketTemplate() {
     setLoading(true);
     try {
       const r = await fetch(`${BASE}/api/admin/ticket-template`, { headers: authHeaders });
-      const data = (r.ok ? await r.json() : { template: null }) as { template: string | null };
+      const data = (r.ok ? await r.json() : { template: null, presetId: null }) as {
+        template: string | null;
+        presetId?: string | null;
+      };
       if (reqId !== loadRequestRef.current) return false;
       const fromServer = data.template ?? "";
+      const resolvedPreset = resolveTicketTemplateSelection({
+        templateBody: fromServer,
+        serverPresetId: data.presetId,
+      });
       setCode(fromServer);
-      setPresetValue(
-        fromServer.trim() ? findMatchingPresetId(fromServer) : getStoredTicketPresetId(),
-      );
+      setPresetValue(resolvedPreset);
+      setStoredTicketPresetId(resolvedPreset);
       setDirty(false);
       setEditorEpoch((n) => n + 1);
       return true;
@@ -103,18 +110,22 @@ export default function TicketTemplate() {
     void loadTemplateFromServer();
   }, [loadTemplateFromServer]);
 
-  const persistTemplate = async (template: string): Promise<boolean> => {
+  const persistTemplate = async (
+    template: string,
+    presetForApi: TicketTemplateSelectionId,
+  ): Promise<boolean> => {
     if (!token) return false;
     setSaving(true);
     try {
       const r = await fetch(`${BASE}/api/admin/ticket-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ template }),
+        body: JSON.stringify({ template, presetId: presetForApi }),
       });
       if (r.ok) {
         setDirty(false);
-        setPresetValue(findMatchingPresetId(template));
+        setPresetValue(presetForApi);
+        setStoredTicketPresetId(presetForApi);
         return true;
       }
       const err = await r.json().catch(() => ({})) as { error?: string };
@@ -129,7 +140,7 @@ export default function TicketTemplate() {
   };
 
   const handleSave = async () => {
-    const ok = await persistTemplate(code);
+    const ok = await persistTemplate(code, presetValue);
     if (ok) {
       toast({ title: "Modèle enregistré", description: "Synchronisé sur le serveur pour ce compte administrateur." });
     }
@@ -137,6 +148,7 @@ export default function TicketTemplate() {
 
   const handlePresetChange = (v: string) => {
     if (v === "custom") {
+      setStoredTicketPresetId("custom");
       setPresetValue("custom");
       return;
     }
@@ -151,10 +163,7 @@ export default function TicketTemplate() {
     toast({ title: "Modèle intégré chargé", description: `${label} — enregistrez pour le conserver en base.` });
   };
 
-  const isCustomTemplate = useMemo(
-    () => !loading && findMatchingPresetId(code) === "custom",
-    [loading, code],
-  );
+  const isCustomTemplate = useMemo(() => !loading && presetValue === "custom", [loading, presetValue]);
 
   const needsResetConfirm =
     dirty && findMatchingPresetId(code) !== DEFAULT_TICKET_PRESET_ID;
@@ -165,7 +174,7 @@ export default function TicketTemplate() {
     setPresetValue(DEFAULT_TICKET_PRESET_ID);
     setCode(body);
     setEditorEpoch((n) => n + 1);
-    const saved = await persistTemplate(body);
+    const saved = await persistTemplate(body, DEFAULT_TICKET_PRESET_ID);
     if (saved) {
       toast({
         title: "Réinitialisé",
@@ -216,7 +225,7 @@ export default function TicketTemplate() {
                     Modèle intégré
                   </Label>
                   <Select
-                    value={loading ? presetValue : findMatchingPresetId(code)}
+                    value={presetValue}
                     onValueChange={handlePresetChange}
                     disabled={loading || !token}
                   >
