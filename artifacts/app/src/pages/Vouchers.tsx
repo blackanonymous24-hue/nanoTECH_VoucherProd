@@ -738,6 +738,13 @@ export default function Vouchers() {
     // Profil inconnu après chargement → fallback sur le nom
     return isUnlimitedProfile(profileName);
   };
+  /** Forfait avec mode d'expiration MikroTik / Mikhmon = « Aucun » (none). */
+  const profileExpiryIsNone = (profileName: string | null | undefined): boolean => {
+    if (!profileName) return false;
+    const mode = profileExpiryModeByName.get(profileName);
+    if (!mode) return false;
+    return mode === "none" || mode === "0" || mode === "nothing";
+  };
   const userIsExpired = (u: HotspotUser): boolean => {
     const mode = profileExpiryModeByName.get(u.profile ?? "");
     if (mode) {
@@ -2875,6 +2882,13 @@ export default function Vouchers() {
               }
 
               if (isLotTag) {
+                if (profileExpiryIsNone(profile)) {
+                  return (
+                    <div className="flex items-center flex-wrap gap-1 rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                      Cet utilisateur est sur un forfait illimité{disabledSuffix}
+                    </div>
+                  );
+                }
                 return (
                   <div className="flex items-center flex-wrap gap-1 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300">
                     Ticket utilisé — aucune date d&apos;expiration lisible dans le commentaire.{disabledSuffix}
@@ -3295,10 +3309,17 @@ function hotspotUserMacAuthLocked(
   return profileLockMacByName.get(prof) === true;
 }
 
+/** `true` = pastilles (bordure + fond) ; `false` = texte coloré seul (comparaison visuelle). */
+const MES_TICKETS_USER_INFO_PILLS = false;
+
+function mesTicketsInfoClass(pill: string, plain: string): string {
+  return MES_TICKETS_USER_INFO_PILLS ? pill : plain;
+}
+
 /**
  * Ligne d’un utilisateur hotspot (Mes tickets) :
  * - **Login** : pseudo (`user.username`) — `mes-tickets-username`. **Desktop** : si **verrouillage MAC forfait** (`macAuthLocked`), la MAC s’affiche sous le login en **parenthèses** (`absolute`, sans augmenter la hauteur de flux de la ligne). **Mobile** : si **expiré**, la mention `(EXPIRÉ)` sous le login en **parenthèses**, police minimale et `absolute` (même principe — pas de hauteur supplémentaire dans le flux).
- * - **Userinfo** : `mes-tickets-userinfo`. **Mobile** : login à gauche ; profil + commentaire **alignés à droite** (colonne, sans chevauchement) ; cadenas sur les 2 lignes. **`sm+`** : colonnes MAC, profil, uptime, trafic, commentaire.
+ * - **Userinfo** : profil / commentaire / MAC… en texte coloré ou pastilles (`MES_TICKETS_USER_INFO_PILLS`). **Mobile** : colonne à droite + cadenas. **`sm+`** : colonnes alignées.
  * - **Cadenas / poubelle** : **`sm+`** colonne à droite ; **mobile** : cadenas seul (hauteur profil + commentaire).
  */
 function UserRow({
@@ -3389,25 +3410,38 @@ function UserRow({
           {/* —— mobile : colonne profil/commentaire à droite + cadenas —— */}
           <div className="mes-tickets-userinfo-mobile flex min-w-0 flex-1 items-stretch justify-end gap-1.5 leading-none sm:hidden">
             <div className="flex min-w-0 max-w-[calc(100%-2.25rem)] flex-col items-end justify-center gap-0.5 overflow-hidden">
-              <div className="min-w-0 max-w-full">
+              <div className="flex min-h-[1.125rem] w-full max-w-full items-center justify-end">
                 {user.profile ? (
                   <span
-                    className="inline-block max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-px text-[11px] font-medium text-violet-700/70"
+                    className={mesTicketsInfoClass(
+                      "inline-block max-w-full truncate rounded border border-violet-200/20 bg-violet-100/20 px-1 py-px text-[10px] font-medium leading-none text-violet-700/50",
+                      "inline-block max-w-full truncate text-[10px] font-medium leading-none text-violet-700/50",
+                    )}
                     title={user.profile}
                   >
                     {user.profile}
                   </span>
-                ) : null}
+                ) : (
+                  <span className="block min-h-[1.125rem] w-full" aria-hidden />
+                )}
               </div>
-              <div className="mes-tickets-comment min-w-0 max-w-full" data-userinfo-comment>
+              <div
+                className="mes-tickets-comment flex min-h-[1.125rem] w-full max-w-full items-center justify-end"
+                data-userinfo-comment
+              >
                 {user.comment ? (
                   <span
-                    className={`inline-block max-w-full truncate rounded border px-1 py-px text-right font-mono text-[11px] tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
+                    className={mesTicketsInfoClass(
+                      `inline-block max-w-full truncate rounded border px-1 py-px text-right font-mono text-[10px] leading-none tabular-nums ${expired ? "border-red-200/30 bg-red-50/70 text-red-600/55" : "border-gray-200/30 bg-gray-100/25 text-gray-600/50"}`,
+                      `inline-block max-w-full truncate text-right font-mono text-[10px] leading-none tabular-nums ${expired ? "text-red-600/55" : "text-gray-600/50"}`,
+                    )}
                     title={user.comment}
                   >
                     {user.comment}
                   </span>
-                ) : null}
+                ) : (
+                  <span className="block min-h-[1.125rem] w-full" aria-hidden />
+                )}
               </div>
             </div>
             <button
@@ -3439,7 +3473,10 @@ function UserRow({
           <div className="flex w-[9.5rem] shrink-0 justify-end">
             {!macAuthLocked && user.macAddress ? (
               <span
-                className="max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 font-mono text-[11px] leading-tight text-violet-700/70"
+                className={mesTicketsInfoClass(
+                  "max-w-full truncate rounded border border-violet-200/30 bg-violet-100/30 px-1 py-0.5 font-mono text-[11px] leading-tight text-violet-700/60",
+                  "max-w-full truncate font-mono text-[11px] leading-tight text-violet-700/60",
+                )}
                 title="Adresse MAC"
               >
                 {user.macAddress}
@@ -3449,7 +3486,10 @@ function UserRow({
           <div className="flex w-[7rem] shrink-0 justify-end">
             {user.profile ? (
               <span
-                className="max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 text-center text-[11px] font-medium leading-tight text-violet-700/70"
+                className={mesTicketsInfoClass(
+                  "max-w-full truncate rounded border border-violet-200/30 bg-violet-100/30 px-1 py-0.5 text-center text-[11px] font-medium leading-tight text-violet-700/60",
+                  "max-w-full truncate text-center text-[11px] font-medium leading-tight text-violet-700/60",
+                )}
                 title={user.profile}
               >
                 {user.profile}
@@ -3459,7 +3499,10 @@ function UserRow({
           <div className="flex w-[8.5rem] shrink-0 justify-end">
             {hotspotUserUptimeIsMeaningful(user.uptime) ? (
               <span
-                className="max-w-full truncate rounded border border-emerald-200/35 bg-emerald-100/40 px-1 py-0.5 text-[11px] leading-tight text-emerald-700/70"
+                className={mesTicketsInfoClass(
+                  "max-w-full truncate rounded border border-emerald-200/30 bg-emerald-100/30 px-1 py-0.5 text-[11px] leading-tight text-emerald-700/60",
+                  "max-w-full truncate text-[11px] leading-tight text-emerald-700/60",
+                )}
                 title="Uptime session (routeur)"
               >
                 {user.uptime}
@@ -3469,7 +3512,10 @@ function UserRow({
           <div className="flex w-24 shrink-0 justify-end">
             {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
               <span
-                className="max-w-full truncate rounded border border-sky-200/35 bg-sky-100/40 px-1 py-0.5 text-[11px] leading-tight text-sky-700/70"
+                className={mesTicketsInfoClass(
+                  "max-w-full truncate rounded border border-sky-200/30 bg-sky-100/30 px-1 py-0.5 text-[11px] leading-tight text-sky-700/60",
+                  "max-w-full truncate text-[11px] leading-tight text-sky-700/60",
+                )}
                 title="Octets entrants (bytes-in)"
               >
                 ↓ {formatUserTrafficBytes(user.bytesIn)}
@@ -3479,7 +3525,10 @@ function UserRow({
           <div className="flex w-24 shrink-0 justify-end">
             {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
               <span
-                className="max-w-full truncate rounded border border-amber-200/35 bg-amber-100/40 px-1 py-0.5 text-[11px] leading-tight text-amber-800/65"
+                className={mesTicketsInfoClass(
+                  "max-w-full truncate rounded border border-amber-200/30 bg-amber-100/30 px-1 py-0.5 text-[11px] leading-tight text-amber-800/60",
+                  "max-w-full truncate text-[11px] leading-tight text-amber-800/60",
+                )}
                 title="Octets sortants (bytes-out)"
               >
                 ↑ {formatUserTrafficBytes(user.bytesOut)}
@@ -3492,7 +3541,10 @@ function UserRow({
           >
             {user.comment ? (
               <span
-                className={`max-w-full truncate rounded border px-1 py-0.5 text-center font-mono text-[11px] leading-tight tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
+                className={mesTicketsInfoClass(
+                  `max-w-full truncate rounded border px-1 py-0.5 text-center font-mono text-[11px] leading-tight tabular-nums ${expired ? "border-red-200/40 bg-red-50/70 text-red-600/65" : "border-gray-200/35 bg-gray-100/30 text-gray-600/60"}`,
+                  `max-w-full truncate text-center font-mono text-[11px] leading-tight tabular-nums ${expired ? "text-red-600/65" : "text-gray-600/60"}`,
+                )}
                 title={user.comment}
               >
                 {user.comment}
