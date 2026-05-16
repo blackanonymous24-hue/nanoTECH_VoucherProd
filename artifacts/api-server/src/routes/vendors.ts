@@ -3,7 +3,9 @@ import { eq, desc, and, ne, count, sql, isNotNull, isNull, ilike, inArray, gte, 
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
-import { enableDisableHotspotUsers, type RouterConnection } from "../lib/mikrotik.js";
+import { enableDisableHotspotUsersByComment, type RouterConnection } from "../lib/mikrotik.js";
+import { withRouterLock } from "../lib/router-lock.js";
+import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
 import { aggregateVendorPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
@@ -11,6 +13,14 @@ import { logger } from "../lib/logger.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { invalidateVendorPortalCache } from "./vendor-portal.js";
 import { carryOverByVendorBeforeWeek } from "../lib/vendor-carryover.js";
+import {
+  addVendorDateAmount,
+  amountDueFromSales,
+  dailySettlementWeekCommission,
+  isDailySettlementVendor,
+  vendorDateAmountMaps,
+  type VendorSettlementMode,
+} from "../lib/vendor-settlement.js";
 
 /**
  * Returns the admin scope (adminId + isSuperAdmin + isImpersonating) when the
@@ -50,6 +60,9 @@ function buildTotals(vendorId: number) {
   .where(eq(vouchersTable.vendorId, vendorId));
 }
 
+
+export { isDailySettlementVendor, type VendorSettlementMode } from "../lib/vendor-settlement.js";
+import { normalizeSettlementMode } from "../lib/vendor-settlement.js";
 
 function safeVendor(v: typeof vendorsTable.$inferSelect) {
   const { passwordHash: _ph, ...rest } = v;
@@ -123,7 +136,7 @@ router.get("/vendors", async (req, res): Promise<void> => {
 router.post("/vendors", async (req, res): Promise<void> => {
   const scope = getAdminScopeOptional(req);
   if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
-  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2, commissionRate, isDemo, ticketLetter } = req.body as {
+  const { name, phone, email, username, password, routerId, commentSuffix, commentSuffix2, commissionRate, isDemo, ticketLetter, settlementMode } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -135,6 +148,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
     commissionRate?: number;
     isDemo?: boolean;
     ticketLetter?: string;
+    settlementMode?: string;
   };
 
   if (!name || name.trim() === "") {
@@ -198,6 +212,7 @@ router.post("/vendors", async (req, res): Promise<void> => {
       commentSuffix2: commentSuffix2?.trim() || null,
       ticketLetter: ticketLetter?.trim() || null,
       commissionRate: Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0))),
+      settlementMode: normalizeSettlementMode(settlementMode),
       isDemo: isDemo === true,
     })
     .returning();
@@ -233,7 +248,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { name, phone, email, username, password, isActive, isDemo, commentSuffix, commentSuffix2, commissionRate, ticketLetter } = req.body as {
+  const { name, phone, email, username, password, isActive, isDemo, commentSuffix, commentSuffix2, commissionRate, ticketLetter, settlementMode } = req.body as {
     name?: string;
     phone?: string;
     email?: string;
@@ -245,6 +260,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     commentSuffix2?: string;
     commissionRate?: number;
     ticketLetter?: string;
+    settlementMode?: string;
   };
 
   // Fetch current vendor early (needed for username fallback)
@@ -283,6 +299,7 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
   if (commentSuffix2 !== undefined) updates.commentSuffix2 = commentSuffix2?.trim() || null;
   if (ticketLetter !== undefined) updates.ticketLetter = ticketLetter?.trim() || null;
   if (commissionRate !== undefined) updates.commissionRate = Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0)));
+  if (settlementMode !== undefined) updates.settlementMode = normalizeSettlementMode(settlementMode);
 
   if (password !== undefined && password.trim()) {
     if (password.length < 1) {
@@ -315,45 +332,67 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
     if (suffixes.length > 0) void syncMikrotikUsersToVendor(vendor.id, vendor.routerId, suffixes, true); // force on update
   }
 
-  // If isActive changed, enable/disable all vouchers on MikroTik (background)
+  // If isActive changed : toggle MikroTik par commentaire de lot (même logique que lot-disable).
   if (isActive !== undefined && isActive !== current.isActive) {
     const enable = isActive;
+    const disabledOnRouter = !enable;
     (async () => {
       try {
-        const vouchers = await db
-          .select({
-            username: vouchersTable.username,
-            routerId: vouchersTable.routerId,
-          })
+        const voucherRows = await db
+          .select({ comment: vouchersTable.comment, routerId: vouchersTable.routerId })
           .from(vouchersTable)
           .where(and(eq(vouchersTable.vendorId, id), isNull(vouchersTable.usedAt)));
 
-        const byRouter = new Map<number, string[]>();
-        for (const v of vouchers) {
-          const list = byRouter.get(v.routerId) ?? [];
-          list.push(v.username);
-          byRouter.set(v.routerId, list);
+        const commentsByRouter = new Map<number, Set<string>>();
+        for (const row of voucherRows) {
+          const c = (row.comment ?? "").trim();
+          if (!c) continue;
+          let set = commentsByRouter.get(row.routerId);
+          if (!set) {
+            set = new Set();
+            commentsByRouter.set(row.routerId, set);
+          }
+          set.add(c);
         }
 
-        for (const [routerId, usernames] of byRouter) {
+        for (const [routerId, comments] of commentsByRouter) {
           const [routerRow] = await db
             .select()
             .from(routersTable)
             .where(eq(routersTable.id, routerId));
           if (!routerRow) continue;
 
+          const conn: RouterConnection = {
+            host: routerRow.host,
+            port: routerRow.port,
+            username: routerRow.username,
+            password: routerRow.password,
+          };
+
           try {
-            const result = await enableDisableHotspotUsers(
-              {
-                host: routerRow.host,
-                port: routerRow.port,
-                username: routerRow.username,
-                password: routerRow.password,
-              },
-              usernames,
-              enable,
+            let done = 0;
+            let cachePatched = false;
+            await withRouterLock(routerId, async () => {
+              for (const comment of comments) {
+                const result = await enableDisableHotspotUsersByComment(conn, comment, enable);
+                done += result.done;
+                if (
+                  patchCachedHotspotUsersDisabledByComment(
+                    routerRow.ownerAdminId,
+                    routerId,
+                    comment,
+                    disabledOnRouter,
+                  )
+                ) {
+                  cachePatched = true;
+                }
+              }
+            });
+            if (!cachePatched) void invalidateUserCache(routerId);
+            logger.info(
+              { vendorId: id, routerId, enable, done, lots: comments.size },
+              "vendor vouchers toggled on MikroTik (by lot comment)",
             );
-            logger.info({ vendorId: id, routerId, enable, ...result }, "vendor vouchers toggled on MikroTik");
           } catch (err) {
             logger.warn({ vendorId: id, routerId, enable, err }, "failed to toggle vouchers on MikroTik");
           }
@@ -1061,6 +1100,30 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     )
     .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
 
+  const weekSalesByDayRaw = await db
+    .select({
+      vendorId:     vouchersTable.vendorId,
+      profileName:  vouchersTable.profileName,
+      date:         sql<string>`(${vouchersTable.usedAt})::date::text`,
+      count:        sql<number>`count(*)`,
+      salePriceSum: sql<number>`coalesce(sum(nullif(${vouchersTable.salePrice},'')::numeric), 0)`,
+      priceSum:     sql<number>`coalesce(sum(nullif(${vouchersTable.price},'')::numeric), 0)`,
+    })
+    .from(vouchersTable)
+    .where(
+      and(
+        eq(vouchersTable.routerId, routerId),
+        isNotNull(vouchersTable.usedAt),
+        sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+        sql`${vouchersTable.usedAt} <  ${wEnd.toISOString()}`,
+      ),
+    )
+    .groupBy(
+      vouchersTable.vendorId,
+      vouchersTable.profileName,
+      sql`(${vouchersTable.usedAt})::date`,
+    );
+
   // Weekly lump-sum payments (vendorPaymentsTable) + daily payments (vendorDailyPaymentsTable)
   // for the same week — both contribute to paidByVendor so the report stays accurate.
   const [weekPayments, weekDailyPayments] = await Promise.all([
@@ -1079,10 +1142,34 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     ),
   ]);
 
+  const { salesByVendor: trackingDaySales, paidByVendor: trackingDayPaid } = vendorDateAmountMaps();
+  for (const row of weekSalesByDayRaw) {
+    if (!row.vendorId || demoVendorIds.has(row.vendorId)) continue;
+    const cnt  = Number(row.count);
+    const raw  = Math.max(Number(row.salePriceSum), Number(row.priceSum));
+    const unit = resolveUnitPrice(row.profileName);
+    const amt  = raw > 0 ? raw : cnt * unit;
+    addVendorDateAmount(trackingDaySales, row.vendorId, row.date, amt);
+  }
+
   // Aggregate week rows per vendor — same max(sqlSum, count×price) approach
-  const weekMap = new Map<number | null, { vendorId: number | null; vendorName: string; count: number; amount: number; commissionRate: number }>();
+  const weekMap = new Map<number | null, {
+    vendorId: number | null;
+    vendorName: string;
+    count: number;
+    amount: number;
+    commissionRate: number;
+    settlementMode: string;
+  }>();
   for (const v of vendors) {
-    weekMap.set(v.id, { vendorId: v.id, vendorName: v.name, count: 0, amount: 0, commissionRate: v.commissionRate ?? 0 });
+    weekMap.set(v.id, {
+      vendorId: v.id,
+      vendorName: v.name,
+      count: 0,
+      amount: 0,
+      commissionRate: v.commissionRate ?? 0,
+      settlementMode: v.settlementMode ?? "daily",
+    });
   }
   for (const row of weekSoldRaw) {
     const key  = row.vendorId;
@@ -1094,7 +1181,14 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
     const amt  = raw > 0 ? raw : cnt * unit;
     if (!weekMap.has(key)) {
       const vname = key ? (vendorMap.get(key)?.name ?? "Inconnu") : "Sans vendeur";
-      weekMap.set(key, { vendorId: key, vendorName: vname, count: 0, amount: 0, commissionRate: 0 });
+      weekMap.set(key, {
+        vendorId: key,
+        vendorName: vname,
+        count: 0,
+        amount: 0,
+        commissionRate: 0,
+        settlementMode: key ? (vendorMap.get(key)?.settlementMode ?? "daily") : "daily",
+      });
     }
     const w = weekMap.get(key)!;
     w.count  += cnt;
@@ -1109,6 +1203,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
   }
   for (const p of weekDailyPayments) {
     dailyPaidByVendor.set(p.vendorId, (dailyPaidByVendor.get(p.vendorId) ?? 0) + p.amount);
+    addVendorDateAmount(trackingDayPaid, p.vendorId, p.date, p.amount);
   }
 
   // Carry-over from all prior weeks (before current weekStart):
@@ -1169,8 +1264,12 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
   const carryOverWeekCountByVendor = new Map<number, number>();
   for (const s of historicalSalesRaw) {
     if (!s.vendorId || demoVendorIds.has(s.vendorId)) continue;
-    const commRate = vendorMap.get(s.vendorId)?.commissionRate ?? 0;
-    const expected = Math.max(0, Number(s.amount || 0) - Math.round(Number(s.amount || 0) * commRate) / 100);
+    const vendorRow = vendorMap.get(s.vendorId);
+    const gross = Number(s.amount || 0);
+    const commRate = vendorRow?.commissionRate ?? 0;
+    const commission = Math.round(gross * commRate) / 100;
+    const dailySettlement = vendorRow ? isDailySettlementVendor(vendorRow) : true;
+    const expected = amountDueFromSales(gross, commission, dailySettlement);
     const paid = historicalPaidByVendorWeek.get(`${s.vendorId}|${s.weekStart}`) ?? 0;
     const missing = Math.max(0, Math.round(expected - paid));
     if (missing > 0) {
@@ -1195,12 +1294,22 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
       const weeklyPaid = w.vendorId ? (weeklyPaidByVendor.get(w.vendorId) ?? 0) : 0;
       const dailyPaid  = w.vendorId ? (dailyPaidByVendor.get(w.vendorId) ?? 0) : 0;
       const paidAmount = weeklyPaid + dailyPaid;
-      const commission = (weekEndedForSummary && w.commissionRate > 0)
-        ? Math.round(w.amount * w.commissionRate) / 100
-        : 0;
-      // What the vendor owes total = sales - commission
-      const expected   = Math.max(0, w.amount - commission);
-      // What still must be paid via WEEKLY mechanism (after deducting daily payments)
+      const dailySettlement = isDailySettlementVendor(w);
+      let commission = 0;
+      let commissionGross = 0;
+      if (dailySettlement && w.commissionRate > 0 && w.vendorId) {
+        const dayComm = dailySettlementWeekCommission(
+          trackingDaySales.get(w.vendorId) ?? new Map(),
+          trackingDayPaid.get(w.vendorId) ?? new Map(),
+          w.commissionRate,
+        );
+        commissionGross = dayComm.gross;
+        commission = dayComm.net;
+      } else if (weekEndedForSummary && w.commissionRate > 0) {
+        commission = Math.round(w.amount * w.commissionRate) / 100;
+        commissionGross = commission;
+      }
+      const expected = amountDueFromSales(w.amount, commission, dailySettlement);
       const weeklyExpected  = Math.max(0, expected - dailyPaid);
       const remainingAmount = Math.max(0, expected - paidAmount);
       const totalExpectedToPay = expected + vendorCarryOver;
@@ -1219,6 +1328,7 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
         dailyPaid,
         paidAmount,
         commission,
+        commissionGross,
         weeklyExpected,
         remainingAmount,
         carryOverAmount: vendorCarryOver,
@@ -1438,8 +1548,10 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
 
   const allVendors = await db.select().from(vendorsTable).where(eq(vendorsTable.routerId, routerId));
   const demoIds = new Set(allVendors.filter((v) => v.isDemo).map((v) => v.id));
-  const vendors  = allVendors.filter((v) => !v.isDemo);
-  const vendorCommMap = new Map(vendors.map((v) => [v.id, v.commissionRate ?? 0]));
+  const dailyVendorIds = new Set(
+    allVendors.filter((v) => !v.isDemo && isDailySettlementVendor(v)).map((v) => v.id),
+  );
+  const vendors  = allVendors.filter((v) => !v.isDemo && isDailySettlementVendor(v));
 
   // Per-vendor, per-date, per-profile aggregation
   const soldRaw = await db
@@ -1466,7 +1578,7 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
   const vendorDayMap = new Map<number, Map<string, number>>();
 
   for (const row of soldRaw) {
-    if (!row.vendorId || demoIds.has(row.vendorId)) continue;
+    if (!row.vendorId || demoIds.has(row.vendorId) || !dailyVendorIds.has(row.vendorId)) continue;
     const cnt  = Number(row.cnt);
     const raw  = Math.max(Number(row.salePriceSum), Number(row.priceSum));
     const unit = resolveUnit(row.profileName);
@@ -1538,6 +1650,7 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
   const settledWeeks: Record<string, string[]> = {};
 
   for (const [vendorId, dayMap] of vendorDayMap) {
+    if (!dailyVendorIds.has(vendorId)) continue;
     // Build per-date paid amounts for this vendor
     const salesMapV = new Map<string, number>(dayMap);
     const paidMapV  = new Map<string, number>();
@@ -1565,26 +1678,18 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
     }
     const weekMondaysFinal = [...weekMondaysSet].sort().reverse();
 
-    // Apply commission to each day proportionally once the week is ended, so
-    // daily settlements and arrears use the same "net attendu" as weekly logic.
+    // Versement journalier : montants bruts (commission affichée ailleurs, non déduite ici).
     const expectedByDay = new Map<string, number>();
     const expectedByWeek = new Map<string, number>();
     for (const monday of weekMondaysFinal) {
       const ws = new Date(monday + "T00:00:00Z");
-      const we = new Date(ws.getTime() + 7 * 86_400_000);
-      const weekEnded = we.getTime() <= Date.now();
-      const rate = weekEnded ? (vendorCommMap.get(vendorId) ?? 0) : 0;
       const weekDates = Array.from({ length: 7 }, (_, i) =>
         new Date(ws.getTime() + i * 86_400_000).toISOString().slice(0, 10),
       );
       const weekGross = weekDates.reduce((s, d) => s + (salesMapV.get(d) ?? 0), 0);
-      const weekCommission = rate > 0 ? Math.round(weekGross * rate) / 100 : 0;
-      const weekExpected = Math.max(0, weekGross - weekCommission);
-      expectedByWeek.set(monday, weekExpected);
-      const factor = weekGross > 0 ? (weekExpected / weekGross) : 1;
+      expectedByWeek.set(monday, weekGross);
       for (const d of weekDates) {
-        const gross = salesMapV.get(d) ?? 0;
-        expectedByDay.set(d, Math.max(0, Math.round(gross * factor)));
+        expectedByDay.set(d, Math.max(0, salesMapV.get(d) ?? 0));
       }
     }
 
@@ -1637,8 +1742,9 @@ router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
       const { paidAmount: dailyPaidRaw, payments } = dailyPaidMap.get(k) ?? { paidAmount: 0, payments: [] };
       const lumpAllocated = lumpAllocatedPaid.get(date) ?? 0;
       const paidAmount = dailyPaidRaw + lumpAllocated;
-      const salesAmount = expectedByDay.get(date) ?? grossSalesAmount;
-      const remaining  = Math.max(0, salesAmount - paidAmount);
+      // Versement du jour : affichage et reliquat journalier en montants bruts (sans commission).
+      const salesAmount = grossSalesAmount;
+      const remaining = Math.max(0, salesAmount - paidAmount);
       if (remaining > 0) {
         vendorArr.push({ date, salesAmount, paidAmount, remaining, payments });
       }
@@ -1776,6 +1882,30 @@ router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
       )
       .groupBy(vouchersTable.vendorId, vouchersTable.profileName);
 
+    const salesByDayRaw = await db
+      .select({
+        vendorId:     vouchersTable.vendorId,
+        profileName:  vouchersTable.profileName,
+        date:         sql<string>`(${vouchersTable.usedAt})::date::text`,
+        cnt:          sql<number>`count(*)`,
+        salePriceSum: sql<number>`coalesce(sum(nullif(${vouchersTable.salePrice},'')::numeric), 0)`,
+        priceSum:     sql<number>`coalesce(sum(nullif(${vouchersTable.price},'')::numeric), 0)`,
+      })
+      .from(vouchersTable)
+      .where(
+        and(
+          eq(vouchersTable.routerId, routerId),
+          isNotNull(vouchersTable.usedAt),
+          sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+          sql`${vouchersTable.usedAt} <  ${wEnd.toISOString()}`,
+        ),
+      )
+      .groupBy(
+        vouchersTable.vendorId,
+        vouchersTable.profileName,
+        sql`(${vouchersTable.usedAt})::date`,
+      );
+
     const weekEnd = new Date(wEnd.getTime() - 1).toISOString().slice(0, 10);
 
     // Both weekly lump-sum payments and daily payments count toward paidAmount
@@ -1815,6 +1945,16 @@ router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
       s.amount += amt;
     }
 
+    const { salesByVendor: vendorDaySales, paidByVendor: vendorDayPaid } = vendorDateAmountMaps();
+    for (const r of salesByDayRaw) {
+      if (!r.vendorId) continue;
+      const cnt  = Number(r.cnt);
+      const raw  = Math.max(Number(r.salePriceSum), Number(r.priceSum));
+      const unit = resolveUnit(r.profileName);
+      const amt  = raw > 0 ? raw : cnt * unit;
+      addVendorDateAmount(vendorDaySales, r.vendorId, r.date, amt);
+    }
+
     // Track weekly lump-sum and daily payments separately so the frontend can
     // show "weekly expected after daily deductions".
     // IMPORTANT: tag chaque versement avec sa source ("weekly" | "daily") pour
@@ -1835,9 +1975,10 @@ router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
       if (!paymentsMap.has(p.vendorId)) paymentsMap.set(p.vendorId, []);
       paymentsMap.get(p.vendorId)!.push({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note, source: "daily" });
       dailyPaidMap.set(p.vendorId, (dailyPaidMap.get(p.vendorId) ?? 0) + p.amount);
+      addVendorDateAmount(vendorDayPaid, p.vendorId, p.date, p.amount);
     }
 
-    // Commission only applies to completed weeks
+    // Commission only applies to completed weeks (sauf versement journalier : temps réel)
     const weekEnded = wEnd.getTime() <= Date.now();
 
     const carryMap = await carryOverByVendorBeforeWeek(routerId, weekStart, vendors);
@@ -1849,21 +1990,36 @@ router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
         const weeklyPaid = weeklyPaidMap.get(v.id) ?? 0;
         const dailyPaid  = dailyPaidMap.get(v.id) ?? 0;
         const totalPaid  = weeklyPaid + dailyPaid;
-        const commission = (weekEnded && v.commissionRate > 0)
-          ? Math.round(sales.amount * v.commissionRate) / 100
-          : 0;
+        const dailySettlement = isDailySettlementVendor(v);
+        let commission = 0;
+        let commissionGross = 0;
+        if (dailySettlement && (v.commissionRate ?? 0) > 0) {
+          const dayComm = dailySettlementWeekCommission(
+            vendorDaySales.get(v.id) ?? new Map(),
+            vendorDayPaid.get(v.id) ?? new Map(),
+            v.commissionRate ?? 0,
+          );
+          commissionGross = dayComm.gross;
+          commission = dayComm.net;
+        } else if (weekEnded && (v.commissionRate ?? 0) > 0) {
+          commission = Math.round(sales.amount * (v.commissionRate ?? 0)) / 100;
+          commissionGross = commission;
+        }
+        const due = amountDueFromSales(sales.amount, commission, dailySettlement);
         return {
           vendorId:    v.id,
           vendorName:  v.name,
           count:       sales.count,
           amount:      sales.amount,
           commission,
-          commissionRate: weekEnded ? v.commissionRate : 0,
+          commissionGross,
+          commissionRate: dailySettlement || weekEnded ? (v.commissionRate ?? 0) : 0,
+          settlementMode: v.settlementMode ?? "daily",
           weeklyPaid,
           dailyPaid,
           totalPaid,
-          weeklyExpected: Math.max(0, sales.amount - commission - dailyPaid),
-          remaining:   Math.max(0, sales.amount - commission - totalPaid),
+          weeklyExpected: Math.max(0, due - dailyPaid),
+          remaining:   Math.max(0, due - totalPaid),
           payments:    paid,
           carryOverFromPriorWeeks: carryMap.get(v.id) ?? 0,
         };
@@ -1935,10 +2091,16 @@ router.post("/vendors/payments", async (req, res): Promise<void> => {
     const commission = weekEnded && (vendor.commissionRate ?? 0) > 0
       ? Math.round(salesAmount * (vendor.commissionRate ?? 0)) / 100
       : 0;
-    const expectedNet = Math.max(0, salesAmount - commission);
+    const dailySettlement = isDailySettlementVendor(vendor);
+    const expectedNet = amountDueFromSales(salesAmount, commission, dailySettlement);
     const alreadyPaid = Number(weeklyPaidRow?.amount ?? 0) + Number(dailyPaidRow?.amount ?? 0);
     const remaining = Math.max(0, Math.round(expectedNet - alreadyPaid));
-    if (remaining <= 0) { res.status(400).json({ error: "Semaine déjà soldée (commission déduite)" }); return; }
+    if (remaining <= 0) {
+      res.status(400).json({
+        error: dailySettlement ? "Semaine déjà soldée" : "Semaine déjà soldée (commission déduite)",
+      });
+      return;
+    }
 
     const requested = Math.round(+amount);
     const appliedAmount = Math.min(requested, remaining);

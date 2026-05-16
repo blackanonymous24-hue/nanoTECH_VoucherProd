@@ -3,13 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Printer, Search, RotateCcw, Users, Loader2, AlertCircle,
   CalendarDays, ImageDown, AlertTriangle, CalendarRange,
 } from "lucide-react";
-import { foldText } from "@/lib/text";
+import { fmtDateFr, vendorSoldDayTitle } from "@/lib/vendorSoldDayTitle";
 import { paidShownVersusWeekContext } from "@/lib/vendorWeekPaymentDisplay";
 import { buildStandalonePrintHtml, openPrintHtmlWindow } from "@/lib/print";
 
@@ -32,11 +31,6 @@ function vpal(vendorId: number | null) {
   return VENDOR_PALETTE[(vendorId ?? 0) % VENDOR_PALETTE.length];
 }
 
-const MONTH_NAMES_FR = [
-  "Janvier","Février","Mars","Avril","Mai","Juin",
-  "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
-];
-
 function fmtAmount(n: number) {
   if (n === 0) return "0";
   return n.toLocaleString("fr-FR");
@@ -46,11 +40,6 @@ function yesterdayLocal(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
-}
-
-function fmtDateFr(iso: string): string {
-  const [y, m, day] = iso.split("-");
-  return `${day} ${MONTH_NAMES_FR[parseInt(m, 10) - 1]} ${y}`;
 }
 
 function prevWeekSundayLocal(): string {
@@ -88,7 +77,9 @@ interface VendorSummaryEntry {
   carryOverWeekCount?: number; // nombre de semaines antérieures avec reliquat > 0
   totalToPay?: number;        // carryOver + current week net - paid in current week
   commission?: number;
+  commissionGross?: number;
   commissionRate?: number;
+  settlementMode?: string;
   paymentStatus?: "none" | "partial" | "full";
 }
 
@@ -269,17 +260,13 @@ function escapeHtmlPrint(s: string): string {
 }
 
 /* ── Print helper: daily ─────────────────────────────────────── */
-function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: DailyArrearsResponse) {
-  const dateFr = fmtDateFr(data.date);
-  const q = foldText(search);
-  const vouchers = search.trim()
-    ? data.vouchers.filter(
-        (v) =>
-          foldText(v.username).includes(q) ||
-          foldText(v.profileName).includes(q) ||
-          foldText(v.vendorName).includes(q),
-      )
-    : data.vouchers;
+function openPrintWindow(
+  data: DailyTrackingResponse,
+  soldDate: string,
+  arrears?: DailyArrearsResponse,
+) {
+  const dateFr = fmtDateFr(soldDate);
+  const vouchers = data.vouchers;
 
   const grandTotal  = data.summary.reduce((s, r) => s + r.amount, 0);
   const grandCount  = data.summary.reduce((s, r) => s + r.count,  0);
@@ -288,16 +275,16 @@ function openPrintWindow(data: DailyTrackingResponse, search: string, arrears?: 
   const summaryByVendor = activeSummary.map((s) => {
     const allArrears = (arrears?.arrears[String(s.vendorId)] ?? []).filter((a) => a.remaining > 0);
     const weekCarry = data.weekSummary?.find((w) => w.vendorId === s.vendorId)?.carryOverAmount ?? 0;
-    const totalDu = portalStyleTotalDue(data.date, weekCarry, allArrears);
+    const totalDu = portalStyleTotalDue(soldDate, weekCarry, allArrears);
     const hasArr = weekCarry > 0 || allArrears.length > 0;
-    const vname = escapeHtmlPrint(s.vendorName);
+    const vname = escapeHtmlPrint(vendorSoldDayTitle(s.vendorName, soldDate));
 
     const bodyRows: string[] = [];
     bodyRows.push(
       `<tr class="sum-print-vendor"><td class="lbl">${vname}</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
     );
 
-    for (const row of vendorArrearSummaryLines(data.date, data.weekStart, weekCarry, allArrears)) {
+    for (const row of vendorArrearSummaryLines(soldDate, data.weekStart, weekCarry, allArrears)) {
       bodyRows.push(
         `<tr class="sum-print-arrear"><td class="lbl">${escapeHtmlPrint(row.label)}</td><td class="num">${fmtAmount(row.amount)} FCFA</td></tr>`,
       );
@@ -411,7 +398,10 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
   const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
   const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
   const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
-  const totalPaid   = ws.reduce((s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount), 0);
+  const totalPaid   = ws.reduce(
+    (s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount, r.settlementMode),
+    0,
+  );
   const totalReste  = ws.reduce((s, r) => s + (r.totalToPay ?? r.remainingAmount ?? 0), 0);
 
   const vendorCards = ws.map((s) => {
@@ -438,13 +428,13 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
       : "";
     return `<div class="vcard">
   <div class="vcard-header">
-    <span class="vname">${s.vendorName}</span>
+    <span class="vname">${escapeHtmlPrint(vendorSoldDayTitle(s.vendorName, data.weekEnd ?? data.date))}</span>
     <span class="vstatus" style="background:${sBg};color:${sColor};border:1px solid ${sBorder}">${statusIcon}${badge.text}</span>
   </div>
 <table>
     <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
     ${arrearsRow}
-    <tr><td>Versé</td><td class="val">${fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount))} FCFA</td></tr>
+    <tr><td>Versé</td><td class="val">${fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount, s.settlementMode))} FCFA</td></tr>
     <tr><td>${mainPayLabel}</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(mainDue)} FCFA</td></tr>
     <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
     <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"}</td></tr>
@@ -603,7 +593,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
       rf(PAD, y, CW, ch, "#ffffff", BOX_R);
 
       let ry = y;
-      t(s.vendorName, C_LBL, ry + VENDOR_DAY_H / 2, { size: 11, bold: true, color: "#111827" });
+      t(vendorSoldDayTitle(s.vendorName, appliedDate), C_LBL, ry + VENDOR_DAY_H / 2, { size: 11, bold: true, color: "#111827" });
       t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + VENDOR_DAY_H / 2, { size: 11, bold: true, color: "#111827", align: "right" });
       ln(PAD, ry + VENDOR_DAY_H, PAD + CW, ry + VENDOR_DAY_H, "#ccc");
       ry += VENDOR_DAY_H;
@@ -726,7 +716,8 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
       r(cx, cy, cw, 28, "#f9fafb", 6);
       r(cx, cy + 14, cw, 14, "#f9fafb"); // flatten bottom of header
       ln(cx, cy + 28, cx + cw, cy + 28);
-      t(s.vendorName, cx + 8, cy + 14, { size: 10, bold: true, color: "#111827" });
+      const soldLabel = vendorSoldDayTitle(s.vendorName, data.weekEnd ?? data.date);
+      t(soldLabel.length > 34 ? `${soldLabel.slice(0, 32)}…` : soldLabel, cx + 8, cy + 14, { size: 10, bold: true, color: "#111827" });
 
       // Status badge
       const badgeW = ctx.measureText(sTxt).width + 16;
@@ -744,7 +735,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
         ...(coAmt > 0
           ? [[arrearsWeekLabel(data.weekStart), fmtAmount(coAmt) + " FCFA", "#991b1b"]] as [string, string, string?][]
           : []),
-        ["Versé",         fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount)) + " FCFA"],
+        ["Versé",         fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount, s.settlementMode)) + " FCFA"],
         [
           coAmt > 0 ? "Montant à verser" : "Total à verser",
           fmtAmount(mainDueJ) + " FCFA",
@@ -770,7 +761,10 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
 
     // Totals section
     const totalAmount = ws.reduce((s, r2) => s + r2.amount, 0);
-    const totalPaid   = ws.reduce((s, r2) => s + paidShownVersusWeekContext(r2.paidAmount, r2.amount, r2.commission, r2.carryOverAmount), 0);
+    const totalPaid   = ws.reduce(
+      (s, r2) => s + paidShownVersusWeekContext(r2.paidAmount, r2.amount, r2.commission, r2.carryOverAmount, r2.settlementMode),
+      0,
+    );
     const totalReste  = ws.reduce((s, r2) => s + (r2.totalToPay ?? r2.remainingAmount ?? 0), 0);
     const ty = TITLE_H + ROW_COUNT * (CARD_H + CARD_GAP) + CARD_GAP;
     const tw = W - PAD * 2;
@@ -807,7 +801,6 @@ export default function VendorTracking() {
 
   const [date, setDate]       = useState<string>(yesterdayLocal());
   const [applied, setApplied] = useState<string>(yesterdayLocal());
-  const [search, setSearch]   = useState("");
   const [saving, setSaving]   = useState(false);
   const [savingWeek, setSavingWeek] = useState(false);
 
@@ -872,18 +865,7 @@ export default function VendorTracking() {
   const summary     = data?.summary     ?? [];
   const weekSummary = data?.weekSummary ?? [];
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return vouchers;
-    const q = foldText(search);
-    return vouchers.filter(
-      (v) =>
-        foldText(v.username).includes(q) ||
-        foldText(v.profileName).includes(q) ||
-        foldText(v.vendorName).includes(q),
-    );
-  }, [vouchers, search]);
-
-  const totalAmount      = useMemo(() => filtered.reduce((s, v) => s + v.amount, 0), [filtered]);
+  const totalAmount      = useMemo(() => vouchers.reduce((s, v) => s + v.amount, 0), [vouchers]);
   const grandTotal       = useMemo(() => summary.reduce((s, r) => s + r.amount, 0), [summary]);
   const grandCount       = useMemo(() => summary.reduce((s, r) => s + r.count, 0), [summary]);
   const activeSummary    = useMemo(() => summary.filter((s) => s.count > 0), [summary]);
@@ -891,7 +873,10 @@ export default function VendorTracking() {
   const weekTotal_amount = useMemo(() => weekSummary.reduce((s, r) => s + r.amount, 0), [weekSummary]);
   const weekTotal_count  = useMemo(() => weekSummary.reduce((s, r) => s + r.count, 0), [weekSummary]);
   const weekTotal_paid   = useMemo(
-    () => weekSummary.reduce((s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount), 0),
+    () => weekSummary.reduce(
+      (s, r) => s + paidShownVersusWeekContext(r.paidAmount, r.amount, r.commission, r.carryOverAmount, r.settlementMode),
+      0,
+    ),
     [weekSummary],
   );
   const weekTotal_reste  = useMemo(() => weekSummary.reduce((s, r) => s + (r.totalToPay ?? r.remainingAmount ?? 0), 0), [weekSummary]);
@@ -938,9 +923,8 @@ export default function VendorTracking() {
         </CardHeader>
 
         <CardContent className="pt-4 space-y-3">
-          {/* Filter bar */}
+          {/* Filtre jour + rapport hebdo (semaine précédente) */}
           <div className="space-y-2">
-            {/* Ligne 1 : date + filtres */}
             <div className="flex flex-wrap items-end gap-2">
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Date</span>
@@ -955,57 +939,85 @@ export default function VendorTracking() {
                   />
                 </div>
               </div>
-              <Button size="sm" className="gap-1.5" onClick={() => { setApplied(date); setSearch(""); }}>
+              <Button size="sm" className="gap-1.5" onClick={() => setApplied(date)}>
                 <Search className="h-3.5 w-3.5" /> Filtrer
               </Button>
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { const y = yesterdayLocal(); setDate(y); setApplied(y); setSearch(""); }}>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { const y = yesterdayLocal(); setDate(y); setApplied(y); }}>
                 <RotateCcw className="h-3.5 w-3.5" /> Hier
               </Button>
+              <div className="flex flex-wrap items-center gap-1.5 sm:ml-1 sm:pl-2 sm:border-l sm:border-gray-200">
+                <span className="hidden sm:inline text-[10px] text-gray-500 whitespace-nowrap" title={`Rapport du ${dateLabelFr}`}>
+                  Jour affiché
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 flex-shrink-0 whitespace-nowrap"
+                  disabled={!data || grandCount === 0}
+                  onClick={() => data && openPrintWindow(data, applied, arrearsData)}
+                  title={`Imprimer le rapport journalier du ${dateLabelFr}`}
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Imprimer
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-8 flex-shrink-0 p-0"
+                  disabled={!data || grandCount === 0 || saving}
+                  onClick={handleSaveDailyJpeg}
+                  title={`Enregistrer en image (JPEG) — rapport du ${dateLabelFr}`}
+                  aria-label={`Image JPEG du ${dateLabelFr}`}
+                >
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+
             </div>
 
-            {/* Ligne 2 : boutons impression/export — tous sur une seule ligne */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-              {/* Daily JPEG */}
-              <Button size="sm" variant="outline" className="w-8 flex-shrink-0 p-0" disabled={!data || grandCount === 0 || saving} onClick={handleSaveDailyJpeg} title="Enregistrer résumé journalier en image">
-                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
-              </Button>
-              {/* Daily print */}
-              <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0 whitespace-nowrap" disabled={!data || grandCount === 0} onClick={() => data && openPrintWindow(data, search, arrearsData)}>
-                <Printer className="h-3.5 w-3.5" /> Imprimer
-              </Button>
-              {/* Hebdo JPEG */}
-              <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0 whitespace-nowrap border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-                disabled={!hasPrevWeekData || savingWeek || prevWeekLoading}
-                onClick={handleSaveWeekJpeg}
-                title={`Enregistrer rapport semaine précédente en image${prevWeekLabel !== "Semaine" ? " — " + prevWeekLabel : ""}`}
-              >
-                {savingWeek ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
-                <span>JPEG Hebdo</span>
-              </Button>
-              {/* Hebdo print */}
-              <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0 whitespace-nowrap border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-                disabled={!hasPrevWeekData || prevWeekLoading}
-                onClick={() => prevWeekData && openWeekPrintWindow(prevWeekData)}
-                title={`Imprimer rapport semaine précédente${prevWeekLabel !== "Semaine" ? " — " + prevWeekLabel : ""}`}
-              >
-                <CalendarRange className="h-3.5 w-3.5" /> <span>Imprimer Hebdo</span>
-              </Button>
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="flex items-start gap-2 min-w-0 flex-1">
+                  <CalendarRange className="h-4 w-4 text-indigo-600 flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800">
+                      Rapport hebdomadaire — semaine précédente
+                    </p>
+                    <p className="text-xs text-indigo-700 truncate">
+                      {hasPrevWeekData ? prevWeekLabel : "Aucune donnée pour la semaine précédente"}
+                    </p>
+                    <p className="text-[10px] text-indigo-500/90 mt-0.5 hidden sm:block">
+                      Distinct du rapport journalier ci-dessus (jour affiché : {dateLabelFr})
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 whitespace-nowrap border-indigo-300 text-indigo-800 bg-white hover:bg-indigo-50"
+                    disabled={!hasPrevWeekData || prevWeekLoading}
+                    onClick={() => prevWeekData && openWeekPrintWindow(prevWeekData)}
+                    title={hasPrevWeekData ? `Imprimer le rapport hebdo — ${prevWeekLabel}` : "Semaine précédente sans ventes"}
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    Imprimer semaine préc.
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 whitespace-nowrap border-indigo-300 text-indigo-800 bg-white hover:bg-indigo-50"
+                    disabled={!hasPrevWeekData || savingWeek || prevWeekLoading}
+                    onClick={handleSaveWeekJpeg}
+                    title={hasPrevWeekData ? `JPEG — rapport hebdo ${prevWeekLabel}` : "Semaine précédente sans ventes"}
+                  >
+                    {savingWeek ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageDown className="h-3.5 w-3.5" />}
+                    JPEG semaine préc.
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
-
-          {hasPrevWeekData && (
-            <p className="text-[10px] text-indigo-500">
-              Rapport hebdo : semaine précédente ({prevWeekLabel})
-            </p>
-          )}
-
-          {/* Search */}
-          <Input
-            placeholder="Rechercher vendeur, utilisateur, profil…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-8 text-xs max-w-xs"
-          />
 
           {/* Error */}
           {isError && (
@@ -1057,7 +1069,9 @@ export default function VendorTracking() {
                           className="flex items-center justify-between px-3 py-2 border-b"
                           style={{ backgroundColor: pal.light, borderColor: pal.border }}
                         >
-                          <span className="font-semibold truncate mr-2" style={{ color: pal.dark }}>{s.vendorName}</span>
+                          <span className="font-semibold truncate mr-2" style={{ color: pal.dark }}>
+                            {vendorSoldDayTitle(s.vendorName, applied)}
+                          </span>
                           <span className="font-bold tabular-nums flex-shrink-0" style={{ color: pal.dark }}>
                             {fmtAmount(s.amount)} FCFA
                           </span>
@@ -1141,7 +1155,13 @@ export default function VendorTracking() {
                 {/* Grille de cartes 2 colonnes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[...weekSummary].sort((a, b) => b.amount - a.amount).map((s) => {
-                    const paidAggregateShown = paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount);
+                    const paidAggregateShown = paidShownVersusWeekContext(
+                      s.paidAmount,
+                      s.amount,
+                      s.commission,
+                      s.carryOverAmount,
+                      s.settlementMode,
+                    );
                     const badge = statusBadge(s.paymentStatus);
                     const commRate = s.commissionRate ?? 0;
                     const cardBorder = s.paymentStatus === "full"
@@ -1210,7 +1230,25 @@ export default function VendorTracking() {
                             <tr className={(s.carryOverAmount ?? 0) > 0 ? "border-b border-gray-50" : ""}>
                               <td className="px-3 py-1.5 text-gray-500">Rémunération</td>
                               <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">
-                                {(s.commission ?? 0) > 0 ? `${fmtAmount(s.commission!)} FCFA` : <span className="text-gray-300">—</span>}
+                                {(() => {
+                                  const isDaily = (s.settlementMode ?? "daily") !== "weekly";
+                                  const show = isDaily
+                                    ? commRate > 0 && s.amount > 0
+                                    : (s.commission ?? 0) > 0;
+                                  if (!show) return <span className="text-gray-300">—</span>;
+                                  const gross = s.commissionGross ?? s.commission ?? 0;
+                                  const net = s.commission ?? 0;
+                                  return (
+                                    <>
+                                      {fmtAmount(net)} FCFA
+                                      {isDaily && gross > net && (
+                                        <span className="block text-[9px] text-gray-400 font-normal">
+                                          avant reliquats : {fmtAmount(gross)}
+                                        </span>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                     </td>
                   </tr>
                             {(s.carryOverAmount ?? 0) > 0 && (
@@ -1275,7 +1313,7 @@ export default function VendorTracking() {
                   </tr>
                   <tr className="bg-emerald-50 border-b border-emerald-100">
                     <th colSpan={4} className="px-3 py-1.5 text-left text-emerald-700 font-medium text-xs">
-                      {filtered.length} ticket{filtered.length !== 1 ? "s" : ""}
+                      {vouchers.length} ticket{vouchers.length !== 1 ? "s" : ""}
                     </th>
                     <th colSpan={2} className="px-3 py-1.5 text-right text-emerald-700 font-bold text-xs">
                       Total : {fmtAmount(totalAmount)} FCFA
@@ -1283,16 +1321,14 @@ export default function VendorTracking() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.length === 0 ? (
+                  {vouchers.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
-                        {vouchers.length === 0
-                          ? "Aucune vente enregistrée pour cette date"
-                          : "Aucun résultat pour cette recherche"}
+                        Aucune vente enregistrée pour cette date
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((v, i) => (
+                    vouchers.map((v, i) => (
                       <tr key={v.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}>
                         <td className="px-3 py-1.5 text-gray-400 tabular-nums">{i + 1}</td>
                         <td className="px-3 py-1.5 font-mono text-gray-600">{v.time ?? "—"}</td>

@@ -1,5 +1,6 @@
 import { and, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, vouchersTable, vendorPaymentsTable, vendorDailyPaymentsTable } from "@workspace/db";
+import { isDailySettlementVendor } from "./vendor-settlement.js";
 
 /**
  * Reliquat cumulé (net) des semaines calendaires strictement antérieures à
@@ -8,13 +9,14 @@ import { db, vouchersTable, vendorPaymentsTable, vendorDailyPaymentsTable } from
 export async function carryOverByVendorBeforeWeek(
   routerId: number,
   beforeWeekMonday: string,
-  vendorRows: { id: number; commissionRate: number | null; isDemo: boolean }[],
+  vendorRows: { id: number; commissionRate: number | null; isDemo: boolean; settlementMode?: string | null }[],
 ): Promise<Map<number, number>> {
   const out = new Map<number, number>();
   const vendorIds = vendorRows.filter((v) => !v.isDemo).map((v) => v.id);
   if (vendorIds.length === 0) return out;
   const demoIds = new Set(vendorRows.filter((v) => v.isDemo).map((v) => v.id));
   const rateById = new Map(vendorRows.map((v) => [v.id, v.commissionRate ?? 0] as const));
+  const vendorById = new Map(vendorRows.map((v) => [v.id, v] as const));
 
   const [historicalSalesRaw, historicalWeeklyPaidRaw, historicalDailyPaidRaw] = await Promise.all([
     db.select({
@@ -69,8 +71,12 @@ export async function carryOverByVendorBeforeWeek(
 
   for (const s of historicalSalesRaw) {
     if (!s.vendorId || demoIds.has(s.vendorId)) continue;
+    const gross = Number(s.amount || 0);
+    const vendorRow = vendorById.get(s.vendorId);
     const commRate = rateById.get(s.vendorId) ?? 0;
-    const expected = Math.max(0, Number(s.amount || 0) - Math.round(Number(s.amount || 0) * commRate) / 100);
+    const commission = Math.round(gross * commRate) / 100;
+    const dailySettlement = vendorRow ? isDailySettlementVendor(vendorRow) : true;
+    const expected = dailySettlement ? gross : Math.max(0, gross - commission);
     const paid = historicalPaidByVendorWeek.get(`${s.vendorId}|${s.weekStart}`) ?? 0;
     const missing = Math.max(0, Math.round(expected - paid));
     if (missing > 0) {

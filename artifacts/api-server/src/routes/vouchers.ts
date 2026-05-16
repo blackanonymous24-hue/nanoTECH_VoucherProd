@@ -5,11 +5,17 @@ import {
   generateVouchers,
   listProfiles,
   enableDisableHotspotUsers,
-  enableDisableHotspotLot,
   enableDisableHotspotUsersByComment,
 } from "../lib/mikrotik.js";
 import type { HotspotUser } from "../lib/mikrotik.js";
-import { invalidateUserCache, appendCachedUsers, resolveCallerScope } from "./routers.js";
+import {
+  invalidateUserCache,
+  appendCachedUsers,
+  resolveCallerScope,
+  patchCachedHotspotUsersDisabled,
+  patchCachedHotspotUsersDisabledByComment,
+} from "./routers.js";
+
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { withRouterLock } from "../lib/router-lock.js";
 
@@ -362,10 +368,12 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
 
 // POST /vouchers/users-toggle — enable/disable a specific set of usernames
 router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
-  const { routerId, usernames, enable } = req.body as {
+  const { routerId, usernames, enable, skipSessionKick } = req.body as {
     routerId?: number;
     usernames?: string[];
     enable?: boolean;
+    /** true = toggle lot : pas d’expulsion session ni purge cookie */
+    skipSessionKick?: boolean;
   };
   if (!routerId || !Array.isArray(usernames) || usernames.length === 0) {
     res.status(400).json({ error: "routerId et usernames sont requis" });
@@ -381,9 +389,13 @@ router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
         { host: r.host, port: r.port, username: r.username, password: r.password },
         usernames,
         enable ?? false,
+        { kickSessions: !skipSessionKick },
       ),
     );
-    await invalidateUserCache(routerId);
+    const disabledOnRouter = !(enable ?? false);
+    if (!patchCachedHotspotUsersDisabled(r.ownerAdminId, routerId, usernames, disabledOnRouter)) {
+      void invalidateUserCache(routerId);
+    }
     res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -426,19 +438,16 @@ router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
-    const dbRows = await db
-      .select({ username: vouchersTable.username })
-      .from(vouchersTable)
-      .where(and(eq(vouchersTable.routerId, routerId), eq(vouchersTable.comment, commentTrim)));
-    const dbUsernames = dbRows.map((row) => row.username);
-
-    /** Un seul aller-retour MikroTik (comme la génération) : par commentaire si pas de tickets en base, sinon lot complet (commentaire + noms DB). */
+    /** Toujours : print MikroTik `?comment=<lot>` + user/set en parallèle (jamais de liste de noms DB). */
     const result = await withRouterLock(routerId, () =>
-      dbUsernames.length === 0
-        ? enableDisableHotspotUsersByComment(conn, commentTrim, enable ?? false)
-        : enableDisableHotspotLot(conn, commentTrim, dbUsernames, enable ?? false),
+      enableDisableHotspotUsersByComment(conn, commentTrim, enable ?? false),
     );
-    await invalidateUserCache(routerId);
+    const disabledOnRouter = !(enable ?? false);
+    if (
+      !patchCachedHotspotUsersDisabledByComment(r.ownerAdminId, routerId, commentTrim, disabledOnRouter)
+    ) {
+      void invalidateUserCache(routerId);
+    }
     res.json(result);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

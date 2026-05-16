@@ -1185,7 +1185,9 @@ export default function GenerateVouchers() {
                     ) : (
                       <Printer className="h-3.5 w-3.5 shrink-0" />
                     )}
-                    {isPrintingSmall ? "Impression en cours…" : "Imprimer"}
+                    <span className="hidden sm:inline">
+                      {isPrintingSmall ? "Impression en cours…" : "Imprimer"}
+                    </span>
                   </Button>
                 ) : (
                   <Button
@@ -1307,7 +1309,9 @@ export default function GenerateVouchers() {
                   ) : (
                     <Printer className="h-3.5 w-3.5 shrink-0" />
                   )}
-                  {isPrintingSmall ? "Impression en cours…" : "Imprimer"}
+                  <span className="hidden sm:inline">
+                    {isPrintingSmall ? "Impression en cours…" : "Imprimer"}
+                  </span>
                 </Button>
                 <Button
                   size="sm"

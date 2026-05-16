@@ -99,9 +99,12 @@ import { foldText } from "@/lib/text";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   type HotspotBulkProgressState,
-  runHotspotUserToggleBatches,
-  TOGGLE_BATCH_THRESHOLD,
+  fetchLotDisableWithAutoResume,
 } from "@/lib/hotspot-bulk-toggle";
+import {
+  setApiRequestPause,
+  HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS,
+} from "@/lib/installAuthFetch";
 
 /** Compteurs hotspot : bytesIn = download (↓), bytesOut = upload (↑) — voir `hotspotTrafficBytesFromRouter` côté API. */
 function formatUserTrafficBytes(bytes: string | null | undefined): string {
@@ -156,12 +159,15 @@ function HotspotBulkProgressPanel({
   progress,
   paused,
   className,
+  indeterminate = false,
 }: {
   progress: HotspotBulkProgressState;
   paused: boolean;
   className?: string;
+  indeterminate?: boolean;
 }) {
   const pct = Math.round((progress.done / Math.max(1, progress.total)) * 100);
+  const showIndeterminate = indeterminate || (progress.total <= 1 && progress.done < 1);
   return (
     <div
       className={cn(
@@ -179,11 +185,12 @@ function HotspotBulkProgressPanel({
         <div
           className={cn(
             "absolute inset-y-0 left-0 rounded-full transition-all duration-500",
+            showIndeterminate && "animate-lot-progress-indeterminate",
             paused ? "bg-amber-400" : progress.enable ? "bg-green-600" : "bg-orange-500",
           )}
-          style={{ width: `${pct}%` }}
+          style={{ width: showIndeterminate ? "38%" : `${pct}%` }}
         />
-        {!paused && (
+        {!paused && !showIndeterminate && (
           <div
             className="absolute inset-0 animate-shimmer"
             style={{
@@ -251,47 +258,6 @@ const showHotspotBulkProgressInLotStrip = (
   selectedSize: number,
 ): boolean => view === "list" && filterComment !== "all" && selectedSize === 0;
 
-async function collectLotToggleUsernames(
-  base: string,
-  routerId: number,
-  comment: string,
-): Promise<string[]> {
-  const enc = encodeURIComponent(comment);
-  const settled = await Promise.allSettled([
-    fetch(`${base}/api/vouchers/lot-usernames?routerId=${routerId}&comment=${enc}`).then(
-      async (r): Promise<string[]> => {
-        if (!r.ok) return [];
-        const body = (await r.json()) as { usernames?: string[] };
-        return Array.isArray(body.usernames) ? body.usernames : [];
-      },
-    ),
-    fetch(`${base}/api/routers/${routerId}/users?comment=${enc}&limit=999999`).then(
-      async (r): Promise<string[]> => {
-        if (!r.ok) return [];
-        const body = (await r.json()) as { users?: Array<{ username?: string }> };
-        return (body.users ?? []).map((u) => String(u.username ?? "").trim()).filter(Boolean);
-      },
-    ),
-  ]);
-
-  const fromDb = settled[0].status === "fulfilled" ? settled[0].value : [];
-  const fromRouter = settled[1].status === "fulfilled" ? settled[1].value : [];
-
-  const seen = new Set<string>();
-  const out: string[] = [];
-  const add = (raw: string | undefined) => {
-    const u = String(raw ?? "").trim();
-    if (!u) return;
-    const k = u.toLowerCase();
-    if (seen.has(k)) return;
-    seen.add(k);
-    out.push(u);
-  };
-  for (const u of fromDb) add(u);
-  for (const u of fromRouter) add(u);
-  return out;
-}
-
 // Module-level cache — persists across component unmount/remount (tab navigation).
 // Provides instant display on re-visit without waiting for React Query to refetch.
 const _vouchersCache: Record<number, {
@@ -317,6 +283,27 @@ function optimisticSetDisabled(routerId: number, usernames: Set<string>, disable
         ...old,
         users: old.users.map((u) =>
           lowered.has(String(u.username ?? "").trim().toLowerCase()) ? { ...u, disabled } : u,
+        ),
+      };
+    },
+  );
+  return snapshot;
+}
+
+function optimisticSetDisabledByComment(routerId: number, comment: string, disabled: boolean) {
+  const want = comment.trim();
+  const snapshot = queryClient.getQueriesData<HotspotUserListResponse>({
+    queryKey: [`/routers/${routerId}/users`],
+    exact: false,
+  });
+  queryClient.setQueriesData<HotspotUserListResponse>(
+    { queryKey: [`/routers/${routerId}/users`], exact: false },
+    (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        users: old.users.map((u) =>
+          (u.comment ?? "").trim() === want ? { ...u, disabled } : u,
         ),
       };
     },
@@ -402,10 +389,13 @@ export default function Vouchers() {
   const [hotspotBulkProgress, setHotspotBulkProgress] = useState<HotspotBulkProgressState | null>(null);
   const [hotspotBulkPaused, setHotspotBulkPaused] = useState(false);
   const [lotTogglePhase, setLotTogglePhase] = useState<"enabling" | "disabling" | null>(null);
+  /** D’où part le toggle lot (barre de progression dans la carte Lots vs bandeau Liste). */
+  const [lotToggleOrigin, setLotToggleOrigin] = useState<"lots-tab-card" | "list-strip" | null>(null);
   /** Confirmation avant Désactiver/Réactiver un lot (liste ou onglet Lots). */
   const [confirmLotToggle, setConfirmLotToggle] = useState<{
     comment: string;
     enable: boolean;
+    origin: "lots-tab-card" | "list-strip";
   } | null>(null);
   /** Lot en cours d'impression (nom du commentaire / lot). */
   const [printingLot, setPrintingLot] = useState<string | null>(null);
@@ -492,6 +482,7 @@ export default function Vouchers() {
     setHotspotBulkProgress(null);
     setHotspotBulkPaused(false);
     setLotTogglePhase(null);
+    setLotToggleOrigin(null);
     setLotsSearch("");
     setLotsFilterProfile("all");
     setLotsFilterVendor("all");
@@ -802,64 +793,55 @@ export default function Vouchers() {
     [profilesList],
   );
 
-  // ── Lot disable/enable : gros lots → paquets + barre de progression ; petits lots → POST serveur unique. ──
-  const handleDisableLot = async (comment: string, enable: boolean) => {
+  // ── Lot disable/enable : un seul POST → MikroTik `?comment=` + user/set (pas de collecte ni paquets). ──
+  const handleDisableLot = async (
+    comment: string,
+    enable: boolean,
+    origin: "lots-tab-card" | "list-strip",
+  ) => {
     if (!activeRouterId || isDisabling) return;
 
+    setLotToggleOrigin(origin);
     setLotTogglePhase(enable ? "enabling" : "disabling");
     setIsDisabling(true);
     setDisablingLotComment(comment);
 
-    let snapshot: ReturnType<typeof optimisticSetDisabled> | null = null;
+    const lotMeta = lots.find((l) => l.name === comment);
+    const progressTotal = Math.max(
+      1,
+      lotMeta?.count ?? (filterComment === comment ? filteredTotal : 0),
+    );
+    setHotspotBulkProgress({ done: 0, total: progressTotal, enable });
+    setHotspotBulkPaused(false);
+
+    let progressTimer: ReturnType<typeof setInterval> | undefined;
+    progressTimer = setInterval(() => {
+      setHotspotBulkProgress((p) => {
+        if (!p) return null;
+        const cap = Math.max(1, Math.floor(p.total * 0.9));
+        if (p.done >= cap) return p;
+        const step = Math.max(1, Math.ceil(p.total / 35));
+        return { ...p, done: Math.min(cap, p.done + step) };
+      });
+    }, 160);
+
+    const snapshot = optimisticSetDisabledByComment(activeRouterId, comment, !enable);
+
+    setApiRequestPause(true, {
+      allowPathPatterns: [...HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS],
+      scopeRouterId: activeRouterId,
+    });
 
     try {
-      const toggleUsernames = await collectLotToggleUsernames(BASE, activeRouterId, comment);
-
-      if (toggleUsernames.length > 0) {
-        snapshot = optimisticSetDisabled(activeRouterId, new Set(toggleUsernames), !enable);
-      }
-
-      if (toggleUsernames.length >= TOGGLE_BATCH_THRESHOLD) {
-        await runHotspotUserToggleBatches(
-          BASE,
-          [{ routerId: activeRouterId, usernames: toggleUsernames }],
-          enable,
-          {
-            showProgress: true,
-            onProgress: setHotspotBulkProgress,
-            onPaused: setHotspotBulkPaused,
-            clearProgressOnDone: false,
-          },
-        );
-        toast({
-          title: enable
-            ? `${toggleUsernames.length} compte(s) réactivé(s) sur MikroTik`
-            : `${toggleUsernames.length} compte(s) désactivé(s) sur MikroTik`,
-          description: `Lot : ${comment}`,
-        });
-        if (filterComment === comment) {
-          setFilterComment("all");
-          setPage(0);
-        }
-        void refetchLots();
-        void refetchUsers();
-        return;
-      }
-
-      const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routerId: activeRouterId, comment, enable }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { done?: number; error?: string };
-      if (!res.ok) {
-        throw new Error(typeof data.error === "string" && data.error ? data.error : `HTTP ${res.status}`);
-      }
-      const done = data.done ?? 0;
+      const { done } = await fetchLotDisableWithAutoResume(
+        BASE,
+        activeRouterId,
+        comment,
+        enable,
+        { onPaused: setHotspotBulkPaused },
+      );
       if (done === 0) {
-        if (snapshot && snapshot.length > 0) {
-          for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
-        }
+        for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
         toast({
           title: "Aucun compte trouvé",
           description: `Aucun utilisateur correspondant sur MikroTik pour « ${comment} ».`,
@@ -867,6 +849,12 @@ export default function Vouchers() {
         });
         return;
       }
+      setHotspotBulkProgress({
+        done,
+        total: Math.max(progressTotal, done),
+        enable,
+      });
+      await new Promise<void>((r) => setTimeout(r, 450));
       toast({
         title: enable ? `${done} compte(s) réactivé(s) sur MikroTik` : `${done} compte(s) désactivé(s) sur MikroTik`,
         description: `Lot : ${comment}`,
@@ -876,11 +864,8 @@ export default function Vouchers() {
         setPage(0);
       }
       void refetchLots();
-      void refetchUsers();
     } catch (err) {
-      if (snapshot && snapshot.length > 0) {
-        for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
-      }
+      for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       if (!isApiPauseError(err)) {
         toast({
           title: enable ? "Erreur réactivation" : "Erreur désactivation",
@@ -888,11 +873,13 @@ export default function Vouchers() {
           variant: "destructive",
         });
       } else {
-        void refetchUsers();
         void refetchLots();
       }
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
+      setApiRequestPause(false);
       setLotTogglePhase(null);
+      setLotToggleOrigin(null);
       setIsDisabling(false);
       setDisablingLotComment(null);
       setHotspotBulkProgress(null);
@@ -961,6 +948,10 @@ export default function Vouchers() {
     const enable = !!editingUser.disabled;
     const snapshot = optimisticSetDisabled(activeRouterId, new Set([u]), !enable);
     setIsTogglingEditUserDisabled(true);
+    setApiRequestPause(true, {
+      allowPathPatterns: [...HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS],
+      scopeRouterId: activeRouterId,
+    });
     try {
       const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
         method: "POST",
@@ -968,14 +959,21 @@ export default function Vouchers() {
         body: JSON.stringify({ routerId: activeRouterId, usernames: [u], enable }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { done?: number; notFound?: string[] };
+      const notFound = (data.notFound ?? []).some(
+        (n) => String(n).trim().toLowerCase() === u.trim().toLowerCase(),
+      );
+      if ((data.done ?? 0) === 0 || notFound) {
+        throw new Error("Utilisateur introuvable sur le routeur");
+      }
       setEditingUser((prev) => (prev && prev.username === u ? { ...prev, disabled: !enable } : prev));
       toast({ title: enable ? "Utilisateur réactivé" : "Utilisateur désactivé", description: u });
       void refetchLots();
-      void refetchUsers();
     } catch (err) {
       for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
-      toast({ title: "Erreur", description: String(err), variant: "destructive" });
+      toast({ title: "Erreur", description: describeVoucherHotspotApplyError(err), variant: "destructive" });
     } finally {
+      setApiRequestPause(false);
       setIsTogglingEditUserDisabled(false);
     }
   };
@@ -987,6 +985,10 @@ export default function Vouchers() {
     const enable = user.disabled;
     const snapshot = optimisticSetDisabled(activeRouterId, new Set([u]), !user.disabled);
     setUserRowMikrotikToggle(u);
+    setApiRequestPause(true, {
+      allowPathPatterns: [...HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS],
+      scopeRouterId: activeRouterId,
+    });
     try {
       const res = await fetch(`${BASE}/api/vouchers/users-toggle`, {
         method: "POST",
@@ -994,16 +996,23 @@ export default function Vouchers() {
         body: JSON.stringify({ routerId: activeRouterId, usernames: [u], enable }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { done?: number; notFound?: string[] };
+      const notFound = (data.notFound ?? []).some(
+        (n) => String(n).trim().toLowerCase() === u.trim().toLowerCase(),
+      );
+      if ((data.done ?? 0) === 0 || notFound) {
+        throw new Error("Utilisateur introuvable sur le routeur");
+      }
       toast({
         title: enable ? "Réactivé sur MikroTik" : "Désactivé sur MikroTik",
         description: u,
       });
       void refetchLots();
-      void refetchUsers();
     } catch (err) {
       for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       toast({ title: "Erreur MikroTik", description: describeVoucherHotspotApplyError(err), variant: "destructive" });
     } finally {
+      setApiRequestPause(false);
       setUserRowMikrotikToggle(null);
     }
   };
@@ -1638,14 +1647,6 @@ export default function Vouchers() {
         </Card>
       ) : (
         <>
-          {hotspotBulkProgress &&
-            (filterComment === "all" || selectedUsernames.size > 0) && (
-              <HotspotBulkProgressPanel
-                progress={hotspotBulkProgress}
-                paused={hotspotBulkPaused}
-                className="mb-4"
-              />
-            )}
           {/* Tab toggle */}
           <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
             <button
@@ -1888,8 +1889,11 @@ export default function Vouchers() {
 
               {filterComment !== "all" && (
                 <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
-                  {lotTogglePhase ||
+                  {(lotTogglePhase &&
+                    disablingLotComment === filterComment &&
+                    lotToggleOrigin === "list-strip") ||
                   (hotspotBulkProgress &&
+                    lotToggleOrigin === "list-strip" &&
                     showHotspotBulkProgressInLotStrip(view, filterComment, selectedUsernames.size)) ? (
                     <>
                       <div className="flex items-center gap-2 min-w-0 mb-2">
@@ -1905,7 +1909,9 @@ export default function Vouchers() {
                         </span>
                       </div>
                       {hotspotBulkProgress &&
-                      showHotspotBulkProgressInLotStrip(view, filterComment, selectedUsernames.size) ? (
+                      lotToggleOrigin === "list-strip" &&
+                      (showHotspotBulkProgressInLotStrip(view, filterComment, selectedUsernames.size) ||
+                        (lotTogglePhase && disablingLotComment === filterComment)) ? (
                         <HotspotBulkProgressPanel
                           progress={hotspotBulkProgress}
                           paused={hotspotBulkPaused}
@@ -1940,6 +1946,7 @@ export default function Vouchers() {
                               setConfirmLotToggle({
                                 comment: filterComment,
                                 enable: false,
+                                origin: "list-strip",
                               })
                             }
                             className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
@@ -1961,6 +1968,7 @@ export default function Vouchers() {
                               setConfirmLotToggle({
                                 comment: filterComment,
                                 enable: true,
+                                origin: "list-strip",
                               })
                             }
                             className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
@@ -2048,7 +2056,7 @@ export default function Vouchers() {
                         ) : (
                           <Printer className="h-3 w-3 shrink-0" />
                         )}
-                        <span>
+                        <span className="hidden sm:inline">
                           {printingLot === filterComment ? "Impression en cours…" : "Imprimer"}
                         </span>
                       </button>
@@ -2443,7 +2451,7 @@ export default function Vouchers() {
                             ) : (
                               <Printer className="h-3.5 w-3.5 shrink-0" />
                             )}
-                            <span className={printingLot === lot.name ? "inline text-[10px] sm:text-xs" : "hidden sm:inline"}>
+                            <span className="hidden sm:inline">
                               {printingLot === lot.name ? "Impression en cours…" : "Imprimer"}
                             </span>
                           </Button>
@@ -2472,28 +2480,29 @@ export default function Vouchers() {
                             variant="ghost"
                             className={
                               allDisabled
-                                ? "h-7 w-7 p-0 shrink-0 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
-                                : "h-7 w-7 p-0 shrink-0 text-green-600 hover:text-green-800 hover:bg-green-50"
+                                ? "h-7 w-7 p-0 shrink-0 text-orange-500 hover:text-orange-700 hover:bg-orange-50"
+                                : "h-7 w-7 p-0 shrink-0 text-emerald-500/90 hover:text-emerald-700 hover:bg-emerald-50"
                             }
                             disabled={isDisabling}
                             title={
                               allDisabled
-                                ? "Lot entièrement désactivé sur MikroTik — cliquer pour réactiver"
-                                : "Au moins un compte actif — cliquer pour tout désactiver sur MikroTik"
+                                ? "Lot désactivé sur MikroTik — réactiver tout le lot"
+                                : "Activer sur MikroTik — désactiver tout le lot"
                             }
                             onClick={() =>
                               setConfirmLotToggle({
                                 comment: lot.name,
                                 enable: allDisabled,
+                                origin: "lots-tab-card",
                               })
                             }
                           >
                             {lotPowerBusy ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : allDisabled ? (
-                              <PowerOff className="h-3.5 w-3.5" />
+                              <Lock className="h-3.5 w-3.5" aria-hidden />
                             ) : (
-                              <Power className="h-3.5 w-3.5" />
+                              <Unlock className="h-3.5 w-3.5" aria-hidden />
                             )}
                           </Button>
                           <Button
@@ -2510,6 +2519,16 @@ export default function Vouchers() {
                           </Button>
                         </div>
                       </div>
+                      {lotPowerBusy &&
+                        hotspotBulkProgress &&
+                        lotToggleOrigin === "lots-tab-card" && (
+                        <div className="px-3 pb-2 sm:px-5 sm:pb-3 border-t border-gray-100 bg-gray-50/80">
+                          <HotspotBulkProgressPanel
+                            progress={hotspotBulkProgress}
+                            paused={hotspotBulkPaused}
+                          />
+                        </div>
+                      )}
 
                       {/* Preview: first 4 vouchers */}
                       <div className="border-t border-gray-100 bg-gray-50 px-3 py-1 sm:px-5 sm:py-2 flex flex-wrap gap-2 sm:gap-3">
@@ -3197,7 +3216,7 @@ export default function Vouchers() {
                     if (!confirmLotToggle || isDisabling) return;
                     const t = confirmLotToggle;
                     setConfirmLotToggle(null);
-                    void handleDisableLot(t.comment, t.enable);
+                    void handleDisableLot(t.comment, t.enable, t.origin);
                   }}
                 >
                   {confirmLotToggle.enable ? "Réactiver" : "Désactiver"}

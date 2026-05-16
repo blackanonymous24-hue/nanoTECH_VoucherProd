@@ -56,6 +56,8 @@ export type RunHotspotUserToggleBatchesOptions = {
   clearProgressOnDone?: boolean;
   /** Routeur concerné : limite la pause API aux requêtes de ce routeur (défaut : un seul plan → son routerId). */
   scopeRouterId?: number | null;
+  /** Toggle lot : pas de kick session / purge cookie sur MikroTik (défaut false). */
+  skipSessionKick?: boolean;
 };
 
 export async function runHotspotUserToggleBatches(
@@ -111,7 +113,12 @@ export async function runHotspotUserToggleBatches(
               const res = await fetch(`${base}/api/vouchers/users-toggle`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ routerId, usernames: slice, enable }),
+                body: JSON.stringify({
+                  routerId,
+                  usernames: slice,
+                  enable,
+                  ...(options?.skipSessionKick ? { skipSessionKick: true } : {}),
+                }),
               });
               if (!res.ok) {
                 const err = Object.assign(new Error(`HTTP ${res.status}`), {
@@ -156,6 +163,54 @@ export async function runHotspotUserToggleBatches(
     }
     if (showProgress) {
       onPaused(false);
+    }
+  }
+}
+
+export type LotDisableAutoResumeOptions = {
+  onPaused?: (paused: boolean) => void;
+};
+
+/**
+ * POST /vouchers/lot-disable avec reprise auto si le routeur est injoignable
+ * (même logique que {@link runHotspotUserToggleBatches}).
+ */
+export async function fetchLotDisableWithAutoResume(
+  base: string,
+  routerId: number,
+  comment: string,
+  enable: boolean,
+  options?: LotDisableAutoResumeOptions,
+): Promise<{ done: number; error?: string }> {
+  const onPaused = options?.onPaused ?? (() => {});
+  let unreachableStreak = 0;
+
+  for (;;) {
+    try {
+      const res = await fetch(`${base}/api/vouchers/lot-disable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routerId, comment, enable }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { done?: number; error?: string };
+      if (!res.ok) {
+        throw Object.assign(
+          new Error(typeof data.error === "string" && data.error ? data.error : `HTTP ${res.status}`),
+          { response: { status: res.status } },
+        );
+      }
+      return { done: data.done ?? 0, error: data.error };
+    } catch (e: unknown) {
+      if (!isRouterUnreachableToggle(e)) throw e;
+      unreachableStreak++;
+      if (unreachableStreak === 1) {
+        await new Promise<void>((r) => setTimeout(r, 3000));
+        continue;
+      }
+      onPaused(true);
+      await waitForRouterToggle(routerId, base);
+      onPaused(false);
+      unreachableStreak = 0;
     }
   }
 }

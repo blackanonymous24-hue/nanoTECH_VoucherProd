@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/dialog";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 
+export type VendorSettlementMode = "daily" | "weekly";
+
 export type PersonFormData = {
   name: string;
   phone: string;
@@ -39,6 +41,7 @@ export type PersonFormData = {
   commentSuffix: string;
   commentSuffix2: string;
   commissionRate: number;
+  settlementMode: VendorSettlementMode;
   isDemo: boolean;
   ticketLetter: string;
 };
@@ -64,6 +67,7 @@ export function PersonForm({
     commentSuffix: string | null;
     commentSuffix2: string | null;
     commissionRate: number | null;
+    settlementMode?: VendorSettlementMode | null;
     isDemo: boolean | null;
     ticketLetter: string | null;
   }>;
@@ -86,6 +90,9 @@ export function PersonForm({
   const [commentSuffix2, setCommentSuffix2] = useState(initial?.commentSuffix2 ?? "");
   const [suffixTouched, setSuffixTouched] = useState(!!initial?.commentSuffix);
   const [commissionRate, setCommissionRate] = useState(String(initial?.commissionRate ?? 0));
+  const [settlementMode, setSettlementMode] = useState<VendorSettlementMode>(
+    initial?.settlementMode === "weekly" ? "weekly" : "daily",
+  );
   const [isDemo, setIsDemo] = useState(initial?.isDemo ?? false);
   const [hasTicketLetter, setHasTicketLetter] = useState(!!initial?.ticketLetter);
   const [ticketLetter, setTicketLetter] = useState(initial?.ticketLetter ?? "");
@@ -100,7 +107,19 @@ export function PersonForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ name, phone, email, username, password, commentSuffix, commentSuffix2, commissionRate: Math.min(100, Math.max(0, parseInt(commissionRate || "0", 10) || 0)), isDemo, ticketLetter: hasTicketLetter ? ticketLetter.trim() : "" });
+        onSubmit({
+          name,
+          phone,
+          email,
+          username,
+          password,
+          commentSuffix,
+          commentSuffix2,
+          commissionRate: Math.min(100, Math.max(0, parseInt(commissionRate || "0", 10) || 0)),
+          settlementMode,
+          isDemo,
+          ticketLetter: hasTicketLetter ? ticketLetter.trim() : "",
+        });
       }}
       className="flex flex-col gap-0"
     >
@@ -222,53 +241,94 @@ export function PersonForm({
         )}
 
         {!forManager && (
-          <div className="pt-2 border-t flex items-start gap-3 rounded-md border border-orange-200 bg-orange-50 px-3 py-2">
-            <input
-              id="pf-isdemo"
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 accent-orange-500 cursor-pointer"
-              checked={isDemo}
-              onChange={(e) => setIsDemo(e.target.checked)}
-            />
-            <label htmlFor="pf-isdemo" className="cursor-pointer select-none">
-              <span className="text-sm font-medium text-orange-800">Vendeur démo (non facturé)</span>
-              <p className="text-xs text-orange-600 mt-0.5">
-                Les ventes de ce vendeur n'apparaîtront pas dans les rapports et ne seront pas comptabilisées.
-              </p>
-            </label>
+          <div className="pt-2 border-t">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Versement
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <label
+                className={`flex items-center gap-2 cursor-pointer select-none rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                  settlementMode === "daily"
+                    ? "border-primary bg-primary/5 text-gray-900"
+                    : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="pf-settlement"
+                  className="h-4 w-4 accent-primary cursor-pointer"
+                  checked={settlementMode === "daily"}
+                  onChange={() => setSettlementMode("daily")}
+                />
+                Journalier
+              </label>
+              <label
+                className={`flex items-center gap-2 cursor-pointer select-none rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                  settlementMode === "weekly"
+                    ? "border-primary bg-primary/5 text-gray-900"
+                    : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="pf-settlement"
+                  className="h-4 w-4 accent-primary cursor-pointer"
+                  checked={settlementMode === "weekly"}
+                  onChange={() => setSettlementMode("weekly")}
+                />
+                Hebdomadaire
+              </label>
+            </div>
           </div>
         )}
 
         {!forManager && (
-          <div className="pt-2 border-t">
-            <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+          <div className="pt-2 border-t grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label
+              htmlFor="pf-isdemo"
+              className={`flex items-center gap-2 cursor-pointer select-none rounded-md border px-3 py-2 min-h-[42px] ${
+                isDemo ? "border-orange-300 bg-orange-50" : "border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              <input
+                id="pf-isdemo"
+                type="checkbox"
+                className="h-4 w-4 accent-orange-500 cursor-pointer flex-shrink-0"
+                checked={isDemo}
+                onChange={(e) => setIsDemo(e.target.checked)}
+              />
+              <span className={`text-sm font-medium leading-tight ${isDemo ? "text-orange-800" : "text-gray-700"}`}>
+                Vendeur démo
+              </span>
+            </label>
+            <label
+              htmlFor="pf-has-ticket-letter"
+              className={`flex items-center gap-2 cursor-pointer select-none rounded-md border px-3 py-2 min-h-[42px] ${
+                hasTicketLetter ? "border-blue-300 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+              }`}
+            >
               <input
                 id="pf-has-ticket-letter"
                 type="checkbox"
-                className="mt-0.5 h-4 w-4 accent-blue-500 cursor-pointer"
+                className="h-4 w-4 accent-blue-500 cursor-pointer flex-shrink-0"
                 checked={hasTicketLetter}
                 onChange={(e) => setHasTicketLetter(e.target.checked)}
               />
-              <label htmlFor="pf-has-ticket-letter" className="cursor-pointer select-none flex-1">
-                <span className="text-sm font-medium text-blue-800">Lettre d'identification de ticket</span>
-                <p className="text-xs text-blue-600 mt-0.5">
-                  Ajoutée automatiquement au préfixe lors de la génération (ex: 1j<strong>k</strong>)
-                </p>
-              </label>
-            </div>
-            {hasTicketLetter && (
-              <div className="mt-2">
-                <Label htmlFor="pf-ticket-letter">Lettre</Label>
+              <span className={`text-sm font-medium leading-tight flex-1 min-w-0 ${hasTicketLetter ? "text-blue-800" : "text-gray-700"}`}>
+                Lettre ticket
+              </span>
+              {hasTicketLetter && (
                 <Input
                   id="pf-ticket-letter"
-                  className="mt-1 w-24"
-                  placeholder="ex: K"
+                  className="h-7 w-12 px-1.5 text-center text-sm font-mono uppercase flex-shrink-0"
+                  placeholder="K"
                   maxLength={3}
                   value={ticketLetter}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => setTicketLetter(e.target.value)}
                 />
-              </div>
-            )}
+              )}
+            </label>
           </div>
         )}
 
@@ -397,6 +457,7 @@ export default function Vendors() {
           ...(data.commentSuffix ? { commentSuffix: data.commentSuffix } : {}),
           ...(data.commentSuffix2 ? { commentSuffix2: data.commentSuffix2 } : {}),
           commissionRate: data.commissionRate,
+          settlementMode: data.settlementMode,
           isDemo: data.isDemo,
           ticketLetter: data.ticketLetter || null,
         } as any,
@@ -428,6 +489,7 @@ export default function Vendors() {
           commentSuffix: data.commentSuffix || null,
           commentSuffix2: data.commentSuffix2 || null,
           commissionRate: data.commissionRate,
+          settlementMode: data.settlementMode,
           isDemo: data.isDemo,
           ticketLetter: data.ticketLetter || null,
         } as any,
@@ -632,6 +694,11 @@ export default function Vendors() {
                         Démo
                       </Badge>
                     )}
+                    {(vendor as any).settlementMode === "weekly" && (
+                      <Badge variant="outline" className="text-violet-700 border-violet-300 bg-violet-50 text-[10px] px-1.5">
+                        Hebdo
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -766,6 +833,7 @@ export default function Vendors() {
                 commentSuffix: (editVendor as any).commentSuffix ?? null,
                 commentSuffix2: (editVendor as any).commentSuffix2 ?? null,
                 commissionRate: (editVendor as any).commissionRate ?? 0,
+                settlementMode: (editVendor as any).settlementMode === "weekly" ? "weekly" : "daily",
                 isDemo: (editVendor as any).isDemo ?? false,
                 ticketLetter: (editVendor as any).ticketLetter ?? null,
               }}

@@ -1995,39 +1995,77 @@ function hotspotCommentLooksLikeUnsoldLotTag(comment: string | null | undefined)
 
 /**
  * Enable or disable a list of hotspot users on a MikroTik router.
- * Fetches all users in one shot, then sends one set-command per target user.
- * Uses a long timeout (120 s) to handle large vendor voucher batches.
- * Users not found on the router are silently skipped.
- * After disable: kick active sessions + remove cookies sauf si le commentaire
- * ressemble à un voucher encore au lot (`vc-…`, `up-…`, ex. `vc-554-04.07.26`).
+ * Pour ≤ {@link LOT_MISSING_NAME_LOOKUP_BEFORE_FULL_SCAN} noms : lookup `?name=` par compte
+ * (rapide pour le cadenas ligne à ligne). Au-delà : print complet puis sets en parallèle.
+ * Users not found on the router are reported in `notFound`.
+ * After disable (si `kickSessions` true, défaut) : kick sessions + cookies sauf tag lot
+ * non vendu (`vc-…`, `up-…`). Pour un toggle **lot**, passer `kickSessions: false`.
  */
+export type EnableDisableHotspotUsersOpts = {
+  /** Défaut true. Mettre false pour toggle lot (pas de print active/cookie). */
+  kickSessions?: boolean;
+};
+
 export async function enableDisableHotspotUsers(
   conn: RouterConnection,
   usernames: string[],
   enable: boolean,
+  opts: EnableDisableHotspotUsersOpts = {},
 ): Promise<{ done: number; notFound: string[]; sessionsKicked: number; cookiesRemoved: number }> {
   if (usernames.length === 0) return { done: 0, notFound: [], sessionsKicked: 0, cookiesRemoved: 0 };
 
+  const kickSessions = opts.kickSessions !== false;
   const target = new Set(usernames.map((u) => u.toLowerCase()));
+  const useFastLookup = usernames.length <= LOT_MISSING_NAME_LOOKUP_BEFORE_FULL_SCAN;
+  const timeoutMs =
+    usernames.length <= 3 ? 15_000
+      : usernames.length <= 50 ? 30_000
+        : 60_000;
 
   return withRouter(conn, async (api) => {
-    // Besoin du commentaire pour exclure le kick/cookie sur les tags lot (ex. vc-554-04.07.26)
-    const all = await api.write("/ip/hotspot/user/print", ["=.proplist=.id,name,comment"]);
-
     const toSet: string[] = [];
+    const seenIds = new Set<string>();
     const found = new Set<string>();
     const namesForSessionKick = new Set<string>();
 
-    for (const u of all) {
-      const decoded = fixEncoding((u["name"] as string) ?? "");
-      const nameLower = decoded.toLowerCase();
-      const id = (u[".id"] as string) ?? "";
-      if (!nameLower || !id) continue;
-      if (target.has(nameLower)) {
+    if (useFastLookup) {
+      await parallelPoolWrites(api, usernames, async (name) => {
+        const user = await findHotspotUserByName(api, name);
+        if (!user) return;
+        const id = (user[".id"] as string) ?? "";
+        const decoded = fixEncoding((user["name"] as string) ?? "");
+        const nameLower = decoded.toLowerCase();
+        if (!nameLower || !id || !target.has(nameLower)) return;
+        if (seenIds.has(id)) {
+          found.add(nameLower);
+          return;
+        }
+        seenIds.add(id);
         toSet.push(id);
         found.add(nameLower);
-        if (!hotspotCommentLooksLikeUnsoldLotTag(u["comment"] as string | undefined)) {
+        if (
+          kickSessions &&
+          !hotspotCommentLooksLikeUnsoldLotTag(user["comment"] as string | undefined)
+        ) {
           namesForSessionKick.add(decoded);
+        }
+      });
+    } else {
+      const all = await api.write("/ip/hotspot/user/print", ["=.proplist=.id,name,comment"]);
+      for (const u of all) {
+        const decoded = fixEncoding((u["name"] as string) ?? "");
+        const nameLower = decoded.toLowerCase();
+        const id = (u[".id"] as string) ?? "";
+        if (!nameLower || !id) continue;
+        if (target.has(nameLower)) {
+          toSet.push(id);
+          found.add(nameLower);
+          if (
+            kickSessions &&
+            !hotspotCommentLooksLikeUnsoldLotTag(u["comment"] as string | undefined)
+          ) {
+            namesForSessionKick.add(decoded);
+          }
         }
       }
     }
@@ -2041,14 +2079,14 @@ export async function enableDisableHotspotUsers(
 
     let sessionsKicked = 0;
     let cookiesRemoved = 0;
-    if (!enable && namesForSessionKick.size > 0) {
+    if (!enable && kickSessions && namesForSessionKick.size > 0) {
       const k = await kickDisabledHotspotSessionsAndCookies(api, [...namesForSessionKick]);
       sessionsKicked = k.sessionsKicked;
       cookiesRemoved = k.cookiesRemoved;
     }
 
     return { done: toSet.length, notFound, sessionsKicked, cookiesRemoved };
-  }, 60_000, "high");
+  }, timeoutMs, "high");
 }
 
 /**
@@ -2116,28 +2154,21 @@ export async function enableDisableHotspotLot(
       return out;
     };
 
-    let missing = recomputeMissingUsernames();
-    if (missing.length > 0) {
-      if (missing.length <= LOT_MISSING_NAME_LOOKUP_BEFORE_FULL_SCAN) {
-        await parallelPoolWrites(api, missing, async (name) => {
-          for (const v of [name, toWin1252(name)]) {
-            try {
-              const rows = await api.write("/ip/hotspot/user/print", [`?name=${v}`, userMatchProplist]);
-              if (rows.length > 0) {
-                for (const row of rows) consider(row);
-                break;
-              }
-            } catch {
-              // variante suivante ou repli scan plus bas
+    const missing = recomputeMissingUsernames();
+    if (missing.length > 0 && missing.length <= LOT_MISSING_NAME_LOOKUP_BEFORE_FULL_SCAN) {
+      await parallelPoolWrites(api, missing, async (name) => {
+        for (const v of [name, toWin1252(name)]) {
+          try {
+            const rows = await api.write("/ip/hotspot/user/print", [`?name=${v}`, userMatchProplist]);
+            if (rows.length > 0) {
+              for (const row of rows) consider(row);
+              break;
             }
+          } catch {
+            // variante suivante
           }
-        });
-        missing = recomputeMissingUsernames();
-      }
-      if (missing.length > 0) {
-        const all = await api.write("/ip/hotspot/user/print", [userMatchProplist]);
-        for (const u of all) consider(u);
-      }
+        }
+      });
     }
 
     const toSet = [...matchedIds];
@@ -2178,13 +2209,6 @@ export async function enableDisableHotspotUsersByComment(
       if (filtered.length > 0) {
         rows.push(...filtered);
         break;
-      }
-    }
-
-    if (rows.length === 0) {
-      const all = await api.write("/ip/hotspot/user/print", [userMatchProplist]);
-      for (const u of all) {
-        if (hotspotUserCommentMatches(u["comment"] as string | undefined, comment)) rows.push(u);
       }
     }
 

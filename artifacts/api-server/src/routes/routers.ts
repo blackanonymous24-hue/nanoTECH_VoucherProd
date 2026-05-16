@@ -1054,6 +1054,47 @@ export async function invalidateUserCache(routerId: number): Promise<void> {
  * Used by reset/rename to avoid a full re-fetch of thousands of users.
  * Returns true if a row was patched.
  */
+/** Met à jour `disabled` dans le cache mémoire (évite un print complet après toggle). */
+/** Met à jour `disabled` pour tous les users du cache dont le commentaire = lot. */
+export function patchCachedHotspotUsersDisabledByComment(
+  ownerAdminId: number | null,
+  routerId: number,
+  comment: string,
+  disabled: boolean,
+): boolean {
+  const scope = routerCacheScope(ownerAdminId, routerId);
+  const cached = userCache.get(scope);
+  if (!cached) return false;
+  const want = comment.trim();
+  if (!want) return false;
+  let patched = false;
+  for (const u of cached.users) {
+    if ((u.comment ?? "").trim() === want) {
+      u.disabled = disabled;
+      patched = true;
+    }
+  }
+  if (patched) {
+    const cnt = _usersCountCache.get(scope);
+    if (cnt) cnt.cachedAt = Date.now();
+  }
+  return patched;
+}
+
+export function patchCachedHotspotUsersDisabled(
+  ownerAdminId: number | null,
+  routerId: number,
+  usernames: string[],
+  disabled: boolean,
+): boolean {
+  const scope = routerCacheScope(ownerAdminId, routerId);
+  let patched = false;
+  for (const u of usernames) {
+    if (patchCachedUser(scope, u, { disabled })) patched = true;
+  }
+  return patched;
+}
+
 function patchCachedUser(
   scope: string,
   username: string,

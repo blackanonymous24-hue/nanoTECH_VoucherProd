@@ -122,6 +122,16 @@ export async function ensureVendorTicketLetterColumn(): Promise<void> {
   }
 }
 
+export async function ensureVendorSettlementModeColumn(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE vendors ADD COLUMN IF NOT EXISTS settlement_mode text NOT NULL DEFAULT 'daily'`);
+    await db.execute(sql`UPDATE vendors SET settlement_mode = 'daily' WHERE settlement_mode IS NULL OR settlement_mode = ''`);
+    logger.info("DB compat: colonne vendors.settlement_mode vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible d'ajouter vendors.settlement_mode");
+  }
+}
+
 export async function ensureVerificationCodeColumn(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS verification_code text`);

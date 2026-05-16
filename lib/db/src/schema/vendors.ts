@@ -19,6 +19,8 @@ export const vendorsTable = pgTable("vendors", {
   commentSuffix2: text("comment_suffix2"),
   ticketLetter: text("ticket_letter"),
   commissionRate: integer("commission_rate").notNull().default(0), // % of sales as remuneration (0-100)
+  /** daily = versements journaliers (Versement du jour) ; weekly = versement hebdomadaire uniquement */
+  settlementMode: text("settlement_mode").notNull().default("daily"),
   isDemo: boolean("is_demo").notNull().default(false),             // demo vendor: excluded from reports & billing
   isActive: boolean("is_active").notNull().default(true),
   sessionEpoch: integer("session_epoch").notNull().default(0),

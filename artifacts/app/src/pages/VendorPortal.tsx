@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { printReport } from "@/lib/print";
+import { buildStandalonePrintHtml, openPrintHtmlWindow, printReport } from "@/lib/print";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
@@ -30,7 +30,8 @@ import {
   PackageOpen, Bell, Wallet, CheckCircle2, KeyRound, X, AlertTriangle,
 } from "lucide-react";
 import { foldText } from "@/lib/text";
-import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown } from "@/lib/vendorWeekPaymentDisplay";
+import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown, weekAmountDue } from "@/lib/vendorWeekPaymentDisplay";
+import { fmtDateFr, vendorSoldDayTitle, yesterdayIsoLocal } from "@/lib/vendorSoldDayTitle";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
 
@@ -187,6 +188,134 @@ const MONTHS = [
 function fmtFcfa(n: number): string {
   if (n === 0) return "0";
   return n.toLocaleString("fr-FR");
+}
+
+function escapeHtmlPrint(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+type PortalArrearPrintLine = { label: string; amount: number };
+
+/** Lignes arriérés pour l’impression (même regroupement que l’écran). */
+function buildPortalArrearPrintLines(
+  arrearsData: DailyArrearsData,
+  versData: VersementData | null,
+): PortalArrearPrintLine[] {
+  const lines: PortalArrearPrintLine[] = [];
+  const weekCarry = versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0;
+  const weekStart = versData?.weeks?.[0]?.weekStart;
+  const weekLbl = weekCarry > 0 ? arrearsWeekLabelPortal(weekStart) : null;
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const currentWeekStart = mondayOfDateUtc(todayIso);
+  const daysPositive = arrearsData.days.filter((d) => d.remaining > 0);
+  const prevDays = daysPositive.filter((d) => d.date < currentWeekStart);
+  const currentDays = daysPositive.filter((d) => d.date >= currentWeekStart);
+
+  const prevByWeek = new Map<string, DailyArrearsDay[]>();
+  for (const d of prevDays) {
+    const m = mondayOfDateUtc(d.date);
+    if (!prevByWeek.has(m)) prevByWeek.set(m, []);
+    prevByWeek.get(m)!.push(d);
+  }
+  const prevWeekSorted = [...prevByWeek.keys()].sort((a, b) => a.localeCompare(b));
+
+  for (const weekMon of prevWeekSorted) {
+    const entries = [...(prevByWeek.get(weekMon) ?? [])].sort((a, b) => a.date.localeCompare(b.date));
+    if (entries.length === 0) continue;
+    const merged = mergeDailyArrearRun(entries);
+    lines.push({ label: portalArrearWeekRangeLabel(weekMon), amount: merged.remaining });
+  }
+
+  if (weekCarry > 0 && weekLbl && prevDays.length === 0) {
+    lines.push({ label: weekLbl, amount: weekCarry });
+  }
+
+  const sortedCurrent = [...currentDays]
+    .filter((d) => d.remaining > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (sortedCurrent.length <= 2) {
+    for (const d of sortedCurrent) {
+      lines.push({ label: `Arriéré du ${fmtDayMonthYear(d.date)}`, amount: d.remaining });
+    }
+  } else {
+    const oldGroup = sortedCurrent.slice(0, sortedCurrent.length - 2);
+    const recentTwo = sortedCurrent.slice(sortedCurrent.length - 2);
+    const merged = mergeDailyArrearRun(oldGroup);
+    const firstDate = oldGroup[0]!.date;
+    const lastDate = oldGroup[oldGroup.length - 1]!.date;
+    const cumulLabel = firstDate === lastDate
+      ? `Arriéré du ${fmtDayMonthYear(firstDate)}`
+      : `Arriéré du ${fmtDayMonthYear(firstDate)} au ${fmtDayMonthYear(lastDate)}`;
+    lines.push({ label: cumulLabel, amount: merged.remaining });
+    for (const d of recentTwo) {
+      lines.push({ label: `Arriéré du ${fmtDayMonthYear(d.date)}`, amount: d.remaining });
+    }
+  }
+
+  return lines;
+}
+
+function portalArrearTotalDue(arrearsData: DailyArrearsData, versData: VersementData | null): number {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const cwStart = mondayOfDateUtc(todayIso);
+  const daysPos = arrearsData.days.filter((d) => d.remaining > 0);
+  const hasPrevDays = daysPos.some((d) => d.date < cwStart);
+  const carry = hasPrevDays ? 0 : (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0);
+  return carry + daysPos.reduce((s, d) => s + d.remaining, 0);
+}
+
+function openPortalArrearsPrint(
+  vendor: VendorInfo,
+  yesterdayAmount: number,
+  arrearsData: DailyArrearsData,
+  versData: VersementData | null,
+) {
+  const soldDate = yesterdayIsoLocal();
+  const arrearLines = buildPortalArrearPrintLines(arrearsData, versData);
+  const totalDu = portalArrearTotalDue(arrearsData, versData);
+  const titleLine = vendorSoldDayTitle(vendor.name, soldDate);
+  const dateFr = fmtDateFr(soldDate);
+
+  const bodyRows: string[] = [
+    `<tr class="sum-print-vendor"><td class="lbl">${escapeHtmlPrint(titleLine)}</td><td class="num">${fmtFcfa(yesterdayAmount)} FCFA</td></tr>`,
+  ];
+  for (const row of arrearLines) {
+    bodyRows.push(
+      `<tr class="sum-print-arrear"><td class="lbl">${escapeHtmlPrint(row.label)}</td><td class="num">${fmtFcfa(row.amount)} FCFA</td></tr>`,
+    );
+  }
+  bodyRows.push(
+    `<tr class="sum-line"><td class="lbl">Total à verser</td><td class="num"><span class="sum-line-amt">${fmtFcfa(totalDu)} FCFA</span></td></tr>`,
+  );
+
+  const printTitle = `Versements — ${vendor.name} — ${dateFr}`;
+  const styles = `
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; margin: 0; padding: 10mm; color: #000; }
+  h2 { margin: 0 0 8px; font-size: 14px; font-weight: bold; }
+  p.meta { margin: 0 0 12px; font-size: 10px; color: #222; }
+  table.sum-print { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; border: 1px solid #111; }
+  table.sum-print td { border-bottom: 1px solid #ddd; padding: 5px 8px; vertical-align: middle; }
+  table.sum-print tbody tr:last-child td { border-bottom: none; }
+  table.sum-print td.lbl { text-align: left; word-wrap: break-word; overflow-wrap: anywhere; width: 72%; }
+  table.sum-print td.num { text-align: right; white-space: nowrap; width: 28%; }
+  table.sum-print tr.sum-print-vendor td { font-weight: bold; font-size: 11px; border-bottom: 1px solid #ccc; }
+  table.sum-print tr.sum-print-arrear td { font-size: 9px; }
+  table.sum-print tr.sum-line td { font-weight: bold; border-top: 2px solid #111; background: #f7f7f7; }
+  table.sum-print .sum-line-amt { font-size: 11px; font-weight: bold; }
+  @page { size: A4; margin: 12mm; }`;
+
+  const body = `
+<h2>Mes versements non effectués</h2>
+<p class="meta">Vendeur : ${escapeHtmlPrint(vendor.name)} &nbsp;|&nbsp; Date : ${dateFr} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
+<table class="sum-print"><tbody>${bodyRows.join("")}</tbody></table>`;
+
+  openPrintHtmlWindow(buildStandalonePrintHtml(printTitle, styles, body), printTitle);
 }
 
 function amountFontClass(formatted: string): string {
@@ -1069,7 +1198,7 @@ function Dashboard({ token, vendor, onLogout }: {
         if ("Notification" in window && Notification.permission === "granted") {
           new Notification("⚠️ Stock faible — nanoTECH Vouchers", {
             body: `Forfait « ${p.profileName} » : seulement ${available} ticket(s) disponible(s).`,
-            icon: "/favicon.ico",
+            icon: "/favicon.svg",
           });
         }
       }
@@ -1237,12 +1366,32 @@ function Dashboard({ token, vendor, onLogout }: {
             {arrearsData &&
               (arrearsData.days.length > 0 || (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0) > 0) && (
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-orange-500" />
-                  <h3 className="text-sm font-semibold text-gray-700">Mes versements non effectués</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <AlertTriangle className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                    <h3 className="text-sm font-semibold text-gray-700">Mes versements non effectués</h3>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs flex-shrink-0"
+                    onClick={() => data && openPortalArrearsPrint(vendor, data.salesStats.yesterdayAmount, arrearsData, versData)}
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    Imprimer
+                  </Button>
                 </div>
                 <Card className="border border-orange-200 bg-orange-50/20">
                   <CardContent className="p-0">
+                    <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-orange-200 bg-white">
+                      <span className="text-xs font-semibold text-gray-800 truncate min-w-0">
+                        {vendorSoldDayTitle(vendor.name, yesterdayIsoLocal())}
+                      </span>
+                      <span className="text-xs font-bold text-gray-800 tabular-nums flex-shrink-0 whitespace-nowrap">
+                        {fmtFcfa(data.salesStats.yesterdayAmount)} FCFA
+                      </span>
+                    </div>
                     <div className="divide-y divide-orange-100">
                       {(() => {
                         const weekCarry = versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0;
@@ -1417,12 +1566,13 @@ function Dashboard({ token, vendor, onLogout }: {
                   {versData.weeks.map((w, i) => {
                     if (w.count === 0 && w.payments.length === 0) return null;
                     const isSolde   = w.remaining === 0 && (w.totalPaid > 0 || w.commission >= w.amount);
-                    const dueAmount = Math.max(0, w.amount - w.commission); // what vendor must pay back
+                    const dueAmount = weekAmountDue(w.amount, w.commission, (w as { settlementMode?: string }).settlementMode);
                     const totalPaidShown = paidShownVersusWeekContext(
                       w.totalPaid,
                       w.amount,
                       w.commission,
                       w.carryOverFromPriorWeeks,
+                      (w as { settlementMode?: string }).settlementMode,
                     );
                     const { weekly: weeklyPaidShown } = splitDailyWeeklyPaidShown(
                       w.dailyPaid,
@@ -1430,6 +1580,7 @@ function Dashboard({ token, vendor, onLogout }: {
                       w.amount,
                       w.commission,
                       w.carryOverFromPriorWeeks,
+                      (w as { settlementMode?: string }).settlementMode,
                     );
                     const paidPct   = dueAmount > 0 ? Math.min(100, Math.round((w.totalPaid / dueAmount) * 100)) : 100;
                     return (
@@ -1491,13 +1642,20 @@ function Dashboard({ token, vendor, onLogout }: {
                           )}
 
                           {/* Commission row — only if rate is configured */}
-                          {w.commissionRate > 0 && (
+                          {w.commissionRate > 0 && w.amount > 0 && (
                             <div className="flex items-center justify-between gap-2 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
                               <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-violet-700 min-w-0">
                                 <span className="font-semibold whitespace-nowrap">Votre rémunération</span>
                                 <span className="text-violet-400 whitespace-nowrap">({w.commissionRate}%)</span>
                               </div>
-                              <p className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap flex-shrink-0">{fmtFcfa(w.commission)} FCFA</p>
+                              <div className="text-right flex-shrink-0">
+                                <p className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap">{fmtFcfa(w.commission)} FCFA</p>
+                                {((w as { commissionGross?: number }).commissionGross ?? w.commission) > w.commission && (
+                                  <p className="text-[9px] text-violet-400 tabular-nums">
+                                    avant reliquats : {fmtFcfa((w as { commissionGross?: number }).commissionGross ?? w.commission)}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           )}
 

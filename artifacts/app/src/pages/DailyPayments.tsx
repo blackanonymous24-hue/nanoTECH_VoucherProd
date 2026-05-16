@@ -1,5 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hasDailySettlementVendors } from "@/lib/vendorSettlement";
+import { vendorSoldDayTitle } from "@/lib/vendorSoldDayTitle";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { CalendarDays, Loader2, CreditCard, CheckCircle2, ChevronDown, ChevronUp, Users, AlertTriangle, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,8 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
-import { paidShownVersusWeekContext } from "@/lib/vendorWeekPaymentDisplay";
-
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function fmtDateFr(iso: string) {
@@ -124,7 +125,7 @@ function ArrearRow({
           <span className="font-medium text-gray-700">{fmtDateFr(entry.date)}</span>
           {entry.paidAmount > 0 && (
             <span className="text-gray-400 tabular-nums">
-              versé {fmtAmount(paidShownVersusWeekContext(entry.paidAmount, entry.salesAmount, 0, 0))} / {fmtAmount(entry.salesAmount)} FCFA
+              versé {fmtAmount(entry.paidAmount)} / {fmtAmount(entry.salesAmount)} FCFA
             </span>
           )}
         </div>
@@ -205,16 +206,19 @@ function ArrearRow({
 /* ── Per-vendor card ────────────────────────────────────────── */
 function VendorCard({
   row,
+  viewDate,
   routerId,
   onRefresh,
   onOptimisticDeletePayment,
 }: {
   row: VendorRow;
+  viewDate: string;
   routerId: number;
   onRefresh: () => void;
   onOptimisticDeletePayment: (vendorId: number, date: string, paymentId: number) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const daySales = row.arrears.find((a) => a.date === viewDate)?.salesAmount ?? 0;
 
   return (
     <Card className={`overflow-hidden border ${row.totalRemaining > 0 ? "border-orange-200" : "border-gray-100"}`}>
@@ -227,14 +231,14 @@ function VendorCard({
       >
         <div className="flex items-center gap-2 min-w-0">
           <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${row.totalRemaining > 0 ? "text-orange-500" : "text-gray-300"}`} />
-          <span className="font-semibold text-gray-800 truncate">{row.vendorName}</span>
+          <span className="font-semibold text-gray-800 truncate">{vendorSoldDayTitle(row.vendorName, viewDate)}</span>
           <span className="text-xs text-gray-400 flex-shrink-0">
             ({row.arrears.length} jour{row.arrears.length > 1 ? "s" : ""})
           </span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-          <span className={`text-sm font-bold tabular-nums ${row.totalRemaining > 0 ? "text-orange-700" : "text-gray-400"}`}>
-            {fmtAmount(row.totalRemaining)} FCFA
+          <span className={`text-sm font-bold tabular-nums ${daySales > 0 ? "text-gray-800" : row.totalRemaining > 0 ? "text-orange-700" : "text-gray-400"}`}>
+            {fmtAmount(daySales > 0 ? daySales : row.totalRemaining)} FCFA
           </span>
           {expanded
             ? <ChevronUp className="h-4 w-4 text-gray-400" />
@@ -267,8 +271,33 @@ function VendorCard({
 /* ── Main page ──────────────────────────────────────────────── */
 export default function DailyPayments() {
   const { selectedRouterId } = useRouterContext();
+  const [, navigate] = useLocation();
   const [date, setDate]      = useState(todayIso);
   const queryClient          = useQueryClient();
+
+  const { data: vendorsList } = useQuery<
+    { id: number; settlementMode?: string | null; isDemo?: boolean }[]
+  >({
+    queryKey: ["vendors", selectedRouterId],
+    queryFn: async ({ signal }) => {
+      if (!selectedRouterId) return [];
+      const res = await fetch(`${BASE}/api/vendors?routerId=${selectedRouterId}`, { signal });
+      if (!res.ok) return [];
+      const data: unknown = await res.json();
+      return Array.isArray(data)
+        ? (data as { id: number; settlementMode?: string | null; isDemo?: boolean }[])
+        : [];
+    },
+    enabled: !!selectedRouterId,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!selectedRouterId || vendorsList === undefined) return;
+    if (!hasDailySettlementVendors(vendorsList)) {
+      navigate("/vendors");
+    }
+  }, [selectedRouterId, vendorsList, navigate]);
 
   const queryDate = nextDayIso(date);
 
@@ -332,13 +361,27 @@ export default function DailyPayments() {
   const grandTotal = rows.reduce((s, r) => s + r.totalRemaining, 0);
   const vendorsWithArrears = rows.filter((r) => r.totalRemaining > 0).length;
 
-  if (!selectedRouterId) {
+  if (
+    !selectedRouterId
+    || vendorsList === undefined
+    || !hasDailySettlementVendors(vendorsList)
+  ) {
     return (
       <div className="p-6">
         <Card>
           <CardContent className="py-12 text-center text-gray-400">
-            <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p>Sélectionner un routeur pour voir les versements.</p>
+            {vendorsList === undefined && selectedRouterId ? (
+              <Loader2 className="h-10 w-10 mx-auto mb-3 animate-spin opacity-40" />
+            ) : (
+              <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-30" />
+            )}
+            <p>
+              {!selectedRouterId
+                ? "Sélectionner un routeur pour voir les versements."
+                : vendorsList === undefined
+                  ? "Chargement…"
+                  : "Aucun vendeur en versement journalier sur ce routeur."}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -415,6 +458,7 @@ export default function DailyPayments() {
         <VendorCard
           key={row.vendorId}
           row={row}
+          viewDate={date}
           routerId={selectedRouterId}
           onRefresh={refresh}
           onOptimisticDeletePayment={onOptimisticDeletePayment}

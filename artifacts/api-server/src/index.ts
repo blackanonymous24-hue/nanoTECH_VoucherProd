@@ -2,7 +2,7 @@ import "source-map-support/register.js";
 import "./load-env.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
-import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensurePrintScaleColumns, ensureSessionEpochColumns } from "./lib/ensure-router-currency-column.js";
+import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensureVendorSettlementModeColumn, ensurePrintScaleColumns, ensureSessionEpochColumns } from "./lib/ensure-router-currency-column.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
@@ -44,6 +44,7 @@ async function start() {
   await ensureCollaborateurPasswordPlainColumn();
   await ensureVerificationCodeColumn();
   await ensureVendorTicketLetterColumn();
+  await ensureVendorSettlementModeColumn();
   await ensurePrintScaleColumns();
   await ensureSessionEpochColumns();
   await ensureSuperAdminPasswordPlainBackfill();

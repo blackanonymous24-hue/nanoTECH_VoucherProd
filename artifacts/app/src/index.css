@@ -470,6 +470,14 @@
   animation: shimmer-sweep 1.6s ease-in-out infinite;
 }
 
+@keyframes lot-progress-indeterminate {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(420%); }
+}
+.animate-lot-progress-indeterminate {
+  animation: lot-progress-indeterminate 1.35s ease-in-out infinite;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Mobile compact mode  — s'applique sur tous les écrans < 640 px
    (navigateurs mobiles ET APK Expo dont le viewport est toujours petit)

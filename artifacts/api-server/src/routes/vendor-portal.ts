@@ -5,6 +5,13 @@ import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/v
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { carryOverByVendorBeforeWeek } from "../lib/vendor-carryover.js";
+import {
+  addVendorDateAmount,
+  amountDueFromSales,
+  dailySettlementWeekCommission,
+  isDailySettlementVendor,
+  vendorDateAmountMaps,
+} from "../lib/vendor-settlement.js";
 import { type RouterConnection } from "../lib/mikrotik.js";
 
 const router = Router();
@@ -456,7 +463,7 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
 
     const weekEndStr = wEnd.toISOString().slice(0, 10);
 
-    const [salesRaw, payments, dailyPayments] = await Promise.all([
+    const [salesRaw, salesByDayRaw, payments, dailyPayments] = await Promise.all([
       db.select({
         profileName:  vouchersTable.profileName,
         cnt:          sql<number>`count(*)`,
@@ -471,6 +478,22 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
         sql`${vouchersTable.usedAt} <  ${wEnd.toISOString()}`,
       ))
       .groupBy(vouchersTable.profileName),
+
+      db.select({
+        profileName:  vouchersTable.profileName,
+        date:         sql<string>`(${vouchersTable.usedAt})::date::text`,
+        cnt:          sql<number>`count(*)`,
+        salePriceSum: sql<number>`coalesce(sum(nullif(${vouchersTable.salePrice},'')::numeric), 0)`,
+        priceSum:     sql<number>`coalesce(sum(nullif(${vouchersTable.price},'')::numeric), 0)`,
+      })
+      .from(vouchersTable)
+      .where(and(
+        eq(vouchersTable.vendorId, vendor.id),
+        isNotNull(vouchersTable.usedAt),
+        sql`${vouchersTable.usedAt} >= ${wStart.toISOString()}`,
+        sql`${vouchersTable.usedAt} <  ${wEnd.toISOString()}`,
+      ))
+      .groupBy(vouchersTable.profileName, sql`(${vouchersTable.usedAt})::date`),
 
       // Versements hebdo (sommes forfaitaires)
       db.select().from(vendorPaymentsTable).where(and(
@@ -502,6 +525,21 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     const dailyPaid  = dailyPayments.reduce((s, p) => s + p.amount, 0);
     const totalPaid  = weeklyPaid + dailyPaid;
 
+    const { salesByVendor, paidByVendor } = vendorDateAmountMaps();
+    const salesByDate = new Map<string, number>();
+    const paidByDate = new Map<string, number>();
+    salesByVendor.set(vendor.id, salesByDate);
+    paidByVendor.set(vendor.id, paidByDate);
+    for (const r of salesByDayRaw) {
+      const cnt = Number(r.cnt);
+      const raw = Math.max(Number(r.salePriceSum), Number(r.priceSum));
+      const amt = raw > 0 ? raw : cnt * resolveUnit(r.profileName);
+      addVendorDateAmount(salesByVendor, vendor.id, r.date, amt);
+    }
+    for (const p of dailyPayments) {
+      addVendorDateAmount(paidByVendor, vendor.id, p.date, p.amount);
+    }
+
     const carryMap = await carryOverByVendorBeforeWeek(routerId, weekStart, [vendor]);
     const carryOverFromPriorWeeks = carryMap.get(vendor.id) ?? 0;
 
@@ -511,10 +549,20 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
     const fmt = (d: Date) => `${String(d.getUTCDate()).padStart(2,"0")} ${MONTHS_FR[d.getUTCMonth()]}`;
     const label = `${fmt(wStart)} – ${fmt(sun)} ${sun.getUTCFullYear()}`;
 
-    // Commission applies only once the week is fully over
     const weekEnded = wEnd.getTime() <= Date.now();
-    const commission = (weekEnded && vendor.commissionRate > 0) ? Math.round(amount * vendor.commissionRate) / 100 : 0;
-    const effectiveCommissionRate = weekEnded ? vendor.commissionRate : 0;
+    const dailySettlement = isDailySettlementVendor(vendor);
+    let commission = 0;
+    let commissionGross = 0;
+    if (dailySettlement && (vendor.commissionRate ?? 0) > 0) {
+      const dayComm = dailySettlementWeekCommission(salesByDate, paidByDate, vendor.commissionRate ?? 0);
+      commissionGross = dayComm.gross;
+      commission = dayComm.net;
+    } else if (weekEnded && (vendor.commissionRate ?? 0) > 0) {
+      commission = Math.round(amount * (vendor.commissionRate ?? 0)) / 100;
+      commissionGross = commission;
+    }
+    const effectiveCommissionRate = dailySettlement || weekEnded ? (vendor.commissionRate ?? 0) : 0;
+    const due = amountDueFromSales(amount, commission, dailySettlement);
 
     return {
       weekStart,
@@ -522,14 +570,15 @@ router.get("/vendor-portal/me/payments", async (req, res): Promise<void> => {
       count,
       amount,
       commission,
+      commissionGross,
       commissionRate: effectiveCommissionRate,
+      settlementMode: vendor.settlementMode ?? "daily",
       weeklyPaid,
       dailyPaid,
       totalPaid,
       carryOverFromPriorWeeks,
-      // Weekly amount still expected after deducting daily payments already recorded
-      weeklyExpected: Math.max(0, amount - commission - dailyPaid),
-      remaining: Math.max(0, amount - commission - totalPaid),
+      weeklyExpected: Math.max(0, due - dailyPaid),
+      remaining: Math.max(0, due - totalPaid),
       payments: payments.map((p) => ({ id: p.id, amount: p.amount, paidAt: p.paidAt, note: p.note })),
     };
   }));
@@ -552,6 +601,9 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payload.vendorId));
   if (!vendor || !vendor.isActive || !vendor.routerId) {
+    res.json({ days: [] }); return;
+  }
+  if ((vendor.settlementMode ?? "daily") === "weekly") {
     res.json({ days: [] }); return;
   }
 
@@ -639,8 +691,7 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   for (const monday of weeklyLumpMap.keys()) weekMondaysSet.add(monday);
   const weekMondays = [...weekMondaysSet].sort().reverse(); // most recent first
 
-  // Apply the same weekly net logic as back-office pages:
-  // expected = gross - commission (only for ended weeks), then allocate by day.
+  const dailySettlement = isDailySettlementVendor(vendor);
   const expectedByDay = new Map<string, number>();
   const expectedByWeek = new Map<string, number>();
   for (const monday of weekMondays) {
@@ -653,12 +704,18 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
     );
     const weekGross = weekDates.reduce((s, d) => s + (salesMap.get(d) ?? 0), 0);
     const weekCommission = rate > 0 ? Math.round(weekGross * rate) / 100 : 0;
-    const weekExpected = Math.max(0, weekGross - weekCommission);
+    const weekExpected = amountDueFromSales(weekGross, weekCommission, dailySettlement);
     expectedByWeek.set(monday, weekExpected);
-    const factor = weekGross > 0 ? (weekExpected / weekGross) : 1;
-    for (const d of weekDates) {
-      const gross = salesMap.get(d) ?? 0;
-      expectedByDay.set(d, Math.max(0, Math.round(gross * factor)));
+    if (dailySettlement) {
+      for (const d of weekDates) {
+        expectedByDay.set(d, Math.max(0, salesMap.get(d) ?? 0));
+      }
+    } else {
+      const factor = weekGross > 0 ? (weekExpected / weekGross) : 1;
+      for (const d of weekDates) {
+        const gross = salesMap.get(d) ?? 0;
+        expectedByDay.set(d, Math.max(0, Math.round(gross * factor)));
+      }
     }
   }
 

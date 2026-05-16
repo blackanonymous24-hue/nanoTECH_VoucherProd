@@ -17,6 +17,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
+import { hasDailySettlementVendors } from "@/lib/vendorSettlement";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -182,16 +183,21 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       setIsSystemLoading(false);
     }
   };
-  /* ── Vendor count — masquer les items vendeur si aucun vendeur sur ce routeur ── */
-  const { data: vendorsList } = useQuery<{ id: number }[]>({
-    queryKey: ["vendors-nav-count", selectedRouterId],
+  /* ── Vendeurs du routeur — menu + versement journalier ── */
+  const { data: vendorsList } = useQuery<
+    { id: number; settlementMode?: string | null; isDemo?: boolean }[]
+  >({
+    queryKey: ["vendors", selectedRouterId],
     queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
       const res = await fetch(`${BASE}/api/vendors?routerId=${selectedRouterId}`, { signal });
       if (!res.ok) return [];
       const data: unknown = await res.json();
-      return Array.isArray(data) ? (data as { id: number }[]) : [];
+      return Array.isArray(data)
+        ? (data as { id: number; settlementMode?: string | null; isDemo?: boolean }[])
+        : [];
     },
+    enabled: !!selectedRouterId,
     staleTime: 60_000,
     retry: 1,
   });
@@ -199,6 +205,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const hasVendors = selectedRouterId
     ? (vendorsList === undefined || vendorsList.length > 0)
     : false;
+  const showDailySettlementNav = !!selectedRouterId && hasDailySettlementVendors(vendorsList);
   const isVouchersPage = location.startsWith("/vouchers");
   const isVisible = usePageVisibility();
 
@@ -596,7 +603,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         icon: Users,
         items: [
           { href: "/vendors",                    label: "Vendeurs",             icon: Users },
-          ...(hasVendors ? [{ href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard }] : []),
+          ...(showDailySettlementNav ? [{ href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard }] : []),
           ...(hasVendors ? [{ href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet }] : []),
           ...(hasVendors ? [{ href: "/vendors/tracking",          label: "Rapport par vendeur",  icon: ListOrdered }] : []),
           { href: "/reports", label: "Ventes par performance", icon: BarChart3 },

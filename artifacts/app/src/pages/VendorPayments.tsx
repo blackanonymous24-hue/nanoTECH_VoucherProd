@@ -11,7 +11,8 @@ import {
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { paidShownVersusWeekContext } from "@/lib/vendorWeekPaymentDisplay";
+import { paidShownVersusWeekContext, weekAmountDue } from "@/lib/vendorWeekPaymentDisplay";
+import { vendorSoldDayTitle, yesterdayIsoLocal } from "@/lib/vendorSoldDayTitle";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -105,7 +106,9 @@ interface VendorWeekEntry {
   count: number;
   amount: number;
   commission: number;
+  commissionGross?: number;
   commissionRate: number;
+  settlementMode?: string;
   weeklyPaid?: number;       // lump-sum weekly payments only
   dailyPaid?: number;        // daily payments only
   weeklyExpected?: number;   // amount - commission - dailyPaid (what still must be paid weekly)
@@ -282,12 +285,38 @@ function VendorRow({
           <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-gray-500">
             <span className="whitespace-nowrap">{vendor.count} ticket{vendor.count !== 1 ? "s" : ""}</span>
             <span className="whitespace-nowrap">Ventes : <span className="font-medium text-gray-700">{fmtAmount(vendor.amount)} FCFA</span></span>
-            {vendor.commission > 0 && (
-              <span className="whitespace-nowrap">Commission : <span className="font-medium text-violet-600">−{fmtAmount(vendor.commission)} FCFA ({vendor.commissionRate}%)</span></span>
-            )}
+            {(() => {
+              const isDaily = (vendor.settlementMode ?? "daily") !== "weekly";
+              const showComm = isDaily
+                ? (vendor.commissionRate ?? 0) > 0 && vendor.amount > 0
+                : vendor.commission > 0;
+              if (!showComm) return null;
+              const gross = vendor.commissionGross ?? vendor.commission;
+              const net = vendor.commission;
+              return (
+                <span className="whitespace-nowrap">
+                  {isDaily ? "Rémunération" : "Commission"} :{" "}
+                  <span className="font-medium text-violet-600">
+                    {!isDaily && "−"}
+                    {fmtAmount(net)} FCFA ({vendor.commissionRate}%)
+                    {isDaily && gross > net && (
+                      <span className="text-gray-400 font-normal ml-1">
+                        (avant reliquats : {fmtAmount(gross)})
+                      </span>
+                    )}
+                  </span>
+                </span>
+              );
+            })()}
             {vendor.totalPaid > 0 && (() => {
               const co = Math.max(0, vendor.carryOverFromPriorWeeks ?? 0);
-              const verseAmt = paidShownVersusWeekContext(vendor.totalPaid, vendor.amount, vendor.commission, vendor.carryOverFromPriorWeeks);
+              const verseAmt = paidShownVersusWeekContext(
+                vendor.totalPaid,
+                vendor.amount,
+                vendor.commission,
+                vendor.carryOverFromPriorWeeks,
+                vendor.settlementMode,
+              );
               const label = co > 0 ? "Total versé" : "Versé";
               return (
                 <span className="whitespace-nowrap">{label} : <span className="font-medium text-emerald-700">{fmtAmount(verseAmt)} FCFA</span></span>
@@ -437,11 +466,10 @@ function WeekCard({
           const newDailyPaid = source === "daily" && v.dailyPaid !== undefined
             ? Math.max(0, v.dailyPaid - removed.amount)
             : v.dailyPaid;
-          // Reste = ventes − commission − total versé (préserver la commission existante).
-          const newRemaining = Math.max(0, v.amount - v.commission - newTotalPaid);
-          // weeklyExpected = ventes − commission − dailyPaid (ce qui reste à régler en hebdo)
+          const due = weekAmountDue(v.amount, v.commission, v.settlementMode);
+          const newRemaining = Math.max(0, due - newTotalPaid);
           const newWeeklyExpected = newDailyPaid !== undefined
-            ? Math.max(0, v.amount - v.commission - newDailyPaid)
+            ? Math.max(0, due - newDailyPaid)
             : v.weeklyExpected;
           return {
             ...v,
@@ -461,7 +489,13 @@ function WeekCard({
   const grandCommission = useMemo(() => (data?.vendors ?? []).reduce((s, v) => s + v.commission, 0), [data]);
   const grandPaid       = useMemo(
     () => (data?.vendors ?? []).reduce(
-      (s, v) => s + paidShownVersusWeekContext(v.totalPaid, v.amount, v.commission, v.carryOverFromPriorWeeks),
+      (s, v) => s + paidShownVersusWeekContext(
+        v.totalPaid,
+        v.amount,
+        v.commission,
+        v.carryOverFromPriorWeeks,
+        v.settlementMode,
+      ),
       0,
     ),
     [data],
@@ -852,6 +886,8 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
         const displayEntries = consolidateArrears(entries);
         const isConsolidated = entries.length >= 5;
         const vendorName = vendorInfo[vid]?.name ?? `Vendeur ${vid}`;
+        const refDate = yesterdayIsoLocal();
+        const daySales = entries.find((e) => e.date === refDate)?.salesAmount ?? 0;
         const vendorTotal = entries.reduce((s, e) => s + e.remaining, 0);
         const isOpen = expanded.has(vid);
         const c = vendorColor(vid);
@@ -865,13 +901,13 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
             >
               <div className="flex items-center gap-2 min-w-0">
                 <AlertTriangle className={`h-3.5 w-3.5 ${c.icon} flex-shrink-0`} />
-                <span className="font-semibold text-sm text-gray-800 truncate">{vendorName}</span>
+                <span className="font-semibold text-sm text-gray-800 truncate">{vendorSoldDayTitle(vendorName, refDate)}</span>
                 <span className={`text-[10px] ${c.sub} whitespace-nowrap`}>
                   {entries.length} jour{entries.length > 1 ? "s" : ""}{isConsolidated ? " (regroupés)" : ""}
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <span className={`font-bold ${c.amount} text-sm tabular-nums`}>{fmtAmount(vendorTotal)} FCFA</span>
+                <span className={`font-bold ${c.amount} text-sm tabular-nums`}>{fmtAmount(daySales > 0 ? daySales : vendorTotal)} FCFA</span>
                 <button
                   className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                   disabled={payLoading}
