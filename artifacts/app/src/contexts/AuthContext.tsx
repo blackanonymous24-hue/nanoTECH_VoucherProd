@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { abortAllApiRequests } from "@/lib/installAuthFetch";
-import { getListRoutersQueryKey } from "@workspace/api-client-react";
+import { clearAllSavedPrintLots } from "@/lib/voucher-print-lot-persist";
+import { getListRoutersQueryKey, VOUCHERNET_SESSION_REVOKED_EVENT } from "@workspace/api-client-react";
 
 const TOKEN_KEY           = "vouchernet_admin_token";
 const ROLE_KEY            = "vouchernet_role";
@@ -43,6 +44,8 @@ interface AuthContextValue {
   collaborateurRouterIds: number[];
   isSuperAdmin: boolean;
   isAuthenticated: boolean;
+  /** Jeton stocké en localStorage (« Se souvenir de moi ») — pas de déconnexion auto après inactivité (pause API inchangée). */
+  sessionPersisted: boolean;
   connectedName: string | null;
   connectedUsername: string | null;
   login: (
@@ -56,7 +59,7 @@ interface AuthContextValue {
     connectedName?: string | null,
     connectedUsername?: string | null,
   ) => void;
-  logout: () => void;
+  logout: (opts?: { skipRevoke?: boolean }) => void | Promise<void>;
   updateConnectedInfo: (info: { name?: string; username?: string }) => void;
 }
 
@@ -68,6 +71,7 @@ const AuthContext = createContext<AuthContextValue>({
   collaborateurRouterIds: [],
   isSuperAdmin: false,
   isAuthenticated: false,
+  sessionPersisted: false,
   connectedName: null,
   connectedUsername: null,
   login: () => {},
@@ -195,10 +199,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(async (opts?: { skipRevoke?: boolean }) => {
+    const t = readKey(TOKEN_KEY);
+    if (!opts?.skipRevoke && t) {
+      try {
+        await fetch("/api/session/revoke", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+        });
+      } catch {
+        /* réseau : on déconnecte quand même côté client */
+      }
+    }
     abortAllApiRequests();
     void queryClient.cancelQueries();
     queryClient.clear();
+    clearAllSavedPrintLots();
 
     removeKey(TOKEN_KEY);
     removeKey(ROLE_KEY);
@@ -217,7 +233,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsSuperAdmin(false);
     setConnectedName(null);
     setConnectedUsername(null);
-  };
+  }, []);
+
+  useEffect(() => {
+    const onRevoked = () => {
+      void logout({ skipRevoke: true });
+    };
+    window.addEventListener(VOUCHERNET_SESSION_REVOKED_EVENT, onRevoked);
+    return () => window.removeEventListener(VOUCHERNET_SESSION_REVOKED_EVENT, onRevoked);
+  }, [logout]);
 
   const updateConnectedInfo = (info: { name?: string; username?: string }) => {
     const remember = !!localStorage.getItem(TOKEN_KEY);
@@ -233,10 +257,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  let sessionPersisted = false;
+  try {
+    sessionPersisted = Boolean(token && localStorage.getItem(TOKEN_KEY));
+  } catch {
+    sessionPersisted = false;
+  }
+
   return (
     <AuthContext.Provider value={{
       token, role, vendorInfo, managerRouterId, collaborateurRouterIds,
-      isSuperAdmin, isAuthenticated: !!token, login, logout,
+      isSuperAdmin, isAuthenticated: !!token, sessionPersisted, login, logout,
       connectedName, connectedUsername, updateConnectedInfo,
     }}>
       {children}

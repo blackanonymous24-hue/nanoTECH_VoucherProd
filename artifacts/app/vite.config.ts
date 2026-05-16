@@ -8,6 +8,25 @@ const rawPort = process.env.PORT;
 const port = rawPort && !Number.isNaN(Number(rawPort)) ? Number(rawPort) : 4173;
 
 const basePath = process.env.BASE_PATH ?? "/";
+/** Sans slash final — pour proxy dev quand l’app est servie sous un sous-chemin (`BASE_PATH=/foo/`). */
+const basePathNoTrailing = basePath.replace(/\/$/, "");
+
+function buildApiProxy(): Record<string, { target: string; changeOrigin: boolean; rewrite?: (path: string) => string }> {
+  const target = "http://localhost:3001";
+  const common = { target, changeOrigin: true as const };
+  const out: Record<string, { target: string; changeOrigin: boolean; rewrite?: (path: string) => string }> = {
+    "/api": common,
+  };
+  if (basePathNoTrailing && basePathNoTrailing !== "") {
+    const escaped = basePathNoTrailing.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const prefix = `${basePathNoTrailing}/api`;
+    out[prefix] = {
+      ...common,
+      rewrite: (p) => p.replace(new RegExp(`^${escaped}/api`), "/api"),
+    };
+  }
+  return out;
+}
 
 /** Plugin : headers de cache corrects pour dev + preview (production).
  *  - index.html / racine → no-store (toujours rechargé après déploiement)
@@ -87,12 +106,7 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
-    proxy: {
-      "/api": {
-        target: "http://localhost:3001",
-        changeOrigin: true,
-      },
-    },
+    proxy: buildApiProxy(),
     fs: {
       strict: true,
       deny: ["**/.*"],
@@ -102,5 +116,6 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: buildApiProxy(),
   },
 });

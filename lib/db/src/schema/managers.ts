@@ -11,6 +11,7 @@ export const managersTable = pgTable("managers", {
   passwordHash: text("password_hash"),
   passwordPlain: text("password_plain"),
   isActive: boolean("is_active").notNull().default(true),
+  sessionEpoch: integer("session_epoch").notNull().default(0),
   routerId: integer("router_id").references(() => routersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

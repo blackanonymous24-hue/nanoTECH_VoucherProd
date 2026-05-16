@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import {
@@ -6,8 +6,10 @@ import {
   useListRouterProfiles,
   getListRouterUsersQueryKey,
   getListRouterProfilesQueryKey,
+  isApiPauseError,
+  type HotspotUser,
+  type HotspotUserListResponse,
 } from "@workspace/api-client-react";
-import type { HotspotUser, HotspotUserListResponse } from "@workspace/api-client-react";
 import { queryClient } from "@/lib/queryClient";
 import { printMikhmonSmallVouchers } from "@/lib/print";
 import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
@@ -92,6 +94,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useProfileAutoResync } from "@/hooks/use-profile-auto-resync";
 import { foldText } from "@/lib/text";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { HotspotBulkProgressState } from "@/lib/hotspot-bulk-toggle";
 
 /** Compteurs hotspot : bytesIn = download (↓), bytesOut = upload (↑) — voir `hotspotTrafficBytesFromRouter` côté API. */
 function formatUserTrafficBytes(bytes: string | null | undefined): string {
@@ -131,6 +135,116 @@ type VendorAliasRow = { name: string; commentSuffix?: string | null; commentSuff
 const PAGE_SIZE = 100;
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+function TicketsProgressTitle({ enable }: { enable: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-0 min-w-0">
+      <span className="truncate">{enable ? "Réactivation du lot en cours" : "Désactivation du lot en cours"}</span>
+      <span className="inline-flex shrink-0 ml-px" aria-hidden>
+        …
+      </span>
+    </span>
+  );
+}
+
+function HotspotBulkProgressPanel({
+  progress,
+  paused,
+  className,
+}: {
+  progress: HotspotBulkProgressState;
+  paused: boolean;
+  className?: string;
+}) {
+  const pct = Math.round((progress.done / Math.max(1, progress.total)) * 100);
+  return (
+    <div
+      className={cn(
+        "rounded-lg border px-3 py-2.5 shadow-sm",
+        progress.enable ? "border-green-200 bg-green-50/90" : "border-orange-200 bg-orange-50/90",
+        className,
+      )}
+    >
+      <div
+        className={cn(
+          "relative h-2 bg-white/80 rounded-full overflow-hidden border mb-1.5",
+          progress.enable ? "border-green-100" : "border-orange-100",
+        )}
+      >
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 rounded-full transition-all duration-500",
+            paused ? "bg-amber-400" : progress.enable ? "bg-green-600" : "bg-orange-500",
+          )}
+          style={{ width: `${pct}%` }}
+        />
+        {!paused && (
+          <div
+            className="absolute inset-0 animate-shimmer"
+            style={{
+              background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%)",
+              backgroundSize: "200% 100%",
+            }}
+          />
+        )}
+      </div>
+      <div
+        className={cn(
+          "flex items-center gap-2 min-w-0 text-[11px]",
+          progress.enable ? "text-green-900/80" : "text-orange-900/80",
+        )}
+      >
+        {paused ? (
+          <>
+            <span className="flex items-center gap-1 min-w-0 flex-1 text-amber-700 font-medium">
+              <WifiOff className="h-3 w-3 shrink-0" />
+              <span className="truncate">Routeur inaccessible — reprise automatique…</span>
+            </span>
+            <span className="tabular-nums font-medium shrink-0 whitespace-nowrap">
+              {progress.done} / {progress.total}
+              <span className="font-normal ml-1 text-amber-800/80">({pct}%)</span>
+            </span>
+          </>
+        ) : (
+          <>
+            <Loader2
+              className={cn(
+                "h-3 w-3 animate-spin shrink-0",
+                progress.enable ? "text-green-600" : "text-orange-600",
+              )}
+              aria-hidden
+            />
+            <span
+              className={cn(
+                "text-xs font-semibold min-w-0 flex-1 truncate",
+                progress.enable ? "text-green-900" : "text-orange-900",
+              )}
+            >
+              <TicketsProgressTitle enable={progress.enable} />
+            </span>
+            <span className="tabular-nums font-medium shrink-0 whitespace-nowrap">
+              {progress.done} / {progress.total}
+              <span
+                className={cn(
+                  "font-normal ml-1",
+                  progress.enable ? "text-green-800/70" : "text-orange-700/70",
+                )}
+              >
+                ({pct}%)
+              </span>
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const showHotspotBulkProgressInLotStrip = (
+  view: "list" | "lots",
+  filterComment: string,
+  selectedSize: number,
+): boolean => view === "list" && filterComment !== "all" && selectedSize === 0;
+
 // Module-level cache — persists across component unmount/remount (tab navigation).
 // Provides instant display on re-visit without waiting for React Query to refetch.
 const _vouchersCache: Record<number, {
@@ -143,6 +257,7 @@ const _vouchersCache: Record<number, {
 // Instantly flip the `disabled` field for a set of usernames in ALL React Query
 // caches for this router, returning a snapshot for rollback on error.
 function optimisticSetDisabled(routerId: number, usernames: Set<string>, disabled: boolean) {
+  const lowered = new Set([...usernames].map((u) => String(u ?? "").trim().toLowerCase()).filter(Boolean));
   const snapshot = queryClient.getQueriesData<HotspotUserListResponse>({
     queryKey: [`/routers/${routerId}/users`],
     exact: false,
@@ -151,7 +266,12 @@ function optimisticSetDisabled(routerId: number, usernames: Set<string>, disable
     { queryKey: [`/routers/${routerId}/users`], exact: false },
     (old) => {
       if (!old) return old;
-      return { ...old, users: old.users.map((u) => usernames.has(u.username) ? { ...u, disabled } : u) };
+      return {
+        ...old,
+        users: old.users.map((u) =>
+          lowered.has(String(u.username ?? "").trim().toLowerCase()) ? { ...u, disabled } : u,
+        ),
+      };
     },
   );
   return snapshot;
@@ -203,6 +323,17 @@ function makeClientBatchId(mode: "vc" | "up"): string {
   return `${mode}-${rand}-${M}.${D}.${Y}`;
 }
 
+/** Message utilisateur pour échec toggle lot / MikroTik (pause API, verrou routeur, 502, etc.). */
+function describeVoucherHotspotApplyError(err: unknown): string {
+  if (isApiPauseError(err)) {
+    return "Les requêtes vers l’API sont momentanément en pause (onglet en arrière-plan ou inactivité). Repassez sur cette page, attendez une seconde, puis réessayez.";
+  }
+  if (err instanceof Error && err.message.trim() && !/^HTTP \d{3}$/.test(err.message.trim())) {
+    return err.message;
+  }
+  return "Impossible d’appliquer sur MikroTik. Vérifiez la connexion au routeur.";
+}
+
 export default function Vouchers() {
   const { selectedRouterId, routers, selectedRouter } = useRouterContext();
   const { toast } = useToast();
@@ -220,12 +351,17 @@ export default function Vouchers() {
   const [isDisabling, setIsDisabling] = useState(false);
   /** Lot dont Désactiver/Réactiver est en cours (liste ou onglet Lots). */
   const [disablingLotComment, setDisablingLotComment] = useState<string | null>(null);
+  /** Barre de progression (toggle paqueté, comme archives Mikhmon / zip). */
+  const [hotspotBulkProgress, setHotspotBulkProgress] = useState<HotspotBulkProgressState | null>(null);
+  const [hotspotBulkPaused, setHotspotBulkPaused] = useState(false);
+  const [lotTogglePhase, setLotTogglePhase] = useState<"enabling" | "disabling" | null>(null);
   /** Confirmation avant Désactiver/Réactiver un lot (liste ou onglet Lots). */
   const [confirmLotToggle, setConfirmLotToggle] = useState<{
     comment: string;
     enable: boolean;
-    previewUsers?: HotspotUser[];
   } | null>(null);
+  /** Lot en cours d'impression (nom du commentaire / lot). */
+  const [printingLot, setPrintingLot] = useState<string | null>(null);
   const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
@@ -260,11 +396,9 @@ export default function Vouchers() {
   const [lotsFilterVendor, setLotsFilterVendor] = useState<string>("all");
   const [lotsProfilePopoverOpen, setLotsProfilePopoverOpen] = useState(false);
   const [lotsVendorPopoverOpen, setLotsVendorPopoverOpen] = useState(false);
-  const restoredPrintLotRouterRef = useRef<number | null>(null);
 
   // Réinitialise tous les filtres et la sélection quand le routeur change
   useEffect(() => {
-    restoredPrintLotRouterRef.current = null;
     setSearch("");
     setFilterProfile("all");
     setFilterComment("all");
@@ -272,6 +406,11 @@ export default function Vouchers() {
     setFilterStatus("all");
     setPage(0);
     setSelectedUsernames(new Set());
+    setConfirmLotToggle(null);
+    setPrintingLot(null);
+    setHotspotBulkProgress(null);
+    setHotspotBulkPaused(false);
+    setLotTogglePhase(null);
     setLotsSearch("");
     setLotsFilterProfile("all");
     setLotsFilterVendor("all");
@@ -333,16 +472,6 @@ export default function Vouchers() {
   const totalUsers = lotsData?.total ?? 0;
   useRefetchOnEmpty(lots, lotsLoading, () => void refetchLots(), (d) => !!activeRouterId && (!d || d.length === 0));
 
-  /** Restaure le dernier lot d’impression sauvegardé (sélecteur ou impression directe). */
-  useEffect(() => {
-    if (!activeRouterId || lotsLoading) return;
-    if (restoredPrintLotRouterRef.current === activeRouterId) return;
-    restoredPrintLotRouterRef.current = activeRouterId;
-    const saved = loadSavedPrintLot(activeRouterId);
-    if (saved && lots.some((l) => l.name === saved.comment)) {
-      setFilterComment(saved.comment);
-    }
-  }, [activeRouterId, lotsLoading, lots]);
   const { data: vendorsAlias = [] } = useQuery<VendorAliasRow[]>({
     queryKey: ["vendors-aliases", activeRouterId],
     enabled: !!activeRouterId,
@@ -493,6 +622,15 @@ export default function Vouchers() {
     }
     return map;
   }, [profilesList]);
+  const profileLockMacByName = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const p of (profilesList as unknown as Array<Record<string, unknown>>)) {
+      const name = String(p.name ?? "").trim();
+      if (!name) continue;
+      map.set(name, p.lockMac === true);
+    }
+    return map;
+  }, [profilesList]);
   // true = le profil a une durée de validité définie (expiration possible)
   // false = pas de validity → profil sans expiration (illimité selon sa config réelle)
   const profileHasValidity = useMemo(() => {
@@ -542,6 +680,16 @@ export default function Vouchers() {
   }, [allUsersData?.users, filterVendor, filterStatus, profileExpiryModeByName, vendorAliasMap, lotVendorByComment]);
   const filteredTotal = filtered.length;
 
+  /** Filtre lot : masquer Désactiver si tout est déjà désactivé, masquer Réactiver si tout est actif. */
+  const lotStripAllShownDisabled =
+    filterComment !== "all" &&
+    filtered.length > 0 &&
+    filtered.every((u) => !!u.disabled);
+  const lotStripAllShownActive =
+    filterComment !== "all" &&
+    filtered.length > 0 &&
+    filtered.every((u) => !u.disabled);
+
   // ── Local pagination (on the 2000 loaded items) ───────────────────────────────
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageUsers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -562,63 +710,76 @@ export default function Vouchers() {
     [profilesList],
   );
 
-  // ── Lot disable/enable — un seul appel serveur (MikroTik : print filtré par commentaire + sets) ──
-  const handleDisableLot = async (
-    comment: string,
-    enable: boolean,
-    opts?: { previewUsers?: HotspotUser[] },
-  ) => {
+  // ── Lot disable/enable — un seul POST serveur : tout est appliqué sur MikroTik dans une session routeur (comme la génération). ──
+  const handleDisableLot = async (comment: string, enable: boolean) => {
     if (!activeRouterId || isDisabling) return;
 
-    const namesInCache = (allUsersData?.users ?? [])
-      .filter((u) => u.comment === comment)
-      .map((u) => u.username);
-    const fromPreview = (opts?.previewUsers ?? []).map((u) => u.username);
-    const namesForOpt = new Set([...namesInCache, ...fromPreview]);
-    const snapshot =
-      namesForOpt.size > 0
-        ? optimisticSetDisabled(activeRouterId, namesForOpt, !enable)
-        : null;
-
+    setLotTogglePhase(enable ? "enabling" : "disabling");
     setIsDisabling(true);
     setDisablingLotComment(comment);
+
+    const optimisticNames = new Set<string>();
+    for (const u of allUsersData?.users ?? []) {
+      if (String(u.comment ?? "").trim() === comment) {
+        const un = String(u.username ?? "").trim();
+        if (un) optimisticNames.add(un);
+      }
+    }
+    const lotRow = lots.find((l) => l.name === comment);
+    if (lotRow?.preview?.length) {
+      for (const u of lotRow.preview) {
+        const un = String(u.username ?? "").trim();
+        if (un) optimisticNames.add(un);
+      }
+    }
+    let snapshot: ReturnType<typeof optimisticSetDisabled> | null = null;
+    if (optimisticNames.size > 0) {
+      snapshot = optimisticSetDisabled(activeRouterId, optimisticNames, !enable);
+    }
+
     try {
       const res = await fetch(`${BASE}/api/vouchers/lot-disable`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ routerId: activeRouterId, comment, enable }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { done: number; notFound: string[] };
-      if (data.done === 0) {
-        if (snapshot) {
+      const data = (await res.json().catch(() => ({}))) as { done?: number; error?: string };
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" && data.error ? data.error : `HTTP ${res.status}`);
+      }
+      const done = data.done ?? 0;
+      if (done === 0) {
+        if (snapshot && snapshot.length > 0) {
           for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
         }
         toast({
-          title: "Aucun compte sur MikroTik",
-          description: `Aucun utilisateur hotspot avec le commentaire de ce lot (${comment}).`,
+          title: "Aucun compte trouvé",
+          description: `Aucun utilisateur correspondant sur MikroTik pour « ${comment} ».`,
           variant: "destructive",
         });
         return;
       }
       toast({
-        title: enable ? `${data.done} voucher(s) réactivé(s) sur MikroTik` : `${data.done} voucher(s) désactivé(s) sur MikroTik`,
+        title: enable ? `${done} compte(s) réactivé(s) sur MikroTik` : `${done} compte(s) désactivé(s) sur MikroTik`,
         description: `Lot : ${comment}`,
       });
       void refetchLots();
       void refetchUsers();
-    } catch {
-      if (snapshot) {
+    } catch (err) {
+      if (snapshot && snapshot.length > 0) {
         for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
       }
       toast({
         title: enable ? "Erreur réactivation" : "Erreur désactivation",
-        description: "Impossible d’appliquer sur MikroTik. Vérifiez la connexion au routeur.",
+        description: describeVoucherHotspotApplyError(err),
         variant: "destructive",
       });
     } finally {
+      setLotTogglePhase(null);
       setIsDisabling(false);
       setDisablingLotComment(null);
+      setHotspotBulkProgress(null);
+      setHotspotBulkPaused(false);
     }
   };
 
@@ -724,7 +885,7 @@ export default function Vouchers() {
       void refetchUsers();
     } catch (err) {
       for (const [key, val] of snapshot) queryClient.setQueryData(key, val);
-      toast({ title: "Erreur MikroTik", description: String(err), variant: "destructive" });
+      toast({ title: "Erreur MikroTik", description: describeVoucherHotspotApplyError(err), variant: "destructive" });
     } finally {
       setUserRowMikrotikToggle(null);
     }
@@ -821,7 +982,8 @@ export default function Vouchers() {
 
 
   const handlePrintSmallLot = async (lot: LotSummary) => {
-    if (!activeRouterId) return;
+    if (!activeRouterId || printingLot) return;
+    setPrintingLot(lot.name);
     saveSavedPrintLot(activeRouterId, lot.name, lot.profile);
     setFilterComment(lot.name);
     try {
@@ -882,6 +1044,8 @@ export default function Vouchers() {
         description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
+    } finally {
+      setPrintingLot(null);
     }
   };
 
@@ -1246,12 +1410,8 @@ export default function Vouchers() {
     setFilterComment(v);
     setPage(0);
     if (!activeRouterId) return;
-    if (v === "all") {
-      clearSavedPrintLot(activeRouterId);
-      return;
-    }
-    const lot = lots.find((l) => l.name === v);
-    saveSavedPrintLot(activeRouterId, v, lot?.profile);
+    // Le filtre « lot » ne persiste pas (session / refresh / autre compte) — seule l’impression enregistre le lot.
+    if (v === "all") clearSavedPrintLot(activeRouterId);
   };
 
   const handleVendorChange = (v: string) => {
@@ -1309,6 +1469,14 @@ export default function Vouchers() {
         </Card>
       ) : (
         <>
+          {hotspotBulkProgress &&
+            (filterComment === "all" || selectedUsernames.size > 0) && (
+              <HotspotBulkProgressPanel
+                progress={hotspotBulkProgress}
+                paused={hotspotBulkPaused}
+                className="mb-4"
+              />
+            )}
           {/* Tab toggle */}
           <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
             <button
@@ -1550,66 +1718,109 @@ export default function Vouchers() {
               </Card>
 
               {filterComment !== "all" && (
-                <div className="flex items-center justify-between mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 gap-3 flex-wrap">
-                  <span className="text-sm text-amber-800 font-medium flex items-center gap-2">
-                    <Package className="h-4 w-4" />
-                    Lot&nbsp;: <span className="font-mono">{filterComment}</span>
-                    &nbsp;—&nbsp;{filteredTotal.toLocaleString("fr")} affiché(s)
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={isDisabling}
-                      onClick={() =>
-                        setConfirmLotToggle({
-                          comment: filterComment,
-                          enable: false,
-                          previewUsers: (allUsersData?.users ?? []).filter((u) => u.comment === filterComment),
-                        })
-                      }
-                      className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
-                    >
-                      {isDisabling && disablingLotComment === filterComment ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+                  {lotTogglePhase ||
+                  (hotspotBulkProgress &&
+                    showHotspotBulkProgressInLotStrip(view, filterComment, selectedUsernames.size)) ? (
+                    <>
+                      <div className="flex items-center gap-2 min-w-0 mb-2">
+                        <Package className="h-4 w-4 flex-shrink-0 text-amber-800" />
+                        <span className="text-sm text-amber-800 font-medium truncate">
+                          Lot&nbsp;: <span className="font-mono">{filterComment}</span>
+                          &nbsp;—&nbsp;
+                          <span className="italic font-normal">
+                            ({filteredTotal === 1
+                              ? "1 affiché"
+                              : `${filteredTotal.toLocaleString("fr")} affichés`})
+                          </span>
+                        </span>
+                      </div>
+                      {hotspotBulkProgress &&
+                      showHotspotBulkProgressInLotStrip(view, filterComment, selectedUsernames.size) ? (
+                        <HotspotBulkProgressPanel
+                          progress={hotspotBulkProgress}
+                          paused={hotspotBulkPaused}
+                          className="border-amber-200/80 bg-white/70"
+                        />
                       ) : (
-                        <PowerOff className="h-3.5 w-3.5" />
+                        <div className="space-y-1.5 py-0.5">
+                          <Skeleton className="h-2 w-full rounded-full" />
+                          <div className="flex items-center gap-2 min-w-0 text-[11px] text-amber-900/90">
+                            <Loader2 className="h-3 w-3 shrink-0 text-amber-700 animate-spin" aria-hidden />
+                            <span className="text-xs font-semibold min-w-0 flex-1 truncate text-amber-900">
+                              <TicketsProgressTitle enable={lotTogglePhase === "enabling"} />
+                            </span>
+                          </div>
+                        </div>
                       )}
-                      {isDisabling && disablingLotComment === filterComment ? "En cours..." : "Désactiver"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={isDisabling}
-                      onClick={() =>
-                        setConfirmLotToggle({
-                          comment: filterComment,
-                          enable: true,
-                          previewUsers: (allUsersData?.users ?? []).filter((u) => u.comment === filterComment),
-                        })
-                      }
-                      className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
-                    >
-                      {isDisabling && disablingLotComment === filterComment ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <PowerOff className="h-3.5 w-3.5 rotate-180" />
-                      )}
-                      {isDisabling && disablingLotComment === filterComment ? "En cours..." : "Réactiver"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setDeletingLot(filterComment)}
-                      disabled={isDeletingLot}
-                      className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
-                    >
-                      {isDeletingLot && deletingLotName === filterComment
-                        ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        : <Trash2 className="h-3.5 w-3.5" />}
-                      Supprimer
-                    </Button>
-                  </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <span className="text-sm text-amber-800 font-medium flex items-center gap-2">
+                        <Package className="h-4 w-4" />
+                        Lot&nbsp;: <span className="font-mono">{filterComment}</span>
+                        &nbsp;—&nbsp;{filteredTotal.toLocaleString("fr")} affiché(s)
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {!lotStripAllShownDisabled && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={isDisabling}
+                            onClick={() =>
+                              setConfirmLotToggle({
+                                comment: filterComment,
+                                enable: false,
+                              })
+                            }
+                            className="gap-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
+                          >
+                            {isDisabling && disablingLotComment === filterComment ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <PowerOff className="h-3.5 w-3.5" />
+                            )}
+                            {isDisabling && disablingLotComment === filterComment ? "En cours..." : "Désactiver"}
+                          </Button>
+                        )}
+                        {!lotStripAllShownActive && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={isDisabling}
+                            onClick={() =>
+                              setConfirmLotToggle({
+                                comment: filterComment,
+                                enable: true,
+                              })
+                            }
+                            className="gap-1.5 text-green-600 hover:text-green-800 hover:bg-green-50"
+                          >
+                            {isDisabling && disablingLotComment === filterComment ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <PowerOff className="h-3.5 w-3.5 rotate-180" />
+                            )}
+                            {isDisabling && disablingLotComment === filterComment ? "En cours..." : "Réactiver"}
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setDeletingLot(filterComment)}
+                          disabled={isDeletingLot}
+                          className="gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          {isDeletingLot && deletingLotName === filterComment ? (
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                          Supprimer
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1656,14 +1867,21 @@ export default function Vouchers() {
                       <button
                         type="button"
                         onClick={async () => {
-                          if (!filterComment) return;
+                          if (!filterComment || printingLot) return;
                           const lot = lots.find((l) => l.name === filterComment);
                           if (lot) await handlePrintSmallLot(lot);
                         }}
-                        className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors"
+                        disabled={printingLot !== null}
+                        className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-900 hover:bg-purple-100 px-2 py-1 rounded transition-colors disabled:opacity-50"
                       >
-                        <Printer className="h-3 w-3" />
-                        <span>Imprimer</span>
+                        {printingLot === filterComment ? (
+                          <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                        ) : (
+                          <Printer className="h-3 w-3 shrink-0" />
+                        )}
+                        <span>
+                          {printingLot === filterComment ? "Impression en cours…" : "Imprimer"}
+                        </span>
                       </button>
 
                       <div className="h-4 w-px bg-blue-200 flex-shrink-0" />
@@ -1812,6 +2030,7 @@ export default function Vouchers() {
                           key={user.username}
                           user={user}
                           isExpired={userIsExpired(user)}
+                          macAuthLocked={hotspotUserMacAuthLocked(user, profileLockMacByName)}
                           selected={selectedUsernames.has(user.username)}
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
@@ -2045,12 +2264,19 @@ export default function Vouchers() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 w-7 p-0 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
-                            onClick={() => handlePrintSmallLot(lot)}
-                            title="Imprimer"
+                            className="h-7 p-0 px-2 sm:h-auto sm:w-auto sm:px-2.5 sm:gap-1.5 sm:text-xs text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                            onClick={() => void handlePrintSmallLot(lot)}
+                            disabled={printingLot !== null}
+                            title={printingLot === lot.name ? "Impression en cours…" : "Imprimer"}
                           >
-                            <Printer className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Imprimer</span>
+                            {printingLot === lot.name ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                            ) : (
+                              <Printer className="h-3.5 w-3.5 shrink-0" />
+                            )}
+                            <span className={printingLot === lot.name ? "inline text-[10px] sm:text-xs" : "hidden sm:inline"}>
+                              {printingLot === lot.name ? "Impression en cours…" : "Imprimer"}
+                            </span>
                           </Button>
                           <Button
                             size="sm"
@@ -2090,7 +2316,6 @@ export default function Vouchers() {
                               setConfirmLotToggle({
                                 comment: lot.name,
                                 enable: allDisabled,
-                                previewUsers: lot.preview,
                               })
                             }
                           >
@@ -2367,6 +2592,22 @@ export default function Vouchers() {
                 disabled={isSavingRename || isTogglingEditUserDisabled}
               />
             </div>
+            {editingUser && hotspotUserMacAuthLocked(editingUser, profileLockMacByName) ? (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">MAC verrouillée</Label>
+                <div
+                  className={cn(
+                    "flex min-h-9 w-full items-center rounded-md border border-amber-200/70 bg-amber-50/60 px-3 py-2 text-sm font-mono text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-100/90",
+                  )}
+                  title="Forfait avec verrouillage MAC + MAC enregistrée sur l'utilisateur hotspot (Mikhmon / RouterOS)"
+                >
+                  {editingUser.macAddress?.trim()}
+                </div>
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Activé car le forfait a « verrouillage MAC » et une MAC est enregistrée sur MikroTik.
+                </p>
+              </div>
+            ) : null}
             <div className="space-y-1.5">
               <Label htmlFor="edit-password" className="text-xs text-muted-foreground">Mot de passe</Label>
               <PasswordInput
@@ -2733,8 +2974,8 @@ export default function Vouchers() {
                       <p>
                         Tous les comptes du lot{" "}
                         <strong className="font-mono text-foreground break-all">{confirmLotToggle.comment}</strong>{" "}
-                        seront désactivés sur MikroTik. Les sessions hotspot actives pour ces utilisateurs seront
-                        coupées.
+                        seront désactivés sur MikroTik, y compris ceux déjà connectés (commentaire remplacé par une
+                        date d&apos;expiration, retrouvés via la base). Les sessions hotspot actives seront coupées.
                       </p>
                     )}
                   </div>
@@ -2753,11 +2994,7 @@ export default function Vouchers() {
                     if (!confirmLotToggle || isDisabling) return;
                     const t = confirmLotToggle;
                     setConfirmLotToggle(null);
-                    void handleDisableLot(
-                      t.comment,
-                      t.enable,
-                      t.previewUsers?.length ? { previewUsers: t.previewUsers } : undefined,
-                    );
+                    void handleDisableLot(t.comment, t.enable);
                   }}
                 >
                   {confirmLotToggle.enable ? "Réactiver" : "Désactiver"}
@@ -2868,15 +3105,30 @@ function isUnlimitedProfile(profile: string | null | undefined): boolean {
 }
 
 /**
+ * Verrouillage MAC « Mikhmon » : le **forfait** a `lockMac`, et l’entrée hotspot a une **MAC** enregistrée
+ * (après première connexion / script). Une MAC seule sans forfait lockMac (ex. saisie manuelle) ne compte pas.
+ */
+function hotspotUserMacAuthLocked(
+  user: HotspotUser,
+  profileLockMacByName: Map<string, boolean>,
+): boolean {
+  const mac = String(user.macAddress ?? "").trim();
+  if (!mac) return false;
+  const prof = String(user.profile ?? "").trim();
+  return profileLockMacByName.get(prof) === true;
+}
+
+/**
  * Ligne d’un utilisateur hotspot (Mes tickets) :
- * - **Login** : pseudo (`user.username`) — `mes-tickets-username`. **Desktop** : si le user a une **MAC** renseignée sur l’entrée hotspot (`mac-address`, verrouillage MAC), elle s’affiche sous le login en **parenthèses** (`absolute`, sans augmenter la hauteur de flux de la ligne).
- * - **Userinfo** : `mes-tickets-userinfo`. **`sm+`** : `mes-tickets-userinfo-columns` — une ligne (colonne MAC vide si MAC affichée sous le login ; sinon pastille MAC si présente), profil, uptime, bytes in, bytes out, commentaire.
- * - **Cadenas** : activation / désactivation MikroTik. **Poubelle** : ouvre le dialogue de confirmation puis suppression sur le routeur (réutilise `DeleteConfirmDialog` / `DELETE /routers/:id/users`). Modifier / prolonger : clic sur la ligne ou modale d’édition.
+ * - **Login** : pseudo (`user.username`) — `mes-tickets-username`. **Desktop** : si **verrouillage MAC forfait** (`macAuthLocked`), la MAC s’affiche sous le login en **parenthèses** (`absolute`, sans augmenter la hauteur de flux de la ligne).
+ * - **Userinfo** : `mes-tickets-userinfo`. **Mobile** : forfait (profil) puis **commentaire** dessous — pas d’octets, uptime ni MAC. **`sm+`** : `mes-tickets-userinfo-columns` — MAC (si pas affichée sous le login), profil, uptime, bytes in/out, commentaire.
+ * - **Cadenas** : activation / désactivation MikroTik. **Poubelle** : suppression (dialogue). **Mobile** : cadenas au-dessus de la poubelle (`flex-col`) pour gagner de la largeur et compacter la ligne.
  */
 function UserRow({
   user,
   isExpired: expired,
   selected,
+  macAuthLocked,
   onToggle,
   onEdit,
   onRequestDelete,
@@ -2887,6 +3139,8 @@ function UserRow({
   user: HotspotUser;
   isExpired: boolean;
   selected: boolean;
+  /** Profil avec lock MAC + MAC sur l’utilisateur (Mikhmon). */
+  macAuthLocked: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onRequestDelete: () => void;
@@ -2897,8 +3151,6 @@ function UserRow({
   const mikrotikBusyThis = mikrotikTogglingUser === user.username;
   const mikrotikAnyBusy = mikrotikTogglingUser !== null;
   const rowActionsDisabled = mikrotikAnyBusy || deleteBusy;
-  /** MAC renseignée sur l’utilisateur hotspot (= verrouillage MAC côté MikroTik). */
-  const hotspotUserMacLocked = Boolean(user.macAddress?.trim());
   return (
     <div
       role="button"
@@ -2910,7 +3162,7 @@ function UserRow({
           onEdit();
         }
       }}
-      className={`mes-tickets-row flex items-center justify-between gap-2 px-3 sm:px-4 py-3 hover:bg-gray-50 group cursor-pointer ${selected ? "bg-blue-50" : ""}`}
+      className={`mes-tickets-row flex items-start justify-between gap-2 px-3 sm:px-4 py-2 sm:py-3 sm:items-center hover:bg-gray-50 group cursor-pointer ${selected ? "bg-blue-50" : ""}`}
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1 sm:flex-nowrap sm:gap-x-3 sm:gap-y-0">
         <div className="flex min-w-0 max-w-full shrink-0 items-center gap-2">
@@ -2935,7 +3187,7 @@ function UserRow({
                 Expiré
               </span>
             )}
-            {hotspotUserMacLocked ? (
+            {macAuthLocked ? (
               <span
                 className="pointer-events-none absolute left-0 top-full z-[1] mt-0.5 hidden max-w-[min(100%,14rem)] truncate font-mono text-[10px] leading-none text-gray-500 sm:block"
                 title={user.macAddress ?? undefined}
@@ -2945,78 +3197,38 @@ function UserRow({
             ) : null}
           </div>
         </div>
-        {/* Sous sm : uptime/MAC empilés ; puis out/in et profil/comment. sm+ : une ligne (sans limit-uptime). */}
+        {/* Desktop sm+ : colonnes ; mobile : profil + commentaire uniquement */}
         <div
           className="mes-tickets-userinfo min-w-0 w-full basis-full sm:w-auto sm:basis-auto sm:flex-1"
           data-userinfo
         >
-          {/* —— sous sm —— */}
-          <div className="mes-tickets-userinfo-mobile flex min-w-0 w-full flex-col gap-1 sm:hidden">
-            {(user.macAddress || hotspotUserUptimeIsMeaningful(user.uptime)) ? (
-            <div className="flex min-w-0 flex-col items-end gap-0 text-[11px] leading-tight">
-                  {hotspotUserUptimeIsMeaningful(user.uptime) ? (
-                    <span
-                      className="max-w-[9rem] truncate rounded border border-emerald-200/35 bg-emerald-100/40 px-1 py-0.5 text-[11px] leading-tight text-emerald-700/70"
-                      title="Uptime session (routeur)"
-                    >
-                      {user.uptime}
-                    </span>
-                  ) : null}
-                  {user.macAddress ? (
-                    <span
-                      className="max-w-[9rem] truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 font-mono text-[11px] leading-tight text-violet-700/70"
-                      title="Adresse MAC"
-                    >
-                      {user.macAddress}
-                    </span>
-                  ) : null}
-            </div>
+          {/* —— sous sm : profil puis commentaire (pas trafic / uptime / MAC) —— */}
+          <div className="mes-tickets-userinfo-mobile flex min-w-0 w-full flex-col gap-0.5 sm:hidden">
+            {user.profile ? (
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-1 gap-y-0.5 text-[11px] leading-none">
+                <span
+                  className="max-w-[10rem] truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-px text-[11px] font-medium text-violet-700/70"
+                  title={user.profile}
+                >
+                  {user.profile}
+                </span>
+              </div>
             ) : null}
-            <div className="grid w-full min-w-0 grid-cols-2 gap-x-1">
-              <div className="flex min-w-0 flex-col items-end justify-end gap-0">
-                {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
-                  <span
-                    className="max-w-full truncate rounded border border-amber-200/35 bg-amber-100/40 px-1 py-0.5 text-[11px] leading-tight text-amber-800/65"
-                    title="Upload (RouterOS bytes-in)"
-                  >
-                    ↑ {formatUserTrafficBytes(user.bytesOut)}
-                  </span>
-                ) : null}
-                {hotspotUserHasTraffic(user.bytesIn, user.bytesOut) ? (
-                  <span
-                    className="max-w-full truncate rounded border border-sky-200/35 bg-sky-100/40 px-1 py-0.5 text-[11px] leading-tight text-sky-700/70"
-                    title="Download (RouterOS bytes-out)"
-                  >
-                    ↓ {formatUserTrafficBytes(user.bytesIn)}
-                  </span>
-                ) : null}
+            {user.comment ? (
+              <div className="mes-tickets-comment flex w-full min-w-0 justify-end" data-userinfo-comment>
+                <span
+                  className={`max-w-full truncate rounded border px-1 py-px text-right font-mono text-[11px] tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
+                  title={user.comment}
+                >
+                  {user.comment}
+                </span>
               </div>
-              <div className="flex min-w-0 flex-col items-end justify-end gap-0">
-                {user.profile ? (
-                  <span
-                    className="max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 text-center text-[11px] font-medium leading-tight text-violet-700/70"
-                    title={user.profile}
-                  >
-                    {user.profile}
-                  </span>
-                ) : null}
-                <div className="mes-tickets-comment flex w-full min-w-0 justify-end" data-userinfo-comment>
-                  {user.comment ? (
-                    <span
-                      className={`max-w-full truncate rounded border px-1 py-0.5 text-center font-mono text-[11px] leading-tight tabular-nums ${expired ? "border-red-200/50 bg-red-50 text-red-600" : "border-gray-200/60 bg-gray-100 text-gray-600"}`}
-                      title={user.comment}
-                    >
-                      {user.comment}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            </div>
+            ) : null}
           </div>
           {/* —— sm+ : colonnes alignées —— */}
           <div className="mes-tickets-userinfo-columns hidden min-w-0 flex-nowrap items-center justify-end gap-x-0 overflow-x-auto text-xs leading-tight sm:flex">
           <div className="flex w-[9.5rem] shrink-0 justify-end">
-            {!hotspotUserMacLocked && user.macAddress ? (
+            {!macAuthLocked && user.macAddress ? (
               <span
                 className="max-w-full truncate rounded border border-violet-200/35 bg-violet-100/40 px-1 py-0.5 font-mono text-[11px] leading-tight text-violet-700/70"
                 title="Adresse MAC"
@@ -3082,7 +3294,7 @@ function UserRow({
         </div>
       </div>
 
-      <div className="ml-2 flex flex-shrink-0 items-center gap-0.5">
+      <div className="ml-1 flex shrink-0 flex-col items-center gap-0 sm:ml-2 sm:flex-row sm:gap-0.5 sm:items-center">
         <button
           type="button"
           onClick={(e) => {
@@ -3092,7 +3304,7 @@ function UserRow({
           disabled={rowActionsDisabled}
           title={user.disabled ? "Réactiver ce compte sur MikroTik" : "Désactiver ce compte sur MikroTik"}
           aria-label={user.disabled ? "Réactiver sur MikroTik" : "Désactiver sur MikroTik"}
-          className={`rounded p-1.5 hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-40 ${
+          className={`rounded p-1 sm:p-1.5 hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-40 ${
             user.disabled
               ? "text-orange-400 hover:text-orange-600"
               : "text-emerald-500/80 hover:text-emerald-700"
@@ -3115,7 +3327,7 @@ function UserRow({
           disabled={rowActionsDisabled}
           title="Supprimer ce compte sur MikroTik"
           aria-label="Supprimer sur MikroTik"
-          className="rounded p-1.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+          className="rounded p-1 sm:p-1.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
         </button>

@@ -405,7 +405,7 @@ router.get("/super/admins/:id/routers", async (req, res): Promise<void> => {
       .from(adminSettingsTable)
       .where(eq(adminSettingsTable.isSuperAdmin, true));
     if (Number(superCount) === 1) {
-      ownerFilter = or(eq(routersTable.ownerAdminId, adminId), isNull(routersTable.ownerAdminId));
+      ownerFilter = or(eq(routersTable.ownerAdminId, adminId), isNull(routersTable.ownerAdminId))!;
     }
   }
 

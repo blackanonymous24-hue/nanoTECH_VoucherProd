@@ -1,7 +1,13 @@
 import { Router } from "express";
 import { eq, and, isNull, isNotNull, desc, sql, or, ilike, gte } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable, scriptSalesTable } from "@workspace/db";
-import { generateVouchers, listProfiles, enableDisableHotspotUsers, enableDisableHotspotUsersByComment } from "../lib/mikrotik.js";
+import {
+  generateVouchers,
+  listProfiles,
+  enableDisableHotspotUsers,
+  enableDisableHotspotLot,
+  enableDisableHotspotUsersByComment,
+} from "../lib/mikrotik.js";
 import type { HotspotUser } from "../lib/mikrotik.js";
 import { invalidateUserCache, appendCachedUsers, resolveCallerScope } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -384,6 +390,24 @@ router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
   }
 });
 
+// GET /vouchers/lot-usernames — usernames en base pour un lot (`comment`), pour progression client (toggle paqueté)
+router.get("/vouchers/lot-usernames", async (req, res): Promise<void> => {
+  const rawRid = req.query.routerId;
+  const routerId = typeof rawRid === "string" ? parseInt(rawRid, 10) : NaN;
+  const commentTrim = typeof req.query.comment === "string" ? req.query.comment.trim() : "";
+  if (!commentTrim || !Number.isFinite(routerId)) {
+    res.status(400).json({ error: "routerId et comment sont requis" });
+    return;
+  }
+
+  const rows = await db
+    .select({ username: vouchersTable.username })
+    .from(vouchersTable)
+    .where(and(eq(vouchersTable.routerId, routerId), eq(vouchersTable.comment, commentTrim)));
+
+  res.json({ usernames: rows.map((r) => r.username) });
+});
+
 router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
   const { routerId, comment, enable } = req.body as {
     routerId?: number;
@@ -402,8 +426,17 @@ router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
+    const dbRows = await db
+      .select({ username: vouchersTable.username })
+      .from(vouchersTable)
+      .where(and(eq(vouchersTable.routerId, routerId), eq(vouchersTable.comment, commentTrim)));
+    const dbUsernames = dbRows.map((row) => row.username);
+
+    /** Un seul aller-retour MikroTik (comme la génération) : par commentaire si pas de tickets en base, sinon lot complet (commentaire + noms DB). */
     const result = await withRouterLock(routerId, () =>
-      enableDisableHotspotUsersByComment(conn, commentTrim, enable ?? false),
+      dbUsernames.length === 0
+        ? enableDisableHotspotUsersByComment(conn, commentTrim, enable ?? false)
+        : enableDisableHotspotLot(conn, commentTrim, dbUsernames, enable ?? false),
     );
     await invalidateUserCache(routerId);
     res.json(result);

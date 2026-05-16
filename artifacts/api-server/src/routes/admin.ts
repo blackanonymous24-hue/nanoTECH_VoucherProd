@@ -11,6 +11,7 @@ import { withRouterLock } from "../lib/router-lock.js";
 import { clearRouterScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { logger } from "../lib/logger.js";
+import { incrementSessionEpochForToken } from "../lib/session-epoch-middleware.js";
 
 const router = Router();
 
@@ -97,7 +98,7 @@ router.post("/login", async (req, res): Promise<void> => {
       res.json({
         role: "admin",
         isSuperAdmin: adminRow.isSuperAdmin,
-        token: createAdminToken(adminRow.id, adminRow.isSuperAdmin),
+        token: createAdminToken(adminRow.id, adminRow.isSuperAdmin, adminRow.sessionEpoch ?? 0),
         admin: {
           id: adminRow.id,
           login: adminRow.login,
@@ -119,7 +120,7 @@ router.post("/login", async (req, res): Promise<void> => {
     if (valid) {
       res.json({
         role: "manager",
-        token: createManagerToken(manager.id),
+        token: createManagerToken(manager.id, manager.sessionEpoch ?? 0),
         manager: { id: manager.id, name: manager.name, username: manager.username, routerId: manager.routerId ?? null },
       });
       return;
@@ -136,7 +137,7 @@ router.post("/login", async (req, res): Promise<void> => {
     if (valid) {
       res.json({
         role: "vendor",
-        token: createVendorToken(vendor.id),
+        token: createVendorToken(vendor.id, vendor.sessionEpoch ?? 0),
         vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
       });
       return;
@@ -158,7 +159,7 @@ router.post("/login", async (req, res): Promise<void> => {
       const routerIds = routerRows.map((r) => r.routerId);
       res.json({
         role: "collaborateur",
-        token: createCollabToken(collab.id, routerIds),
+        token: createCollabToken(collab.id, routerIds, collab.sessionEpoch ?? 0),
         collaborateur: { id: collab.id, name: collab.name, username: collab.username, routerIds },
       });
       return;
@@ -173,6 +174,21 @@ router.post("/login", async (req, res): Promise<void> => {
         "Erreur serveur ou base de données (schéma incomplet ou indisponible). Redémarrez l’API après mise à jour, exécutez les migrations Drizzle, puis réessayez.",
     });
   }
+});
+
+/** Révoque tous les jetons du compte (autres navigateurs / onglets). */
+router.post("/session/revoke", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+  const ok = await incrementSessionEpochForToken(auth.slice(7));
+  if (!ok) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+  res.status(204).send();
 });
 
 // ---------------------------------------------------------------------------

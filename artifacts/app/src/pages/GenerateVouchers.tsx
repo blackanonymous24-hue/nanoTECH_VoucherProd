@@ -337,6 +337,7 @@ export default function GenerateVouchers() {
   const [loadingLastLot, setLoadingLastLot] = useState(false);
 
   const [copiedLot, setCopiedLot] = useState(false);
+  const [isPrintingSmall, setIsPrintingSmall] = useState(false);
   const [isDeletingLastLot, setIsDeletingLastLot] = useState(false);
   const [confirmDeleteLastLot, setConfirmDeleteLastLot] = useState<LastLot | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -696,7 +697,8 @@ export default function GenerateVouchers() {
   };
 
   const handlePrintSmall = async (lot: LastLot) => {
-    if (!lot.routerId || !lot.comment) return;
+    if (!lot.routerId || !lot.comment || isPrintingSmall) return;
+    setIsPrintingSmall(true);
     saveLastLot(lot);
     try {
       const raw = await fetchLotUsers(lot.routerId, lot.comment, GEN_BASE);
@@ -764,6 +766,8 @@ export default function GenerateVouchers() {
         description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
+    } finally {
+      setIsPrintingSmall(false);
     }
   };
 
@@ -1172,10 +1176,14 @@ export default function GenerateVouchers() {
                     type="button"
                     className="w-full gap-1.5"
                     onClick={() => void handlePrintSmall(lastLot)}
-                    disabled={!selectedRouterId}
+                    disabled={isPrintingSmall || !selectedRouterId}
                   >
-                    <Printer className="h-3.5 w-3.5" />
-                    Imprimer
+                    {isPrintingSmall ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                    ) : (
+                      <Printer className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    {isPrintingSmall ? "Impression en cours…" : "Imprimer"}
                   </Button>
                 ) : (
                   <Button
@@ -1288,9 +1296,14 @@ export default function GenerateVouchers() {
                   size="sm"
                   className="flex-1 gap-1.5"
                   onClick={() => void handlePrintSmall(lastLot)}
+                  disabled={isPrintingSmall}
                 >
-                  <Printer className="h-3.5 w-3.5" />
-                  Imprimer
+                  {isPrintingSmall ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <Printer className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  {isPrintingSmall ? "Impression en cours…" : "Imprimer"}
                 </Button>
                 <Button
                   size="sm"

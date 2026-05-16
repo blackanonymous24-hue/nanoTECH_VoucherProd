@@ -190,7 +190,7 @@ router.post("/vendor-portal/login", async (req, res): Promise<void> => {
     return;
   }
 
-  const token = createToken(vendor.id);
+  const token = createToken(vendor.id, vendor.sessionEpoch ?? 0);
 
   // Préchauffer le cache dashboard en arrière-plan dès le login.
   // Quand le client fera son premier GET /vendor-portal/me quelques ms plus

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { sessionEpochMiddleware } from "../lib/session-epoch-middleware.js";
 import routersRouter from "./routers.js";
 import vouchersRouter from "./vouchers.js";
 import vendorsRouter from "./vendors.js";
@@ -14,6 +15,8 @@ export const router = Router();
 router.get("/healthz", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+router.use(sessionEpochMiddleware);
 
 router.use(routersRouter);
 router.use(vouchersRouter);

@@ -320,7 +320,7 @@ router.get("/routers", async (req, res): Promise<void> => {
         .from(adminSettingsTable)
         .where(eq(adminSettingsTable.isSuperAdmin, true));
       if (Number(c) === 1) {
-        ownerCond = or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId));
+        ownerCond = or(eq(routersTable.ownerAdminId, scope.adminId), isNull(routersTable.ownerAdminId))!;
       }
     }
     res.json(await baseSelect.where(ownerCond).orderBy(routersTable.name));
@@ -1132,6 +1132,29 @@ type UsersCountPayload = {
 };
 const _usersCountCache = new Map<string, UsersCountPayload>();
 
+/** Une tâche de fond par routeur : recharge MikroTik (si demandé) + recompte les totaux DB. */
+function scheduleUserCacheAndCountRefresh(
+  id: number,
+  ownerAdminId: number | null,
+  conn: Parameters<typeof listHotspotUsers>[0],
+  mikrotikForce: boolean,
+): void {
+  if (_usersRefreshing.has(id)) return;
+  _usersRefreshing.add(id);
+  setImmediate(async () => {
+    try {
+      const users = await getCachedUsers({ id, ownerAdminId }, conn, { force: mikrotikForce });
+      const sc = routerCacheScope(ownerAdminId, id);
+      const payload = await computeUsersCount(id, conn, users);
+      _usersCountCache.set(sc, payload);
+    } catch {
+      /* keep stale */
+    } finally {
+      _usersRefreshing.delete(id);
+    }
+  });
+}
+
 async function computeUsersCount(
   routerId: number,
   conn: Parameters<typeof listHotspotUsers>[0],
@@ -1190,17 +1213,7 @@ router.get("/routers/:id/users/count", async (req, res): Promise<void> => {
   // Stale path — we have *some* previous payload: serve it + refresh in bg
   if (cachedPayload) {
     res.json({ ...cachedPayload, cached: true, stale: true });
-    if (!_usersRefreshing.has(id)) {
-      _usersRefreshing.add(id);
-      setImmediate(async () => {
-        try {
-          const users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: !userFresh });
-          const payload = await computeUsersCount(id, conn, users);
-          _usersCountCache.set(sc, payload);
-        } catch { /* keep stale */ }
-        finally { _usersRefreshing.delete(id); }
-      });
-    }
+    scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, !userFresh);
     return;
   }
 
@@ -1229,7 +1242,22 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    let users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: refresh === "1" || refresh === "true" });
+    const sc = routerCacheScope(r.ownerAdminId, id);
+    const hit = userCache.get(sc);
+    const userFresh = !!hit && Date.now() < hit.expiresAt;
+    const force = refresh === "1" || refresh === "true";
+
+    let users: Awaited<ReturnType<typeof listHotspotUsers>>;
+    if (force) {
+      users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: true });
+    } else if (hit && userFresh) {
+      users = hit.users;
+    } else if (hit && !userFresh) {
+      users = hit.users;
+      scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, true);
+    } else {
+      users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
+    }
 
     if (search) {
       const q = foldText(search);
@@ -1308,8 +1336,22 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
 
   try {
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const sc = routerCacheScope(r.ownerAdminId, id);
+    const hit = userCache.get(sc);
+    const userFresh = !!hit && Date.now() < hit.expiresAt;
+
+    const usersPromise: Promise<Awaited<ReturnType<typeof listHotspotUsers>>> =
+      hit && userFresh
+        ? Promise.resolve(hit.users)
+        : hit && !userFresh
+          ? (() => {
+              scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, true);
+              return Promise.resolve(hit.users);
+            })()
+          : getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
+
     const [users, soldRows] = await Promise.all([
-      getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn),
+      usersPromise,
       db
         .select({ username: vouchersTable.username })
         .from(vouchersTable)
@@ -2341,15 +2383,8 @@ async function buildDashboardPrioritySnapshot(id: number) {
       });
     }
     const usersCachedNow = _usersCountCache.get(sc);
-    if (usersCachedNow && !_usersRefreshing.has(id) && (now - usersCachedNow.cachedAt) > COUNT_FRESH_MS) {
-      _usersRefreshing.add(id);
-      setImmediate(async () => {
-        try {
-          const list = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: !userFresh });
-          _usersCountCache.set(sc, await computeUsersCount(id, conn, list));
-        } catch { /* keep stale */ }
-        finally { _usersRefreshing.delete(id); }
-      });
+    if (usersCachedNow && (now - usersCachedNow.cachedAt) > COUNT_FRESH_MS) {
+      scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, !userFresh);
     }
   }
 
@@ -2559,16 +2594,8 @@ router.get("/routers/:id/bootstrap", async (req, res): Promise<void> => {
     }
 
     const usersCount = _usersCountCache.get(sc) ?? null;
-    if (!usersCount && !_usersRefreshing.has(id)) {
-      _usersRefreshing.add(id);
-      setImmediate(async () => {
-        try {
-          const users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
-          const payload = await computeUsersCount(id, conn, users);
-          _usersCountCache.set(sc, payload);
-        } catch { /* keep empty snapshot */ }
-        finally { _usersRefreshing.delete(id); }
-      });
+    if (!usersCount) {
+      scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, true);
     }
 
     const sessionsKey = `sessions:${sc}`;

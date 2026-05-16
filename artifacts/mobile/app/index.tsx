@@ -9,6 +9,8 @@ import {
   StatusBar,
   BackHandler,
   Alert,
+  AppState,
+  type AppStateStatus,
 } from "react-native";
 import { WebView, WebViewNavigation, WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,6 +21,9 @@ import * as Sharing from "expo-sharing";
 /** URL du front web (Vite) chargé dans la WebView. Définir `EXPO_PUBLIC_WEB_APP_URL` pour la prod ou un LAN (voir DEVELOPMENT.md). */
 const PROD_URL = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://127.0.0.1:4173";
 const RELOAD_SPINNER_TIMEOUT = 8000;
+
+/** Doit être identique à `APK_APP_STATE_EVENT` dans `artifacts/app/src/components/SessionLifecycle.tsx`. */
+const WEB_APK_APP_STATE_EVENT = "vouchernet-apk-app-state";
 
 export default function AppScreen() {
   const webViewRef = useRef<WebView>(null);
@@ -51,6 +56,21 @@ export default function AppScreen() {
     return () => clearReloadTimer();
   }, []);
 
+  const injectApkPresenceToWeb = useCallback((state: AppStateStatus) => {
+    const away = state !== "active";
+    webViewRef.current?.injectJavaScript(`
+      window.dispatchEvent(new CustomEvent("${WEB_APK_APP_STATE_EVENT}", { detail: ${away} }));
+      true;
+    `);
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      injectApkPresenceToWeb(nextState);
+    });
+    return () => sub.remove();
+  }, [injectApkPresenceToWeb]);
+
   const handleNavigationStateChange = (state: WebViewNavigation) => {
     canGoBackRef.current = state.canGoBack;
     setCanGoBack(state.canGoBack);
@@ -70,12 +90,13 @@ export default function AppScreen() {
   }, []);
 
   const handleLoadEnd = useCallback(() => {
+    injectApkPresenceToWeb(AppState.currentState);
     if (isExplicitReloadRef.current) {
       clearReloadTimer();
       setIsLoading(false);
       isExplicitReloadRef.current = false;
     }
-  }, []);
+  }, [injectApkPresenceToWeb]);
 
   const handleBack = () => {
     webViewRef.current?.goBack();

@@ -32,14 +32,16 @@ interface AdminTokenPayload {
   // boolean check; always `true` for any admin token we issue.
   admin: true;
   exp: number;
+  sid: number;
 }
 
-export function createAdminToken(adminId: number, isSuperAdmin: boolean): string {
+export function createAdminToken(adminId: number, isSuperAdmin: boolean, sessionEpoch: number): string {
   const payload: AdminTokenPayload = {
     adminId,
     isSuperAdmin,
     admin: true,
     exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    sid: sessionEpoch,
   };
   const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto.createHmac("sha256", SECRET).update(encoded).digest("base64url");
@@ -54,7 +56,7 @@ export function createAdminToken(adminId: number, isSuperAdmin: boolean): string
  * scoping or super-admin gating). For a simple yes/no check, see
  * `verifyAdminToken` which preserves the original boolean API.
  */
-export function verifyAdminTokenFull(token: string): { adminId: number; isSuperAdmin: boolean } | null {
+export function verifyAdminTokenFull(token: string): { adminId: number; isSuperAdmin: boolean; sessionEpoch: number } | null {
   try {
     const dot = token.lastIndexOf(".");
     if (dot === -1) return null;
@@ -67,7 +69,8 @@ export function verifyAdminTokenFull(token: string): { adminId: number; isSuperA
     // adminId is required for new tokens; older tokens (issued before this
     // release) won't carry it and are treated as invalid so users re-login.
     if (typeof data.adminId !== "number") return null;
-    return { adminId: data.adminId, isSuperAdmin: !!data.isSuperAdmin };
+    const sessionEpoch = typeof data.sid === "number" && Number.isFinite(data.sid) ? data.sid : 0;
+    return { adminId: data.adminId, isSuperAdmin: !!data.isSuperAdmin, sessionEpoch };
   } catch {
     return null;
   }

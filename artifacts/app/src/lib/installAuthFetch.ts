@@ -1,3 +1,5 @@
+import { VOUCHERNET_SESSION_REVOKED_EVENT } from "@workspace/api-client-react";
+
 const TOKEN_KEY = "vouchernet_admin_token";
 const API_FETCH_ABORT_REASON = "auth-logout";
 const API_FETCH_PAUSED_REASON = "api-paused";
@@ -75,6 +77,28 @@ export function setApiRequestPause(
   }
 }
 
+/**
+ * Pathname réel peut être `{base}/api/...` (Vite `base` / déploiement sous-dossier).
+ * Les motifs de pause autorisée ciblent `/api/...` depuis la racine site.
+ */
+function apiPathTailFromSitePath(pathname: string): string {
+  const i = pathname.indexOf("/api/");
+  return i >= 0 ? pathname.slice(i) : pathname;
+}
+
+function pathnameMatchesPausePattern(pathname: string, re: RegExp): boolean {
+  return re.test(pathname) || re.test(apiPathTailFromSitePath(pathname));
+}
+
+/** URL autorisées pendant la pause API (toggle hotspot par paquets — verrou routeur). */
+export const HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS: RegExp[] = [
+  /\/api\/vouchers\/users-toggle(?:$|[/?#])/,
+  /\/api\/vouchers\/lot-usernames(?:$|[/?#])/,
+  /\/api\/vouchers\/lot-disable(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
+];
+
 function getApiPath(input: RequestInfo | URL): string {
   try {
     const raw =
@@ -101,7 +125,10 @@ export function installAuthFetch(): void {
     const pauseState = getApiPauseState();
     if (pauseState.paused) {
       const path = getApiPath(input);
-      const allowed = pauseState.allowPathPatterns.some((re) => re.test(path));
+      const allowed =
+        pathnameMatchesPausePattern(path, /\/api\/login(?:$|[/?#])/) ||
+        pathnameMatchesPausePattern(path, /\/api\/session\/revoke(?:$|[/?#])/) ||
+        pauseState.allowPathPatterns.some((re) => pathnameMatchesPausePattern(path, re));
       if (!allowed) {
         throw new DOMException(API_FETCH_PAUSED_REASON, "AbortError");
       }
@@ -130,7 +157,27 @@ export function installAuthFetch(): void {
     const nextInit: RequestInit = { ...(init ?? {}), headers: existingHeaders, signal: ctrl.signal };
 
     try {
-      return await original(input, nextInit);
+      const res = await original(input, nextInit);
+      if (res.status === 401) {
+        const ct = res.headers.get("content-type") ?? "";
+        if (ct.includes("application/json")) {
+          void res
+            .clone()
+            .json()
+            .then((body: unknown) => {
+              if (
+                body &&
+                typeof body === "object" &&
+                "code" in body &&
+                (body as { code: string }).code === "SESSION_REVOKED"
+              ) {
+                window.dispatchEvent(new CustomEvent(VOUCHERNET_SESSION_REVOKED_EVENT));
+              }
+            })
+            .catch(() => {});
+        }
+      }
+      return res;
     } finally {
       controllers.delete(ctrl);
       if (externalSignal) {

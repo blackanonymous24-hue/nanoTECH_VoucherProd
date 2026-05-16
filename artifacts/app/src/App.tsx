@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
+import { SessionLifecycle } from "@/components/SessionLifecycle";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
@@ -218,6 +219,7 @@ function App() {
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <AuthProvider>
+            <SessionLifecycle />
             <AppRoutes />
           </AuthProvider>
         </WouterRouter>

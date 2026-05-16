@@ -7,7 +7,6 @@ import {
   useCreateRouter,
   useDeleteRouter,
   useUpdateRouter,
-  useTestRouterConnection,
   getListRoutersQueryKey,
 } from "@workspace/api-client-react";
 import type { Router as RouterType } from "@workspace/api-client-react";
@@ -33,7 +32,7 @@ import { isAxiosError } from "axios";
 import {
   formatRouterConnectionTestLabel,
   routerConnectionStatusShortLabel,
-  testRouterConnectionApi,
+  pingRouterTcpApi,
 } from "@/lib/router-connection-test";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -178,7 +177,6 @@ export default function Routers() {
   const createMutation = useCreateRouter();
   const deleteMutation = useDeleteRouter();
   const updateMutation = useUpdateRouter();
-  const testMutation = useTestRouterConnection();
   const [pingingIds, setPingingIds] = useState<Set<number>>(new Set());
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -317,20 +315,23 @@ export default function Routers() {
   const handleTest = async (id: number) => {
     setPingingIds((prev) => new Set(prev).add(id));
     try {
-      const data = await testRouterConnectionApi(id, token);
+      const data = await pingRouterTcpApi(id, token, { force: true });
       setTestResultWithAutoExpiry(id, {
         success: data.success,
         message: formatRouterConnectionTestLabel(data),
       });
       if (!data.success) {
         toast({
-          title: "Connexion API impossible",
-          description: data.message,
+          title: "Impossible de contacter le routeur",
+          description:
+            data.message && data.message !== "Impossible de contacter le routeur"
+              ? data.message
+              : undefined,
           variant: "destructive",
         });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Erreur de connexion";
+      const message = err instanceof Error ? err.message : "Impossible de contacter le routeur";
       setTestResultWithAutoExpiry(id, { success: false, message });
     } finally {
       setPingingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
@@ -347,17 +348,21 @@ export default function Routers() {
     setTestResults((prev) => { const copy = { ...prev }; delete copy[id]; return copy; });
     setConnectingId(id);
     try {
-      const data = await testRouterConnectionApi(id, token);
+      const data = await pingRouterTcpApi(id, token, { force: true });
       if (data.success) {
         setSelectedRouterId(id);
         navigate("/");
       } else {
-        const msg = data.message || "Connexion API impossible";
+        const msg = data.message || "Impossible de contacter le routeur";
         setTestResultWithAutoExpiry(id, { success: false, message: msg });
-        toast({ title: "Connexion API impossible", description: msg, variant: "destructive" });
+        toast({
+          title: "Impossible de contacter le routeur",
+          description: msg !== "Impossible de contacter le routeur" ? msg : undefined,
+          variant: "destructive",
+        });
       }
     } catch {
-      setTestResultWithAutoExpiry(id, { success: false, message: "Erreur réseau" });
+      setTestResultWithAutoExpiry(id, { success: false, message: "Impossible de contacter le routeur" });
     } finally {
       setConnectingId(null);
     }
@@ -577,7 +582,7 @@ export default function Routers() {
                           className="h-7 w-7 rounded-full text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-100 relative"
                           onClick={(e) => { e.stopPropagation(); void handleTest(r.id); }}
                           disabled={pingingIds.has(r.id)}
-                          title="Tester la connexion API"
+                          title="Ping TCP (port API)"
                         >
                           {pingingIds.has(r.id)
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

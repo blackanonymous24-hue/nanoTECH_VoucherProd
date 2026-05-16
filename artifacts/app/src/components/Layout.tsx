@@ -37,6 +37,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+/** Sélecteur de routeur (header) : ping TCP uniquement (`useSelectRouterWithPing` → `GET /api/routers/:id/ping?force=1`). */
 function RouterSelector({ className, compact }: { className?: string; compact?: boolean }) {
   const { selectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked, borrowedRouter } = useRouterContext();
   const { selectWithPing, pingingId } = useSelectRouterWithPing();

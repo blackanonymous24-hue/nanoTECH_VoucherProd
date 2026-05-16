@@ -23,15 +23,15 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   });
 }
 
-export function createToken(managerId: number): string {
+export function createToken(managerId: number, sessionEpoch: number): string {
   const payload = Buffer.from(
-    JSON.stringify({ managerId, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 })
+    JSON.stringify({ managerId, sid: sessionEpoch, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 })
   ).toString("base64url");
   const sig = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 
-export function verifyToken(token: string): { managerId: number } | null {
+export function verifyToken(token: string): { managerId: number; sessionEpoch: number } | null {
   try {
     const dot = token.lastIndexOf(".");
     if (dot === -1) return null;
@@ -41,10 +41,12 @@ export function verifyToken(token: string): { managerId: number } | null {
     if (sig !== expectedSig) return null;
     const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
       managerId: number;
+      sid?: number;
       exp: number;
     };
     if (data.exp < Date.now()) return null;
-    return { managerId: data.managerId };
+    const sessionEpoch = typeof data.sid === "number" && Number.isFinite(data.sid) ? data.sid : 0;
+    return { managerId: data.managerId, sessionEpoch };
   } catch {
     return null;
   }

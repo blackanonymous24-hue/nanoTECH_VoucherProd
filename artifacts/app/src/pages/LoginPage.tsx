@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, type UserRole } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -83,69 +83,89 @@ export default function LoginPage({ mode }: LoginPageProps) {
     const MAX_ATTEMPTS = 6;
     const RETRY_DELAY_MS = 1500;
 
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      try {
-        const res = await fetch(`${BASE}/api/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ login: form.login.trim(), password: form.password }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error ?? "Identifiants incorrects");
-          setLoading(false);
-          return;
-        }
+    try {
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
+          const res = await fetch(`${BASE}/api/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ login: form.login.trim(), password: form.password }),
+          });
+          let data: Record<string, unknown>;
+          try {
+            data = (await res.json()) as Record<string, unknown>;
+          } catch {
+            setError(
+              res.ok
+                ? "Réponse serveur invalide (pas de JSON). Vérifiez le proxy / l’URL de l’API."
+                : "Réponse serveur invalide.",
+            );
+            return;
+          }
+          if (!res.ok) {
+            setError((typeof data.error === "string" && data.error) || "Identifiants incorrects");
+            return;
+          }
 
-        if (isAdmin && data.role === "vendor") {
-          setError("Ce compte est un compte vendeur. Veuillez utiliser l'espace Vendeurs/Revendeurs.");
-          setLoading(false);
-          return;
-        }
-        if (!isAdmin && (data.role === "admin" || data.role === "manager" || data.role === "collaborateur")) {
-          setError("Ce compte est un compte administrateur. Veuillez utiliser l'espace Administrateurs/Gérant de zone.");
-          setLoading(false);
-          return;
-        }
+          if (typeof data.token !== "string" || !data.token || typeof data.role !== "string" || !data.role) {
+            setError("Réponse de connexion incomplète. Vérifiez que l’API est joignable.");
+            return;
+          }
 
-        const connectedName: string | null =
-          data.role === "manager"       ? (data.manager?.name ?? null) :
-          data.role === "collaborateur" ? (data.collaborateur?.name ?? null) :
-          data.role === "admin"         ? (data.admin?.displayName ?? data.admin?.login ?? null) :
-          null;
-        const connectedUsername: string | null =
-          data.role === "manager"       ? (data.manager?.username ?? null) :
-          data.role === "collaborateur" ? (data.collaborateur?.username ?? null) :
-          data.role === "admin"         ? (data.admin?.login ?? null) :
-          null;
-        login(
-          data.token,
-          data.role,
-          data.vendor ?? undefined,
-          data.manager?.routerId ?? null,
-          data.collaborateur?.routerIds ?? undefined,
-          remember,
-          data.isSuperAdmin === true,
-          connectedName,
-          connectedUsername,
-        );
-        if (data.role === "vendor") {
-          navigate("/vendor-portal");
-        } else if (data.role === "manager" || data.role === "collaborateur") {
-          navigate("/");
-        } else {
-          navigate("/routers");
+          if (isAdmin && data.role === "vendor") {
+            setError("Ce compte est un compte vendeur. Veuillez utiliser l'espace Vendeurs/Revendeurs.");
+            return;
+          }
+          if (!isAdmin && (data.role === "admin" || data.role === "manager" || data.role === "collaborateur")) {
+            setError("Ce compte est un compte administrateur. Veuillez utiliser l'espace Administrateurs/Gérant de zone.");
+            return;
+          }
+
+          type VendorInfo = { id: number; name: string; email: string | null; username: string };
+          const manager = data.manager as { name?: string; username?: string; routerId?: number | null } | undefined;
+          const collaborateur = data.collaborateur as { name?: string; username?: string; routerIds?: number[] } | undefined;
+          const admin = data.admin as { displayName?: string | null; login?: string | null } | undefined;
+          const vendor = data.vendor as VendorInfo | undefined;
+
+          const connectedName: string | null =
+            data.role === "manager"       ? (manager?.name ?? null) :
+            data.role === "collaborateur" ? (collaborateur?.name ?? null) :
+            data.role === "admin"         ? (admin?.displayName ?? admin?.login ?? null) :
+            null;
+          const connectedUsername: string | null =
+            data.role === "manager"       ? (manager?.username ?? null) :
+            data.role === "collaborateur" ? (collaborateur?.username ?? null) :
+            data.role === "admin"         ? (admin?.login ?? null) :
+            null;
+          login(
+            data.token,
+            data.role as UserRole,
+            vendor ?? undefined,
+            manager?.routerId ?? null,
+            collaborateur?.routerIds ?? undefined,
+            remember,
+            data.isSuperAdmin === true,
+            connectedName,
+            connectedUsername,
+          );
+          if (data.role === "vendor") {
+            navigate("/vendor-portal");
+          } else if (data.role === "manager" || data.role === "collaborateur") {
+            navigate("/");
+          } else {
+            navigate("/routers");
+          }
+          return;
+        } catch {
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+            continue;
+          }
+          setError("Serveur indisponible, veuillez réessayer.");
         }
-        return;
-      } catch {
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-          continue;
-        }
-        /* Tous les essais épuisés — affiche un message discret */
-        setError("Serveur indisponible, veuillez réessayer.");
-        setLoading(false);
       }
+    } finally {
+      setLoading(false);
     }
   };
 

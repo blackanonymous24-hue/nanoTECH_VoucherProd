@@ -11,7 +11,6 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../../lib/db" },
-    { "path": "../../lib/api-zod" },
-    { "path": "../../lib/ticket-php-contract" }
+    { "path": "../../lib/api-zod" }
   ]
 }

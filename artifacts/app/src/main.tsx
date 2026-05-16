@@ -5,7 +5,7 @@ import { installAuthFetch } from "@/lib/installAuthFetch";
 
 installAuthFetch();
 
-// Expo APK WebView → add class for CSS/JS targeting
+// Expo APK WebView only — SessionLifecycle uses this to skip web idle-logout (mobile browser ≠ APK)
 if (/nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent)) {
   document.documentElement.classList.add("native-app");
 }

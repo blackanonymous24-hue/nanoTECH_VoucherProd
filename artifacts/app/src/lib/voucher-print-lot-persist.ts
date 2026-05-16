@@ -1,4 +1,4 @@
-/** Lot choisi pour l’impression sur Mes tickets — par routeur. */
+/** Dernier lot imprimé sur Mes tickets (par routeur) — utilisé après impression et pour nettoyage à la suppression de lot. */
 const KEY_PREFIX = "vouchernet_print_lot_v1";
 
 export type SavedPrintLot = {
@@ -40,6 +40,20 @@ export function saveSavedPrintLot(
       savedAt: new Date().toISOString(),
     };
     localStorage.setItem(savedPrintLotStorageKey(routerId), JSON.stringify(payload));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearAllSavedPrintLots(): void {
+  try {
+    const prefix = `${KEY_PREFIX}:`;
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(prefix)) toRemove.push(k);
+    }
+    for (const k of toRemove) localStorage.removeItem(k);
   } catch {
     /* ignore */
   }

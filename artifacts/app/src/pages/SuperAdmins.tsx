@@ -42,9 +42,8 @@ import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
 import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 import {
-  formatRouterConnectionTestLabel,
   routerConnectionStatusShortLabel,
-  testRouterConnectionApi,
+  pingRouterTcpApi,
 } from "@/lib/router-connection-test";
 import { getListRoutersQueryKey } from "@workspace/api-client-react";
 import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
@@ -682,16 +681,16 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const [showCopyVendors, setShowCopyVendors] = useState(false);
   const [showCopyRouter, setShowCopyRouter] = useState(false);
   const [pingingIds, setPingingIds] = useState<Set<number>>(new Set());
-  const [pingResults, setPingResults] = useState<Record<number, boolean>>({});
+  const [pingResults, setPingResults] = useState<Record<number, { success: boolean; message: string }>>({});
 
   const handlePing = async (r: RouterRow) => {
     if (pingingIds.has(r.id)) return;
     setPingingIds((s) => new Set(s).add(r.id));
     try {
-      const data = await testRouterConnectionApi(r.id, token);
+      const data = await pingRouterTcpApi(r.id, token, { force: true });
       setPingResults((prev) => ({
         ...prev,
-        [r.id]: { success: data.success, message: formatRouterConnectionTestLabel(data) },
+        [r.id]: { success: data.success, message: data.message || (data.success ? "En ligne" : "Échec") },
       }));
     } catch {
       setPingResults((prev) => ({

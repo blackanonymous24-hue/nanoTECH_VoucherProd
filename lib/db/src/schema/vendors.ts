@@ -21,6 +21,7 @@ export const vendorsTable = pgTable("vendors", {
   commissionRate: integer("commission_rate").notNull().default(0), // % of sales as remuneration (0-100)
   isDemo: boolean("is_demo").notNull().default(false),             // demo vendor: excluded from reports & billing
   isActive: boolean("is_active").notNull().default(true),
+  sessionEpoch: integer("session_epoch").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
