@@ -3,7 +3,7 @@ module.exports = function (api) {
   return {
     presets: [["babel-preset-expo", { unstable_transformImportMeta: true }]],
     plugins: [
-      // Obligatoire avec expo-router + react-native-reanimated (sinon crash au démarrage APK)
+      // Obligatoire avec react-native-reanimated (doit être le dernier plugin)
       "react-native-reanimated/plugin",
     ],
   };

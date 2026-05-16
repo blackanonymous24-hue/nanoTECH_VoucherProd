@@ -2,7 +2,7 @@
   "expo": {
     "name": "nanoTECH Vouchers",
     "slug": "nanotech-vouchers-bills",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "nanotech",
@@ -32,19 +32,10 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "https://nanovoucher.com"
-        }
-      ],
-      "expo-font",
-      "expo-web-browser"
+      "expo-splash-screen"
     ],
-    "experiments": {
-      "typedRoutes": true
-    },
     "extra": {
+      "webAppUrl": "https://nanovoucher.com",
       "eas": {
         "projectId": "12fb732a-dfe0-48e8-b8a5-e89ffc872705"
       }

@@ -34,20 +34,4 @@ config.resolver.extraNodeModules = {
   "react-native": path.resolve(projectRoot, "node_modules/react-native"),
 };
 
-// expo-router/_ctx.android.js calls require.context(process.env.EXPO_ROUTER_APP_ROOT).
-// Metro transform workers run in separate child processes and do NOT inherit env vars
-// set at runtime in metro.config.js. Using transformer.define injects a literal string
-// directly into the transform pipeline, reaching every worker process.
-// This is the only reliable fix for EAS Build monorepo setups.
-const appRoot = process.env.EXPO_ROUTER_APP_ROOT || path.join(projectRoot, "app");
-const importMode = process.env.EXPO_ROUTER_IMPORT_MODE || "sync";
-config.transformer = {
-  ...(config.transformer || {}),
-  define: {
-    ...((config.transformer || {}).define || {}),
-    "process.env.EXPO_ROUTER_APP_ROOT": JSON.stringify(appRoot),
-    "process.env.EXPO_ROUTER_IMPORT_MODE": JSON.stringify(importMode),
-  },
-};
-
 module.exports = config;
