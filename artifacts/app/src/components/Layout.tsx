@@ -127,8 +127,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const { toast } = useToast();
 
   const handleLogout = () => {
-    logout();
-    appNavigate("/admin");
+    void logout();
   };
   const isAdmin = role === "admin";
   const isManager = role === "manager";
@@ -1417,12 +1416,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Mobile top bar — 2 rows to avoid overlap on portrait phones */}
         {isMobile && (
           <header className="bg-[#0d1117] text-white px-3 pt-2 pb-2.5 flex-shrink-0 border-b border-white/[0.06] z-30 relative">
-            {/* Row 1: hamburger + app name */}
-            <div className="flex items-center gap-2 mb-2">
+            {/* Grille : menu à gauche (44px), titre + routeur à droite — le select n’est plus sous le hamburger */}
+            <div className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2 gap-y-2 items-center">
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8 flex-shrink-0 transition-colors"
+                className={cn(
+                  "text-gray-400 hover:text-white hover:bg-white/10 flex-shrink-0 transition-colors",
+                  "h-11 w-11 min-h-[44px] min-w-[44px] self-start",
+                  !mobileOpen && !isRoutersPage && "row-span-2",
+                )}
                 onClick={() => setMobileOpen((o) => !o)}
                 aria-label={mobileOpen ? "Fermer le menu" : "Ouvrir le menu"}
               >
@@ -1430,13 +1433,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   ? <X className="h-5 w-5 transition-transform duration-200" />
                   : <Menu className="h-5 w-5 transition-transform duration-200" />}
               </Button>
-              <div className="flex items-center gap-2 flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
                 <BrandLogo size="sm" />
                 <span className="font-bold text-white truncate text-sm leading-none">nanoTECH Vouchers</span>
               </div>
+              {!mobileOpen && !isRoutersPage && (
+                <RouterSelector compact className="w-full min-w-0 col-start-2" />
+              )}
             </div>
-            {/* Row 2: router selector — masqué quand le menu est ouvert ou sur la page Routeurs */}
-            {!mobileOpen && !isRoutersPage && <RouterSelector compact className="w-full" />}
           </header>
         )}
 

@@ -3,6 +3,7 @@ import { queryClient } from "@/lib/queryClient";
 import { abortAllApiRequests } from "@/lib/installAuthFetch";
 import { clearAllSavedPrintLots } from "@/lib/voucher-print-lot-persist";
 import { getListRoutersQueryKey, VOUCHERNET_SESSION_REVOKED_EVENT } from "@workspace/api-client-react";
+import { useAppNavigate } from "@/hooks/use-app-navigate";
 
 const TOKEN_KEY           = "vouchernet_admin_token";
 const ROLE_KEY            = "vouchernet_role";
@@ -44,7 +45,7 @@ interface AuthContextValue {
   collaborateurRouterIds: number[];
   isSuperAdmin: boolean;
   isAuthenticated: boolean;
-  /** Jeton stocké en localStorage (« Se souvenir de moi ») — déconnexion auto après 30 min d’inactivité (web). */
+  /** Jeton stocké en localStorage (« Se souvenir de moi »). Sur APK : pas de déconnexion idle. */
   sessionPersisted: boolean;
   connectedName: string | null;
   connectedUsername: string | null;
@@ -80,6 +81,7 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const navigate = useAppNavigate();
   const [token,                  setToken]                  = useState<string | null>(() => readKey(TOKEN_KEY));
   const [role,                   setRole]                   = useState<UserRole | null>(() => (readKey(ROLE_KEY) as UserRole | null));
   const [vendorInfo,             setVendorInfo]             = useState<VendorInfo | null>(() => {
@@ -200,6 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = useCallback(async (opts?: { skipRevoke?: boolean }) => {
+    const previousRole = role;
     const t = readKey(TOKEN_KEY);
     if (!opts?.skipRevoke && t) {
       try {
@@ -233,7 +236,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsSuperAdmin(false);
     setConnectedName(null);
     setConnectedUsername(null);
-  }, []);
+
+    if (previousRole === "vendor") {
+      navigate("/vendeur");
+    } else if (previousRole) {
+      navigate("/admin");
+    }
+  }, [role, navigate]);
 
   useEffect(() => {
     const onRevoked = () => {

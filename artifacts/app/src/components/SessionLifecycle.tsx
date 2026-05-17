@@ -15,20 +15,18 @@ import {
 /**
  * Cycle de vie session — périmètre :
  *
- * • Bureau et mobile en navigation web : pause API si l’onglet / l’app reste « absents »
- *   après TAB_HIDE_API_PAUSE_GRACE_MS ; activité et déconnexion synchronisées entre onglets
- *   (BroadcastChannel + localStorage) ; déconnexion après inactivité :
- *   {@link SESSION_IDLE_LOGOUT_MS} (session onglet) ou
- *   {@link SESSION_IDLE_LOGOUT_REMEMBER_MS} si « Se souvenir de moi ».
+ * • Web : déconnexion idle après {@link SESSION_IDLE_LOGOUT_MS} ; pause API après
+ *   {@link TAB_HIDE_API_PAUSE_GRACE_MS} si l’onglet est masqué ou l’app réduite (visibility hidden).
  *
- * • APK nanoTECH (WebView Expo) : pas de déconnexion idle pour admin/vendeur.
+ * • APK avec « Se souvenir de moi » : aucune déconnexion idle ; pause API immédiate en arrière-plan.
+ *   APK sans « Se souvenir de moi » : déconnexion après {@link SESSION_IDLE_LOGOUT_MS}.
  */
-/** Déconnexion auto sans « Se souvenir de moi » (jeton sessionStorage). */
-export const SESSION_IDLE_LOGOUT_MS = 10 * 60 * 1000;
-/** Déconnexion auto navigation web avec « Se souvenir de moi » (jeton localStorage). */
-export const SESSION_IDLE_LOGOUT_REMEMBER_MS = 30 * 60 * 1000;
+/** Déconnexion auto après inactivité (web et APK sans « Se souvenir de moi » sur APK). */
+export const SESSION_IDLE_LOGOUT_MS = 30 * 60 * 1000;
+/** Alias historique — même délai que {@link SESSION_IDLE_LOGOUT_MS}. */
+export const SESSION_IDLE_LOGOUT_REMEMBER_MS = SESSION_IDLE_LOGOUT_MS;
 
-/** Délai après masquage de l’onglet / passage de l’app en arrière-plan avant pause API. */
+/** Pause API web : onglet masqué / fenêtre réduite (visibility ≠ visible). */
 export const TAB_HIDE_API_PAUSE_GRACE_MS = 2 * 60 * 1000;
 
 /** Émis par Expo (`injectJavaScript`) quand React Native AppState ≠ active. */
@@ -42,8 +40,9 @@ export function isNativeAppShell(): boolean {
   return /nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent);
 }
 
-function isApkRelaxedSessionMode(role: string | null): boolean {
-  return isNativeAppShell() && (role === "vendor" || role === "admin");
+/** APK + jeton localStorage (« Se souvenir de moi ») → pas de déconnexion automatique. */
+function isApkRememberMeNoIdleLogout(sessionPersisted: boolean): boolean {
+  return isNativeAppShell() && sessionPersisted;
 }
 
 type BcMsg = { type: "activity"; t: number } | { type: "logout-all"; reason: string; t: number };
@@ -62,8 +61,9 @@ function sharedLastActivityMs(localRef: number): number {
 }
 
 export function SessionLifecycle() {
-  const { isAuthenticated, logout, role, sessionPersisted } = useAuth();
-  const apkRelaxed = isApkRelaxedSessionMode(role);
+  const { isAuthenticated, logout, sessionPersisted } = useAuth();
+  const apkNative = isNativeAppShell();
+  const apkNoIdleLogout = isApkRememberMeNoIdleLogout(sessionPersisted);
   const lastLocalPulse = useRef(0);
   const lastSharedRef = useRef(Date.now());
   const tabHidePauseTimerRef = useRef<number | null>(null);
@@ -116,7 +116,8 @@ export function SessionLifecycle() {
       void logout(opts.revoke ? undefined : { skipRevoke: true });
     };
 
-    const applyRemoteLogout = (broadcastTs: number) => {
+    const applyRemoteLogout = (broadcastTs: number, opts?: { force?: boolean }) => {
+      if (!opts?.force && apkNoIdleLogout) return;
       if (broadcastTs <= logoutBroadcastSeenRef.current) return;
       logoutBroadcastSeenRef.current = broadcastTs;
       performIdleLogout({ revoke: false, showToast: true });
@@ -132,6 +133,7 @@ export function SessionLifecycle() {
       if (!data || typeof data !== "object") return;
       if (data.type === "activity") bumpShared(data.t);
       if (data.type === "logout-all") {
+        if (apkNoIdleLogout) return;
         applyRemoteLogout(typeof data.t === "number" ? data.t : readSessionLogoutBroadcastTs());
       }
     };
@@ -145,7 +147,7 @@ export function SessionLifecycle() {
         return;
       }
       if (ev.key === AUTH_TOKEN_LS_KEY && ev.oldValue && !ev.newValue) {
-        applyRemoteLogout(Date.now());
+        applyRemoteLogout(Date.now(), { force: true });
       }
     };
     window.addEventListener("storage", onStorage);
@@ -167,25 +169,29 @@ export function SessionLifecycle() {
 
     const recomputeAwayAndPauseApi = () => {
       const awayWeb = document.visibilityState !== "visible";
-      const awayNative = isNativeAppShell() && apkAwayRef.current;
+      const awayNative = apkNative && apkAwayRef.current;
       const away = awayWeb || awayNative;
 
       if (away) {
         clearTabHidePauseTimer();
-        tabHidePauseTimerRef.current = window.setTimeout(() => {
-          tabHidePauseTimerRef.current = null;
-          const st = typeof window !== "undefined" ? window.__vouchernetApiPause : undefined;
-          if (st?.paused) return;
+        if (awayNative) {
           setApiRequestPause(true);
-        }, TAB_HIDE_API_PAUSE_GRACE_MS);
+        } else {
+          tabHidePauseTimerRef.current = window.setTimeout(() => {
+            tabHidePauseTimerRef.current = null;
+            const st = typeof window !== "undefined" ? window.__vouchernetApiPause : undefined;
+            if (st?.paused) return;
+            setApiRequestPause(true);
+          }, TAB_HIDE_API_PAUSE_GRACE_MS);
+        }
       } else {
         clearTabHidePauseTimer();
         setApiRequestPause(false);
         pulse("visible");
-        checkLogoutBroadcast();
+        if (!apkNoIdleLogout) checkLogoutBroadcast();
         const lsAct = readSharedLastActivityTs();
         if (lsAct > lastSharedRef.current) lastSharedRef.current = lsAct;
-        if (apkRelaxed) {
+        if (apkNative) {
           void queryClient.invalidateQueries();
         }
       }
@@ -201,19 +207,17 @@ export function SessionLifecycle() {
       recomputeAwayAndPauseApi();
     };
 
-    if (isNativeAppShell()) {
+    if (apkNative) {
       window.addEventListener(APK_APP_STATE_EVENT, onNativeAppStateBridge);
     }
 
     recomputeAwayAndPauseApi();
     document.addEventListener("visibilitychange", onDomVisibilityChange);
 
-    const idleLogoutMs = sessionPersisted
-      ? SESSION_IDLE_LOGOUT_REMEMBER_MS
-      : SESSION_IDLE_LOGOUT_MS;
+    const idleLogoutMs = SESSION_IDLE_LOGOUT_MS;
 
     let intervalId: number | undefined;
-    if (!apkRelaxed) {
+    if (!apkNoIdleLogout) {
       intervalId = window.setInterval(() => {
         checkLogoutBroadcast();
         const last = sharedLastActivityMs(lastSharedRef.current);
@@ -234,7 +238,7 @@ export function SessionLifecycle() {
       clearTabHidePauseTimer();
       apkAwayRef.current = false;
       document.removeEventListener("visibilitychange", onDomVisibilityChange);
-      if (isNativeAppShell()) {
+      if (apkNative) {
         window.removeEventListener(APK_APP_STATE_EVENT, onNativeAppStateBridge);
       }
       window.removeEventListener("pointerdown", onActivity, opts);
@@ -247,7 +251,7 @@ export function SessionLifecycle() {
       if (intervalId !== undefined) window.clearInterval(intervalId);
       setApiRequestPause(false);
     };
-  }, [isAuthenticated, logout, role, apkRelaxed, sessionPersisted]);
+  }, [isAuthenticated, logout, apkNative, apkNoIdleLogout, sessionPersisted]);
 
   return null;
 }

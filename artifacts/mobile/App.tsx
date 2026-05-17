@@ -30,8 +30,10 @@ const WEBVIEW_USER_AGENT = "nanoTECH-VouchersBills-Mobile/1.0";
 const RELOAD_SPINNER_TIMEOUT = 8000;
 
 /** Zone sensible au bord gauche pour le geste « retour » (glisser → droite). */
-const EDGE_BACK_WIDTH = 28;
+const EDGE_BACK_WIDTH = 22;
 const EDGE_BACK_SWIPE_MIN = 56;
+/** Ne pas intercepter les taps dans l’en-tête web (hamburger + logo). */
+const EDGE_BACK_HEADER_EXCLUDE_PX = 88;
 
 const WEB_APK_APP_STATE_EVENT = "vouchernet-apk-app-state";
 
@@ -45,8 +47,9 @@ function WebAppShell() {
   const isExplicitReloadRef = useRef(false);
   const canGoBackRef = useRef(false);
 
-  const webTopInset = insets.top;
-  const webBottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 40 : 0);
+  const webBottomInset = Math.round(
+    Math.max(insets.bottom, Platform.OS === "android" ? 40 : 0) / 2,
+  );
 
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
@@ -78,11 +81,19 @@ function WebAppShell() {
   const edgeBackPan = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: (evt) => evt.nativeEvent.pageX <= EDGE_BACK_WIDTH,
-        onMoveShouldSetPanResponder: (evt, g) =>
-          evt.nativeEvent.pageX <= EDGE_BACK_WIDTH + 24 &&
-          g.dx > 12 &&
-          Math.abs(g.dx) > Math.abs(g.dy) * 1.2,
+        onStartShouldSetPanResponder: (evt) => {
+          const { pageX, pageY } = evt.nativeEvent;
+          return pageX <= EDGE_BACK_WIDTH && pageY > EDGE_BACK_HEADER_EXCLUDE_PX;
+        },
+        onMoveShouldSetPanResponder: (evt, g) => {
+          const { pageX, pageY } = evt.nativeEvent;
+          return (
+            pageX <= EDGE_BACK_WIDTH + 20 &&
+            pageY > EDGE_BACK_HEADER_EXCLUDE_PX &&
+            g.dx > 12 &&
+            Math.abs(g.dx) > Math.abs(g.dy) * 1.2
+          );
+        },
         onPanResponderRelease: (_, g) => {
           if (g.dx >= EDGE_BACK_SWIPE_MIN) goBackInWebView();
         },
@@ -99,17 +110,15 @@ function WebAppShell() {
   }, []);
 
   const injectWebSafeArea = useCallback(() => {
-    const top = Math.round(webTopInset);
     const bottom = Math.round(webBottomInset);
     webViewRef.current?.injectJavaScript(`
       (function () {
         document.documentElement.classList.add("native-app");
-        document.documentElement.style.setProperty("--apk-safe-top", "${top}px");
         document.documentElement.style.setProperty("--apk-safe-bottom", "${bottom}px");
       })();
       true;
     `);
-  }, [webTopInset, webBottomInset]);
+  }, [webBottomInset]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", injectApkPresenceToWeb);
@@ -204,7 +213,6 @@ function WebAppShell() {
   }, [doPrint]);
 
   const webChromeStyle = {
-    paddingTop: webTopInset,
     paddingBottom: webBottomInset,
   };
 

@@ -478,8 +478,7 @@ export default function Routers() {
               <div className="flex flex-wrap justify-center gap-2 pt-1">
                 <Button
                   onClick={() => {
-                    logout();
-                    navigate("/login");
+                    void logout();
                   }}
                   className="gap-2"
                 >

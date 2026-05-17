@@ -1981,8 +1981,7 @@ export default function VendorPortal() {
   };
 
   const handleLogout = () => {
-    logout();
-    appNavigate("/vendeur");
+    void logout();
   };
 
   return <Dashboard token={token} vendor={vendor} onLogout={handleLogout} />;

@@ -148,7 +148,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
             connectedUsername,
           );
           if (data.role === "vendor") {
-            navigate("/vendor-portal");
+            navigate("/vendeur");
           } else if (data.role === "manager" || data.role === "collaborateur") {
             navigate("/");
           } else {

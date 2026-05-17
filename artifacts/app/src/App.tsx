@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wouter";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { getListRouterLogsQueryKey, listRouterLogs } from "@workspace/api-client-react";
 import { Toaster } from "@/components/ui/toaster";
@@ -139,19 +139,23 @@ function AppRoutes() {
     })();
   }, [isAuthenticated, location, qc]);
 
-  if (location.startsWith("/vendor-portal")) {
-    return (
-      <PageErrorBoundary key={location}>
-        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><PageSkeleton /></div>}>
-          <VendorPortal />
-        </Suspense>
-      </PageErrorBoundary>
-    );
+  if (location === "/vendor-portal" || location.startsWith("/vendor-portal/")) {
+    return <Redirect to="/vendeur" replace />;
+  }
+
+  if (location === "/login") {
+    return <Redirect to="/admin" replace />;
   }
 
   if (!isAuthenticated) {
     const isVendorPage = location === "/vendeur" || location.startsWith("/vendeur/");
-    const isChoosePage = location === "/" || location === "/login";
+    const isAdminLoginPage = location === "/admin" || location.startsWith("/admin/");
+    const isChoosePage = location === "/";
+
+    if (!isVendorPage && !isAdminLoginPage && !isChoosePage) {
+      return <Redirect to="/admin" replace />;
+    }
+
     const loginMode = isVendorPage ? "vendor" : isChoosePage ? "choose" : "admin";
     return (
       <PageErrorBoundary key={location}>
