@@ -32,7 +32,8 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      "expo-splash-screen"
+      "expo-splash-screen",
+      "./plugins/withDisableFontScaling.js"
     ],
     "extra": {
       "webAppUrl": "https://nanovoucher.com",

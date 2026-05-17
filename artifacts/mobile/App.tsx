@@ -20,6 +20,8 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import Constants from "expo-constants";
 import * as SplashScreen from "expo-splash-screen";
+import { useWebViewTextZoom } from "./hooks/useWebViewTextZoom";
+import { INJECT_LOCK_FONT_SCALE } from "./lib/inject-font-lock";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -31,18 +33,6 @@ const DEFAULT_WEB_URL = "https://nanovoucher.com";
 const extraUrl = (Constants.expoConfig?.extra as { webAppUrl?: string } | undefined)?.webAppUrl?.trim();
 const PROD_URL = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || extraUrl || DEFAULT_WEB_URL;
 const WEBVIEW_USER_AGENT = "nanoTECH-VouchersBills-Mobile/1.0";
-
-/** Avant chargement : ignore la taille de police système Android/iOS dans la WebView. */
-const INJECT_LOCK_FONT_SCALE = `
-(function () {
-  var r = document.documentElement;
-  r.classList.add("native-app", "font-scale-locked");
-  r.style.setProperty("-webkit-text-size-adjust", "none");
-  r.style.textSizeAdjust = "none";
-  r.style.fontSize = "16px";
-})();
-true;
-`;
 const RELOAD_SPINNER_TIMEOUT = 8000;
 
 /** Zone sensible au bord gauche pour le geste « retour » (glisser → droite). */
@@ -55,6 +45,7 @@ const WEB_APK_APP_STATE_EVENT = "vouchernet-apk-app-state";
 
 function WebAppShell() {
   const webViewRef = useRef<WebView>(null);
+  const webViewTextZoom = useWebViewTextZoom();
   const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -133,17 +124,24 @@ function WebAppShell() {
     webViewRef.current?.injectJavaScript(`
       (function () {
         var root = document.documentElement;
-        root.classList.add("native-app");
+        root.classList.add("native-app", "font-scale-locked");
         root.style.setProperty("--apk-safe-top", "${top}px");
         root.style.setProperty("--apk-safe-bottom", "${bottom}px");
-        root.style.setProperty("-webkit-text-size-adjust", "none");
-        root.style.textSizeAdjust = "none";
+        root.style.setProperty("-webkit-text-size-adjust", "none", "important");
+        root.style.setProperty("text-size-adjust", "none", "important");
         root.style.fontSize = "16px";
         if (document.body) document.body.style.fontSize = "16px";
-        root.classList.add("font-scale-locked");
+        var st = document.getElementById("vn-apk-font-lock");
+        if (!st) {
+          st = document.createElement("style");
+          st.id = "vn-apk-font-lock";
+          st.textContent = "html,body{font-size:16px!important;-webkit-text-size-adjust:none!important;text-size-adjust:none!important}";
+          (document.head || root).appendChild(st);
+        }
       })();
       true;
     `);
+    webViewRef.current?.injectJavaScript(INJECT_LOCK_FONT_SCALE);
   }, [webTopInset, webBottomInset]);
 
   useEffect(() => {
@@ -265,6 +263,7 @@ function WebAppShell() {
       ) : (
         <View style={[styles.webviewWrap, webChromeStyle]}>
           <WebView
+            key={`wv-zoom-${webViewTextZoom}`}
             ref={webViewRef}
             source={{ uri: PROD_URL }}
             style={styles.webview}
@@ -282,8 +281,9 @@ function WebAppShell() {
             cacheEnabled
             startInLoadingState={false}
             userAgent={WEBVIEW_USER_AGENT}
-            textZoom={100}
+            textZoom={webViewTextZoom}
             injectedJavaScriptBeforeContentLoaded={INJECT_LOCK_FONT_SCALE}
+            injectedJavaScript={INJECT_LOCK_FONT_SCALE}
             setBuiltInZoomControls={false}
             setDisplayZoomControls={false}
           />
