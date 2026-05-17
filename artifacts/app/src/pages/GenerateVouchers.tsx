@@ -1216,7 +1216,7 @@ export default function GenerateVouchers() {
                   <div className="mt-2 space-y-1.5">
                     <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
-                        className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${genPaused ? "bg-amber-400" : "bg-blue-600"}`}
+                        className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${genPaused ? "bg-amber-400" : "bg-orange-500"}`}
                         style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
                       />
                       {!genPaused && (
@@ -1236,13 +1236,13 @@ export default function GenerateVouchers() {
                           Routeur inaccessible — reprise automatique…
                         </span>
                       ) : progress.done === 0 ? (
-                        <span className="flex items-center gap-1">
-                          <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
+                        <span className="flex items-center gap-1 text-orange-600">
+                          <Loader2 className="h-3 w-3 animate-spin text-orange-500" />
                           Préparation du routeur…
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1">
-                          <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
+                        <span className="flex items-center gap-1 text-orange-600">
+                          <Loader2 className="h-3 w-3 animate-spin text-orange-500" />
                           Envoi vers MikroTik…
                         </span>
                       )}
