@@ -483,6 +483,15 @@
    (navigateurs mobiles ET APK Expo dont le viewport est toujours petit)
    ═══════════════════════════════════════════════════════════════════ */
 @media (max-width: 639px) {
+  /*
+   * Taille de police système élevée (accessibilité) : évite que le navigateur
+   * ou la WebView grossisse le texte et casse les grilles / tableaux.
+   */
+  html {
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
 
   /* ── Titres de page ── */
   main h1 {
@@ -549,6 +558,11 @@
    Redondant avec le @media ci-dessus (le viewport APK est toujours
    < 640 px), mais disponible pour des règles spécifiques APK.
    ═══════════════════════════════════════════════════════════════════ */
+.native-app {
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 .native-app main h1 { font-size: 1.05rem; line-height: 1.3; }
 .native-app [role="dialog"] { max-height: 92dvh; overflow-y: auto; }
 

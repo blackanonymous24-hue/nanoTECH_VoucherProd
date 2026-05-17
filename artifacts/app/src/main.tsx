@@ -8,7 +8,10 @@ installAuthFetch();
 
 // Expo APK WebView — SessionLifecycle : pas de déconnexion idle si « Se souvenir de moi », pause API en arrière-plan
 if (/nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent)) {
-  document.documentElement.classList.add("native-app");
+  const root = document.documentElement;
+  root.classList.add("native-app");
+  root.style.setProperty("-webkit-text-size-adjust", "100%");
+  root.style.textSizeAdjust = "100%";
   installApkPullToRefresh();
 }
 

@@ -116,9 +116,12 @@ function WebAppShell() {
     const bottom = Math.round(webBottomInset);
     webViewRef.current?.injectJavaScript(`
       (function () {
-        document.documentElement.classList.add("native-app");
-        document.documentElement.style.setProperty("--apk-safe-top", "${top}px");
-        document.documentElement.style.setProperty("--apk-safe-bottom", "${bottom}px");
+        var root = document.documentElement;
+        root.classList.add("native-app");
+        root.style.setProperty("--apk-safe-top", "${top}px");
+        root.style.setProperty("--apk-safe-bottom", "${bottom}px");
+        root.style.setProperty("-webkit-text-size-adjust", "100%");
+        root.style.textSizeAdjust = "100%";
       })();
       true;
     `);
@@ -260,6 +263,7 @@ function WebAppShell() {
             cacheEnabled
             startInLoadingState={false}
             userAgent={WEBVIEW_USER_AGENT}
+            textZoom={100}
           />
           <View style={styles.edgeBackLayer} pointerEvents="box-none">
             <View style={styles.edgeBackStrip} {...edgeBackPan.panHandlers} />
