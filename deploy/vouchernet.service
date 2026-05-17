@@ -1,0 +1,25 @@
+[Unit]
+Description=VoucherNet API + frontend
+After=network.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vouchernet
+Group=vouchernet
+WorkingDirectory=/var/www/vouchernet/artifacts/api-server
+EnvironmentFile=/var/www/vouchernet/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vouchernet
+
+# Sécurité minimale
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
