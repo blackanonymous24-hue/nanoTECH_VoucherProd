@@ -75,6 +75,8 @@ interface AdminRow {
   login: string;
   displayName: string | null;
   isSuperAdmin: boolean;
+  /** Défini par GET /api/super/admins — seul l’originel peut supprimer un autre super-admin. */
+  canDelete?: boolean;
   isActive: boolean;
   forfaitStartedAt: string | null;
   forfaitEndsAt:   string | null;
@@ -187,17 +189,33 @@ export default function SuperAdmins() {
 
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
-  const { data: admins = [], isLoading } = useQuery<AdminRow[]>({
+  const { data: adminsPayload, isLoading } = useQuery<{
+    admins: AdminRow[];
+    originalSuperAdminId: number | null;
+    viewerIsOriginalSuperAdmin: boolean;
+  }>({
     queryKey: ["super", "admins"],
     enabled: !!token && isSuperAdmin,
     queryFn: async () => {
       const r = await fetch(`${BASE}/api/super/admins`, { headers });
       if (!r.ok) throw new Error((await r.json()).error ?? "Erreur de chargement");
       const data = await r.json();
-      // Endpoint returns { admins: [...] }; tolerate either shape.
-      return Array.isArray(data) ? data : (data?.admins ?? []);
+      if (Array.isArray(data)) {
+        return { admins: data as AdminRow[], originalSuperAdminId: null, viewerIsOriginalSuperAdmin: false };
+      }
+      return {
+        admins: (data?.admins ?? []) as AdminRow[],
+        originalSuperAdminId: typeof data?.originalSuperAdminId === "number" ? data.originalSuperAdminId : null,
+        viewerIsOriginalSuperAdmin: data?.viewerIsOriginalSuperAdmin === true,
+      };
     },
   });
+  const admins = adminsPayload?.admins ?? [];
+
+  const canDeleteAdmin = (a: AdminRow): boolean => {
+    if (typeof a.canDelete === "boolean") return a.canDelete;
+    return !a.isSuperAdmin;
+  };
 
   const selfSuperAdmin = useMemo(() => admins.find((a) => a.isSuperAdmin), [admins]);
   const canCopyVendorsBetweenOwnRouters = !!selfSuperAdmin && selfSuperAdmin.routerCount >= 2;
@@ -259,8 +277,16 @@ export default function SuperAdmins() {
     setDeletingAdminId(admin.id);
     try {
       await deleteM.mutateAsync(admin.id);
-      qc.setQueryData<AdminRow[]>(["super", "admins"], (prev) =>
-        Array.isArray(prev) ? prev.filter((a) => a.id !== admin.id) : prev,
+      qc.setQueryData<{
+        admins: AdminRow[];
+        originalSuperAdminId: number | null;
+        viewerIsOriginalSuperAdmin: boolean;
+      }>(
+        ["super", "admins"],
+        (prev) =>
+          prev
+            ? { ...prev, admins: prev.admins.filter((a) => a.id !== admin.id) }
+            : prev,
       );
       refresh();
       toast({ title: "Administrateur supprimé" });
@@ -560,12 +586,12 @@ export default function SuperAdmins() {
                             onClick={() => setEditing(a)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          {!a.isSuperAdmin && (
+                          {canDeleteAdmin(a) && (
                             <Button
                               size="icon"
                               variant="ghost"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              title="Supprimer"
+                              title={a.isSuperAdmin ? "Supprimer ce super administrateur" : "Supprimer"}
                               onClick={() => void handleDeleteAdmin(a)}
                               disabled={deletingAdminId !== null}
                             >

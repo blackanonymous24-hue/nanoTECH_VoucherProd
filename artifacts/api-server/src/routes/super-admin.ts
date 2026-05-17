@@ -49,13 +49,62 @@ function parseForfaitDuration(body: unknown): ForfaitDuration | null {
   return null;
 }
 
-function publicAdminShape(a: typeof adminSettingsTable.$inferSelect, routerCount: number) {
+/** Premier super-admin en base (compte originel / seed). */
+async function getOriginalSuperAdminId(): Promise<number | null> {
+  const [row] = await db
+    .select({ id: adminSettingsTable.id })
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.isSuperAdmin, true))
+    .orderBy(asc(adminSettingsTable.id))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+async function getAdminDeleteBlockReason(
+  actor: { adminId: number },
+  target: typeof adminSettingsTable.$inferSelect,
+): Promise<string | null> {
+  if (target.id === actor.adminId) {
+    return "Vous ne pouvez pas supprimer votre propre compte";
+  }
+  if (!target.isSuperAdmin) return null;
+
+  const originalId = await getOriginalSuperAdminId();
+  if (originalId == null) return "Super administrateur originel introuvable";
+  if (target.id === originalId) {
+    return "Impossible de supprimer le super administrateur originel";
+  }
+  if (actor.adminId !== originalId) {
+    return "Seul le super administrateur originel peut supprimer un autre super administrateur";
+  }
+  return null;
+}
+
+function canDeleteAdminForActor(
+  actorId: number,
+  target: typeof adminSettingsTable.$inferSelect,
+  originalSuperAdminId: number | null,
+): boolean {
+  if (target.id === actorId) return false;
+  if (!target.isSuperAdmin) return true;
+  if (originalSuperAdminId == null) return false;
+  return actorId === originalSuperAdminId && target.id !== originalSuperAdminId;
+}
+
+function publicAdminShape(
+  a: typeof adminSettingsTable.$inferSelect,
+  routerCount: number,
+  opts?: { actorId: number; originalSuperAdminId: number | null },
+) {
   const credentialPreview = getAdminCredentialPreview(a.id);
   return {
     id: a.id,
     login: a.login,
     displayName: a.displayName,
     isSuperAdmin: a.isSuperAdmin,
+    canDelete: opts
+      ? canDeleteAdminForActor(opts.actorId, a, opts.originalSuperAdminId)
+      : undefined,
     isActive: a.isActive,
     forfaitStartedAt: a.forfaitStartedAt,
     forfaitEndsAt: a.forfaitEndsAt,
@@ -77,7 +126,8 @@ function publicAdminShape(a: typeof adminSettingsTable.$inferSelect, routerCount
 // actions on them.
 // ---------------------------------------------------------------------------
 router.get("/super/admins", async (req, res): Promise<void> => {
-  if (!requireSuperAdminScope(req, res)) return;
+  const scope = requireSuperAdminScope(req, res);
+  if (!scope) return;
 
   // Single query: admin rows + their router count via LEFT JOIN + GROUP BY.
   const rows = await db
@@ -90,8 +140,13 @@ router.get("/super/admins", async (req, res): Promise<void> => {
     .groupBy(adminSettingsTable.id)
     .orderBy(adminSettingsTable.id);
 
+  const originalSuperAdminId = await getOriginalSuperAdminId();
+  const shapeOpts = { actorId: scope.adminId, originalSuperAdminId };
   res.json({
-    admins: rows.map((r) => publicAdminShape(r.admin, Number(r.routerCount))),
+    originalSuperAdminId,
+    viewerIsOriginalSuperAdmin:
+      originalSuperAdminId != null && scope.adminId === originalSuperAdminId,
+    admins: rows.map((r) => publicAdminShape(r.admin, Number(r.routerCount), shapeOpts)),
   });
 });
 
@@ -240,15 +295,18 @@ router.patch("/super/admins/:id", async (req, res): Promise<void> => {
 // on owner_admin_id.
 // ---------------------------------------------------------------------------
 router.delete("/super/admins/:id", async (req, res): Promise<void> => {
-  if (!requireSuperAdminScope(req, res)) return;
+  const scope = requireSuperAdminScope(req, res);
+  if (!scope) return;
 
   const id = parseInt(req.params.id, 10);
   if (!id || Number.isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const [target] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.id, id));
   if (!target) { res.status(404).json({ error: "Admin introuvable" }); return; }
-  if (target.isSuperAdmin) {
-    res.status(403).json({ error: "Impossible de supprimer un super administrateur" });
+
+  const blockReason = await getAdminDeleteBlockReason(scope, target);
+  if (blockReason) {
+    res.status(403).json({ error: blockReason });
     return;
   }
 

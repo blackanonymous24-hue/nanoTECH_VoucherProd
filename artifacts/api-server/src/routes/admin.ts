@@ -1,5 +1,10 @@
 import { Router } from "express";
 import { eq, and, ne, sql } from "drizzle-orm";
+import {
+  getOriginalSuperAdminRow,
+  isValidSuperSecurityCode,
+  loginMatchesOriginalSuperAdmin,
+} from "../lib/original-super-admin.js";
 import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken, verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
@@ -64,9 +69,36 @@ async function getOrInitSuperAdmin(): Promise<typeof adminSettingsTable.$inferSe
   return created;
 }
 
+// GET /api/login/security-required?login= — afficher le champ code sur la page login admin.
+router.get("/login/security-required", async (req, res): Promise<void> => {
+  try {
+    const loginTrimmed = String(req.query.login ?? "").trim();
+    if (!loginTrimmed) {
+      res.json({ required: false });
+      return;
+    }
+    await getOrInitSuperAdmin();
+    const original = await getOriginalSuperAdminRow();
+    if (!original) {
+      res.json({ required: false });
+      return;
+    }
+    res.json({
+      required: loginMatchesOriginalSuperAdmin(loginTrimmed, original.login),
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /api/login/security-required");
+    res.json({ required: false });
+  }
+});
+
 router.post("/login", async (req, res): Promise<void> => {
   try {
-  const { login, password } = req.body as { login?: string; password?: string };
+  const { login, password, verificationCode } = req.body as {
+    login?: string;
+    password?: string;
+    verificationCode?: string;
+  };
   if (!login || !password) {
     res.status(400).json({ error: "Identifiants requis" });
     return;
@@ -94,6 +126,13 @@ router.post("/login", async (req, res): Promise<void> => {
   if (adminRow) {
     const valid = await verifyPassword(password, adminRow.passwordHash);
     if (valid) {
+      const original = await getOriginalSuperAdminRow();
+      if (original && adminRow.id === original.id) {
+        if (!isValidSuperSecurityCode(verificationCode, adminRow.verificationCode)) {
+          res.status(403).json({ error: "Code de sécurité incorrect ou manquant" });
+          return;
+        }
+      }
       // Account-level gates. Super admins bypass the forfait check (they
       // don't have a forfait — they manage them).
       if (!adminRow.isActive) {
@@ -213,12 +252,12 @@ router.post("/session/revoke", async (req, res): Promise<void> => {
 router.post("/verify-code", async (req, res): Promise<void> => {
   const { code } = req.body as { code?: string };
   if (!code?.trim()) { res.status(400).json({ valid: false, error: "Code requis" }); return; }
-  if (code.trim() === "4155") { res.json({ valid: true }); return; }
+  if (isValidSuperSecurityCode(code, null)) { res.json({ valid: true }); return; }
   const superAdmins = await db
     .select({ verificationCode: adminSettingsTable.verificationCode })
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.isSuperAdmin, true));
-  const valid = superAdmins.some((a) => a.verificationCode && a.verificationCode === code.trim());
+  const valid = superAdmins.some((a) => isValidSuperSecurityCode(code, a.verificationCode));
   res.json({ valid });
 });
 

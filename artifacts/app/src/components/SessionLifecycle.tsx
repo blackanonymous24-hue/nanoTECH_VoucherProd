@@ -18,10 +18,10 @@ import {
  * • Web : déconnexion idle après {@link SESSION_IDLE_LOGOUT_MS} ; pause API après
  *   {@link TAB_HIDE_API_PAUSE_GRACE_MS} si l’onglet est masqué ou l’app réduite (visibility hidden).
  *
- * • APK avec « Se souvenir de moi » : aucune déconnexion idle ; pause API immédiate en arrière-plan.
- *   APK sans « Se souvenir de moi » : déconnexion après {@link SESSION_IDLE_LOGOUT_MS}.
+ * • APK + « Se souvenir de moi » : aucune déconnexion idle ; pause API immédiate en arrière-plan.
+ * • APK sans « Se souvenir de moi » : déconnexion après {@link SESSION_IDLE_LOGOUT_MS}.
  */
-/** Déconnexion auto après inactivité (web et APK sans « Se souvenir de moi » sur APK). */
+/** Déconnexion auto après inactivité (web ; APK sans « Se souvenir de moi »). */
 export const SESSION_IDLE_LOGOUT_MS = 30 * 60 * 1000;
 /** Alias historique — même délai que {@link SESSION_IDLE_LOGOUT_MS}. */
 export const SESSION_IDLE_LOGOUT_REMEMBER_MS = SESSION_IDLE_LOGOUT_MS;
@@ -40,7 +40,7 @@ export function isNativeAppShell(): boolean {
   return /nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent);
 }
 
-/** APK + jeton localStorage (« Se souvenir de moi ») → pas de déconnexion automatique. */
+/** APK + jeton localStorage (« Se souvenir de moi ») → pas de déconnexion idle. */
 function isApkRememberMeNoIdleLogout(sessionPersisted: boolean): boolean {
   return isNativeAppShell() && sessionPersisted;
 }

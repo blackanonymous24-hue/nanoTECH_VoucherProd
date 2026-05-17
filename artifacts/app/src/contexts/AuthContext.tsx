@@ -45,7 +45,7 @@ interface AuthContextValue {
   collaborateurRouterIds: number[];
   isSuperAdmin: boolean;
   isAuthenticated: boolean;
-  /** Jeton stocké en localStorage (« Se souvenir de moi »). Sur APK : pas de déconnexion idle. */
+  /** Jeton en localStorage (« Se souvenir de moi »). Sur APK : pas de déconnexion idle si vrai. */
   sessionPersisted: boolean;
   connectedName: string | null;
   connectedUsername: string | null;

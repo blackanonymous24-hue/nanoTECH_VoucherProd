@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { LogIn, ShieldCheck, Store, ArrowLeft } from "lucide-react";
+import { useState, useEffect } from "react";
+import { LogIn, ShieldCheck, Store, ArrowLeft, KeyRound } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,11 +18,37 @@ export default function LoginPage({ mode }: LoginPageProps) {
   const { login } = useAuth();
   const navigate = useAppNavigate();
   const [form, setForm] = useState({ login: "", password: "" });
+  const [securityCode, setSecurityCode] = useState("");
+  const [needsSecurityCode, setNeedsSecurityCode] = useState(false);
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const isAdmin = mode === "admin";
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setNeedsSecurityCode(false);
+      return;
+    }
+    const loginTrimmed = form.login.trim();
+    if (!loginTrimmed) {
+      setNeedsSecurityCode(false);
+      setSecurityCode("");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      fetch(`${BASE}/api/login/security-required?login=${encodeURIComponent(loginTrimmed)}`)
+        .then((r) => (r.ok ? r.json() : { required: false }))
+        .then((data: { required?: boolean }) => {
+          const required = !!data.required;
+          setNeedsSecurityCode(required);
+          if (!required) setSecurityCode("");
+        })
+        .catch(() => setNeedsSecurityCode(false));
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [form.login, isAdmin]);
 
   /* ── Écran de choix du rôle ───────────────────────────────── */
   if (mode === "choose") {
@@ -77,6 +103,10 @@ export default function LoginPage({ mode }: LoginPageProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (isAdmin && needsSecurityCode && !securityCode.trim()) {
+      setError("Code de sécurité requis pour ce compte.");
+      return;
+    }
     setLoading(true);
 
     const MAX_ATTEMPTS = 6;
@@ -88,7 +118,13 @@ export default function LoginPage({ mode }: LoginPageProps) {
           const res = await fetch(`${BASE}/api/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ login: form.login.trim(), password: form.password }),
+            body: JSON.stringify({
+              login: form.login.trim(),
+              password: form.password,
+              ...(isAdmin && needsSecurityCode
+                ? { verificationCode: securityCode.trim() }
+                : {}),
+            }),
           });
           let data: Record<string, unknown>;
           try {
@@ -222,6 +258,24 @@ export default function LoginPage({ mode }: LoginPageProps) {
                 required
               />
             </div>
+
+            {isAdmin && needsSecurityCode && (
+              <div>
+                <Label className="text-gray-300 text-sm flex items-center gap-1.5">
+                  <KeyRound className="h-3.5 w-3.5 text-amber-400" />
+                  Code de sécurité
+                </Label>
+                <Input
+                  className="mt-1 bg-gray-800 border-amber-700/50 text-white placeholder:text-gray-500 focus:border-amber-500"
+                  placeholder="Code super-admin"
+                  value={securityCode}
+                  onChange={(e) => setSecurityCode(e.target.value)}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                />
+              </div>
+            )}
 
             {/* Se souvenir de moi */}
             <label className="flex items-center gap-2.5 cursor-pointer select-none group">

@@ -1,6 +1,6 @@
 /**
- * Pull-to-refresh APK (Android) : maintien volontaire en haut de page, pas un simple flick.
- * Envoie { type: "refresh" } après ~2 s de tirage maintenu puis relâchement.
+ * Pull-to-refresh APK (Android) : uniquement en haut de page (plus de scroll vers le haut),
+ * avec maintien volontaire ~1 s puis relâchement.
  */
 
 /** Tirage minimal avant d’afficher l’indicateur (évite les scrolls courts). */
@@ -8,9 +8,11 @@ const PTR_ACTIVATE_PX = 40;
 /** Distance de tirage minimale au relâchement. */
 const PTR_READY_PULL_PX = 56;
 /** Durée de maintien requise (ms). */
-const PTR_HOLD_MS = 2000;
+const PTR_HOLD_MS = 1000;
 const PTR_MAX_PULL_PX = 110;
 const INDICATOR_ID = "apk-ptr-indicator";
+/** Tolérance scrollTop (arrondi / rebond navigateur). */
+const SCROLL_TOP_EPS = 3;
 
 function isNativeWebView(): boolean {
   return (
@@ -24,19 +26,62 @@ function postRefreshToNative(): void {
   bridge?.postMessage(JSON.stringify({ type: "refresh" }));
 }
 
-function getScrollRootAtTop(): HTMLElement | null {
-  const layoutMain = document.querySelector("main.flex-1.overflow-y-auto") as HTMLElement | null;
-  if (layoutMain && layoutMain.scrollTop <= 1) return layoutMain;
+/** Conteneur principal de l’app (Layout : main scrollable). */
+function getAppMainScrollElement(): HTMLElement | null {
+  const candidates = document.querySelectorAll("main");
+  for (const node of candidates) {
+    const el = node as HTMLElement;
+    if (el.offsetParent === null && getComputedStyle(el).display === "none") continue;
+    const oy = getComputedStyle(el).overflowY;
+    if (oy === "auto" || oy === "scroll" || oy === "overlay") return el;
+  }
+  return null;
+}
 
-  const anyMain = document.querySelector("main") as HTMLElement | null;
-  if (anyMain) {
-    const oy = getComputedStyle(anyMain).overflowY;
-    if ((oy === "auto" || oy === "scroll") && anyMain.scrollTop <= 1) return anyMain;
+function isVerticallyScrollable(el: HTMLElement): boolean {
+  const oy = getComputedStyle(el).overflowY;
+  if (oy !== "auto" && oy !== "scroll" && oy !== "overlay") return false;
+  return el.scrollHeight > el.clientHeight + SCROLL_TOP_EPS;
+}
+
+/** Tous les ancêtres scrollables du point de contact (tableaux, dialogs, etc.). */
+function getScrollableAncestors(from: EventTarget | null): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  let node = from instanceof Element ? from : null;
+  while (node && node !== document.documentElement) {
+    if (node instanceof HTMLElement && isVerticallyScrollable(node)) {
+      out.push(node);
+    }
+    node = node.parentElement;
+  }
+  return out;
+}
+
+/**
+ * PTR autorisé seulement si chaque zone scrollable pertinente est en haut :
+ * - le <main> de l’app (milieu / bas de page → refus)
+ * - les zones internes sous le doigt (ex. tableau hotspot scrollé → refus)
+ */
+function canStartPullToRefresh(touchTarget: EventTarget | null): boolean {
+  const main = getAppMainScrollElement();
+
+  if (main) {
+    if (main.scrollTop > SCROLL_TOP_EPS) return false;
+  } else {
+    const root = (document.scrollingElement ?? document.documentElement) as HTMLElement;
+    if (root.scrollTop > SCROLL_TOP_EPS) return false;
   }
 
-  const root = (document.scrollingElement ?? document.documentElement) as HTMLElement;
-  if (root.scrollTop <= 1) return root;
-  return null;
+  for (const el of getScrollableAncestors(touchTarget)) {
+    if (el.scrollTop > SCROLL_TOP_EPS) return false;
+  }
+
+  return true;
+}
+
+function getScrollRootForPtr(touchTarget: EventTarget | null): HTMLElement | null {
+  if (!canStartPullToRefresh(touchTarget)) return null;
+  return getAppMainScrollElement() ?? ((document.scrollingElement ?? document.documentElement) as HTMLElement);
 }
 
 function ensureIndicator(): HTMLElement {
@@ -94,15 +139,24 @@ export function installApkPullToRefresh(): void {
   let startY = 0;
   let pullPx = 0;
   let scrollRoot: HTMLElement | null = null;
+  let touchTarget: EventTarget | null = null;
   let armed = false;
   let pullStartedAt = 0;
 
   const reset = () => {
     pullPx = 0;
     scrollRoot = null;
+    touchTarget = null;
     armed = false;
     pullStartedAt = 0;
     hideIndicator();
+  };
+
+  const stillAtPageTop = (): boolean => {
+    if (!touchTarget) return false;
+    if (!canStartPullToRefresh(touchTarget)) return false;
+    if (scrollRoot && scrollRoot.scrollTop > SCROLL_TOP_EPS) return false;
+    return true;
   };
 
   const holdProgress = () => {
@@ -116,7 +170,9 @@ export function installApkPullToRefresh(): void {
     "touchstart",
     (e) => {
       if (e.touches.length !== 1) return;
-      scrollRoot = getScrollRootAtTop();
+      touchTarget = e.target;
+      if (!canStartPullToRefresh(touchTarget)) return;
+      scrollRoot = getScrollRootForPtr(touchTarget);
       if (!scrollRoot) return;
       startY = e.touches[0].clientY;
       armed = false;
@@ -130,7 +186,8 @@ export function installApkPullToRefresh(): void {
     "touchmove",
     (e) => {
       if (!scrollRoot || e.touches.length !== 1) return;
-      if (scrollRoot.scrollTop > 1) {
+
+      if (!stillAtPageTop()) {
         reset();
         return;
       }
@@ -169,7 +226,7 @@ export function installApkPullToRefresh(): void {
         reset();
         return;
       }
-      const shouldRefresh = isHoldSatisfied();
+      const shouldRefresh = isHoldSatisfied() && stillAtPageTop();
       reset();
       if (shouldRefresh) postRefreshToNative();
     },
