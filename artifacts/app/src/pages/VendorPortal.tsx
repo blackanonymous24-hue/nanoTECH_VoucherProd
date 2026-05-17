@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { foldText } from "@/lib/text";
 import { paidShownVersusWeekContext, splitDailyWeeklyPaidShown, weekAmountDue } from "@/lib/vendorWeekPaymentDisplay";
-import { fmtDateFr, vendorSoldDayTitle, yesterdayIsoLocal } from "@/lib/vendorSoldDayTitle";
+import { fmtDateFr } from "@/lib/vendorSoldDayTitle";
 
 const TOKEN_KEY = "vouchernet_vendor_token";
 
@@ -273,19 +273,14 @@ function portalArrearTotalDue(arrearsData: DailyArrearsData, versData: Versement
 
 function openPortalArrearsPrint(
   vendor: VendorInfo,
-  yesterdayAmount: number,
   arrearsData: DailyArrearsData,
   versData: VersementData | null,
 ) {
-  const soldDate = yesterdayIsoLocal();
   const arrearLines = buildPortalArrearPrintLines(arrearsData, versData);
   const totalDu = portalArrearTotalDue(arrearsData, versData);
-  const titleLine = vendorSoldDayTitle(vendor.name, soldDate);
-  const dateFr = fmtDateFr(soldDate);
+  const dateFr = fmtDateFr(new Date().toISOString().slice(0, 10));
 
-  const bodyRows: string[] = [
-    `<tr class="sum-print-vendor"><td class="lbl">${escapeHtmlPrint(titleLine)}</td><td class="num">${fmtFcfa(yesterdayAmount)} FCFA</td></tr>`,
-  ];
+  const bodyRows: string[] = [];
   for (const row of arrearLines) {
     bodyRows.push(
       `<tr class="sum-print-arrear"><td class="lbl">${escapeHtmlPrint(row.label)}</td><td class="num">${fmtFcfa(row.amount)} FCFA</td></tr>`,
@@ -305,7 +300,6 @@ function openPortalArrearsPrint(
   table.sum-print tbody tr:last-child td { border-bottom: none; }
   table.sum-print td.lbl { text-align: left; word-wrap: break-word; overflow-wrap: anywhere; width: 72%; }
   table.sum-print td.num { text-align: right; white-space: nowrap; width: 28%; }
-  table.sum-print tr.sum-print-vendor td { font-weight: bold; font-size: 11px; border-bottom: 1px solid #ccc; }
   table.sum-print tr.sum-print-arrear td { font-size: 9px; }
   table.sum-print tr.sum-line td { font-weight: bold; border-top: 2px solid #111; background: #f7f7f7; }
   table.sum-print .sum-line-amt { font-size: 11px; font-weight: bold; }
@@ -1375,7 +1369,7 @@ function Dashboard({ token, vendor, onLogout }: {
                     size="sm"
                     variant="outline"
                     className="h-7 gap-1 text-xs flex-shrink-0"
-                    onClick={() => data && openPortalArrearsPrint(vendor, data.salesStats.yesterdayAmount, arrearsData, versData)}
+                    onClick={() => openPortalArrearsPrint(vendor, arrearsData, versData)}
                   >
                     <Printer className="h-3.5 w-3.5" />
                     Imprimer
@@ -1383,14 +1377,6 @@ function Dashboard({ token, vendor, onLogout }: {
                 </div>
                 <Card className="border border-orange-200 bg-orange-50/20">
                   <CardContent className="p-0">
-                    <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-orange-200 bg-white">
-                      <span className="text-xs font-semibold text-gray-800 truncate min-w-0">
-                        {vendorSoldDayTitle(vendor.name, yesterdayIsoLocal())}
-                      </span>
-                      <span className="text-xs font-bold text-gray-800 tabular-nums flex-shrink-0 whitespace-nowrap">
-                        {fmtFcfa(data.salesStats.yesterdayAmount)} FCFA
-                      </span>
-                    </div>
                     <div className="divide-y divide-orange-100">
                       {(() => {
                         const weekCarry = versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0;
