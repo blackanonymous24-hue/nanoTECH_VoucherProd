@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -10,12 +10,12 @@ import {
   BackHandler,
   Alert,
   AppState,
+  PanResponder,
   type AppStateStatus,
 } from "react-native";
 import { WebView, type WebViewNavigation, type WebViewMessageEvent } from "react-native-webview";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { BrandLogo } from "./components/BrandLogo";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import Constants from "expo-constants";
@@ -23,28 +23,30 @@ import * as SplashScreen from "expo-splash-screen";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-/** URL embarquée comme V1.3 (Replit) — visible dans le bundle release. */
 const DEFAULT_WEB_URL = "https://nanovoucher.com";
 const extraUrl = (Constants.expoConfig?.extra as { webAppUrl?: string } | undefined)?.webAppUrl?.trim();
 const PROD_URL = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || extraUrl || DEFAULT_WEB_URL;
-/** Même UA que la V1.3 fonctionnelle (détection côté web). */
 const WEBVIEW_USER_AGENT = "nanoTECH-VouchersBills-Mobile/1.0";
 const RELOAD_SPINNER_TIMEOUT = 8000;
 
-/** Identique à `APK_APP_STATE_EVENT` dans `artifacts/app/src/components/SessionLifecycle.tsx`. */
+/** Zone sensible au bord gauche pour le geste « retour » (glisser → droite). */
+const EDGE_BACK_WIDTH = 28;
+const EDGE_BACK_SWIPE_MIN = 56;
+
 const WEB_APK_APP_STATE_EVENT = "vouchernet-apk-app-state";
 
 function WebAppShell() {
   const webViewRef = useRef<WebView>(null);
   const insets = useSafeAreaInsets();
-  const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [currentUrl, setCurrentUrl] = useState(PROD_URL);
 
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isExplicitReloadRef = useRef(false);
   const canGoBackRef = useRef(false);
+
+  const webTopInset = insets.top;
+  const webBottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 40 : 0);
 
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
@@ -67,6 +69,27 @@ function WebAppShell() {
 
   useEffect(() => () => clearReloadTimer(), []);
 
+  const goBackInWebView = useCallback(() => {
+    if (!canGoBackRef.current) return false;
+    webViewRef.current?.goBack();
+    return true;
+  }, []);
+
+  const edgeBackPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: (evt) => evt.nativeEvent.pageX <= EDGE_BACK_WIDTH,
+        onMoveShouldSetPanResponder: (evt, g) =>
+          evt.nativeEvent.pageX <= EDGE_BACK_WIDTH + 24 &&
+          g.dx > 12 &&
+          Math.abs(g.dx) > Math.abs(g.dy) * 1.2,
+        onPanResponderRelease: (_, g) => {
+          if (g.dx >= EDGE_BACK_SWIPE_MIN) goBackInWebView();
+        },
+      }),
+    [goBackInWebView],
+  );
+
   const injectApkPresenceToWeb = useCallback((state: AppStateStatus) => {
     const away = state !== "active";
     webViewRef.current?.injectJavaScript(`
@@ -75,6 +98,19 @@ function WebAppShell() {
     `);
   }, []);
 
+  const injectWebSafeArea = useCallback(() => {
+    const top = Math.round(webTopInset);
+    const bottom = Math.round(webBottomInset);
+    webViewRef.current?.injectJavaScript(`
+      (function () {
+        document.documentElement.classList.add("native-app");
+        document.documentElement.style.setProperty("--apk-safe-top", "${top}px");
+        document.documentElement.style.setProperty("--apk-safe-bottom", "${bottom}px");
+      })();
+      true;
+    `);
+  }, [webTopInset, webBottomInset]);
+
   useEffect(() => {
     const sub = AppState.addEventListener("change", injectApkPresenceToWeb);
     return () => sub.remove();
@@ -82,34 +118,27 @@ function WebAppShell() {
 
   const handleNavigationStateChange = (state: WebViewNavigation) => {
     canGoBackRef.current = state.canGoBack;
-    setCanGoBack(state.canGoBack);
-    setCurrentUrl(state.url);
   };
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (canGoBackRef.current) {
-        webViewRef.current?.goBack();
-        return true;
-      }
-      return false;
-    });
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => goBackInWebView());
     return () => subscription.remove();
-  }, []);
+  }, [goBackInWebView]);
 
   const handleLoadEnd = useCallback(() => {
     injectApkPresenceToWeb(AppState.currentState);
+    injectWebSafeArea();
     if (isExplicitReloadRef.current) {
       clearReloadTimer();
       setIsLoading(false);
       isExplicitReloadRef.current = false;
     }
-  }, [injectApkPresenceToWeb]);
+  }, [injectApkPresenceToWeb, injectWebSafeArea]);
 
-  const handleBack = () => {
-    webViewRef.current?.goBack();
-  };
+  useEffect(() => {
+    injectWebSafeArea();
+  }, [injectWebSafeArea]);
 
   const handleRefresh = () => {
     setHasError(false);
@@ -117,13 +146,6 @@ function WebAppShell() {
     setIsLoading(true);
     startReloadTimer();
     webViewRef.current?.reload();
-  };
-
-  const handleHome = () => {
-    isExplicitReloadRef.current = true;
-    setIsLoading(true);
-    startReloadTimer();
-    webViewRef.current?.injectJavaScript(`window.location.href = '${PROD_URL}';`);
   };
 
   const printChunksRef = useRef<Map<string, { parts: string[]; received: number; total: number; title: string }>>(new Map());
@@ -181,42 +203,17 @@ function WebAppShell() {
     }
   }, [doPrint]);
 
-  const isVendorPortal = currentUrl.includes("/vendeur") || currentUrl.includes("/vendor-portal");
+  const webChromeStyle = {
+    paddingTop: webTopInset,
+    paddingBottom: webBottomInset,
+  };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
-
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <View style={styles.headerLeft}>
-          {canGoBack && (
-            <TouchableOpacity onPress={handleBack} style={styles.headerBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Feather name="arrow-left" size={20} color="#e2e8f0" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <TouchableOpacity onPress={handleHome} style={styles.headerTitle}>
-          <View style={styles.logoRow}>
-            <BrandLogo size="sm" />
-            <Text style={styles.titleText} numberOfLines={1}>
-              {isVendorPortal ? "Portail Vendeur" : "nanoTECH Vouchers"}
-            </Text>
-          </View>
-          {isVendorPortal && (
-            <Text style={styles.subtitleText}>Vouchers</Text>
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.headerRight}>
-          <TouchableOpacity onPress={handleRefresh} style={styles.headerBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Feather name="refresh-cw" size={18} color="#94a3b8" />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor="#0f172a" translucent={Platform.OS === "android"} />
 
       {hasError ? (
-        <View style={styles.errorContainer}>
+        <View style={[styles.errorContainer, webChromeStyle]}>
           <Feather name="wifi-off" size={48} color="#475569" />
           <Text style={styles.errorTitle}>Connexion impossible</Text>
           <Text style={styles.errorText}>Vérifiez votre connexion internet et réessayez.</Text>
@@ -226,25 +223,30 @@ function WebAppShell() {
           </TouchableOpacity>
         </View>
       ) : (
-        <WebView
-          ref={webViewRef}
-          source={{ uri: PROD_URL }}
-          style={styles.webview}
-          onNavigationStateChange={handleNavigationStateChange}
-          onLoadEnd={handleLoadEnd}
-          onMessage={handleMessage}
-          onError={() => { setHasError(true); setIsLoading(false); clearReloadTimer(); isExplicitReloadRef.current = false; }}
-          onHttpError={() => { setIsLoading(false); clearReloadTimer(); isExplicitReloadRef.current = false; }}
-          allowsBackForwardNavigationGestures={Platform.OS === "ios"}
-          pullToRefreshEnabled
-          javaScriptEnabled
-          domStorageEnabled
-          sharedCookiesEnabled
-          thirdPartyCookiesEnabled
-          cacheEnabled
-          startInLoadingState={false}
-          userAgent={WEBVIEW_USER_AGENT}
-        />
+        <View style={[styles.webviewWrap, webChromeStyle]}>
+          <WebView
+            ref={webViewRef}
+            source={{ uri: PROD_URL }}
+            style={styles.webview}
+            onNavigationStateChange={handleNavigationStateChange}
+            onLoadEnd={handleLoadEnd}
+            onMessage={handleMessage}
+            onError={() => { setHasError(true); setIsLoading(false); clearReloadTimer(); isExplicitReloadRef.current = false; }}
+            onHttpError={() => { setIsLoading(false); clearReloadTimer(); isExplicitReloadRef.current = false; }}
+            allowsBackForwardNavigationGestures
+            pullToRefreshEnabled
+            javaScriptEnabled
+            domStorageEnabled
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
+            cacheEnabled
+            startInLoadingState={false}
+            userAgent={WEBVIEW_USER_AGENT}
+          />
+          <View style={styles.edgeBackLayer} pointerEvents="box-none">
+            <View style={styles.edgeBackStrip} {...edgeBackPan.panHandlers} />
+          </View>
+        </View>
       )}
 
       {isLoading && (
@@ -269,54 +271,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#0f172a",
   },
-  header: {
-    backgroundColor: "#0f172a",
-    paddingBottom: 10,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#1e293b",
-  },
-  headerLeft: {
-    width: 40,
-    alignItems: "flex-start",
-  },
-  headerRight: {
-    width: 40,
-    alignItems: "flex-end",
-  },
-  headerTitle: {
+  webviewWrap: {
     flex: 1,
-    alignItems: "center",
-  },
-  logoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  titleText: {
-    color: "#f1f5f9",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
-  subtitleText: {
-    color: "#60a5fa",
-    fontSize: 10,
-    fontWeight: "400",
-    marginTop: 1,
-  },
-  headerBtn: {
-    padding: 4,
+    backgroundColor: "#0f172a",
   },
   webview: {
     flex: 1,
     backgroundColor: "#0f172a",
   },
+  edgeBackLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  edgeBackStrip: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: EDGE_BACK_WIDTH,
+  },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#0f172a",
+    backgroundColor: "rgba(15, 23, 42, 0.35)",
     justifyContent: "center",
     alignItems: "center",
   },
