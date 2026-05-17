@@ -193,6 +193,28 @@ export async function ensureSessionEpochColumns(): Promise<void> {
  * de la colonne (le compte initial admin/root n'avait pas de mot de passe en clair stocké).
  * Idempotent : ne touche que les lignes où password_plain IS NULL.
  */
+/** Table d’association gérant ↔ routeurs (1 ou plusieurs routeurs par gérant). */
+export async function ensureManagerRoutersTable(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS manager_routers (
+        manager_id integer NOT NULL REFERENCES managers(id) ON DELETE CASCADE,
+        router_id integer NOT NULL REFERENCES routers(id) ON DELETE CASCADE,
+        PRIMARY KEY (manager_id, router_id)
+      )
+    `);
+    await db.execute(sql`
+      INSERT INTO manager_routers (manager_id, router_id)
+      SELECT id, router_id FROM managers
+      WHERE router_id IS NOT NULL
+      ON CONFLICT DO NOTHING
+    `);
+    logger.info("DB compat: table manager_routers vérifiée / backfill depuis managers.router_id");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible de créer manager_routers");
+  }
+}
+
 export async function ensureSuperAdminPasswordPlainBackfill(): Promise<void> {
   try {
     const result = await db.execute(sql`

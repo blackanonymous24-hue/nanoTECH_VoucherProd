@@ -157,7 +157,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
           }
 
           type VendorInfo = { id: number; name: string; email: string | null; username: string };
-          const manager = data.manager as { name?: string; username?: string; routerId?: number | null } | undefined;
+          const manager = data.manager as { name?: string; username?: string; routerIds?: number[]; routerId?: number | null } | undefined;
           const collaborateur = data.collaborateur as { name?: string; username?: string; routerIds?: number[] } | undefined;
           const admin = data.admin as { displayName?: string | null; login?: string | null } | undefined;
           const vendor = data.vendor as VendorInfo | undefined;
@@ -176,7 +176,11 @@ export default function LoginPage({ mode }: LoginPageProps) {
             data.token,
             data.role as UserRole,
             vendor ?? undefined,
-            manager?.routerId ?? null,
+            manager?.routerIds?.length
+              ? manager.routerIds
+              : manager?.routerId != null
+                ? [manager.routerId]
+                : undefined,
             collaborateur?.routerIds ?? undefined,
             remember,
             data.isSuperAdmin === true,

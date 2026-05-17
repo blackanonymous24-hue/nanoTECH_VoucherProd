@@ -23,15 +23,15 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   });
 }
 
-export function createToken(managerId: number, sessionEpoch: number): string {
+export function createToken(managerId: number, routerIds: number[], sessionEpoch: number): string {
   const payload = Buffer.from(
-    JSON.stringify({ managerId, sid: sessionEpoch, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 })
+    JSON.stringify({ managerId, routerIds, sid: sessionEpoch, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 })
   ).toString("base64url");
   const sig = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 
-export function verifyToken(token: string): { managerId: number; sessionEpoch: number } | null {
+export function verifyToken(token: string): { managerId: number; routerIds: number[]; sessionEpoch: number } | null {
   try {
     const dot = token.lastIndexOf(".");
     if (dot === -1) return null;
@@ -41,12 +41,16 @@ export function verifyToken(token: string): { managerId: number; sessionEpoch: n
     if (sig !== expectedSig) return null;
     const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
       managerId: number;
+      routerIds?: number[];
       sid?: number;
       exp: number;
     };
     if (data.exp < Date.now()) return null;
     const sessionEpoch = typeof data.sid === "number" && Number.isFinite(data.sid) ? data.sid : 0;
-    return { managerId: data.managerId, sessionEpoch };
+    const routerIds = Array.isArray(data.routerIds)
+      ? data.routerIds.filter((id) => typeof id === "number" && Number.isFinite(id))
+      : [];
+    return { managerId: data.managerId, routerIds, sessionEpoch };
   } catch {
     return null;
   }

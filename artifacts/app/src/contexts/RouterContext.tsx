@@ -47,12 +47,9 @@ const STORAGE_KEY = "vouchernet_router_id";
 const BORROWED_ROUTER_KEY = "vouchernet_borrowed_router";
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const { managerRouterId, role, collaborateurRouterIds, isAuthenticated } = useAuth();
-  const isManagerLocked = role === "manager" && managerRouterId != null;
-  // A collaborateur is "locked" to their assigned routers (cannot see others).
-  // The selector is NOT locked (they can switch between their assigned routers),
-  // but the router list is filtered.
-  const isRouterLocked = isManagerLocked;
+  const { managerRouterIds, role, collaborateurRouterIds, isAuthenticated } = useAuth();
+  // Gérants et collaborateurs : liste filtrée, sélecteur libre entre routeurs assignés.
+  const isRouterLocked = false;
 
   const { data: freshRouters, isLoading: routersQueryLoading, isFetched: routersFetched } = useListRouters({
     query: { queryKey: getListRoutersQueryKey(), staleTime: 30_000, gcTime: 5 * 60_000 },
@@ -65,26 +62,17 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   // selectedRouterId and fell back to the first router on every refresh.
   const allRouters: Router[] = freshRouters ?? [];
 
-  // For collaborateurs: filter to only their assigned routers
-  const routers: Router[] = (role === "collaborateur" && collaborateurRouterIds.length > 0)
-    ? allRouters.filter((r) => collaborateurRouterIds.includes(r.id))
-    : allRouters;
+  const routers: Router[] =
+    role === "collaborateur" && collaborateurRouterIds.length > 0
+      ? allRouters.filter((r) => collaborateurRouterIds.includes(r.id))
+      : role === "manager" && managerRouterIds.length > 0
+        ? allRouters.filter((r) => managerRouterIds.includes(r.id))
+        : allRouters;
 
   const [selectedRouterId, setSelectedRouterIdState] = useState<number | null>(() => {
-    if (isManagerLocked) return managerRouterId;
     const stored = localStorage.getItem(STORAGE_KEY);
-    const storedId = stored ? parseInt(stored, 10) : null;
-    // If collaborateur, ensure stored router is in their list (may not be loaded yet — will sync in effect)
-    return storedId;
+    return stored ? parseInt(stored, 10) : null;
   });
-
-  // When a manager's assigned router changes (e.g. they re-login), sync the selection
-  useEffect(() => {
-    if (isManagerLocked && managerRouterId != null) {
-      setSelectedRouterIdState(managerRouterId);
-      localStorage.setItem(STORAGE_KEY, String(managerRouterId));
-    }
-  }, [isManagerLocked, managerRouterId]);
 
   const [pingTrigger, setPingTrigger] = useState(0);
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
@@ -133,7 +121,6 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   // cycle, le ref vaut encore null quand cet effet s'exécute.
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (isManagerLocked) return;
     if (!routersFetched) return;
 
     if (routers.length === 0) {
@@ -158,7 +145,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       setSelectedRouterIdState(firstId);
       localStorage.setItem(STORAGE_KEY, String(firstId));
     }
-  }, [isAuthenticated, isManagerLocked, routersFetched, routers, selectedRouterId, borrowedRouter]);
+  }, [isAuthenticated, routersFetched, routers, selectedRouterId, borrowedRouter]);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes

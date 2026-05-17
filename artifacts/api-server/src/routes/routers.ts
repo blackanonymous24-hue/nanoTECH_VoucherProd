@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, or, inArray, isNotNull, isNull, sql, gte, lt, desc, asc, notExists } from "drizzle-orm";
-import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable, profilesCacheTable } from "@workspace/db";
+import { db, routersTable, vouchersTable, scriptSalesTable, routerProfilesSnapshotTable, adminSettingsTable, managersTable, managerRoutersTable, vendorsTable, collaborateursTable, collaborateurRoutersTable, profilesCacheTable } from "@workspace/db";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
@@ -258,25 +258,22 @@ export async function resolveCallerScope(req: {
     const [row] = await db
       .select({
         ownerAdminId: managersTable.ownerAdminId,
-        routerId:     managersTable.routerId,
         isActive:     managersTable.isActive,
       })
       .from(managersTable)
       .where(eq(managersTable.id, mgr.managerId));
     if (!row || !row.isActive) return null;
-    // Locked manager → only the assigned router.
-    // Unlocked manager (routerId == null) → all routers in their tenant.
-    let routerIds: number[];
-    if (row.routerId !== null) {
-      routerIds = [row.routerId];
-    } else if (row.ownerAdminId !== null) {
+    const assignmentRows = await db
+      .select({ routerId: managerRoutersTable.routerId })
+      .from(managerRoutersTable)
+      .where(eq(managerRoutersTable.managerId, mgr.managerId));
+    let routerIds = assignmentRows.map((r) => r.routerId);
+    if (routerIds.length === 0 && row.ownerAdminId !== null) {
       const ownerRouters = await db
         .select({ id: routersTable.id })
         .from(routersTable)
         .where(eq(routersTable.ownerAdminId, row.ownerAdminId));
       routerIds = ownerRouters.map((r) => r.id);
-    } else {
-      routerIds = [];
     }
     return {
       kind: "manager",

@@ -5,7 +5,7 @@ import {
   isValidSuperSecurityCode,
   loginMatchesOriginalSuperAdmin,
 } from "../lib/original-super-admin.js";
-import { db, adminSettingsTable, vendorsTable, managersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
+import { db, adminSettingsTable, vendorsTable, managersTable, managerRoutersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken, verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
@@ -168,10 +168,24 @@ router.post("/login", async (req, res): Promise<void> => {
   if (manager?.passwordHash && manager.isActive) {
     const valid = await verifyManagerPassword(password, manager.passwordHash);
     if (valid) {
+      const mgrRouterRows = await db
+        .select({ routerId: managerRoutersTable.routerId })
+        .from(managerRoutersTable)
+        .where(eq(managerRoutersTable.managerId, manager.id));
+      let routerIds = mgrRouterRows.map((r) => r.routerId);
+      if (routerIds.length === 0 && manager.routerId != null) {
+        routerIds = [manager.routerId];
+      }
       res.json({
         role: "manager",
-        token: createManagerToken(manager.id, manager.sessionEpoch ?? 0),
-        manager: { id: manager.id, name: manager.name, username: manager.username, routerId: manager.routerId ?? null },
+        token: createManagerToken(manager.id, routerIds, manager.sessionEpoch ?? 0),
+        manager: {
+          id: manager.id,
+          name: manager.name,
+          username: manager.username,
+          routerIds,
+          routerId: routerIds[0] ?? null,
+        },
       });
       return;
     }
