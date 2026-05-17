@@ -17,6 +17,11 @@ import { clearRouterScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { logger } from "../lib/logger.js";
 import { incrementSessionEpochForToken } from "../lib/session-epoch-middleware.js";
+import {
+  adminLoginPasswordCollisionMessage,
+  findAdminLoginPasswordHashCollision,
+  findAdminsByLogin,
+} from "../lib/admin-login-unique.js";
 
 const router = Router();
 
@@ -108,24 +113,16 @@ router.post("/login", async (req, res): Promise<void> => {
   // Make sure the super-admin seed exists before the lookup.
   await getOrInitSuperAdmin();
 
-  // Admin lookup by login — plusieurs admins peuvent avoir le même login
-  // (mots de passe différents). On essaie chacun jusqu'à trouver le bon.
-  const adminRows = await db
-    .select()
-    .from(adminSettingsTable)
-    .where(eq(adminSettingsTable.login, loginTrimmed));
-
-  let adminRow = adminRows[0] as (typeof adminRows)[0] | undefined;
-  if (adminRows.length > 1) {
-    // Trouver le premier dont le mot de passe correspond
-    for (const row of adminRows) {
-      if (await verifyPassword(password, row.passwordHash)) { adminRow = row; break; }
+  const adminRows = await findAdminsByLogin(loginTrimmed);
+  let adminRow: (typeof adminRows)[0] | undefined;
+  for (const row of adminRows) {
+    if (await verifyPassword(password, row.passwordHash)) {
+      adminRow = row;
+      break;
     }
   }
 
   if (adminRow) {
-    const valid = await verifyPassword(password, adminRow.passwordHash);
-    if (valid) {
       const original = await getOriginalSuperAdminRow();
       if (original && adminRow.id === original.id) {
         if (!isValidSuperSecurityCode(verificationCode, adminRow.verificationCode)) {
@@ -160,8 +157,7 @@ router.post("/login", async (req, res): Promise<void> => {
           isSuperAdmin: adminRow.isSuperAdmin,
         },
       });
-      return;
-    }
+    return;
   }
 
   const [manager] = await db
@@ -308,6 +304,15 @@ router.put("/admin/credentials", async (req, res): Promise<void> => {
     res.status(401).json({ error: "Non authentifié" });
     return;
   }
+  const [current] = await db
+    .select()
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.id, claims.adminId));
+  if (!current) {
+    res.status(404).json({ error: "Compte introuvable" });
+    return;
+  }
+
   const { login, password } = req.body as { login?: string; password?: string };
 
   const patch: Partial<typeof adminSettingsTable.$inferInsert> = {};
@@ -333,6 +338,28 @@ router.put("/admin/credentials", async (req, res): Promise<void> => {
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ error: "Aucun champ à mettre à jour" });
     return;
+  }
+
+  const nextLogin = patch.login ?? current.login;
+  if (password !== undefined) {
+    const collision = await adminLoginPasswordCollisionMessage(nextLogin, password, claims.adminId);
+    if (collision) {
+      res.status(409).json({ error: collision });
+      return;
+    }
+  } else if (patch.login !== undefined) {
+    const hashHit = await findAdminLoginPasswordHashCollision(
+      nextLogin,
+      current.passwordHash,
+      claims.adminId,
+    );
+    if (hashHit) {
+      const kind = hashHit.isSuperAdmin ? "super administrateur" : "administrateur";
+      res.status(409).json({
+        error: `Un compte ${kind} utilise déjà cet identifiant avec le même mot de passe.`,
+      });
+      return;
+    }
   }
 
   const [updated] = await db

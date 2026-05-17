@@ -5,6 +5,10 @@ import { hashPassword } from "../lib/admin-auth.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
 import { getAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { pingRouter } from "../lib/mikrotik.js";
+import {
+  adminLoginPasswordCollisionMessage,
+  findAdminLoginPasswordHashCollision,
+} from "../lib/admin-login-unique.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -183,6 +187,12 @@ router.post("/super/admins", async (req, res): Promise<void> => {
     return;
   }
 
+  const loginPasswordCollision = await adminLoginPasswordCollisionMessage(loginTrimmed, password);
+  if (loginPasswordCollision) {
+    res.status(409).json({ error: loginPasswordCollision });
+    return;
+  }
+
   let forfaitStartedAt: Date | null = null;
   let forfaitEndsAt: Date | null   = null;
   if (forfaitUnlimited === true) {
@@ -266,6 +276,24 @@ router.patch("/super/admins/:id", async (req, res): Promise<void> => {
     }
     patch.passwordHash = await hashPassword(password);
     patch.passwordPlain = password;
+  }
+
+  const nextLogin = patch.login ?? target.login;
+  if (password !== undefined) {
+    const collision = await adminLoginPasswordCollisionMessage(nextLogin, password, id);
+    if (collision) {
+      res.status(409).json({ error: collision });
+      return;
+    }
+  } else if (patch.login !== undefined) {
+    const hashHit = await findAdminLoginPasswordHashCollision(nextLogin, target.passwordHash, id);
+    if (hashHit) {
+      const kind = hashHit.isSuperAdmin ? "super administrateur" : "administrateur";
+      res.status(409).json({
+        error: `Un compte ${kind} utilise déjà cet identifiant avec le même mot de passe.`,
+      });
+      return;
+    }
   }
 
   if (Object.keys(patch).length === 0) {
