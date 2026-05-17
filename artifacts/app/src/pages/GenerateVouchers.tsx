@@ -46,6 +46,14 @@ import {
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
 import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-template-semantics";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  DEFAULT_GEN_CHAR_TYPE,
+  GEN_CHAR_TYPE_OPTIONS,
+  readStoredGenCharType,
+  writeStoredGenCharType,
+  type GenCharTypeOption,
+} from "@/lib/voucher-gen-char-type";
 
 const LS_KEY = "vouchernet-last-lot";
 const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
@@ -150,29 +158,15 @@ function computeAutoPrefix(validity: string | null | undefined, ticketLetter: st
   return (code + (ticketLetter?.trim() || "")).toLowerCase();
 }
 
-type CharType = "lower" | "upper" | "upplow" | "mix" | "mix1" | "mix2" | "num";
-
-const CHAR_TYPE_DESCS: Record<CharType, string> = {
-  lower:  "minuscules",
-  upper:  "majuscules",
-  upplow: "mixte lettres",
-  mix:    "minusc. + chiffres",
-  mix1:   "majusc. + chiffres",
-  mix2:   "mixte + chiffres",
-  num:    "chiffres uniquement",
+const CHAR_TYPE_PREVIEW: Record<GenCharTypeOption, string> = {
+  mix:   "5ab2c34d",
+  mix1:  "5AB2C34D",
+  mix2:  "5aB2c34D",
+  lower: "abcdefgh",
+  num:   "12345678",
 };
 
-const CHAR_TYPE_PREVIEW: Record<CharType, string> = {
-  lower:  "abcdefgh",
-  upper:  "ABCDEFGH",
-  upplow: "aBcDeFgH",
-  mix:    "5ab2c34d",
-  mix1:   "5AB2C34D",
-  mix2:   "5aB2c34D",
-  num:    "12345678",
-};
-
-const CHAR_TYPE_ORDER: CharType[] = ["mix", "mix1", "mix2"];
+const CHAR_TYPE_ORDER: GenCharTypeOption[] = [...GEN_CHAR_TYPE_OPTIONS];
 
 /** Détecte si l'erreur correspond à un routeur inaccessible (502 ou réseau). */
 function isRouterUnreachable(err: unknown): boolean {
@@ -330,8 +324,11 @@ function makeBatchId(mode: "vc" | "up" = "vc"): string {
 
 export default function GenerateVouchers() {
   const { selectedRouterId, selectedRouter } = useRouterContext();
+  const { connectedUsername, role } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const operatorKey =
+    role === "admin" && connectedUsername ? connectedUsername : null;
 
   const [profile, setProfile] = useState<string>("");
   const [qty, setQty] = useState("1");
@@ -340,7 +337,7 @@ export default function GenerateVouchers() {
     try { return localStorage.getItem("vn_prefix_auto") === "1"; } catch { return false; }
   });
   const [passwordMode, setPasswordMode] = useState<"same" | "random">("same");
-  const [charType, setCharType] = useState<CharType>("mix");
+  const [charType, setCharType] = useState<GenCharTypeOption>(DEFAULT_GEN_CHAR_TYPE);
   const [userLength, setUserLength] = useState("5");
   const [timelimit, setTimelimit] = useState("");
   const [datalimit, setDatalimit] = useState("");
@@ -366,9 +363,22 @@ export default function GenerateVouchers() {
     setProfile("");
   }, [selectedRouterId]);
 
+  useEffect(() => {
+    const stored = readStoredGenCharType(operatorKey);
+    setCharType(stored ?? DEFAULT_GEN_CHAR_TYPE);
+  }, [operatorKey]);
+
+  const handleCharTypeChange = (next: GenCharTypeOption) => {
+    setCharType(next);
+    writeStoredGenCharType(operatorKey, next);
+  };
+
   // Auto-select length 5 when a mix format is chosen in Mode Voucher
   useEffect(() => {
-    if (passwordMode === "same" && (charType === "mix" || charType === "mix1" || charType === "mix2")) {
+    if (
+      passwordMode === "same" &&
+      (charType === "mix" || charType === "mix1" || charType === "mix2")
+    ) {
       setUserLength("5");
     }
   }, [charType, passwordMode]);
@@ -1054,7 +1064,7 @@ export default function GenerateVouchers() {
                   <select
                     className="mt-0.5 w-full h-8 border border-input bg-background rounded-md px-2 text-xs font-mono"
                     value={charType}
-                    onChange={(e) => setCharType(e.target.value as CharType)}
+                    onChange={(e) => handleCharTypeChange(e.target.value as GenCharTypeOption)}
                   >
                     {CHAR_TYPE_ORDER.map((type) => {
                       const len = parseInt(userLength, 10);

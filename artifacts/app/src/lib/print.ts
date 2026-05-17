@@ -72,13 +72,22 @@ function writeHtmlToPrintWindow(win: Window, html: string, title: string): void 
   }
 }
 
-function buildPrintLoadingHtml(title: string): string {
-  const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return `<!doctype html><html><head><meta charset="utf-8"/><title>${safeTitle}</title>
-<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;color:#334155}
-.box{text-align:center;padding:2rem}</style></head>
-<body><div class="box"><p style="font-size:1rem;margin:0">Préparation de l'impression…</p>
-<p style="font-size:0.85rem;color:#64748b;margin:0.75rem 0 0">Ne fermez pas cette fenêtre.</p></div></body></html>`;
+/** Page d’attente (variante Mikrotik Hotspot Manager) pendant fetch + QR avant les tickets. */
+function buildPrintLoadingHtml(_title: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chargement…</title>
+<style>
+  body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
+    background:#f8f9fa;font-family:system-ui,sans-serif;flex-direction:column;gap:20px;color:#444}
+  .spinner{width:56px;height:56px;border:5px solid #e0e0e0;border-top-color:#7c3aed;
+    border-radius:50%;animation:spin 0.9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  p{font-size:1.05rem;text-align:center;max-width:280px;line-height:1.5;margin:0}
+</style></head>
+<body><div class="spinner"></div>
+<p>Les tickets vont s'afficher dans un instant,<br>veuillez patienter…</p>
+</body></html>`;
 }
 
 export type VoucherPrintSlot =

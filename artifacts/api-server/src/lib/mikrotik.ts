@@ -2894,6 +2894,7 @@ function generateCode(
   if (charType === "mix" || charType === "mix1" || charType === "mix2") {
     code = generateMixCode(length, CHAR_SETS[charType]);
   } else {
+    // lower / num : caractères aléatoires du jeu (abcd ou 1234)
     code = randomFrom(CHAR_SETS[charType], length);
   }
   const username = prefix ? `${prefix}${code}` : code;
