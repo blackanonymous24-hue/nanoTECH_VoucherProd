@@ -1,10 +1,15 @@
 /**
- * Pull-to-refresh pour l’APK (Android) : `pullToRefreshEnabled` de react-native-webview est iOS uniquement.
- * Envoie { type: "refresh" } à React Native quand l’utilisateur tire vers le bas en haut de page.
+ * Pull-to-refresh APK (Android) : maintien volontaire en haut de page, pas un simple flick.
+ * Envoie { type: "refresh" } après ~2 s de tirage maintenu puis relâchement.
  */
 
-const PTR_THRESHOLD_PX = 72;
-const PTR_MAX_PULL_PX = 120;
+/** Tirage minimal avant d’afficher l’indicateur (évite les scrolls courts). */
+const PTR_ACTIVATE_PX = 40;
+/** Distance de tirage minimale au relâchement. */
+const PTR_READY_PULL_PX = 56;
+/** Durée de maintien requise (ms). */
+const PTR_HOLD_MS = 2000;
+const PTR_MAX_PULL_PX = 110;
 const INDICATOR_ID = "apk-ptr-indicator";
 
 function isNativeWebView(): boolean {
@@ -19,7 +24,6 @@ function postRefreshToNative(): void {
   bridge?.postMessage(JSON.stringify({ type: "refresh" }));
 }
 
-/** Conteneur scrollable actif en haut de page (Layout admin ou page vendeur). */
 function getScrollRootAtTop(): HTMLElement | null {
   const layoutMain = document.querySelector("main.flex-1.overflow-y-auto") as HTMLElement | null;
   if (layoutMain && layoutMain.scrollTop <= 1) return layoutMain;
@@ -41,18 +45,37 @@ function ensureIndicator(): HTMLElement {
   el = document.createElement("div");
   el.id = INDICATOR_ID;
   el.setAttribute("aria-hidden", "true");
-  el.innerHTML =
-    '<span class="apk-ptr-spinner"></span><span class="apk-ptr-label">Relâcher pour actualiser</span>';
+  el.innerHTML = [
+    '<span class="apk-ptr-icon" aria-hidden="true">',
+    '<span class="apk-ptr-ring" aria-hidden="true"></span>',
+    '<svg class="apk-ptr-svg" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"',
+    ' stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">',
+    '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>',
+    '<path d="M21 3v5h-5"/>',
+    '<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>',
+    '<path d="M8 16H3v5"/>',
+    "</svg></span>",
+    '<span class="apk-ptr-label"></span>',
+  ].join("");
   document.body.appendChild(el);
   return el;
 }
 
-function setIndicatorVisible(pullPx: number, ready: boolean): void {
+function setIndicator(pullPx: number, holdProgress: number, ready: boolean): void {
   const el = ensureIndicator();
-  const progress = Math.min(1, pullPx / PTR_THRESHOLD_PX);
-  el.style.opacity = pullPx > 8 ? String(0.35 + progress * 0.65) : "0";
-  el.style.transform = `translateX(-50%) translateY(${Math.min(pullPx * 0.45, 48)}px)`;
+  const icon = el.querySelector(".apk-ptr-icon") as HTMLElement | null;
+  const label = el.querySelector(".apk-ptr-label") as HTMLElement | null;
+
+  const active = pullPx >= PTR_ACTIVATE_PX;
+  if (icon) icon.style.display = active ? "flex" : "none";
+  if (icon) icon.style.setProperty("--ptr-progress", String(ready ? 1 : holdProgress));
+  if (label) label.textContent = ready ? "Relâchez pour actualiser" : "";
+
+  const show = ready || pullPx > 12;
+  el.style.opacity = show ? String(ready ? 1 : 0.4 + Math.min(1, pullPx / PTR_READY_PULL_PX) * 0.45) : "0";
+  el.style.transform = `translateX(-50%) translateY(${Math.min(pullPx * 0.4, 44)}px)`;
   el.classList.toggle("apk-ptr-ready", ready);
+  el.classList.toggle("apk-ptr-holding", active && !ready);
 }
 
 function hideIndicator(): void {
@@ -60,7 +83,7 @@ function hideIndicator(): void {
   if (!el) return;
   el.style.opacity = "0";
   el.style.transform = "translateX(-50%) translateY(0)";
-  el.classList.remove("apk-ptr-ready");
+  el.classList.remove("apk-ptr-ready", "apk-ptr-holding");
 }
 
 export function installApkPullToRefresh(): void {
@@ -69,16 +92,25 @@ export function installApkPullToRefresh(): void {
   (window as { __apkPtrInstalled?: boolean }).__apkPtrInstalled = true;
 
   let startY = 0;
-  let pulling = false;
   let pullPx = 0;
   let scrollRoot: HTMLElement | null = null;
+  let armed = false;
+  let pullStartedAt = 0;
 
   const reset = () => {
-    pulling = false;
     pullPx = 0;
     scrollRoot = null;
+    armed = false;
+    pullStartedAt = 0;
     hideIndicator();
   };
+
+  const holdProgress = () => {
+    if (!armed || pullPx < PTR_READY_PULL_PX) return 0;
+    return Math.min(1, (Date.now() - pullStartedAt) / PTR_HOLD_MS);
+  };
+
+  const isHoldSatisfied = () => armed && pullPx >= PTR_READY_PULL_PX && holdProgress() >= 1;
 
   document.addEventListener(
     "touchstart",
@@ -87,8 +119,9 @@ export function installApkPullToRefresh(): void {
       scrollRoot = getScrollRootAtTop();
       if (!scrollRoot) return;
       startY = e.touches[0].clientY;
-      pulling = true;
+      armed = false;
       pullPx = 0;
+      pullStartedAt = 0;
     },
     { capture: true, passive: true },
   );
@@ -96,20 +129,35 @@ export function installApkPullToRefresh(): void {
   document.addEventListener(
     "touchmove",
     (e) => {
-      if (!pulling || !scrollRoot || e.touches.length !== 1) return;
+      if (!scrollRoot || e.touches.length !== 1) return;
       if (scrollRoot.scrollTop > 1) {
         reset();
         return;
       }
+
       const dy = e.touches[0].clientY - startY;
       if (dy <= 0) {
-        pullPx = 0;
+        if (armed) reset();
+        return;
+      }
+
+      if (dy < PTR_ACTIVATE_PX) {
         hideIndicator();
         return;
       }
+
+      if (!armed) {
+        armed = true;
+        pullStartedAt = Date.now();
+      }
+
       pullPx = Math.min(dy, PTR_MAX_PULL_PX);
-      setIndicatorVisible(pullPx, pullPx >= PTR_THRESHOLD_PX);
-      if (pullPx > 12) e.preventDefault();
+      const ready = isHoldSatisfied();
+      setIndicator(pullPx, holdProgress(), ready);
+
+      if (armed && pullPx >= PTR_ACTIVATE_PX + 16) {
+        e.preventDefault();
+      }
     },
     { capture: true, passive: false },
   );
@@ -117,8 +165,11 @@ export function installApkPullToRefresh(): void {
   document.addEventListener(
     "touchend",
     () => {
-      if (!pulling) return;
-      const shouldRefresh = pullPx >= PTR_THRESHOLD_PX;
+      if (!armed) {
+        reset();
+        return;
+      }
+      const shouldRefresh = isHoldSatisfied();
       reset();
       if (shouldRefresh) postRefreshToNative();
     },

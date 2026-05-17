@@ -194,7 +194,7 @@ export default function Sessions() {
 
       {selectedRouterId && !isLoading && !error && sessions.length > 0 && (
         <Card>
-          <CardHeader className="space-y-1 pb-0 sm:pb-0">
+          <CardHeader className="space-y-1.5 pb-2.5 border-b border-gray-100 bg-white relative z-10">
             <CardTitle className="text-base flex items-center gap-2">
               <Activity className="h-4 w-4 text-green-500" />
               Clients connectés
@@ -215,8 +215,9 @@ export default function Sessions() {
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="p-0 overflow-x-auto -mt-1">
+          <CardContent className="p-0">
             {filtered.length > 0 ? (
+              <div className="hotspot-table-scroll max-h-[min(70dvh,560px)] overflow-auto overscroll-contain scroll-card">
               <Table className="min-w-[640px]">
                 <TableHeader>
                   <TableRow className="bg-gray-50 [&_th]:h-7 [&_th]:py-0 [&_th]:leading-tight">
@@ -266,6 +267,7 @@ export default function Sessions() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             ) : (
               <div className="py-10 px-6 text-center border-t">
                 <Search className="h-8 w-8 text-gray-300 mx-auto mb-3" />

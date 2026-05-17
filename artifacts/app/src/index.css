@@ -530,6 +530,18 @@
 
   /* ── Dialog : bien scrollable sur petits écrans ── */
   [role="dialog"] { max-height: 92dvh; overflow-y: auto; }
+
+  /* Menu Hotspot : en-tête tableau dans la zone scroll, pas sur la recherche */
+  .hotspot-table-scroll > .relative.w-full.overflow-auto {
+    overflow: visible !important;
+  }
+  .hotspot-table-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background-color: rgb(249 250 251);
+    box-shadow: inset 0 -1px 0 0 rgb(229 231 235);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -578,18 +590,56 @@
 }
 .native-app #apk-ptr-indicator.apk-ptr-ready {
   color: #93c5fd;
+  font-weight: 600;
 }
-.native-app #apk-ptr-indicator .apk-ptr-spinner {
-  width: 0.85rem;
-  height: 0.85rem;
-  border: 2px solid rgba(148, 163, 184, 0.35);
-  border-top-color: #60a5fa;
+.native-app #apk-ptr-indicator .apk-ptr-icon {
+  --ptr-progress: 0;
+  display: none;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #60a5fa;
+}
+.native-app #apk-ptr-indicator .apk-ptr-ring {
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
-  animation: apk-ptr-spin 0.7s linear infinite;
+  background: conic-gradient(
+    from -90deg,
+    currentColor calc(var(--ptr-progress, 0) * 360deg),
+    rgba(148, 163, 184, 0.28) 0
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
 }
-.native-app #apk-ptr-indicator.apk-ptr-ready .apk-ptr-spinner {
-  border-top-color: #93c5fd;
+.native-app #apk-ptr-indicator .apk-ptr-svg {
+  position: relative;
+  z-index: 1;
+  display: block;
+}
+.native-app #apk-ptr-indicator.apk-ptr-holding .apk-ptr-svg {
+  animation: apk-ptr-spin 0.85s linear infinite;
+}
+.native-app #apk-ptr-indicator.apk-ptr-ready .apk-ptr-icon {
+  color: #93c5fd;
+}
+.native-app #apk-ptr-indicator.apk-ptr-ready .apk-ptr-ring {
+  background: currentColor;
+  opacity: 0.35;
+}
+.native-app #apk-ptr-indicator.apk-ptr-ready .apk-ptr-svg {
+  animation: apk-ptr-ready 0.55s ease-in-out infinite;
+}
+.native-app #apk-ptr-indicator .apk-ptr-label:empty {
+  display: none;
 }
 @keyframes apk-ptr-spin {
   to { transform: rotate(360deg); }
+}
+@keyframes apk-ptr-ready {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.12); opacity: 0.92; }
 }
