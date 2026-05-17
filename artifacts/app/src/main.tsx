@@ -3,16 +3,22 @@ import App from "./App";
 import "./index.css";
 import { installAuthFetch } from "@/lib/installAuthFetch";
 import { installApkPullToRefresh } from "@/lib/apk-pull-to-refresh";
+import { lockSystemFontScale } from "@/lib/lock-system-font-scale";
 
 installAuthFetch();
 
-// Expo APK WebView — SessionLifecycle : pas de déconnexion idle si « Se souvenir de moi », pause API en arrière-plan
-if (/nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent)) {
-  const root = document.documentElement;
-  root.classList.add("native-app");
-  root.style.setProperty("-webkit-text-size-adjust", "100%");
-  root.style.textSizeAdjust = "100%";
+const isNativeApp = /nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent);
+const isMobileViewport =
+  typeof window !== "undefined" &&
+  window.matchMedia("(max-width: 639px)").matches;
+
+// APK + navigateurs mobiles : taille de police système ignorée
+if (isNativeApp) {
+  document.documentElement.classList.add("native-app");
+  lockSystemFontScale();
   installApkPullToRefresh();
+} else if (isMobileViewport) {
+  lockSystemFontScale();
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

@@ -23,10 +23,26 @@ import * as SplashScreen from "expo-splash-screen";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+// UI native (hors WebView) : ne pas suivre la taille de police système
+if (Text.defaultProps == null) Text.defaultProps = {};
+Text.defaultProps.allowFontScaling = false;
+
 const DEFAULT_WEB_URL = "https://nanovoucher.com";
 const extraUrl = (Constants.expoConfig?.extra as { webAppUrl?: string } | undefined)?.webAppUrl?.trim();
 const PROD_URL = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || extraUrl || DEFAULT_WEB_URL;
 const WEBVIEW_USER_AGENT = "nanoTECH-VouchersBills-Mobile/1.0";
+
+/** Avant chargement : ignore la taille de police système Android/iOS dans la WebView. */
+const INJECT_LOCK_FONT_SCALE = `
+(function () {
+  var r = document.documentElement;
+  r.classList.add("native-app", "font-scale-locked");
+  r.style.setProperty("-webkit-text-size-adjust", "none");
+  r.style.textSizeAdjust = "none";
+  r.style.fontSize = "16px";
+})();
+true;
+`;
 const RELOAD_SPINNER_TIMEOUT = 8000;
 
 /** Zone sensible au bord gauche pour le geste « retour » (glisser → droite). */
@@ -120,8 +136,11 @@ function WebAppShell() {
         root.classList.add("native-app");
         root.style.setProperty("--apk-safe-top", "${top}px");
         root.style.setProperty("--apk-safe-bottom", "${bottom}px");
-        root.style.setProperty("-webkit-text-size-adjust", "100%");
-        root.style.textSizeAdjust = "100%";
+        root.style.setProperty("-webkit-text-size-adjust", "none");
+        root.style.textSizeAdjust = "none";
+        root.style.fontSize = "16px";
+        if (document.body) document.body.style.fontSize = "16px";
+        root.classList.add("font-scale-locked");
       })();
       true;
     `);
@@ -264,6 +283,9 @@ function WebAppShell() {
             startInLoadingState={false}
             userAgent={WEBVIEW_USER_AGENT}
             textZoom={100}
+            injectedJavaScriptBeforeContentLoaded={INJECT_LOCK_FONT_SCALE}
+            setBuiltInZoomControls={false}
+            setDisplayZoomControls={false}
           />
           <View style={styles.edgeBackLayer} pointerEvents="box-none">
             <View style={styles.edgeBackStrip} {...edgeBackPan.panHandlers} />
