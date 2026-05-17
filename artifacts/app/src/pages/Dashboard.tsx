@@ -293,9 +293,63 @@ function yTickFmt(v: number) {
   return `${parseFloat((v / Math.pow(1024, i)).toFixed(2))} ${sizes[i]}`;
 }
 
+/** Ferme le tooltip Recharts au tap hors graphique ou au scroll (mobile). */
+function useDismissibleChartTooltip() {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [suppressTooltip, setSuppressTooltip] = useState(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const onTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (touch) touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+      const target = e.target as Node;
+      if (chartRef.current?.contains(target)) {
+        setSuppressTooltip(false);
+      } else {
+        setSuppressTooltip(true);
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      const start = touchStartRef.current;
+      if (!touch || !start) return;
+      if (Math.abs(touch.clientX - start.x) > 8 || Math.abs(touch.clientY - start.y) > 8) {
+        setSuppressTooltip(true);
+      }
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!chartRef.current?.contains(target)) setSuppressTooltip(true);
+    };
+
+    document.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    document.addEventListener("touchmove", onTouchMove, { capture: true, passive: true });
+    document.addEventListener("mousedown", onMouseDown, { capture: true });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart, { capture: true });
+      document.removeEventListener("touchmove", onTouchMove, { capture: true });
+      document.removeEventListener("mousedown", onMouseDown, { capture: true });
+    };
+  }, []);
+
+  const onChartMouseMove = useCallback((state: { isTooltipActive?: boolean } | null) => {
+    if (state?.isTooltipActive) setSuppressTooltip(false);
+  }, []);
+
+  const onChartMouseLeave = useCallback(() => {
+    setSuppressTooltip(true);
+  }, []);
+
+  return { chartRef, suppressTooltip, onChartMouseMove, onChartMouseLeave };
+}
+
 function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | null; enabled?: boolean }) {
   const isVisible = usePageVisibility();
   const { token: authToken } = useAuth();
+  const { chartRef, suppressTooltip, onChartMouseMove, onChartMouseLeave } = useDismissibleChartTooltip();
   const [history, setHistory] = useState<{ t: number; rx: number; tx: number }[]>([]);
   const [selectedIface, setSelectedIface] = useState<string>("");
 
@@ -418,9 +472,14 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
               <p className="hidden">Interface {selectedIface}</p>
             )}
             {/* position:relative wrapper is the recharts trick to fill flex space with height="100%" */}
-            <div className="flex-1" style={{ position: "relative", minHeight: 220 }}>
+            <div ref={chartRef} className="flex-1" style={{ position: "relative", minHeight: 220 }}>
               <ResponsiveContainer width="100%" height="100%" minHeight={220}>
-                <LineChart data={history} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <LineChart
+                  data={history}
+                  margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                  onMouseMove={onChartMouseMove}
+                  onMouseLeave={onChartMouseLeave}
+                >
                   <CartesianGrid stroke={LIGHT_GRID} strokeDasharray="0" vertical={true} horizontal={true} />
                   <XAxis
                     dataKey="t"
@@ -441,6 +500,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
                     width={66}
                   />
                   <Tooltip
+                    active={suppressTooltip ? false : undefined}
                     isAnimationActive={false}
                     contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 11, color: "#374151" }}
                     labelFormatter={(v) => fmtTime(v as number)}
