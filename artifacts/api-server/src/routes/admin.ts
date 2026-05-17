@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { eq, and, ne, sql } from "drizzle-orm";
 import {
+  credentialsMatchOriginalSuperAdmin,
   getOriginalSuperAdminRow,
   isValidSuperSecurityCode,
-  loginMatchesOriginalSuperAdmin,
 } from "../lib/original-super-admin.js";
 import { db, adminSettingsTable, vendorsTable, managersTable, managerRoutersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
@@ -74,25 +74,20 @@ async function getOrInitSuperAdmin(): Promise<typeof adminSettingsTable.$inferSe
   return created;
 }
 
-// GET /api/login/security-required?login= — afficher le champ code sur la page login admin.
-router.get("/login/security-required", async (req, res): Promise<void> => {
+// POST /api/login/security-required — champ code uniquement si login + mot de passe = super-admin originel.
+router.post("/login/security-required", async (req, res): Promise<void> => {
   try {
-    const loginTrimmed = String(req.query.login ?? "").trim();
-    if (!loginTrimmed) {
+    const { login, password } = req.body as { login?: string; password?: string };
+    const loginTrimmed = String(login ?? "").trim();
+    if (!loginTrimmed || !password) {
       res.json({ required: false });
       return;
     }
     await getOrInitSuperAdmin();
-    const original = await getOriginalSuperAdminRow();
-    if (!original) {
-      res.json({ required: false });
-      return;
-    }
-    res.json({
-      required: loginMatchesOriginalSuperAdmin(loginTrimmed, original.login),
-    });
+    const required = await credentialsMatchOriginalSuperAdmin(loginTrimmed, password);
+    res.json({ required });
   } catch (err) {
-    logger.error({ err }, "GET /api/login/security-required");
+    logger.error({ err }, "POST /api/login/security-required");
     res.json({ required: false });
   }
 });

@@ -54,19 +54,7 @@ function isVoucherPrintMobileLayout(): boolean {
   return isNativeWebView() || isMobile();
 }
 
-/**
- * Impression depuis une page HTML complète (rapports vendeur, etc.).
- * — APK (React Native WebView) : postMessage → expo-print
- * — Navigateur mobile : nouvel onglet + document.write
- */
-export function openPrintHtmlWindow(html: string, title: string): void {
-  if (isNativeWebView()) {
-    printWithNativeBridge(html, title);
-    return;
-  }
-
-  const win = window.open("", "_blank");
-  if (!win) return;
+function writeHtmlToPrintWindow(win: Window, html: string, title: string): void {
   win.document.open();
   win.document.write(html);
   win.document.close();
@@ -82,6 +70,66 @@ export function openPrintHtmlWindow(html: string, title: string): void {
   } catch {
     /* ignore */
   }
+}
+
+function buildPrintLoadingHtml(title: string): string {
+  const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<!doctype html><html><head><meta charset="utf-8"/><title>${safeTitle}</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;color:#334155}
+.box{text-align:center;padding:2rem}</style></head>
+<body><div class="box"><p style="font-size:1rem;margin:0">Préparation de l'impression…</p>
+<p style="font-size:0.85rem;color:#64748b;margin:0.75rem 0 0">Ne fermez pas cette fenêtre.</p></div></body></html>`;
+}
+
+export type VoucherPrintSlot =
+  | { kind: "native" }
+  | { kind: "window"; win: Window }
+  | { kind: "blocked" };
+
+/** Ouvre la fenêtre d'impression au clic (synchrone) pour éviter le blocage des popups. */
+export function acquireVoucherPrintWindow(documentTitle: string): VoucherPrintSlot {
+  if (isNativeWebView()) return { kind: "native" };
+  const win = window.open("", "_blank");
+  if (!win) return { kind: "blocked" };
+  writeHtmlToPrintWindow(win, buildPrintLoadingHtml(documentTitle), documentTitle);
+  return { kind: "window", win };
+}
+
+export function commitVoucherPrint(
+  slot: VoucherPrintSlot,
+  bodyTicketsHtml: string,
+  documentTitle: string,
+): void {
+  const html = buildMikhmonVoucherPrintDocumentHtml(documentTitle, bodyTicketsHtml);
+  if (slot.kind === "native") {
+    printWithNativeBridge(html, documentTitle);
+    return;
+  }
+  if (slot.kind === "window" && !slot.win.closed) {
+    writeHtmlToPrintWindow(slot.win, html, documentTitle);
+  }
+}
+
+export function abortVoucherPrint(slot: VoucherPrintSlot): void {
+  if (slot.kind === "window" && !slot.win.closed) {
+    try {
+      slot.win.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** @returns false si le navigateur a bloqué la fenêtre contextuelle */
+export function openPrintHtmlWindow(html: string, title: string): boolean {
+  if (isNativeWebView()) {
+    printWithNativeBridge(html, title);
+    return true;
+  }
+  const win = window.open("", "_blank");
+  if (!win) return false;
+  writeHtmlToPrintWindow(win, html, title);
+  return true;
 }
 
 function buildReportHtml(bodyHtml: string, title: string, autoprint = true): string {
@@ -204,15 +252,11 @@ table.voucher {
  * `window.open` + document HTML complet + `body onload="window.print()"`.
  * (WebView native : pont d’impression, seul environnement sans `window.open` utilisable.)
  */
+/** Impression synchrone (HTML déjà prêt). Préférer acquire + commit si des fetch précèdent. */
 export function printMikhmonSmallVouchers(bodyTicketsHtml: string, documentTitle: string): void {
-  const html = buildMikhmonVoucherPrintDocumentHtml(documentTitle, bodyTicketsHtml);
-
-  if (isNativeWebView()) {
-    printWithNativeBridge(html, documentTitle);
-    return;
-  }
-
-  openPrintHtmlWindow(html, documentTitle);
+  const slot = acquireVoucherPrintWindow(documentTitle);
+  if (slot.kind === "blocked") return;
+  commitVoucherPrint(slot, bodyTicketsHtml, documentTitle);
 }
 
 function printWithNativeBridge(html: string, title: string): void {

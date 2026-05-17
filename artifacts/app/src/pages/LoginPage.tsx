@@ -32,13 +32,17 @@ export default function LoginPage({ mode }: LoginPageProps) {
       return;
     }
     const loginTrimmed = form.login.trim();
-    if (!loginTrimmed) {
+    if (!loginTrimmed || !form.password) {
       setNeedsSecurityCode(false);
       setSecurityCode("");
       return;
     }
     const timer = window.setTimeout(() => {
-      fetch(`${BASE}/api/login/security-required?login=${encodeURIComponent(loginTrimmed)}`)
+      fetch(`${BASE}/api/login/security-required`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login: loginTrimmed, password: form.password }),
+      })
         .then((r) => (r.ok ? r.json() : { required: false }))
         .then((data: { required?: boolean }) => {
           const required = !!data.required;
@@ -46,9 +50,9 @@ export default function LoginPage({ mode }: LoginPageProps) {
           if (!required) setSecurityCode("");
         })
         .catch(() => setNeedsSecurityCode(false));
-    }, 280);
+    }, 400);
     return () => window.clearTimeout(timer);
-  }, [form.login, isAdmin]);
+  }, [form.login, form.password, isAdmin]);
 
   /* ── Écran de choix du rôle ───────────────────────────────── */
   if (mode === "choose") {

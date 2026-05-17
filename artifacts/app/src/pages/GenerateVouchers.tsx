@@ -31,7 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
-import { printMikhmonSmallVouchers } from "@/lib/print";
+import { acquireVoucherPrintWindow, commitVoucherPrint, abortVoucherPrint } from "@/lib/print";
 import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 import {
   formatMikhmonBytes,
@@ -710,6 +710,16 @@ export default function GenerateVouchers() {
 
   const handlePrintSmall = async (lot: LastLot) => {
     if (!lot.routerId || !lot.comment || isPrintingSmall) return;
+    const printTitle = `Voucher-${(selectedRouter as { hotspotName?: string | null; name?: string } | undefined)?.hotspotName ?? lot.routerName}-${lot.profileName}-${lot.comment}`;
+    const printSlot = acquireVoucherPrintWindow(printTitle);
+    if (printSlot.kind === "blocked") {
+      toast({
+        title: "Fenêtre bloquée",
+        description: "Autorisez les fenêtres contextuelles (popups) pour ce site, puis réessayez.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsPrintingSmall(true);
     saveLastLot(lot);
     try {
@@ -723,6 +733,7 @@ export default function GenerateVouchers() {
         limitBytesTotal?: string | null;
       }>;
       if (users.length === 0) {
+        abortVoucherPrint(printSlot);
         toast({ title: "Rien à imprimer", description: "Aucun voucher sur le routeur pour ce lot.", variant: "destructive" });
         return;
       }
@@ -768,11 +779,9 @@ export default function GenerateVouchers() {
           qrcode: qrAttrs[i] ?? "",
         };
       });
-      printMikhmonSmallVouchers(
-        renderVoucherTicketsBody(template, rows),
-        `Voucher-${hotspotName}-${lot.profileName}-${lot.comment}`,
-      );
+      commitVoucherPrint(printSlot, renderVoucherTicketsBody(template, rows), printTitle);
     } catch (err) {
+      abortVoucherPrint(printSlot);
       toast({
         title: "Impression impossible",
         description: err instanceof Error ? err.message : String(err),
