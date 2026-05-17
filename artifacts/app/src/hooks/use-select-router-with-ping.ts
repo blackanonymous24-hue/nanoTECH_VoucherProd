@@ -6,10 +6,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { pingRouterTcpApi, ROUTER_OFFLINE_LABEL } from "@/lib/router-connection-test";
 
 /**
- * Ping TCP (`/ping?force=1`) avant connexion (2 tentatives courtes), toujours un test réel sans cache.
+ * Ping TCP (`/ping?force=1`) avant connexion (3 tentatives courtes), toujours un test réel sans cache.
  * Style Mikhmon : le port API suffit pour « en ligne » ; pas de login RouterOS ici.
- * Chaque échec affiche un toast 3 s. Après 2 échecs, le routeur est quand même sélectionné
- * mais `isPingFailed` est levé pour que le tableau de bord affiche la page d'erreur.
+ * Chaque échec affiche un toast 3 s. Après 3 échecs, le routeur est quand même sélectionné
+ * mais `isPingFailed` est levé pour afficher la page d'erreur MikroTik sur le tableau de bord.
  *
  * Utilisé par le **sélecteur** (Layout) et la connexion rapide (Super administrateurs) : uniquement `GET /api/routers/:id/ping?force=1`.
  *
@@ -32,10 +32,11 @@ export function useSelectRouterWithPing() {
       if (activeRef.current) return;
       activeRef.current = true;
       setPingingId(id);
+      setIsPingFailed(false);
 
       let success = false;
 
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         const data = await pingRouterTcpApi(id, token, { force: true });
         if (data.success) {
           success = true;
@@ -47,7 +48,7 @@ export function useSelectRouterWithPing() {
           id: "router-ping-fail",
         });
 
-        if (attempt === 0) {
+        if (attempt < 2) {
           await new Promise((r) => setTimeout(r, 500));
         }
       }

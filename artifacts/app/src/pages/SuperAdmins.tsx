@@ -6,6 +6,7 @@ import {
   FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Copy, Wifi, Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -168,7 +169,7 @@ function ForfaitBadge({ admin }: { admin: AdminRow }) {
 }
 
 export default function SuperAdmins() {
-  const { token, isSuperAdmin } = useAuth();
+  const { token, isSuperAdmin, connectedUsername } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -184,6 +185,7 @@ export default function SuperAdmins() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "expired">("all");
   const [deletingAdminId, setDeletingAdminId] = useState<number | null>(null);
+  const [confirmDeleteAdmin, setConfirmDeleteAdmin] = useState<AdminRow | null>(null);
   const [templateTarget, setTemplateTarget] = useState<AdminRow | null>(null);
   const [showCopyOwnVendors, setShowCopyOwnVendors] = useState(false);
 
@@ -211,10 +213,24 @@ export default function SuperAdmins() {
     },
   });
   const admins = adminsPayload?.admins ?? [];
+  const originalSuperAdminId = adminsPayload?.originalSuperAdminId ?? null;
+  const viewerIsOriginalSuperAdmin = adminsPayload?.viewerIsOriginalSuperAdmin === true;
+
+  const viewerAdminId = useMemo(() => {
+    if (!connectedUsername) return null;
+    const login = connectedUsername.trim().toLowerCase();
+    return admins.find((a) => a.login.trim().toLowerCase() === login)?.id ?? null;
+  }, [admins, connectedUsername]);
 
   const canDeleteAdmin = (a: AdminRow): boolean => {
     if (typeof a.canDelete === "boolean") return a.canDelete;
-    return !a.isSuperAdmin;
+    if (viewerAdminId != null && a.id === viewerAdminId) return false;
+    if (!a.isSuperAdmin) return true;
+    return (
+      viewerIsOriginalSuperAdmin &&
+      originalSuperAdminId != null &&
+      a.id !== originalSuperAdminId
+    );
   };
 
   const selfSuperAdmin = useMemo(() => admins.find((a) => a.isSuperAdmin), [admins]);
@@ -272,8 +288,6 @@ export default function SuperAdmins() {
 
   const handleDeleteAdmin = async (admin: AdminRow) => {
     if (deletingAdminId !== null) return;
-    const ok = confirm(`Supprimer l'administrateur « ${admin.displayName || admin.login} » et toutes ses données ?`);
-    if (!ok) return;
     setDeletingAdminId(admin.id);
     try {
       await deleteM.mutateAsync(admin.id);
@@ -289,7 +303,10 @@ export default function SuperAdmins() {
             : prev,
       );
       refresh();
-      toast({ title: "Administrateur supprimé" });
+      setConfirmDeleteAdmin(null);
+      toast({
+        title: admin.isSuperAdmin ? "Super administrateur supprimé" : "Administrateur supprimé",
+      });
     } catch {
       // Error toast handled by mutation onError (handleErr).
     } finally {
@@ -411,6 +428,7 @@ export default function SuperAdmins() {
             <span className="hidden sm:inline">Mes vendeurs</span>
             <span className="sm:hidden">Vendeurs</span>
           </Button>
+          {viewerIsOriginalSuperAdmin && (
           <Button
             onClick={() => { setCreateSuperKey((k) => k + 1); setCreateSuperOpen(true); }}
             className="gap-2 bg-orange-500 hover:bg-orange-600 text-white"
@@ -419,6 +437,7 @@ export default function SuperAdmins() {
             <span className="hidden sm:inline">Nouveau super admin</span>
             <span className="sm:hidden">Super admin</span>
           </Button>
+          )}
           <Button onClick={() => { setCreateKey((k) => k + 1); setCreateOpen(true); }} className="gap-2">
             <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Nouvel</span> admin
           </Button>
@@ -492,7 +511,13 @@ export default function SuperAdmins() {
                               >
                                 {a.displayName || a.login}
                               </button>
-                            ) : (
+                            ) : null}
+                            {a.isSuperAdmin && originalSuperAdminId === a.id && (
+                              <span className="inline-flex text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 rounded-full px-2 py-0.5 mt-0.5">
+                                Originel
+                              </span>
+                            )}
+                            {!a.isSuperAdmin && (
                               <button
                                 type="button"
                                 className="font-semibold text-blue-700 hover:text-blue-900 hover:underline text-left"
@@ -592,7 +617,7 @@ export default function SuperAdmins() {
                               variant="ghost"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
                               title={a.isSuperAdmin ? "Supprimer ce super administrateur" : "Supprimer"}
-                              onClick={() => void handleDeleteAdmin(a)}
+                              onClick={() => setConfirmDeleteAdmin(a)}
                               disabled={deletingAdminId !== null}
                             >
                               {deletingAdminId === a.id
@@ -611,8 +636,43 @@ export default function SuperAdmins() {
         )}
       </div>
 
+      <DeleteConfirmDialog
+        open={!!confirmDeleteAdmin}
+        onOpenChange={(open) => { if (!open && deletingAdminId === null) setConfirmDeleteAdmin(null); }}
+        title={
+          confirmDeleteAdmin?.isSuperAdmin
+            ? "Supprimer ce super administrateur ?"
+            : "Supprimer cet administrateur ?"
+        }
+        description={
+          confirmDeleteAdmin ? (
+            <>
+              <span className="font-medium text-foreground">
+                {confirmDeleteAdmin.displayName || confirmDeleteAdmin.login}
+              </span>
+              {confirmDeleteAdmin.isSuperAdmin ? (
+                <span className="block mt-2 text-muted-foreground">
+                  Ce compte super administrateur (non originel) sera définitivement supprimé avec ses routeurs et
+                  données associées. Action réservée au super administrateur originel.
+                </span>
+              ) : (
+                <span className="block mt-2 text-muted-foreground">
+                  Toutes les données de cet administrateur (routeurs, vendeurs, vouchers…) seront supprimées.
+                </span>
+              )}
+            </>
+          ) : null
+        }
+        loading={deletingAdminId !== null}
+        onConfirm={() => {
+          if (confirmDeleteAdmin) void handleDeleteAdmin(confirmDeleteAdmin);
+        }}
+      />
+
       {/* Create super admin dialog */}
+      {viewerIsOriginalSuperAdmin && (
       <CreateSuperAdminDialog key={createSuperKey} open={createSuperOpen} onClose={() => setCreateSuperOpen(false)} onSubmit={(v) => createSuperM.mutate(v)} pending={createSuperM.isPending} />
+      )}
 
       {/* Create dialog */}
       <CreateDialog key={createKey} open={createOpen} onClose={() => setCreateOpen(false)} onSubmit={(v) => createM.mutate(v)} pending={createM.isPending} />
