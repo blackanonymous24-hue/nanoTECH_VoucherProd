@@ -47,8 +47,10 @@ function WebAppShell() {
   const isExplicitReloadRef = useRef(false);
   const canGoBackRef = useRef(false);
 
+  /** Safe areas : barre d’état (haut) + navigation gestuelle Android (bas). */
+  const webTopInset = Math.round(insets.top);
   const webBottomInset = Math.round(
-    Math.max(insets.bottom, Platform.OS === "android" ? 40 : 0) / 2,
+    Math.max(insets.bottom, Platform.OS === "android" ? 40 : 0),
   );
 
   useEffect(() => {
@@ -110,15 +112,17 @@ function WebAppShell() {
   }, []);
 
   const injectWebSafeArea = useCallback(() => {
+    const top = Math.round(webTopInset);
     const bottom = Math.round(webBottomInset);
     webViewRef.current?.injectJavaScript(`
       (function () {
         document.documentElement.classList.add("native-app");
+        document.documentElement.style.setProperty("--apk-safe-top", "${top}px");
         document.documentElement.style.setProperty("--apk-safe-bottom", "${bottom}px");
       })();
       true;
     `);
-  }, [webBottomInset]);
+  }, [webTopInset, webBottomInset]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", injectApkPresenceToWeb);
@@ -188,6 +192,11 @@ function WebAppShell() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
 
+      if (data.type === "refresh") {
+        handleRefresh();
+        return;
+      }
+
       if (data.type === "print_chunk") {
         const { chunkId, index, total, title, data: chunk } = data as {
           chunkId: string; index: number; total: number; title: string; data: string;
@@ -210,9 +219,10 @@ function WebAppShell() {
     } catch {
       Alert.alert("Impression", "Impossible de lancer l'impression.");
     }
-  }, [doPrint]);
+  }, [doPrint, handleRefresh]);
 
   const webChromeStyle = {
+    paddingTop: webTopInset,
     paddingBottom: webBottomInset,
   };
 
