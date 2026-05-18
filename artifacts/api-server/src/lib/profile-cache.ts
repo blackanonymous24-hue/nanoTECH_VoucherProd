@@ -1,4 +1,5 @@
 import { listProfiles, type RouterConnection } from "./mikrotik.js";
+import { effectiveProfilePrice } from "./profile-price.js";
 
 const PROFILE_CACHE_TTL = 300_000; // 5 min
 
@@ -21,7 +22,8 @@ export async function getCachedProfilePrices(
     const profiles = await listProfiles(conn);
     const priceMap = new Map<string, string>();
     for (const p of profiles) {
-      if (p.price) priceMap.set(p.name, p.price);
+      const eff = effectiveProfilePrice(p);
+      if (eff) priceMap.set(p.name, eff);
     }
     profileCache.set(routerId, { priceMap, expiresAt: Date.now() + PROFILE_CACHE_TTL });
     return priceMap;

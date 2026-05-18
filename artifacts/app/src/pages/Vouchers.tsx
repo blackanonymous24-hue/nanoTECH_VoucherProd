@@ -27,6 +27,7 @@ import {
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
 import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-template-semantics";
+import { fetchLotPrintData } from "@/lib/fetch-lot-print-data";
 import {
   clearSavedPrintLot,
   loadSavedPrintLot,
@@ -1119,17 +1120,10 @@ export default function Vouchers() {
     setPrintingLot(lot.name);
     saveSavedPrintLot(activeRouterId, lot.name, lot.profile);
     setFilterComment(lot.name);
+    const lotProfile = lot.profile ? sortedProfiles.find((p) => p.name === lot.profile) : undefined;
+    const fallbackPrice = mikhmonProfilePriceLabel(lotProfile);
+    const fallbackValidity = (lotProfile?.validity ?? "").trim();
     try {
-      const users = await fetchLotUsers(lot);
-      if (users.length === 0) {
-        abortVoucherPrint(printSlot);
-        toast({
-          title: "Rien à imprimer",
-          description: "Aucun utilisateur trouvé pour ce lot sur le routeur.",
-          variant: "destructive",
-        });
-        return;
-      }
       const r = activeRouter as {
         hotspotName?: string | null;
         name?: string;
@@ -1139,7 +1133,26 @@ export default function Vouchers() {
       } | undefined;
       const phpFields = buildVoucherTicketPhpFieldsFromRouter(r ?? {});
       const { hotspotName, currency, dnsname, qrLoginHost } = phpFields;
-      const template = await fetchEffectiveTicketTemplate(BASE);
+
+      const [users, template] = await Promise.all([
+        fetchLotPrintData(BASE, activeRouterId, lot.name, {
+          refresh: false,
+          fallbackPrice,
+          fallbackValidity,
+        }),
+        fetchEffectiveTicketTemplate(BASE),
+      ]);
+
+      if (users.length === 0) {
+        abortVoucherPrint(printSlot);
+        toast({
+          title: "Rien à imprimer",
+          description: "Aucun utilisateur trouvé pour ce lot sur le routeur.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const profByName = new Map(sortedProfiles.map((p) => [p.name, p]));
       const qrAttrs = ticketTemplateUsesQrcode(template)
         ? await buildVoucherQrImgAttrsBatch(
@@ -1149,15 +1162,18 @@ export default function Vouchers() {
         : users.map(() => "");
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
         const p = profByName.get(u.profile);
-        const priceStr = mikhmonProfilePriceLabel(p);
-        const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? "").trim();
+        const priceStr =
+          (u.price ?? "").trim() || mikhmonProfilePriceLabel(p) || fallbackPrice;
+        const rawPriceKey = String(
+          p?.sellingPrice ?? p?.price ?? u.price ?? fallbackPrice,
+        ).trim();
         return {
           hotspotName,
           num: i + 1,
           usermode: inferMikhmonUserMode(u.comment, u.username, u.password),
           username: u.username,
           password: u.password,
-          validityRaw: String(p?.validity ?? "").trim(),
+          validityRaw: String(u.validity ?? p?.validity ?? fallbackValidity).trim(),
           timelimitRaw: String(u.limitUptime ?? "").trim(),
           datalimit: formatMikhmonBytes(u.limitBytesTotal),
           priceDisplay: priceStr,

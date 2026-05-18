@@ -16,7 +16,8 @@ import {
   patchCachedHotspotUsersDisabledByComment,
 } from "./routers.js";
 
-import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
+import { getCachedProfilePricesSync, getCachedProfilePrices } from "../lib/profile-cache.js";
+import { effectiveProfilePrice } from "../lib/profile-price.js";
 import { withRouterLock } from "../lib/router-lock.js";
 
 /**
@@ -270,29 +271,36 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  let price = profilePrice ?? "";
-  let validity = profileValidity ?? "";
+  let price = (profilePrice ?? "").trim();
+  let validity = (profileValidity ?? "").trim();
 
-  // Fast path: read price from in-memory cache and trigger background refresh if stale.
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
     const priceMap = getCachedProfilePricesSync(routerId, conn);
-    price = priceMap.get(profile) ?? "";
+    if (!price) price = priceMap.get(profile) ?? "";
   } catch {
     // non-blocking
   }
 
-  // If not provided by frontend, resolve from MikroTik once (best effort).
   if (!price || !validity) {
     try {
       const profiles = await listProfiles(conn);
       const prof = profiles.find((p) => p.name === profile);
       if (prof) {
-        if (!price) price = prof.price ?? "";
+        if (!price) price = effectiveProfilePrice(prof);
         if (!validity) validity = prof.validity ?? "";
       }
     } catch {
       // Continue without profile metadata
+    }
+  }
+
+  if (!price) {
+    try {
+      const priceMap = await getCachedProfilePrices(routerId, conn);
+      price = priceMap.get(profile) ?? "";
+    } catch {
+      // non-blocking
     }
   }
 

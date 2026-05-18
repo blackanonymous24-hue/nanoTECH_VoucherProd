@@ -46,6 +46,7 @@ import {
   type VoucherTicketPrintRow,
 } from "@/lib/voucher-ticket-render";
 import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-template-semantics";
+import { fetchLotPrintData } from "@/lib/fetch-lot-print-data";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   DEFAULT_GEN_CHAR_TYPE,
@@ -575,7 +576,8 @@ export default function GenerateVouchers() {
     generateMutation.reset();
 
     const dlBytes = datalimit ? Math.round(parseFloat(datalimit) * mbgb) : undefined;
-    const profilePrice = selectedProfile?.price ?? "";
+    const profilePrice =
+      mikhmonProfilePriceLabel(selectedProfile) || (selectedProfile?.price ?? "").trim();
     const profileValidity = selectedProfile?.validity ?? "";
     // 200 par batch : 4× moins d'aller-retours HTTP pour les gros lots (>1000).
     // Le serveur gère jusqu'à 64 writers parallèles et tolère 120 s par batch.
@@ -688,7 +690,7 @@ export default function GenerateVouchers() {
         routerName: selectedRouter?.name ?? "",
         routerId: selectedRouterId,
         profileName: selectedProfile?.name ?? profile,
-        price: selectedProfile?.price ?? "",
+        price: profilePrice,
         validity: selectedProfile?.validity ?? "",
         vendorName: selectedVendor?.name ?? "",
         generatedAt: new Date().toISOString(),
@@ -732,21 +734,9 @@ export default function GenerateVouchers() {
     }
     setIsPrintingSmall(true);
     saveLastLot(lot);
+    const lotPrice = (lot.price ?? "").trim();
+    const lotValidity = (lot.validity ?? "").trim();
     try {
-      const raw = await fetchLotUsers(lot.routerId, lot.comment, GEN_BASE);
-      const users = raw as Array<{
-        username: string;
-        password: string;
-        profile: string;
-        comment: string | null;
-        limitUptime?: string | null;
-        limitBytesTotal?: string | null;
-      }>;
-      if (users.length === 0) {
-        abortVoucherPrint(printSlot);
-        toast({ title: "Rien à imprimer", description: "Aucun voucher sur le routeur pour ce lot.", variant: "destructive" });
-        return;
-      }
       const r = selectedRouter as {
         hotspotName?: string | null;
         name?: string;
@@ -759,7 +749,22 @@ export default function GenerateVouchers() {
         name: r?.name ?? lot.routerName,
       });
       const { hotspotName, currency, dnsname, qrLoginHost } = phpFields;
-      const template = await fetchEffectiveTicketTemplate(GEN_BASE);
+
+      const [users, template] = await Promise.all([
+        fetchLotPrintData(GEN_BASE, lot.routerId, lot.comment, {
+          refresh: false,
+          fallbackPrice: lotPrice,
+          fallbackValidity: lotValidity,
+        }),
+        fetchEffectiveTicketTemplate(GEN_BASE),
+      ]);
+
+      if (users.length === 0) {
+        abortVoucherPrint(printSlot);
+        toast({ title: "Rien à imprimer", description: "Aucun voucher sur le routeur pour ce lot.", variant: "destructive" });
+        return;
+      }
+
       const voucherByUser = new Map(lot.vouchers.map((v) => [v.username, v]));
       const profByName = new Map(displayedProfilesSorted.map((p) => [p.name, p]));
       const qrAttrs = ticketTemplateUsesQrcode(template)
@@ -771,15 +776,21 @@ export default function GenerateVouchers() {
       const rows: VoucherTicketPrintRow[] = users.map((u, i) => {
         const v = voucherByUser.get(u.username);
         const p = profByName.get(u.profile);
-        const priceStr = (v?.price ?? "").trim() || mikhmonProfilePriceLabel(p) || (lot.price ?? "").trim();
-        const rawPriceKey = String(p?.sellingPrice ?? p?.price ?? v?.price ?? lot.price ?? "").trim();
+        const priceStr =
+          (u.price ?? "").trim() ||
+          (v?.price ?? "").trim() ||
+          mikhmonProfilePriceLabel(p) ||
+          lotPrice;
+        const rawPriceKey = String(
+          p?.sellingPrice ?? p?.price ?? u.price ?? v?.price ?? lotPrice,
+        ).trim();
         return {
           hotspotName,
           num: i + 1,
           usermode: inferMikhmonUserMode(u.comment ?? v?.comment ?? null, u.username, u.password),
           username: u.username,
           password: u.password,
-          validityRaw: String(v?.validity ?? p?.validity ?? lot.validity ?? "").trim(),
+          validityRaw: String(u.validity ?? v?.validity ?? p?.validity ?? lotValidity).trim(),
           timelimitRaw: String(u.limitUptime ?? "").trim(),
           datalimit: formatMikhmonBytes(u.limitBytesTotal),
           priceDisplay: priceStr,

@@ -30,12 +30,24 @@ export async function buildVoucherQrImgAttrs(
   }
 }
 
-/** Génère tous les QR en parallèle (impression plus fluide sur les lots). */
+const QR_BATCH_SIZE = 64;
+
+/** Génère les QR par paquets pour limiter la pression mémoire sur les gros lots. */
 export async function buildVoucherQrImgAttrsBatch(
   loginHost: string,
   users: { username: string; password: string }[],
 ): Promise<string[]> {
   const host = loginHost.trim();
   if (!host) return users.map(() => 'src="" alt=""');
-  return Promise.all(users.map((u) => buildVoucherQrImgAttrs(host, u.username, u.password)));
+  const out: string[] = new Array(users.length);
+  for (let i = 0; i < users.length; i += QR_BATCH_SIZE) {
+    const slice = users.slice(i, i + QR_BATCH_SIZE);
+    const attrs = await Promise.all(
+      slice.map((u) => buildVoucherQrImgAttrs(host, u.username, u.password)),
+    );
+    for (let j = 0; j < attrs.length; j++) {
+      out[i + j] = attrs[j] ?? 'src="" alt=""';
+    }
+  }
+  return out;
 }

@@ -14,6 +14,7 @@ import { logger } from "../lib/logger.js";
 import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
+import { effectiveProfilePrice } from "../lib/profile-price.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -1351,6 +1352,94 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
     const paged = users.slice(offset, offset + limit);
 
     res.json({ users: paged, total });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+  }
+});
+
+/**
+ * GET /routers/:id/lot-print?comment=…
+ * Préparation impression : utilisateurs du lot + tarifs/validités résolus (profil, BDD, repli).
+ * Par défaut utilise le cache utilisateurs (rapide) ; refresh=1 force MikroTik.
+ */
+router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(raw, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const { comment, refresh, fallbackPrice, fallbackValidity } = req.query as {
+    comment?: string;
+    refresh?: string;
+    fallbackPrice?: string;
+    fallbackValidity?: string;
+  };
+  const commentVal = comment?.trim() ?? "";
+  if (!commentVal) {
+    res.status(400).json({ error: "Le paramètre comment est requis" });
+    return;
+  }
+  const force = refresh === "1" || refresh === "true";
+  const fbPrice = (fallbackPrice ?? "").trim();
+  const fbValidity = (fallbackValidity ?? "").trim();
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+  try {
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const sc = routerCacheScope(r.ownerAdminId, id);
+    const hit = userCache.get(sc);
+
+    let usersPromise: Promise<Awaited<ReturnType<typeof listHotspotUsers>>>;
+    if (force) {
+      usersPromise = getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: true });
+    } else if (hit) {
+      usersPromise = Promise.resolve(hit.users);
+      if (Date.now() >= hit.expiresAt) {
+        scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, true);
+      }
+    } else {
+      usersPromise = getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
+    }
+
+    const [usersRaw, profiles, dbRows] = await Promise.all([
+      usersPromise,
+      fetchProfilesWithCache(r.ownerAdminId, id, conn),
+      db
+        .select({
+          username: vouchersTable.username,
+          price: vouchersTable.price,
+          validity: vouchersTable.validity,
+        })
+        .from(vouchersTable)
+        .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal))),
+    ]);
+
+    const profByName = new Map(profiles.map((p) => [p.name, p]));
+    const storedByUser = new Map(dbRows.map((row) => [row.username, row]));
+
+    const users = usersRaw
+      .filter((u) => (u.comment ?? "") === commentVal && isRealUser(u))
+      .map((u) => {
+        const p = profByName.get(u.profile);
+        const stored = storedByUser.get(u.username);
+        const price =
+          (stored?.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
+        const validity =
+          (stored?.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
+        return {
+          username: u.username,
+          password: u.password,
+          profile: u.profile,
+          comment: u.comment,
+          limitUptime: u.limitUptime ?? null,
+          limitBytesTotal: u.limitBytesTotal ?? null,
+          price,
+          validity,
+        };
+      });
+
+    res.json({ users, total: users.length });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
