@@ -37,9 +37,9 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PasswordInput } from "@/components/ui/password-input";
 import {
-  makeClientCommentForCredentials,
-  resolveHotspotClientComment,
-} from "@/lib/hotspot-client-comment";
+  buildMikhmonAddUserRequestBody,
+} from "@/lib/mikhmon-add-user";
+import { MikhmonAddUserHints } from "@/components/MikhmonAddUserHints";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -354,11 +354,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!showAddUser || addDialogMode !== "create") return;
-    setAddComment(makeClientCommentForCredentials(addName, addPassword));
-  }, [showAddUser, addDialogMode, addName, addPassword]);
-
   async function handleAddHotspotUser() {
     setAddError("");
     if (!addName.trim())    { setAddError("Le nom d'utilisateur est requis."); return; }
@@ -366,40 +361,38 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     if (!addProfile)        { setAddError("Le profil est requis."); return; }
     if (!selectedRouterId)  { setAddError("Aucun routeur sélectionné."); return; }
 
-    let limitBytesTotal: string | undefined;
-    if (addLimitBytes.trim()) {
-      const bytes = parseFloat(addLimitBytes) * (addLimitBytesUnit === "GB" ? 1073741824 : 1048576);
-      limitBytesTotal = String(Math.round(bytes));
-    }
+    const body = buildMikhmonAddUserRequestBody({
+      name: addName,
+      password: addPassword,
+      profile: addProfile,
+      server: addServer,
+      timeLimit: addLimitUptime,
+      dataLimit: addLimitBytes,
+      dataUnit: addLimitBytesUnit,
+      comment: addComment,
+    });
+    const finalComment = body.comment;
 
     setAddLoading(true);
     try {
       const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/hotspot-users`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: addName.trim(),
-          password: addPassword.trim(),
-          profile: addProfile,
-          server: addServer === "all" ? undefined : addServer,
-          comment: resolveHotspotClientComment(addComment, addName, addPassword),
-          limitUptime: addLimitUptime.trim() || undefined,
-          limitBytesTotal,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json() as { error?: string };
         setAddError(data.error ?? "Erreur MikroTik");
       } else {
-        const recapName = addName.trim();
+        const recapName = body.name;
         setAddRecapUser({
           name: recapName,
-          password: addPassword.trim(),
+          password: body.password,
           profile: addProfile,
           server: addServer || "all",
-          limitUptime: addLimitUptime.trim(),
-          limitBytes: limitBytesTotal ?? "",
-          comment: addComment.trim(),
+          limitUptime: body.limitUptime === "0" ? "" : body.limitUptime,
+          limitBytes: body.limitBytesTotal === "0" ? "" : body.limitBytesTotal,
+          comment: finalComment,
         });
         setAddEditOriginalName(recapName);
         setAddDialogMode("recap");
@@ -1274,6 +1267,15 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 autoComplete="new-password"
               />
             </div>
+            {addDialogMode === "create" && (
+              <MikhmonAddUserHints
+                name={addName}
+                password={addPassword}
+                comment={addComment}
+                disabled={addLoading}
+                onSyncPasswordToName={() => setAddPassword(addName)}
+              />
+            )}
             {/* Profile */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Profile</Label>
@@ -1345,6 +1347,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               <Label className="text-xs text-slate-300 font-normal">Comment</Label>
               <Input value={addComment} onChange={(e) => setAddComment(e.target.value)}
                 disabled={addLoading || addEditLoading || addDialogMode === "edit"}
+                placeholder="Optionnel (sans vc-/up-)"
+                title="No special characters"
                 className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 disabled:opacity-40" />
             </div>
 

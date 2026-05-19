@@ -1190,6 +1190,8 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     </>
   );
 }
+
+/* ══════════════════════════════════════════════════════
    CopyRouterDialog — sélectionner un routeur existant pour le dupliquer
    ══════════════════════════════════════════════════════ */
 interface AllRouterRow extends RouterRow {

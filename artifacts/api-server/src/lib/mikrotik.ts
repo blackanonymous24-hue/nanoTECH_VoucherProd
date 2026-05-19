@@ -1333,16 +1333,18 @@ export interface AddHotspotUserOpts {
 
 export async function addHotspotUser(conn: RouterConnection, opts: AddHotspotUserOpts): Promise<void> {
   return withRouter(conn, async (api) => {
+    const server = (opts.server?.trim() || "all");
     const params: string[] = [
       `=name=${toWin1252(opts.name)}`,
       `=password=${toWin1252(opts.password)}`,
       `=profile=${toWin1252(opts.profile)}`,
+      `=disabled=no`,
+      `=server=${server === "all" ? "all" : toWin1252(server)}`,
+      `=limit-uptime=${opts.limitUptime?.trim() || "0"}`,
+      `=limit-bytes-total=${opts.limitBytesTotal?.trim() || "0"}`,
+      `=comment=${toWin1252(opts.comment ?? "")}`,
     ];
-    if (opts.comment)         params.push(`=comment=${toWin1252(opts.comment)}`);
-    if (opts.server)          params.push(`=server=${opts.server}`);
-    if (opts.limitUptime)     params.push(`=limit-uptime=${opts.limitUptime}`);
-    if (opts.limitBytesTotal) params.push(`=limit-bytes-total=${opts.limitBytesTotal}`);
-    if (opts.macAddress)      params.push(`=mac-address=${opts.macAddress}`);
+    if (opts.macAddress) params.push(`=mac-address=${opts.macAddress}`);
     await api.write("/ip/hotspot/user/add", params);
   }, 10_000, "high");
 }

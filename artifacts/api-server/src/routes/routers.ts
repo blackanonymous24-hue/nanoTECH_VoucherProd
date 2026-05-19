@@ -6,6 +6,7 @@ import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -1455,8 +1456,14 @@ router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
     server?: string; limitUptime?: string; limitBytesTotal?: string; macAddress?: string;
   };
 
-  if (!name?.trim())     { res.status(400).json({ error: "Le nom d'utilisateur est requis" }); return; }
-  if (!password?.trim()) { res.status(400).json({ error: "Le mot de passe est requis" }); return; }
+  if (name == null || name === "" || !String(name).trim()) {
+    res.status(400).json({ error: "Le nom d'utilisateur est requis" });
+    return;
+  }
+  if (password == null || password === "" || !String(password).trim()) {
+    res.status(400).json({ error: "Le mot de passe est requis" });
+    return;
+  }
   if (!profile?.trim())  { res.status(400).json({ error: "Le profil est requis" }); return; }
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
@@ -1464,16 +1471,16 @@ router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
-    await withRouterLock(id, () => addHotspotUser(conn, {
-      name: name.trim(),
-      password: password.trim(),
+    await withRouterLock(id, () => addHotspotUser(conn, normalizeMikhmonAddHotspotUser({
+      name: String(name),
+      password: String(password),
       profile: profile.trim(),
-      comment: comment?.trim() || undefined,
-      server: server?.trim() || undefined,
-      limitUptime: limitUptime?.trim() || undefined,
-      limitBytesTotal: limitBytesTotal?.trim() || undefined,
-      macAddress: macAddress?.trim() || undefined,
-    }));
+      comment,
+      server,
+      limitUptime,
+      limitBytesTotal,
+      macAddress,
+    })));
     // Invalidate user/list/count caches so subsequent reads see the new user immediately
     await invalidateUserCache(id);
     res.status(201).json({ success: true });

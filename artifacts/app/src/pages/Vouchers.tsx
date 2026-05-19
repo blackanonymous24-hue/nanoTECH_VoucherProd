@@ -35,9 +35,9 @@ import {
 } from "@/lib/voucher-print-lot-persist";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import {
-  makeClientCommentForCredentials,
-  resolveHotspotClientComment,
-} from "@/lib/hotspot-client-comment";
+  buildMikhmonAddUserRequestBody,
+} from "@/lib/mikhmon-add-user";
+import { MikhmonAddUserHints } from "@/components/MikhmonAddUserHints";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1484,20 +1484,6 @@ export default function Vouchers() {
     setAddRecapUser(null);
   }
 
-  useEffect(() => {
-    if (!addUserOpen || addDialogMode !== "create") return;
-    setAddComment(makeClientCommentForCredentials(addName, addPassword));
-  }, [addUserOpen, addDialogMode, addName, addPassword]);
-
-  function bytesFromInput(value: string, unit: "MB" | "GB"): string | undefined {
-    const v = value.trim();
-    if (!v) return undefined;
-    const n = Number(v);
-    if (!Number.isFinite(n) || n <= 0) return undefined;
-    const mult = unit === "GB" ? 1024 * 1024 * 1024 : 1024 * 1024;
-    return String(Math.round(n * mult));
-  }
-
   // Validate Mikhmon's wdhm format: 30d, 12h, 4w3d, 1d12h30m...
   function isValidWdhm(s: string): boolean {
     if (!s.trim()) return true; // optional
@@ -1527,17 +1513,18 @@ export default function Vouchers() {
       return;
     }
 
-    const creatingName = addName.trim();
-    const body: Record<string, string> = {
-      name: creatingName,
-      password: addPassword.trim(),
-      profile: addProfile.trim(),
-    };
-    if (addServer && addServer !== "all") body.server = addServer.trim();
-    if (addTimeLimit.trim()) body.limitUptime = addTimeLimit.trim();
-    const bytes = bytesFromInput(addDataLimit, addDataUnit);
-    if (bytes) body.limitBytesTotal = bytes;
-    body.comment = resolveHotspotClientComment(addComment, addName, addPassword);
+    const body = buildMikhmonAddUserRequestBody({
+      name: addName,
+      password: addPassword,
+      profile: addProfile,
+      server: addServer,
+      timeLimit: addTimeLimit,
+      dataLimit: addDataLimit,
+      dataUnit: addDataUnit,
+      comment: addComment,
+    });
+    const finalComment = body.comment;
+    const creatingName = body.name;
 
     setIsSavingUser(true);
     try {
@@ -1556,15 +1543,14 @@ export default function Vouchers() {
         return;
       }
       toast({ title: "Utilisateur ajouté", description: `${creatingName} créé sur MikroTik.` });
-      const recapBytes = bytes ?? "";
       setAddRecapUser({
         name: creatingName,
-        password: addPassword.trim(),
+        password: body.password,
         profile: addProfile.trim(),
         server: addServer || "all",
-        limitUptime: addTimeLimit.trim(),
-        limitBytes: recapBytes,
-        comment: addComment.trim(),
+        limitUptime: body.limitUptime === "0" ? "" : body.limitUptime,
+        limitBytes: body.limitBytesTotal === "0" ? "" : body.limitBytesTotal,
+        comment: finalComment,
       });
       setAddEditOriginalName(creatingName);
       setAddDialogMode("recap");
@@ -3127,6 +3113,16 @@ export default function Vouchers() {
               />
             </div>
 
+            {addDialogMode === "create" && (
+              <MikhmonAddUserHints
+                name={addName}
+                password={addPassword}
+                comment={addComment}
+                disabled={isSavingUser}
+                onSyncPasswordToName={() => setAddPassword(addName)}
+              />
+            )}
+
             {/* Profile */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Profile</Label>
@@ -3201,6 +3197,8 @@ export default function Vouchers() {
               <Label className="text-xs text-slate-300 font-normal">Comment</Label>
               <Input value={addComment} onChange={(e) => setAddComment(e.target.value)}
                 disabled={isSavingUser || addEditLoading || addDialogMode === "edit"}
+                placeholder="Optionnel (sans vc-/up-)"
+                title="No special characters"
                 className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 disabled:opacity-40" />
             </div>
 

@@ -19,7 +19,14 @@ export function makeClientCommentForCredentials(username: string, password: stri
   return makeClientBatchId(hotspotClientCommentMode(username, password));
 }
 
-/** Comme Mikhmon : conserve vc-/up- existant, sinon préfixe selon user = pass. */
+export {
+  buildMikhmonAddUserComment,
+  buildMikhmonAddUserRequestBody,
+  getMikhmonAddUserUiState,
+  mikhmonAddUserCredentialsMode,
+} from "./mikhmon-add-user";
+
+/** Comme Mikhmon generateuser (lots) — pas adduser.php. */
 export function resolveHotspotClientComment(
   comment: string,
   username: string,
