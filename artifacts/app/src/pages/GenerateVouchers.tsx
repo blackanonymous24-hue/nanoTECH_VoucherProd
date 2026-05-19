@@ -31,6 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
+import { formatRouterAddressDisplay } from "@/lib/router-host-port";
 import { acquireVoucherPrintWindow, commitVoucherPrint, abortVoucherPrint } from "@/lib/print";
 import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 import {
@@ -910,7 +911,7 @@ export default function GenerateVouchers() {
                   <RouterIcon className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-blue-900 truncate">{selectedRouter.name}</p>
-                    <p className="text-[10px] text-blue-500">{selectedRouter.host}:{selectedRouter.port}</p>
+                    <p className="text-[10px] text-blue-500">{formatRouterAddressDisplay(selectedRouter.host, selectedRouter.port)}</p>
                   </div>
                 </div>
               ) : (

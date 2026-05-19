@@ -38,6 +38,7 @@ import {
 import {
   DEFAULT_ROUTER_API_PORT,
   formatMikhmonIpHostForForm,
+  formatRouterAddressDisplay,
   parseMikhmonIpHost,
 } from "@/lib/router-host-port";
 
@@ -546,7 +547,7 @@ export default function Routers() {
                           )}
                         </div>
                         <p className="text-[11px] text-gray-500 leading-tight truncate">
-                          {r.host}:{r.port}
+                          {formatRouterAddressDisplay(r.host, r.port)}
                         </p>
                       </div>
                     </div>

@@ -34,6 +34,7 @@ import { getListRoutersQueryKey } from "@workspace/api-client-react";
 import {
   DEFAULT_ROUTER_API_PORT,
   formatMikhmonIpHostForForm,
+  formatRouterAddressDisplay,
   parseMikhmonIpHost,
 } from "@/lib/router-host-port";
 
@@ -1115,7 +1116,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-gray-400 leading-tight truncate font-mono">{r.host}:{r.port}</p>
+                        <p className="text-[10px] text-gray-400 leading-tight truncate font-mono">{formatRouterAddressDisplay(r.host, r.port)}</p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                         {!isConnecting && (
@@ -1301,7 +1302,7 @@ function CopyRouterDialog({
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{r.name}</p>
-                        <p className="text-xs text-gray-400 font-mono truncate">{r.host}:{r.port} · {r.username}</p>
+                        <p className="text-xs text-gray-400 font-mono truncate">{formatRouterAddressDisplay(r.host, r.port)} · {r.username}</p>
                       </div>
                       {alreadyCopied && (
                         <span className="text-[10px] text-gray-400 shrink-0">déjà présent</span>
@@ -1450,7 +1451,7 @@ function CopyVendorsDialog({
                     <SelectLabel>Mes routeurs (super-admin)</SelectLabel>
                     {ownRouters.map((r) => (
                       <SelectItem key={r.id} value={String(r.id)}>
-                        {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                        {r.name} <span className="text-xs text-gray-400 font-mono">— {formatRouterAddressDisplay(r.host, r.port)}</span>
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -1460,7 +1461,7 @@ function CopyVendorsDialog({
                     <SelectLabel>{admin.isSuperAdmin ? "Vos autres routeurs" : `Routeurs de ${adminLabel}`}</SelectLabel>
                     {adminOnlyRoutersDeduped.map((r) => (
                       <SelectItem key={r.id} value={String(r.id)}>
-                        {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                        {r.name} <span className="text-xs text-gray-400 font-mono">— {formatRouterAddressDisplay(r.host, r.port)}</span>
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -1493,7 +1494,7 @@ function CopyVendorsDialog({
               <SelectContent>
                 {destRouters.map((r) => (
                   <SelectItem key={r.id} value={String(r.id)}>
-                    {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                    {r.name} <span className="text-xs text-gray-400 font-mono">— {formatRouterAddressDisplay(r.host, r.port)}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1622,7 +1623,7 @@ function CopyOwnVendorsDialog({ myAdminId, onClose }: { myAdminId: number; onClo
               <SelectContent>
                 {ownRouters.map((r) => (
                   <SelectItem key={r.id} value={String(r.id)}>
-                    {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                    {r.name} <span className="text-xs text-gray-400 font-mono">— {formatRouterAddressDisplay(r.host, r.port)}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1648,7 +1649,7 @@ function CopyOwnVendorsDialog({ myAdminId, onClose }: { myAdminId: number; onClo
               <SelectContent>
                 {destRouters.map((r) => (
                   <SelectItem key={r.id} value={String(r.id)}>
-                    {r.name} <span className="text-xs text-gray-400 font-mono">— {r.host}:{r.port}</span>
+                    {r.name} <span className="text-xs text-gray-400 font-mono">— {formatRouterAddressDisplay(r.host, r.port)}</span>
                   </SelectItem>
                 ))}
               </SelectContent>

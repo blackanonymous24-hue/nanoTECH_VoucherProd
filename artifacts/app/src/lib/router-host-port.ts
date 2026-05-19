@@ -34,3 +34,6 @@ export function formatMikhmonIpHostForForm(host: string, port: number): string {
   if (p === DEFAULT_ROUTER_API_PORT) return h;
   return `${h}:${p}`;
 }
+
+/** Affichage liste / cartes routeur (même règle que le formulaire). */
+export const formatRouterAddressDisplay = formatMikhmonIpHostForForm;
