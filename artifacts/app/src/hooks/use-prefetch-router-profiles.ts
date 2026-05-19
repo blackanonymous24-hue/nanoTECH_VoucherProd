@@ -3,9 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getListRouterProfilesQueryKey } from "@workspace/api-client-react";
 import type { HotspotProfile } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
-
-const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
-const FORFAITS_PROFILES_CACHE_KEY = "forfaits-cache";
+import { writeRouterProfilesToStorage } from "@/hooks/use-router-profiles-live";
 
 /**
  * Précharge silencieusement les profils du routeur sélectionné dès qu'un
@@ -46,12 +44,7 @@ export function usePrefetchRouterProfiles(): void {
         const profiles = (await res.json()) as HotspotProfile[];
         if (!Array.isArray(profiles) || profiles.length === 0) return;
 
-        try {
-          localStorage.setItem(`${PROFILES_CACHE_KEY}:${id}`, JSON.stringify(profiles));
-          localStorage.setItem(`${FORFAITS_PROFILES_CACHE_KEY}:${id}`, JSON.stringify(profiles));
-        } catch {
-          /* quota exceeded — ignore */
-        }
+        writeRouterProfilesToStorage(id, profiles);
 
         queryClient.setQueryData(getListRouterProfilesQueryKey(id), profiles);
         successRef.current.add(id);

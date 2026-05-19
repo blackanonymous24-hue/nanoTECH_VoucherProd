@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import {
   useGenerateVouchers,
   getListVouchersQueryKey,
-  getListRouterProfilesQueryKey,
   isApiPauseError,
 } from "@workspace/api-client-react";
 import type { HotspotProfile } from "@workspace/api-client-react";
@@ -30,8 +29,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
-import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { formatRouterAddressDisplay } from "@/lib/router-host-port";
+import { useSharedRouterProfiles } from "@/hooks/use-router-profiles-live";
 import { acquireVoucherPrintWindow, commitVoucherPrint, abortVoucherPrint } from "@/lib/print";
 import { buildVoucherQrImgAttrsBatch } from "@/lib/voucher-ticket-qrcode";
 import {
@@ -58,12 +57,9 @@ import {
 } from "@/lib/voucher-gen-char-type";
 
 const LS_KEY = "vouchernet-last-lot";
-const PROFILES_CACHE_KEY = "generate-profiles-cache:v1";
-
 /** Style d’origine du bouton Générer (bleu), distinct du bouton Imprimer (violet par défaut). */
 const GENERATE_BTN_CLASS =
   "w-full gap-1.5 h-9 text-sm border-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-sm shadow-blue-200/40 hover:from-blue-700 hover:to-blue-800 focus-visible:ring-blue-500";
-const FORFAITS_PROFILES_CACHE_KEY = "forfaits-cache";
 
 type LastLot = {
   vouchers: Voucher[];
@@ -399,94 +395,18 @@ export default function GenerateVouchers() {
     staleTime: 60_000,
   });
 
-  // Profils du routeur courant : chargés uniquement via le fetch ci‑dessous (pas
-  // useListRouterProfiles avec placeholderData), sinon au changement de routeur
-  // React Query peut encore exposer la liste du routeur précédent et corrompre
-  // le localStorage sous la mauvaise clé.
-  const [profilesRefreshing, setProfilesRefreshing] = useState(false);
-  const [localProfiles, setLocalProfiles] = useState<HotspotProfile[]>([]);
-  const [profilesForRouterId, setProfilesForRouterId] = useState<number | null>(null);
-  const localProfilesCacheKey = selectedRouterId ? `${PROFILES_CACHE_KEY}:${selectedRouterId}` : null;
-  const displayedProfiles = profilesForRouterId === selectedRouterId ? localProfiles : [];
-  const displayedProfilesSorted = useMemo(
-    () => sortRouterProfilesByCreationOrder(displayedProfiles),
-    [displayedProfiles],
-  );
+  const {
+    profiles: displayedProfilesSorted,
+    refreshing: profilesRefreshing,
+    profilesForRouterId,
+  } = useSharedRouterProfiles();
 
   const generateMutation = useGenerateVouchers();
 
   useEffect(() => {
-    // Hard reset on router switch to avoid showing stale profiles
-    // from a previously selected router for even a single render.
-    setLocalProfiles([]);
-    setProfilesForRouterId(null);
     setProfile("");
     setProfilePopoverOpen(false);
   }, [selectedRouterId]);
-
-  useEffect(() => {
-    if (!localProfilesCacheKey) {
-      setLocalProfiles([]);
-      setProfilesForRouterId(null);
-      return;
-    }
-    try {
-      const fromGenerate = localStorage.getItem(localProfilesCacheKey);
-      if (fromGenerate) {
-        const parsed = JSON.parse(fromGenerate);
-        setLocalProfiles(Array.isArray(parsed) ? parsed : []);
-        setProfilesForRouterId(selectedRouterId ?? null);
-        return;
-      }
-      const fromForfaits = localStorage.getItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`);
-      if (fromForfaits) {
-        const parsed = JSON.parse(fromForfaits);
-        setLocalProfiles(Array.isArray(parsed) ? parsed : []);
-        setProfilesForRouterId(selectedRouterId ?? null);
-        return;
-      }
-      setLocalProfiles([]);
-      setProfilesForRouterId(null);
-    } catch {
-      setLocalProfiles([]);
-      setProfilesForRouterId(null);
-    }
-  }, [localProfilesCacheKey, selectedRouterId]);
-
-  // Always refresh profiles when router changes so Generate uses
-  // the exact profile list of the currently selected router.
-  useEffect(() => {
-    if (!selectedRouterId) return;
-    let cancelled = false;
-    setProfilesRefreshing(true);
-    void (async () => {
-      try {
-        const res = await fetch(`/api/routers/${selectedRouterId}/profiles?refresh=1`);
-        if (!res.ok || cancelled) return;
-        const freshProfiles = (await res.json()) as HotspotProfile[];
-        if (!Array.isArray(freshProfiles) || cancelled) return;
-        setLocalProfiles(freshProfiles);
-        setProfilesForRouterId(selectedRouterId);
-        const profileKey = getListRouterProfilesQueryKey(selectedRouterId);
-        queryClient.setQueryData(profileKey, freshProfiles);
-        queryClient.invalidateQueries({ queryKey: profileKey });
-        try {
-          localStorage.setItem(`${PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
-          localStorage.setItem(`${FORFAITS_PROFILES_CACHE_KEY}:${selectedRouterId}`, JSON.stringify(freshProfiles));
-        } catch {
-          // ignore storage errors
-        }
-      } catch {
-        // keep local cache fallback if live refresh fails
-      } finally {
-        if (!cancelled) setProfilesRefreshing(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      setProfilesRefreshing(false);
-    };
-  }, [selectedRouterId, queryClient]);
 
   // Dernier lot = le plus récent sur MikroTik (y compris lots créés hors app).
   useEffect(() => {

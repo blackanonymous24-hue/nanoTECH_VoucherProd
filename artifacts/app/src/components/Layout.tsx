@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { usePrefetchRouterProfiles } from "@/hooks/use-prefetch-router-profiles";
+import { RouterProfilesProvider, useSharedRouterProfiles } from "@/hooks/use-router-profiles-live";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
@@ -17,7 +18,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
-import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import { hasDailySettlementVendors } from "@/lib/vendorSettlement";
 
 import { Button } from "@/components/ui/button";
@@ -291,33 +291,18 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const [addEditLoading, setAddEditLoading]     = useState(false);
   const [addRecapUser, setAddRecapUser]         = useState<{ name: string; password: string; profile: string; server: string; limitUptime: string; limitBytes: string; comment: string } | null>(null);
 
-  /* Profile list for the selected router (fetched when dialog opens) */
-  const { data: dialogProfiles } = useQuery<
-    { name: string; price: string | null; validity: string | null; schedulerMonitorActive: boolean }[]
-  >({
-    queryKey: ["router-profiles-dialog", selectedRouterId],
-    queryFn: async ({ signal }) => {
-      if (!selectedRouterId) return [];
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/profiles`, { signal });
-      if (!res.ok) return [];
-      const data = await res.json() as {
-        name: string;
-        mikrotikId?: string;
-        price?: string;
-        validity?: string;
-        schedulerMonitorActive?: boolean;
-      }[];
-      const sorted = sortRouterProfilesByCreationOrder(data);
-      return sorted.map((p) => ({
+  /* Profils : cache local puis refresh (même logique que Générer) */
+  const { profiles: liveProfiles, refreshing: profilesRefreshing } = useSharedRouterProfiles();
+  const dialogProfiles = useMemo(
+    () =>
+      liveProfiles.map((p) => ({
         name: p.name,
         price: p.price ?? null,
         validity: p.validity ?? null,
         schedulerMonitorActive: p.schedulerMonitorActive === true,
-      }));
-    },
-    enabled: showAddUser && !!selectedRouterId,
-    staleTime: 60_000,
-  });
+      })),
+    [liveProfiles],
+  );
   const { data: dialogServers } = useQuery<{ name: string; disabled?: boolean }[]>({
     queryKey: ["router-hotspot-servers-dialog", selectedRouterId],
     queryFn: async ({ signal }) => {
@@ -1274,18 +1259,38 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               <Popover open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox"
-                    disabled={addLoading || addEditLoading}
+                    disabled={
+                      addLoading
+                      || addEditLoading
+                      || !selectedRouterId
+                      || (profilesRefreshing && dialogProfiles.length === 0)
+                    }
                     className="h-8 w-full justify-between text-xs font-normal bg-slate-600 border-slate-500 text-slate-100 hover:bg-slate-500 hover:text-white px-2">
-                    <span className="truncate">{addProfile || "—"}</span>
+                    <span className="truncate">
+                      {profilesRefreshing && dialogProfiles.length === 0 ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Chargement…
+                        </span>
+                      ) : (
+                        addProfile || "—"
+                      )}
+                    </span>
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                   <ScrollablePopoverList className="p-1" maxHeightClass="max-h-56">
-                    {(dialogProfiles ?? []).length === 0 && (
+                    {dialogProfiles.length === 0 && !profilesRefreshing && (
                       <p className="px-2 py-1 text-xs text-gray-400">Aucun profil disponible.</p>
                     )}
-                    {(dialogProfiles ?? []).map((p) => (
+                    {profilesRefreshing && dialogProfiles.length === 0 && (
+                      <p className="px-2 py-1 text-xs text-gray-400 inline-flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Chargement des profils…
+                      </p>
+                    )}
+                    {dialogProfiles.map((p) => (
                       <button key={p.name} type="button" onClick={() => {
                         setAddProfile(p.name);
                         setAddProfilePopoverOpen(false);
@@ -1399,6 +1404,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   usePrefetchRouterProfiles();
 
   return (
+    <RouterProfilesProvider>
     <div className="flex h-svh bg-gray-100 dark:bg-gray-950 overflow-hidden">
 
       {/* ── Desktop sidebar ── */}
@@ -1478,5 +1484,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         )}
       </div>
     </div>
+    </RouterProfilesProvider>
   );
 }
