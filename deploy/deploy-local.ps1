@@ -1,4 +1,4 @@
-# Déploiement automatique : git push + mise à jour VPS (mot de passe dans deploy/vps.local.env).
+# Deploiement automatique : git push + mise a jour VPS (mot de passe dans deploy/vps.local.env).
 #
 # Usage :
 #   .\deploy\deploy-local.ps1
@@ -32,7 +32,7 @@ function Ensure-PoshSshModule {
         Import-Module Posh-SSH -ErrorAction Stop
         return
     }
-    Write-Host "==> Installation du module PowerShell Posh-SSH (une seule fois)..."
+    Write-Host "==> Installation du module Posh-SSH (une seule fois)..."
     if ($PSVersionTable.PSVersion.Major -lt 5) {
         throw "PowerShell 5.1+ requis."
     }
@@ -65,7 +65,7 @@ function Invoke-VpsSshCommand {
         if ($result.Output) { Write-Host $result.Output }
         if ($result.Error) { Write-Host $result.Error -ForegroundColor DarkYellow }
         if ($result.ExitStatus -ne 0) {
-            throw "Commande distante échouée (code $($result.ExitStatus))"
+            throw "Commande distante echouee (code $($result.ExitStatus))"
         }
     } finally {
         Remove-SSHSession -SessionId $session.SessionId | Out-Null
@@ -104,8 +104,8 @@ if (-not $SkipPush) {
 }
 
 $remoteCmd = "cd '$appDir' && sudo bash deploy/update-vps.sh"
-Write-Host "==> Mise à jour VPS ${user}@${hostName} ..."
+Write-Host "==> Mise a jour VPS ${user}@${hostName} ..."
 Invoke-VpsSshCommand -HostName $hostName -Port $port -User $user -Password $password -Command $remoteCmd
 
 Write-Host ""
-Write-Host "Déploiement terminé — https://nanovoucher.com" -ForegroundColor Green
+Write-Host "Deploiement termine - https://nanovoucher.com" -ForegroundColor Green
