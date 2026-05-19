@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { eq, and, ne, sql } from "drizzle-orm";
 import {
   credentialsMatchOriginalSuperAdmin,
@@ -75,7 +75,8 @@ async function getOrInitSuperAdmin(): Promise<typeof adminSettingsTable.$inferSe
 }
 
 // POST /api/login/security-required — champ code uniquement si login + mot de passe = super-admin originel.
-router.post("/login/security-required", async (req, res): Promise<void> => {
+// Alias /api/auth/security-required : certains bloqueurs de pub bloquent les URL contenant « /login ».
+async function postLoginSecurityRequired(req: Request, res: Response): Promise<void> {
   try {
     const { login, password } = req.body as { login?: string; password?: string };
     const loginTrimmed = String(login ?? "").trim();
@@ -87,12 +88,14 @@ router.post("/login/security-required", async (req, res): Promise<void> => {
     const required = await credentialsMatchOriginalSuperAdmin(loginTrimmed, password);
     res.json({ required });
   } catch (err) {
-    logger.error({ err }, "POST /api/login/security-required");
+    logger.error({ err }, "POST login security-required");
     res.json({ required: false });
   }
-});
+}
+router.post("/login/security-required", postLoginSecurityRequired);
+router.post("/auth/security-required", postLoginSecurityRequired);
 
-router.post("/login", async (req, res): Promise<void> => {
+async function postLogin(req: Request, res: Response): Promise<void> {
   try {
   const { login, password, verificationCode } = req.body as {
     login?: string;
@@ -227,13 +230,15 @@ router.post("/login", async (req, res): Promise<void> => {
 
   res.status(401).json({ error: "Identifiants incorrects" });
   } catch (err) {
-    logger.error({ err }, "POST /api/login");
+    logger.error({ err }, "POST login");
     res.status(503).json({
       error:
         "Erreur serveur ou base de données (schéma incomplet ou indisponible). Redémarrez l’API après mise à jour, exécutez les migrations Drizzle, puis réessayez.",
     });
   }
-});
+}
+router.post("/login", postLogin);
+router.post("/auth/sign-in", postLogin);
 
 /** Révoque tous les jetons du compte (autres navigateurs / onglets). */
 router.post("/session/revoke", async (req, res): Promise<void> => {

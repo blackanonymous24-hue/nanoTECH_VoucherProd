@@ -13,7 +13,7 @@ export function describeFetchFailure(err: unknown): string {
     }
     const m = err.message.toLowerCase();
     if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("load failed")) {
-      return "Impossible de joindre le serveur. Utilisez https://nanovoucher.com (pas l’adresse IP du VPS) et vérifiez votre connexion.";
+      return "Connexion bloquée (réseau ou bloqueur de pub / extension). Essayez https://nanovoucher.com en navigation privée ou désactivez le bloqueur pour ce site.";
     }
     if (m.includes("certificate") || m.includes("ssl") || m.includes("tls")) {
       return "Connexion sécurisée refusée (certificat). Ouvrez le site via https://nanovoucher.com, pas via l’IP du serveur.";

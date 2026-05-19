@@ -7,12 +7,13 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { useAuth, type UserRole } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
+import { AUTH_SECURITY_REQUIRED_PATH, AUTH_SIGN_IN_PATH } from "@/lib/auth-api-paths";
 import { describeFetchFailure, fetchJsonWithTimeout } from "@/lib/api-fetch";
 
 async function fetchSecurityRequired(login: string, password: string): Promise<boolean | null> {
   try {
     const { res, data } = await fetchJsonWithTimeout<{ required?: boolean }>(
-      "/api/login/security-required",
+      AUTH_SECURITY_REQUIRED_PATH,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -137,7 +138,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
     try {
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
-          const { res, data } = await fetchJsonWithTimeout<Record<string, unknown>>("/api/login", {
+          const { res, data } = await fetchJsonWithTimeout<Record<string, unknown>>(AUTH_SIGN_IN_PATH, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
