@@ -37,9 +37,8 @@ import {
 } from "@/lib/router-connection-test";
 import {
   DEFAULT_ROUTER_API_PORT,
-  parseRouterApiPort,
-  routerHostPortFromRow,
-  splitPastedRouterHost,
+  formatMikhmonIpHostForForm,
+  parseMikhmonIpHost,
 } from "@/lib/router-host-port";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -50,7 +49,6 @@ type RouterFormData = {
   contact: string;
   currency: string;
   host: string;
-  port: string;
   username: string;
   password: string;
   autoDeleteSalesScripts: boolean;
@@ -62,7 +60,6 @@ const emptyForm: RouterFormData = {
   contact: "",
   currency: "FCFA",
   host: "",
-  port: String(DEFAULT_ROUTER_API_PORT),
   username: "admin",
   password: "",
   autoDeleteSalesScripts: false,
@@ -232,14 +229,12 @@ export default function Routers() {
   };
 
   const openEdit = (r: RouterType) => {
-    const { host, port } = routerHostPortFromRow(r.host, r.port);
     setForm({
       name: r.name,
       hotspotName: (r as { hotspotName?: string }).hotspotName ?? "",
       contact: (r as { contact?: string }).contact ?? "",
       currency: normalizeRouterCurrency(r.currency ?? ""),
-      host,
-      port,
+      host: formatMikhmonIpHostForForm(r.host, r.port),
       username: r.username,
       password: (r as { password?: string }).password ?? "",
       autoDeleteSalesScripts: (r as { autoDeleteSalesScripts?: boolean }).autoDeleteSalesScripts ?? false,
@@ -250,8 +245,7 @@ export default function Routers() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const host = form.host.trim();
-    const port = parseRouterApiPort(form.port);
+    const { host, port } = parseMikhmonIpHost(form.host);
     if (!host) {
       toast({ title: "Adresse invalide", description: "Indiquez l’adresse IP ou le nom d’hôte du routeur.", variant: "destructive" });
       return;
@@ -661,36 +655,18 @@ export default function Routers() {
                 />
                 <p className="text-xs text-gray-400 mt-0.5">Saisie en majuscules automatique (tickets, rapports), max. 24 caractères</p>
               </div>
-              <div className="grid gap-3 grid-cols-1 sm:grid-cols-[1fr_7rem]">
-                <div>
-                  <Label>Adresse IP / hôte</Label>
-                  <Input
-                    className="mt-1 font-mono"
-                    placeholder="192.168.1.1"
-                    value={form.host}
-                    onChange={(e) => setForm({ ...form, host: e.target.value })}
-                    onBlur={(e) => {
-                      const { host, port } = splitPastedRouterHost(e.target.value);
-                      if (port) setForm((f) => ({ ...f, host, port }));
-                    }}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label>Port API</Label>
-                  <Input
-                    className="mt-1 font-mono"
-                    type="number"
-                    min={1}
-                    max={65535}
-                    placeholder={String(DEFAULT_ROUTER_API_PORT)}
-                    value={form.port}
-                    onChange={(e) => setForm({ ...form, port: e.target.value })}
-                    required
-                  />
-                </div>
-                <p className="text-xs text-gray-400 mt-0.5 sm:col-span-2">
-                  Port RouterOS par défaut : {DEFAULT_ROUTER_API_PORT} (NAT possible, ex. 23728)
+              <div>
+                <Label>IP / Host</Label>
+                <Input
+                  className="mt-1 font-mono"
+                  placeholder="192.168.1.1"
+                  value={form.host}
+                  onChange={(e) => setForm({ ...form, host: e.target.value })}
+                  required
+                />
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Connexion API RouterOS (port {DEFAULT_ROUTER_API_PORT} par défaut). NAT : saisir{" "}
+                  <span className="font-mono">ip:port</span> (ex. 203.0.113.1:23728).
                 </p>
               </div>
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">

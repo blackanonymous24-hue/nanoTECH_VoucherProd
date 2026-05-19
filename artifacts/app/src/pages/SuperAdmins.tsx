@@ -33,9 +33,8 @@ import {
 import { getListRoutersQueryKey } from "@workspace/api-client-react";
 import {
   DEFAULT_ROUTER_API_PORT,
-  parseRouterApiPort,
-  routerHostPortFromRow,
-  splitPastedRouterHost,
+  formatMikhmonIpHostForForm,
+  parseMikhmonIpHost,
 } from "@/lib/router-host-port";
 
 interface RouterRow {
@@ -93,7 +92,6 @@ type RouterFormPayload = {
   contact?: string;
   currency: string;
   host: string;
-  port: string;
   username: string;
   password: string;
 };
@@ -104,7 +102,6 @@ const emptyRouterForm: RouterFormPayload = {
   contact: "",
   currency: "FCFA",
   host: "",
-  port: String(DEFAULT_ROUTER_API_PORT),
   username: "admin",
   password: "",
 };
@@ -801,8 +798,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
       hotspotName: p.hotspotName?.trim() || undefined,
       contact: p.contact?.trim() || undefined,
       currency: normalizeRouterCurrency(p.currency),
-      host: p.host.trim(),
-      port: parseRouterApiPort(p.port),
+      ...parseMikhmonIpHost(p.host),
       username: p.username,
     };
     if (!forEdit || p.password.trim()) {
@@ -858,15 +854,13 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   };
 
   const openEditForm = (r: RouterRow) => {
-    const { host, port } = routerHostPortFromRow(r.host, r.port);
     setEditingRouter(r);
     setForm({
       name: r.name,
       hotspotName: r.hotspotName ?? "",
       contact: r.contact ?? "",
       currency: normalizeRouterCurrency(r.currency ?? "FCFA"),
-      host,
-      port,
+      host: formatMikhmonIpHostForForm(r.host, r.port),
       username: r.username,
       password: r.password ?? "",
     });
@@ -920,7 +914,6 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     !formPending
     && !!form.name.trim()
     && !!form.host.trim()
-    && !!form.port.trim()
     && !!form.username.trim()
     && (editingRouter ? true : form.password.length >= 1);
 
@@ -1000,34 +993,18 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                     onChange={(e) => setForm({ ...form, currency: normalizeRouterCurrency(e.target.value) })}
                   />
                 </div>
-                <div className="grid gap-3 grid-cols-1 sm:grid-cols-[1fr_7rem]">
-                  <div>
-                    <Label>Adresse IP / hôte <span className="text-red-500">*</span></Label>
-                    <Input
-                      className="mt-1 font-mono"
-                      value={form.host}
-                      onChange={(e) => setForm({ ...form, host: e.target.value })}
-                      onBlur={(e) => {
-                        const { host, port } = splitPastedRouterHost(e.target.value);
-                        if (port) setForm((f) => ({ ...f, host, port }));
-                      }}
-                      placeholder="192.168.88.1"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label>Port API <span className="text-red-500">*</span></Label>
-                    <Input
-                      className="mt-1 font-mono"
-                      type="number"
-                      min={1}
-                      max={65535}
-                      value={form.port}
-                      onChange={(e) => setForm({ ...form, port: e.target.value })}
-                      placeholder={String(DEFAULT_ROUTER_API_PORT)}
-                      required
-                    />
-                  </div>
+                <div>
+                  <Label>IP / Host <span className="text-red-500">*</span></Label>
+                  <Input
+                    className="mt-1 font-mono"
+                    value={form.host}
+                    onChange={(e) => setForm({ ...form, host: e.target.value })}
+                    placeholder="192.168.88.1"
+                    required
+                  />
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    API RouterOS port {DEFAULT_ROUTER_API_PORT} par défaut. NAT : <span className="font-mono">ip:port</span>.
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -1198,7 +1175,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               hotspotName: r.hotspotName ?? "",
               contact: r.contact ?? "",
               currency: normalizeRouterCurrency(r.currency ?? "FCFA"),
-              ...routerHostPortFromRow(r.host, r.port),
+              host: formatMikhmonIpHostForForm(r.host, r.port),
               username: r.username,
               password: r.password,
             });

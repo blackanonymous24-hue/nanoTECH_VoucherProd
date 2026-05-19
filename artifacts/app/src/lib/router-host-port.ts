@@ -1,29 +1,36 @@
-/** Port API RouterOS par défaut (connexion TCP). */
+/**
+ * Gestion de l’adresse routeur style Mikhmon (`iphost`).
+ * @see attached_assets/ping-test_1778007054527.php — host:port optionnel, défaut 8728
+ */
+
+/** Port API RouterOS (connexion TCP sortante de l’app). */
 export const DEFAULT_ROUTER_API_PORT = 8728;
 
-export function parseRouterApiPort(raw: string): number {
-  const n = parseInt(raw.trim(), 10);
-  if (!Number.isFinite(n) || n < 1 || n > 65535) return DEFAULT_ROUTER_API_PORT;
-  return n;
-}
-
-/** Valeurs initiales du formulaire à partir d’un routeur en base. */
-export function routerHostPortFromRow(host: string, port: number): { host: string; port: string } {
-  return {
-    host: host.trim(),
-    port: String(port > 0 ? port : DEFAULT_ROUTER_API_PORT),
-  };
-}
-
-/** Si l’utilisateur colle « hôte:port » dans le champ hôte, sépare les deux champs. */
-export function splitPastedRouterHost(raw: string): { host: string; port: string | null } {
-  const s = raw.trim();
+/** Parse `iphost` saisi : `192.168.1.1` ou `203.0.113.1:23728`. */
+export function parseMikhmonIpHost(iphost: string): { host: string; port: number } {
+  const s = iphost.trim();
+  if (!s) return { host: "", port: DEFAULT_ROUTER_API_PORT };
   const colonIdx = s.lastIndexOf(":");
   if (colonIdx > 0) {
     const portStr = s.slice(colonIdx + 1);
     if (/^\d+$/.test(portStr)) {
-      return { host: s.slice(0, colonIdx).trim(), port: portStr };
+      const port = parseInt(portStr, 10);
+      if (port >= 1 && port <= 65535) {
+        return { host: s.slice(0, colonIdx).trim(), port };
+      }
     }
   }
-  return { host: s, port: null };
+  return { host: s, port: DEFAULT_ROUTER_API_PORT };
+}
+
+/**
+ * Valeur affichée dans le formulaire : IP seule si port 8728,
+ * sinon `ip:port` (NAT / port forward personnalisé).
+ */
+export function formatMikhmonIpHostForForm(host: string, port: number): string {
+  const h = host.trim();
+  if (!h) return "";
+  const p = port > 0 ? port : DEFAULT_ROUTER_API_PORT;
+  if (p === DEFAULT_ROUTER_API_PORT) return h;
+  return `${h}:${p}`;
 }
