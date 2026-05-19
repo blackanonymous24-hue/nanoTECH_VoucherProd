@@ -6,7 +6,7 @@ import {
   PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
   UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie, ChevronDown,
   Eye, EyeOff, ChevronsUpDown, Check, Save, Loader2, Pencil, FilePlus2,
-  PowerOff, RefreshCw, Cpu,
+  PowerOff, RefreshCw, Cpu, CalendarClock,
 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { cn } from "@/lib/utils";
@@ -131,7 +131,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const isManager = role === "manager";
   const isCollaborateur = role === "collaborateur";
   /* ── Hotspot collapsible (sous-section dans Réseau) ── */
-  const hotspotPaths = ["/sessions", "/ip-bindings", "/dhcp-leases", "/hotspot-cookies"];
+  const hotspotPaths = ["/sessions", "/ip-bindings", "/dhcp-leases", "/hotspot-cookies", "/profile-schedulers"];
   const isHotspotPage = hotspotPaths.some((p) => location.startsWith(p));
   const [hotspotOpen, setHotspotOpen] = useState(() => isHotspotPage);
   useEffect(() => { if (isHotspotPage) setHotspotOpen(true); }, [isHotspotPage]);
@@ -576,6 +576,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           { href: "/ip-bindings",     label: "Bypass MAC",      icon: ShieldCheck },
           { href: "/dhcp-leases",     label: "DHCP Leases",     icon: Database },
           { href: "/hotspot-cookies", label: "Cookies Hotspot", icon: Cookie },
+          { href: "/profile-schedulers", label: "Schedulers profils", icon: CalendarClock },
         ],
       },
     },

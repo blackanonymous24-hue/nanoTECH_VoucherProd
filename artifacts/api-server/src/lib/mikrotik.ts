@@ -2539,8 +2539,81 @@ export async function disconnectSession(
   }, 10_000, "high");
 }
 
+export interface HotspotProfileScheduler {
+  id: string;
+  name: string;
+  interval: string | null;
+  onEventPreview: string | null;
+  startDate: string | null;
+  startTime: string | null;
+  disabled: boolean;
+  comment: string | null;
+  nextRun: string | null;
+  matchesProfile: boolean;
+}
+
+function isMikrotikDisabledFlag(raw: unknown): boolean {
+  if (raw === true) return true;
+  const s = String(raw ?? "").toLowerCase();
+  return s === "true" || s === "yes";
+}
+
+/** Schedulers MikroTik liés aux forfaits (nom = profil ou script on-event hotspot). */
+export async function listHotspotProfileSchedulers(conn: RouterConnection): Promise<HotspotProfileScheduler[]> {
+  return withRouter(conn, async (api) => {
+    const [schedulerRows, profileRows] = await Promise.all([
+      api.write("/system/scheduler/print").catch(() => [] as Record<string, unknown>[]),
+      api.write("/ip/hotspot/user/profile/print").catch(() => [] as Record<string, unknown>[]),
+    ]);
+    const profileNames = new Set<string>();
+    for (const p of profileRows) {
+      const n = decodeRouterText(String(p.name ?? "")).trim();
+      if (n) profileNames.add(n);
+    }
+
+    const out: HotspotProfileScheduler[] = [];
+    for (const s of schedulerRows) {
+      const id = String(s[".id"] ?? "").trim();
+      if (!id) continue;
+      const name = decodeRouterText(String(s.name ?? "")).trim();
+      const onEventRaw = decodeRouterText(String(s["on-event"] ?? "")).trim();
+      const isHotspotMonitor =
+        (name && profileNames.has(name))
+        || (onEventRaw.includes("/ip hotspot user") && onEventRaw.includes("profile="));
+      if (!isHotspotMonitor) continue;
+
+      const onEventPreview =
+        onEventRaw.length > 140 ? `${onEventRaw.slice(0, 140)}…` : (onEventRaw || null);
+
+      out.push({
+        id,
+        name: name || "(sans nom)",
+        interval: decodeRouterText(String(s.interval ?? "")).trim() || null,
+        onEventPreview,
+        startDate: decodeRouterText(String(s["start-date"] ?? "")).trim() || null,
+        startTime: decodeRouterText(String(s["start-time"] ?? "")).trim() || null,
+        disabled: isMikrotikDisabledFlag(s.disabled),
+        comment: decodeRouterText(String(s.comment ?? "")).trim() || null,
+        nextRun: decodeRouterText(String(s["next-run"] ?? "")).trim() || null,
+        matchesProfile: !!(name && profileNames.has(name)),
+      });
+    }
+
+    out.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
+    return out;
+  });
+}
+
+export async function removeSystemScheduler(conn: RouterConnection, schedulerId: string): Promise<void> {
+  return withRouter(conn, async (api) => {
+    const id = schedulerId.trim();
+    if (!id) throw new Error("ID scheduler requis");
+    await api.write("/system/scheduler/remove", [`=.id=${id}`]);
+  });
+}
+
 /**
- * Reset a hotspot user — procédé exact de Mikhmon resethotspotuser.php :
+ * Reset a hotspot user — procédure exacte de Mikhmon resethotspotuser.php :
  * 1) /ip/hotspot/user/set (limit-uptime=0, comment="")
  * 2) /ip/hotspot/user/reset-counters
  * 3) /system/scheduler/print ?name=username → remove
