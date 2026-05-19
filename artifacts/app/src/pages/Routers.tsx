@@ -35,6 +35,12 @@ import {
   ROUTER_OFFLINE_LABEL,
   pingRouterTcpApi,
 } from "@/lib/router-connection-test";
+import {
+  DEFAULT_ROUTER_API_PORT,
+  parseRouterApiPort,
+  routerHostPortFromRow,
+  splitPastedRouterHost,
+} from "@/lib/router-host-port";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -43,7 +49,8 @@ type RouterFormData = {
   hotspotName: string;
   contact: string;
   currency: string;
-  address: string;
+  host: string;
+  port: string;
   username: string;
   password: string;
   autoDeleteSalesScripts: boolean;
@@ -54,7 +61,8 @@ const emptyForm: RouterFormData = {
   hotspotName: "",
   contact: "",
   currency: "FCFA",
-  address: "",
+  host: "",
+  port: String(DEFAULT_ROUTER_API_PORT),
   username: "admin",
   password: "",
   autoDeleteSalesScripts: false,
@@ -66,17 +74,6 @@ const MAX_CURRENCY_LEN = 24;
 function normalizeRouterCurrency(raw: string): string {
   const v = raw.trim().toUpperCase().slice(0, MAX_CURRENCY_LEN);
   return v || "FCFA";
-}
-
-function parseAddress(address: string): { host: string; port: number } {
-  const colonIdx = address.lastIndexOf(":");
-  if (colonIdx > 0) {
-    const portStr = address.slice(colonIdx + 1);
-    if (/^\d+$/.test(portStr)) {
-      return { host: address.slice(0, colonIdx), port: parseInt(portStr, 10) };
-    }
-  }
-  return { host: address, port: 8728 };
 }
 
 function CredentialsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -235,12 +232,14 @@ export default function Routers() {
   };
 
   const openEdit = (r: RouterType) => {
+    const { host, port } = routerHostPortFromRow(r.host, r.port);
     setForm({
       name: r.name,
       hotspotName: (r as { hotspotName?: string }).hotspotName ?? "",
       contact: (r as { contact?: string }).contact ?? "",
       currency: normalizeRouterCurrency(r.currency ?? ""),
-      address: `${r.host}:${r.port}`,
+      host,
+      port,
       username: r.username,
       password: (r as { password?: string }).password ?? "",
       autoDeleteSalesScripts: (r as { autoDeleteSalesScripts?: boolean }).autoDeleteSalesScripts ?? false,
@@ -251,9 +250,10 @@ export default function Routers() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { host, port } = parseAddress(form.address);
+    const host = form.host.trim();
+    const port = parseRouterApiPort(form.port);
     if (!host) {
-      toast({ title: "Adresse invalide", description: "Format attendu: ip:port ou domaine:port", variant: "destructive" });
+      toast({ title: "Adresse invalide", description: "Indiquez l’adresse IP ou le nom d’hôte du routeur.", variant: "destructive" });
       return;
     }
     if (!editRouter && !form.password) {
@@ -661,16 +661,37 @@ export default function Routers() {
                 />
                 <p className="text-xs text-gray-400 mt-0.5">Saisie en majuscules automatique (tickets, rapports), max. 24 caractères</p>
               </div>
-              <div>
-                <Label>Adresse (hôte:port)</Label>
-                <Input
-                  className="mt-1 font-mono"
-                  placeholder="192.168.1.1:8728 ou mon.domaine.com:23728"
-                  value={form.address}
-                  onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  required
-                />
-                <p className="text-xs text-gray-400 mt-0.5">Port API RouterOS — par défaut 8728 (ou votre port NAT)</p>
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-[1fr_7rem]">
+                <div>
+                  <Label>Adresse IP / hôte</Label>
+                  <Input
+                    className="mt-1 font-mono"
+                    placeholder="192.168.1.1"
+                    value={form.host}
+                    onChange={(e) => setForm({ ...form, host: e.target.value })}
+                    onBlur={(e) => {
+                      const { host, port } = splitPastedRouterHost(e.target.value);
+                      if (port) setForm((f) => ({ ...f, host, port }));
+                    }}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>Port API</Label>
+                  <Input
+                    className="mt-1 font-mono"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    placeholder={String(DEFAULT_ROUTER_API_PORT)}
+                    value={form.port}
+                    onChange={(e) => setForm({ ...form, port: e.target.value })}
+                    required
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5 sm:col-span-2">
+                  Port RouterOS par défaut : {DEFAULT_ROUTER_API_PORT} (NAT possible, ex. 23728)
+                </p>
               </div>
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 <div>

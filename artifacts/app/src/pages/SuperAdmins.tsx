@@ -31,6 +31,12 @@ import {
   pingRouterForSuperAdminTenant,
 } from "@/lib/router-connection-test";
 import { getListRoutersQueryKey } from "@workspace/api-client-react";
+import {
+  DEFAULT_ROUTER_API_PORT,
+  parseRouterApiPort,
+  routerHostPortFromRow,
+  splitPastedRouterHost,
+} from "@/lib/router-host-port";
 
 interface RouterRow {
   id: number;
@@ -74,17 +80,6 @@ interface AdminRow {
 }
 
 
-function parseAddress(address: string): { host: string; port: number } {
-  const colonIdx = address.lastIndexOf(":");
-  if (colonIdx > 0) {
-    const portStr = address.slice(colonIdx + 1);
-    if (/^\d+$/.test(portStr)) {
-      return { host: address.slice(0, colonIdx), port: parseInt(portStr, 10) };
-    }
-  }
-  return { host: address, port: 8728 };
-}
-
 const MAX_ROUTER_CURRENCY_LEN = 24;
 
 function normalizeRouterCurrency(raw: string): string {
@@ -97,7 +92,8 @@ type RouterFormPayload = {
   hotspotName?: string;
   contact?: string;
   currency: string;
-  address: string;
+  host: string;
+  port: string;
   username: string;
   password: string;
 };
@@ -107,7 +103,8 @@ const emptyRouterForm: RouterFormPayload = {
   hotspotName: "",
   contact: "",
   currency: "FCFA",
-  address: "",
+  host: "",
+  port: String(DEFAULT_ROUTER_API_PORT),
   username: "admin",
   password: "",
 };
@@ -799,14 +796,13 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   };
 
   const buildRouterBody = (p: RouterFormPayload, forEdit = false) => {
-    const { host, port } = parseAddress(p.address);
     const body: Record<string, unknown> = {
       name: p.name,
       hotspotName: p.hotspotName?.trim() || undefined,
       contact: p.contact?.trim() || undefined,
       currency: normalizeRouterCurrency(p.currency),
-      host,
-      port,
+      host: p.host.trim(),
+      port: parseRouterApiPort(p.port),
       username: p.username,
     };
     if (!forEdit || p.password.trim()) {
@@ -862,13 +858,15 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   };
 
   const openEditForm = (r: RouterRow) => {
+    const { host, port } = routerHostPortFromRow(r.host, r.port);
     setEditingRouter(r);
     setForm({
       name: r.name,
       hotspotName: r.hotspotName ?? "",
       contact: r.contact ?? "",
       currency: normalizeRouterCurrency(r.currency ?? "FCFA"),
-      address: `${r.host}:${r.port}`,
+      host,
+      port,
       username: r.username,
       password: r.password ?? "",
     });
@@ -921,7 +919,8 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const canSubmitForm =
     !formPending
     && !!form.name.trim()
-    && !!form.address.trim()
+    && !!form.host.trim()
+    && !!form.port.trim()
     && !!form.username.trim()
     && (editingRouter ? true : form.password.length >= 1);
 
@@ -929,9 +928,9 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     e.preventDefault();
     if (!canSubmitForm) return;
     if (editingRouter) {
-      editM.mutate({ id: editingRouter.id, ...form, name: form.name.trim(), address: form.address.trim(), username: form.username.trim() });
+      editM.mutate({ id: editingRouter.id, ...form, name: form.name.trim(), host: form.host.trim(), username: form.username.trim() });
     } else {
-      createM.mutate({ ...form, name: form.name.trim(), address: form.address.trim(), username: form.username.trim() });
+      createM.mutate({ ...form, name: form.name.trim(), host: form.host.trim(), username: form.username.trim() });
     }
   };
 
@@ -1001,15 +1000,34 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                     onChange={(e) => setForm({ ...form, currency: normalizeRouterCurrency(e.target.value) })}
                   />
                 </div>
-                <div>
-                  <Label>Adresse (hôte:port) <span className="text-red-500">*</span></Label>
-                  <Input
-                    className="mt-1 font-mono"
-                    value={form.address}
-                    onChange={(e) => setForm({ ...form, address: e.target.value })}
-                    placeholder="192.168.88.1:8728"
-                    required
-                  />
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-[1fr_7rem]">
+                  <div>
+                    <Label>Adresse IP / hôte <span className="text-red-500">*</span></Label>
+                    <Input
+                      className="mt-1 font-mono"
+                      value={form.host}
+                      onChange={(e) => setForm({ ...form, host: e.target.value })}
+                      onBlur={(e) => {
+                        const { host, port } = splitPastedRouterHost(e.target.value);
+                        if (port) setForm((f) => ({ ...f, host, port }));
+                      }}
+                      placeholder="192.168.88.1"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label>Port API <span className="text-red-500">*</span></Label>
+                    <Input
+                      className="mt-1 font-mono"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={form.port}
+                      onChange={(e) => setForm({ ...form, port: e.target.value })}
+                      placeholder={String(DEFAULT_ROUTER_API_PORT)}
+                      required
+                    />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -1180,7 +1198,7 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
               hotspotName: r.hotspotName ?? "",
               contact: r.contact ?? "",
               currency: normalizeRouterCurrency(r.currency ?? "FCFA"),
-              address: `${r.host}:${r.port}`,
+              ...routerHostPortFromRow(r.host, r.port),
               username: r.username,
               password: r.password,
             });
