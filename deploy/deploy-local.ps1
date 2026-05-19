@@ -1,9 +1,8 @@
-# Déploiement depuis votre PC : git push + mise à jour sur le VPS.
-# Prérequis : deploy/vps.local.env (voir vps.local.env.example)
+# Déploiement automatique : git push + mise à jour VPS (mot de passe dans deploy/vps.local.env).
 #
 # Usage :
 #   .\deploy\deploy-local.ps1
-#   .\deploy\deploy-local.ps1 -SkipPush    # si vous avez déjà poussé sur GitHub
+#   .\deploy\deploy-local.ps1 -SkipPush
 
 param(
     [switch]$SkipPush
@@ -13,31 +12,86 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $EnvFile = Join-Path $PSScriptRoot "vps.local.env"
 
-if (-not (Test-Path $EnvFile)) {
-    Write-Host "Fichier manquant : deploy\vps.local.env" -ForegroundColor Red
-    Write-Host "  copy deploy\vps.local.env.example deploy\vps.local.env"
-    Write-Host "  puis renseignez VPS_HOST, VPS_USER et VPS_SSH_KEY (recommandé)."
-    exit 1
+function Read-VpsEnvFile {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return $false }
+    Get-Content $Path | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -eq "" -or $line.StartsWith("#")) { return }
+        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$') {
+            $name = $Matches[1]
+            $value = $Matches[2].Trim().Trim('"').Trim("'")
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
+    return $true
 }
 
-Get-Content $EnvFile | ForEach-Object {
-    $line = $_.Trim()
-    if ($line -eq "" -or $line.StartsWith("#")) { return }
-    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$') {
-        $name = $Matches[1]
-        $value = $Matches[2].Trim().Trim('"').Trim("'")
-        Set-Item -Path "Env:$name" -Value $value
+function Ensure-PoshSshModule {
+    if (Get-Module -ListAvailable -Name Posh-SSH) {
+        Import-Module Posh-SSH -ErrorAction Stop
+        return
     }
+    Write-Host "==> Installation du module PowerShell Posh-SSH (une seule fois)..."
+    if ($PSVersionTable.PSVersion.Major -lt 5) {
+        throw "PowerShell 5.1+ requis."
+    }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $repo = Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue
+    if ($repo -and $repo.InstallationPolicy -ne "Trusted") {
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    }
+    Install-Module -Name Posh-SSH -Scope CurrentUser -Force -AllowClobber
+    Import-Module Posh-SSH -ErrorAction Stop
+}
+
+function Invoke-VpsSshCommand {
+    param(
+        [string]$HostName,
+        [int]$Port,
+        [string]$User,
+        [string]$Password,
+        [string]$Command
+    )
+    Ensure-PoshSshModule
+    $secure = ConvertTo-SecureString $Password -AsPlainText -Force
+    $cred = New-Object System.Management.Automation.PSCredential($User, $secure)
+    $session = New-SSHSession -ComputerName $HostName -Port $Port -Credential $cred -AcceptKey -ConnectionTimeout 30
+    if (-not $session) {
+        throw "Connexion SSH impossible vers ${User}@${HostName}:${Port}"
+    }
+    try {
+        $result = Invoke-SSHCommand -SessionId $session.SessionId -Command $Command -TimeOut 900
+        if ($result.Output) { Write-Host $result.Output }
+        if ($result.Error) { Write-Host $result.Error -ForegroundColor DarkYellow }
+        if ($result.ExitStatus -ne 0) {
+            throw "Commande distante échouée (code $($result.ExitStatus))"
+        }
+    } finally {
+        Remove-SSHSession -SessionId $session.SessionId | Out-Null
+    }
+}
+
+if (-not (Read-VpsEnvFile -Path $EnvFile)) {
+    Write-Host "Fichier manquant : deploy\vps.local.env" -ForegroundColor Red
+    Write-Host "  copy deploy\vps.local.env.example deploy\vps.local.env"
+    Write-Host "  puis mettez uniquement VPS_SSH_PASSWORD=votre_mot_de_passe"
+    exit 1
 }
 
 $hostName = $env:VPS_HOST
 $user = $env:VPS_USER
-if (-not $hostName -or -not $user) {
-    Write-Host "VPS_HOST et VPS_USER sont obligatoires dans vps.local.env" -ForegroundColor Red
+$password = $env:VPS_SSH_PASSWORD
+
+if (-not $hostName) { $hostName = "69.62.110.53" }
+if (-not $user) { $user = "root" }
+if (-not $password -or $password -eq "CHANGE_ME") {
+    Write-Host "Renseignez VPS_SSH_PASSWORD dans deploy\vps.local.env" -ForegroundColor Red
     exit 1
 }
 
-$port = if ($env:VPS_PORT) { $env:VPS_PORT } else { "22" }
+$port = 22
+if ($env:VPS_PORT -and $env:VPS_PORT -match '^\d+$') { $port = [int]$env:VPS_PORT }
 $appDir = if ($env:VPS_APP_DIR) { $env:VPS_APP_DIR } else { "/var/www/vouchernet" }
 $branch = if ($env:VOUCHERNET_BRANCH) { $env:VOUCHERNET_BRANCH } else { "main" }
 
@@ -49,28 +103,9 @@ if (-not $SkipPush) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-$sshArgs = @(
-    "-p", $port,
-    "-o", "BatchMode=yes",
-    "-o", "StrictHostKeyChecking=accept-new"
-)
-if ($env:VPS_SSH_KEY -and (Test-Path $env:VPS_SSH_KEY)) {
-    $sshArgs += @("-i", $env:VPS_SSH_KEY)
-}
-
 $remoteCmd = "cd '$appDir' && sudo bash deploy/update-vps.sh"
-$target = "${user}@${hostName}"
-
-Write-Host "==> SSH $target (mise à jour VPS)"
-& ssh @sshArgs $target $remoteCmd
-if ($LASTEXITCODE -ne 0) {
-    Write-Host ""
-    Write-Host "Échec SSH. Vérifiez :" -ForegroundColor Yellow
-    Write-Host "  - Clé SSH : ssh-copy-id ou copie manuelle de votre clé publique vers le VPS"
-    Write-Host "  - VPS_SSH_KEY dans deploy\vps.local.env"
-    Write-Host "  - Accès : ssh ${user}@${hostName}"
-    exit $LASTEXITCODE
-}
+Write-Host "==> Mise à jour VPS ${user}@${hostName} ..."
+Invoke-VpsSshCommand -HostName $hostName -Port $port -User $user -Password $password -Command $remoteCmd
 
 Write-Host ""
 Write-Host "Déploiement terminé — https://nanovoucher.com" -ForegroundColor Green

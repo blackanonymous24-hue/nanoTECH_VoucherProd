@@ -1,0 +1,12 @@
+---
+description: Déploiement production VPS quand l'utilisateur le demande
+globs:
+alwaysApply: true
+---
+
+Quand l'utilisateur demande de déployer, mettre à jour le VPS, ou pousser en production :
+
+1. Commit + push Git si des changements ne sont pas encore sur `origin/main`.
+2. Exécuter `powershell -NoProfile -ExecutionPolicy Bypass -File deploy/deploy-local.ps1` depuis la racine du dépôt.
+3. Le mot de passe SSH est dans `deploy/vps.local.env` (fichier local, jamais commité) — ne pas demander le mot de passe à l'utilisateur s'il est déjà renseigné.
+4. Si `VPS_SSH_PASSWORD` est vide, demander uniquement de le remplir dans `deploy/vps.local.env`, sans autre configuration.

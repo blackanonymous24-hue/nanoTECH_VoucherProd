@@ -129,22 +129,20 @@ Renouvellement automatique : géré par certbot.
 sudo bash /var/www/vouchernet/deploy/update-vps.sh
 ```
 
-### Depuis votre PC (automatique)
+### Depuis votre PC (automatique, mot de passe uniquement)
 
-1. Copier `deploy/vps.local.env.example` → `deploy/vps.local.env` (ce fichier est **ignoré par Git**).
-2. Renseigner `VPS_HOST`, `VPS_USER`, et de préférence `VPS_SSH_KEY` (clé SSH, pas le mot de passe en clair).
-3. Installer votre clé publique sur le VPS une fois :
-   ```powershell
-   type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@VOTRE_IP "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
-   ```
-4. Lancer :
+1. Ouvrir `deploy/vps.local.env` (ignoré par Git — déjà créé à la racine `deploy/`).
+2. Renseigner **une seule ligne** : `VPS_SSH_PASSWORD=votre_mot_de_passe_root`
+3. C’est tout. Pour déployer :
    ```powershell
    .\deploy\deploy-local.ps1
    ```
 
-Le script fait `git push` puis exécute `update-vps.sh` sur le serveur. Quand vous demandez une mise à jour à l’assistant Cursor, il pourra utiliser ce fichier local (jamais commité).
+Le script installe une fois le module PowerShell `Posh-SSH`, fait `git push`, puis lance `update-vps.sh` sur le VPS **sans autre intervention**.
 
-**Sécurité :** ne mettez pas le mot de passe VPS dans le dépôt Git. Utilisez une clé SSH ; le mot de passe ne sert qu’une fois pour la copier sur le serveur.
+L’assistant Cursor peut lancer ce script quand vous demandez « mets à jour le VPS ».
+
+**Sécurité :** `vps.local.env` ne doit jamais être commité (déjà dans `.gitignore`).
 
 ## DNS Hostinger (hPanel)
 
