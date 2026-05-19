@@ -954,7 +954,10 @@ export default function GenerateVouchers() {
                   </PopoverTrigger>
                   <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
                     <Command shouldFilter={false}>
-                      <CommandList className="max-h-52 overflow-y-auto">
+                      <CommandList
+                        className="max-h-52 overflow-y-auto overscroll-contain"
+                        onWheel={(e) => e.stopPropagation()}
+                      >
                         <CommandEmpty>Aucun profil disponible.</CommandEmpty>
                         <CommandGroup>
                           {displayedProfilesSorted.map((p) => (
@@ -1185,7 +1188,10 @@ export default function GenerateVouchers() {
                     </PopoverTrigger>
                     <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
                       <Command shouldFilter={false}>
-                        <CommandList className="max-h-52 overflow-y-auto">
+                        <CommandList
+                        className="max-h-52 overflow-y-auto overscroll-contain"
+                        onWheel={(e) => e.stopPropagation()}
+                      >
                           <CommandEmpty>Aucun vendeur disponible.</CommandEmpty>
                           <CommandGroup>
                             <CommandItem

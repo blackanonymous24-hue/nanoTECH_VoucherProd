@@ -37,7 +37,7 @@ import { sortRouterProfilesByCreationOrder } from "@/lib/routerProfilesSort";
 import {
   buildMikhmonAddUserRequestBody,
 } from "@/lib/mikhmon-add-user";
-import { MikhmonAddUserHints } from "@/components/MikhmonAddUserHints";
+import { ScrollablePopoverList } from "@/components/ui/scrollable-popover-list";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1751,7 +1751,7 @@ export default function Vouchers() {
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto min-w-[10rem] max-w-xs p-0" align="start">
-                          <div className="overflow-y-auto max-h-60 py-1">
+                          <ScrollablePopoverList className="py-1">
                             {sortedProfiles.length === 0 && (
                               <p className="px-3 py-2 text-xs text-gray-400">Aucun forfait.</p>
                             )}
@@ -1765,7 +1765,7 @@ export default function Vouchers() {
                                 {p.name === "all" ? "Tous les forfaits" : p.name}
                               </button>
                             ))}
-                          </div>
+                          </ScrollablePopoverList>
                         </PopoverContent>
                       </Popover>
 
@@ -1792,7 +1792,7 @@ export default function Vouchers() {
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto min-w-52 max-w-sm p-0" align="start">
-                          <div className="overflow-y-auto max-h-72 py-1">
+                          <ScrollablePopoverList className="py-1" maxHeightClass="max-h-72">
                             {uniqueComments.length === 0 && (
                               <p className="px-3 py-2 text-sm text-gray-400">Aucun lot.</p>
                             )}
@@ -1814,7 +1814,7 @@ export default function Vouchers() {
                                 <span className="text-xs text-green-600 ml-2 flex-shrink-0">({count})</span>
                               </button>
                             ))}
-                          </div>
+                          </ScrollablePopoverList>
                         </PopoverContent>
                       </Popover>
 
@@ -1836,7 +1836,7 @@ export default function Vouchers() {
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto min-w-[11rem] max-w-xs p-0" align="start">
-                          <div className="overflow-y-auto max-h-60 py-1">
+                          <ScrollablePopoverList className="py-1" maxHeightClass="max-h-60">
                             <button
                               onClick={() => { handleVendorChange("all"); setVendorPopoverOpen(false); }}
                               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-gray-100 transition-colors whitespace-nowrap"
@@ -1858,7 +1858,7 @@ export default function Vouchers() {
                                 </button>
                               ))
                             )}
-                          </div>
+                          </ScrollablePopoverList>
                         </PopoverContent>
                       </Popover>
 
@@ -1884,7 +1884,7 @@ export default function Vouchers() {
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto min-w-[10rem] max-w-xs p-0" align="start">
-                          <div className="overflow-y-auto max-h-56 py-1">
+                          <ScrollablePopoverList className="py-1" maxHeightClass="max-h-56">
                             {[
                               { id: "all", label: "Tous statuts" },
                               { id: "active", label: "Activés" },
@@ -1900,7 +1900,7 @@ export default function Vouchers() {
                                 {s.label}
                               </button>
                             ))}
-                          </div>
+                          </ScrollablePopoverList>
                         </PopoverContent>
                       </Popover>
                     </div>
@@ -2348,8 +2348,8 @@ export default function Vouchers() {
                             <ChevronsUpDown className="ml-1 h-3.5 w-3.5 text-gray-400 shrink-0 opacity-50" />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-52 p-1" align="end">
-                          <div className="max-h-56 overflow-y-auto">
+                        <PopoverContent className="w-52 p-0" align="end">
+                          <ScrollablePopoverList className="p-1" maxHeightClass="max-h-56">
                             <button
                               className={`w-full text-left text-sm px-3 py-1.5 rounded hover:bg-gray-100 ${lotsFilterProfile === "all" ? "font-semibold text-blue-600" : ""}`}
                               onClick={() => { setLotsFilterProfile("all"); setLotsProfilePopoverOpen(false); }}
@@ -2365,7 +2365,7 @@ export default function Vouchers() {
                                 {p}
                               </button>
                             ))}
-                          </div>
+                          </ScrollablePopoverList>
                         </PopoverContent>
                       </Popover>
 
@@ -3113,16 +3113,6 @@ export default function Vouchers() {
               />
             </div>
 
-            {addDialogMode === "create" && (
-              <MikhmonAddUserHints
-                name={addName}
-                password={addPassword}
-                comment={addComment}
-                disabled={isSavingUser}
-                onSyncPasswordToName={() => setAddPassword(addName)}
-              />
-            )}
-
             {/* Profile */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Profile</Label>
@@ -3135,21 +3125,23 @@ export default function Vouchers() {
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-56 overflow-y-auto" align="start">
-                  {sortedProfiles.length === 0 && (
-                    <p className="px-2 py-1 text-xs text-gray-400">Aucun profil disponible.</p>
-                  )}
-                  {sortedProfiles.map((p) => (
-                    <button key={p.name} type="button"
-                      onClick={() => {
-                        setAddProfile(p.name);
-                        setAddProfilePopoverOpen(false);
-                      }}
-                      className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                      <Check className={`h-3 w-3 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                      <span className="truncate">{p.name}</span>
-                    </button>
-                  ))}
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <ScrollablePopoverList className="p-1" maxHeightClass="max-h-56">
+                    {sortedProfiles.length === 0 && (
+                      <p className="px-2 py-1 text-xs text-gray-400">Aucun profil disponible.</p>
+                    )}
+                    {sortedProfiles.map((p) => (
+                      <button key={p.name} type="button"
+                        onClick={() => {
+                          setAddProfile(p.name);
+                          setAddProfilePopoverOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                        <Check className={`h-3 w-3 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                        <span className="truncate">{p.name}</span>
+                      </button>
+                    ))}
+                  </ScrollablePopoverList>
                 </PopoverContent>
               </Popover>
             </div>

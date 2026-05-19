@@ -36,10 +36,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PasswordInput } from "@/components/ui/password-input";
-import {
-  buildMikhmonAddUserRequestBody,
-} from "@/lib/mikhmon-add-user";
-import { MikhmonAddUserHints } from "@/components/MikhmonAddUserHints";
+import { buildMikhmonAddUserRequestBody } from "@/lib/mikhmon-add-user";
+import { ScrollablePopoverList } from "@/components/ui/scrollable-popover-list";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -1230,19 +1228,21 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-48 overflow-y-auto" align="start">
-                  <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
-                    className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                    <Check className={`h-3 w-3 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                    all
-                  </button>
-                  {(dialogServers ?? []).map((s) => (
-                    <button key={s.name} type="button" onClick={() => { setAddServer(s.name); setAddServerPopoverOpen(false); }}
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <ScrollablePopoverList className="p-1" maxHeightClass="max-h-48">
+                    <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
                       className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                      <Check className={`h-3 w-3 ${addServer === s.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                      {s.name}
+                      <Check className={`h-3 w-3 ${addServer === "all" ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                      all
                     </button>
-                  ))}
+                    {(dialogServers ?? []).map((s) => (
+                      <button key={s.name} type="button" onClick={() => { setAddServer(s.name); setAddServerPopoverOpen(false); }}
+                        className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                        <Check className={`h-3 w-3 ${addServer === s.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                        {s.name}
+                      </button>
+                    ))}
+                  </ScrollablePopoverList>
                 </PopoverContent>
               </Popover>
             </div>
@@ -1267,15 +1267,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 autoComplete="new-password"
               />
             </div>
-            {addDialogMode === "create" && (
-              <MikhmonAddUserHints
-                name={addName}
-                password={addPassword}
-                comment={addComment}
-                disabled={addLoading}
-                onSyncPasswordToName={() => setAddPassword(addName)}
-              />
-            )}
             {/* Profile */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Profile</Label>
@@ -1288,20 +1279,22 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-70" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-56 overflow-y-auto" align="start">
-                  {(dialogProfiles ?? []).length === 0 && (
-                    <p className="px-2 py-1 text-xs text-gray-400">Aucun profil disponible.</p>
-                  )}
-                  {(dialogProfiles ?? []).map((p) => (
-                    <button key={p.name} type="button" onClick={() => {
-                      setAddProfile(p.name);
-                      setAddProfilePopoverOpen(false);
-                    }}
-                      className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
-                      <Check className={`h-3 w-3 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
-                      <span className="truncate">{p.name}</span>
-                    </button>
-                  ))}
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <ScrollablePopoverList className="p-1" maxHeightClass="max-h-56">
+                    {(dialogProfiles ?? []).length === 0 && (
+                      <p className="px-2 py-1 text-xs text-gray-400">Aucun profil disponible.</p>
+                    )}
+                    {(dialogProfiles ?? []).map((p) => (
+                      <button key={p.name} type="button" onClick={() => {
+                        setAddProfile(p.name);
+                        setAddProfilePopoverOpen(false);
+                      }}
+                        className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded hover:bg-gray-100 text-left">
+                        <Check className={`h-3 w-3 ${addProfile === p.name ? "opacity-100 text-blue-600" : "opacity-0"}`} />
+                        <span className="truncate">{p.name}</span>
+                      </button>
+                    ))}
+                  </ScrollablePopoverList>
                 </PopoverContent>
               </Popover>
             </div>

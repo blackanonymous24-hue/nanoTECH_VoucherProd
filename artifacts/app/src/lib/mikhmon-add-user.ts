@@ -77,20 +77,3 @@ export function buildMikhmonAddUserRequestBody(
   return body;
 }
 
-export function getMikhmonAddUserUiState(name: string, password: string, comment: string) {
-  const mode = mikhmonAddUserCredentialsMode(name, password);
-  const finalComment = buildMikhmonAddUserComment(name, password, comment);
-  const isVoucher = mode === "vc";
-  return {
-    mode,
-    finalComment,
-    isVoucher,
-    modeLabel: isVoucher ? "Voucher (vc-)" : "Compte (up-)",
-    portalHint: isVoucher
-      ? "Portail captif : un seul champ — saisir le code (nom = mot de passe)."
-      : "Portail captif : deux champs — identifiant et mot de passe.",
-    commentHint: isVoucher
-      ? "Commentaire vide → « vc- » sur MikroTik (comme Mikhmon)."
-      : "Commentaire vide → « up- » sur MikroTik (comme Mikhmon).",
-  };
-}

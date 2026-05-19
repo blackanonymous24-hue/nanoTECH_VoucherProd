@@ -22,7 +22,6 @@ export function makeClientCommentForCredentials(username: string, password: stri
 export {
   buildMikhmonAddUserComment,
   buildMikhmonAddUserRequestBody,
-  getMikhmonAddUserUiState,
   mikhmonAddUserCredentialsMode,
 } from "./mikhmon-add-user";
 
