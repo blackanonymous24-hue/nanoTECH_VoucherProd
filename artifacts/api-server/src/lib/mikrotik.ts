@@ -126,6 +126,18 @@ function mikrotikRowIdSortKey(id: string | undefined | null): number {
   return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
 }
 
+/**
+ * Heure de départ + intervalle du scheduler « Monitor Profile » (Mikhmon d’origine).
+ * @see attached_assets/adduserprofile_1778007512561.php — randstarttime / randinterval
+ */
+function mikhmonProfileSchedulerTiming(): { startTime: string; interval: string } {
+  const pick = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const startTime = `0${pick(1, 5)}:${pad2(pick(10, 59))}:${pad2(pick(10, 59))}`;
+  const interval = `00:02:${pad2(pick(10, 59))}`;
+  return { startTime, interval };
+}
+
 /** Même règle que `sortRouterProfilesByCreationOrder` dans l’app web. */
 export function sortHotspotProfilesByCreationOrder<T extends { mikrotikId?: string; name?: string }>(
   profiles: T[],
@@ -1230,24 +1242,23 @@ async function applyProfileScheduler(
   }
   const onEvent = toWin1252(generateProfileSchedulerOnEvent(profileName, expmode, routerVersion));
   const schedName = toWin1252(profileName);
+  const { startTime, interval } = mikhmonProfileSchedulerTiming();
+  const comment = toWin1252(`Monitor Profile ${profileName}`);
+  const schedArgs = [
+    `=name=${schedName}`,
+    "=disabled=no",
+    `=start-time=${startTime}`,
+    `=interval=${interval}`,
+    `=on-event=${onEvent}`,
+    `=comment=${comment}`,
+  ];
   if (existing.length > 0) {
     const id = existing[0][".id"] as string | undefined;
     if (!id) return;
-    await api.write("/system/scheduler/set", [
-      `=.id=${id}`,
-      `=name=${schedName}`,
-      "=disabled=no",
-      "=interval=00:02:54",
-      `=on-event=${onEvent}`,
-    ]);
+    await api.write("/system/scheduler/set", [`=.id=${id}`, ...schedArgs]);
     return;
   }
-  await api.write("/system/scheduler/add", [
-    `=name=${schedName}`,
-    "=disabled=no",
-    "=interval=00:02:54",
-    `=on-event=${onEvent}`,
-  ]);
+  await api.write("/system/scheduler/add", schedArgs);
 }
 
 export async function createProfile(conn: RouterConnection, opts: CreateProfileOptions): Promise<void> {
