@@ -49,6 +49,10 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Déploiement VPS (mot de passe / clé SSH) — jamais committer
+deploy/vps.local.env
+deploy/*.local.env
+
 # Legacy / cache
 .cache/
 .local/

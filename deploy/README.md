@@ -123,13 +123,28 @@ Renouvellement automatique : géré par certbot.
 
 ## 7. Mises à jour
 
+### Depuis le VPS (SSH)
+
 ```bash
-cd /var/www/vouchernet
-git pull
-pnpm install --frozen-lockfile
-pnpm build
-sudo systemctl restart vouchernet
+sudo bash /var/www/vouchernet/deploy/update-vps.sh
 ```
+
+### Depuis votre PC (automatique)
+
+1. Copier `deploy/vps.local.env.example` → `deploy/vps.local.env` (ce fichier est **ignoré par Git**).
+2. Renseigner `VPS_HOST`, `VPS_USER`, et de préférence `VPS_SSH_KEY` (clé SSH, pas le mot de passe en clair).
+3. Installer votre clé publique sur le VPS une fois :
+   ```powershell
+   type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@VOTRE_IP "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+   ```
+4. Lancer :
+   ```powershell
+   .\deploy\deploy-local.ps1
+   ```
+
+Le script fait `git push` puis exécute `update-vps.sh` sur le serveur. Quand vous demandez une mise à jour à l’assistant Cursor, il pourra utiliser ce fichier local (jamais commité).
+
+**Sécurité :** ne mettez pas le mot de passe VPS dans le dépôt Git. Utilisez une clé SSH ; le mot de passe ne sert qu’une fois pour la copier sur le serveur.
 
 ## DNS Hostinger (hPanel)
 
