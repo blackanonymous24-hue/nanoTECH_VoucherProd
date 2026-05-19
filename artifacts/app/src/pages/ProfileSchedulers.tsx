@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { CalendarClock, RefreshCw, Router, Search, Trash2 } from "lucide-react";
 import { foldText } from "@/lib/text";
+import { sortMikrotikRowsByCreationOrder } from "@/lib/routerProfilesSort";
 import { useToast } from "@/hooks/use-toast";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 
@@ -56,7 +57,8 @@ export default function ProfileSchedulers() {
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
       const data = (await res.json()) as { schedulers?: ProfileScheduler[] };
-      setSchedulers(Array.isArray(data.schedulers) ? data.schedulers : []);
+      const list = Array.isArray(data.schedulers) ? data.schedulers : [];
+      setSchedulers(sortMikrotikRowsByCreationOrder(list));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -114,7 +116,7 @@ export default function ProfileSchedulers() {
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
-                                <div>
+        <div>
           <h1 className="text-2xl font-bold text-gray-900">Schedulers profils</h1>
           <p className="text-sm text-gray-500 mt-1">
             Moniteurs d&apos;expiration des forfaits hotspot (Mikhmon / MikroTik).

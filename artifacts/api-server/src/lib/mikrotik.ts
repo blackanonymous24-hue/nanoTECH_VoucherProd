@@ -2599,7 +2599,12 @@ export async function listHotspotProfileSchedulers(conn: RouterConnection): Prom
       });
     }
 
-    out.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
+    out.sort((a, b) => {
+      const na = mikrotikRowIdSortKey(a.id);
+      const nb = mikrotikRowIdSortKey(b.id);
+      if (na !== nb) return na - nb;
+      return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
+    });
     return out;
   });
 }
