@@ -13,7 +13,7 @@ function skipSessionEpochCheck(req: Request): boolean {
   if (req.method === "OPTIONS") return true;
   const p = req.path;
   if (req.method === "GET" && p === "/healthz") return true;
-  if (req.method === "POST" && (p === "/login" || p === "/verify-code")) return true;
+  if (req.method === "POST" && (p === "/login" || p === "/login/security-required" || p === "/verify-code")) return true;
   if (req.method === "POST" && p === "/vendor-portal/login") return true;
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) return true;

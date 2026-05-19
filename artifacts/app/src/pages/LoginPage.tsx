@@ -7,21 +7,23 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { useAuth, type UserRole } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
+import { describeFetchFailure, fetchJsonWithTimeout } from "@/lib/api-fetch";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-async function fetchSecurityRequired(login: string, password: string): Promise<boolean> {
+async function fetchSecurityRequired(login: string, password: string): Promise<boolean | null> {
   try {
-    const r = await fetch(`${BASE}/api/login/security-required`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ login: login.trim(), password }),
-    });
-    if (!r.ok) return false;
-    const data = (await r.json()) as { required?: boolean };
+    const { res, data } = await fetchJsonWithTimeout<{ required?: boolean }>(
+      "/api/login/security-required",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login: login.trim(), password }),
+        timeoutMs: 12_000,
+      },
+    );
+    if (!res.ok) return false;
     return !!data.required;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -117,8 +119,11 @@ export default function LoginPage({ mode }: LoginPageProps) {
     const loginTrimmed = form.login.trim();
     let securityRequired = needsSecurityCode;
     if (isAdmin && loginTrimmed && form.password) {
-      securityRequired = await fetchSecurityRequired(loginTrimmed, form.password);
-      setNeedsSecurityCode(securityRequired);
+      const required = await fetchSecurityRequired(loginTrimmed, form.password);
+      if (required !== null) {
+        securityRequired = required;
+        setNeedsSecurityCode(required);
+      }
     }
     if (isAdmin && securityRequired && !securityCode.trim()) {
       setError("Code de sécurité requis pour ce compte (super-admin originel).");
@@ -126,13 +131,13 @@ export default function LoginPage({ mode }: LoginPageProps) {
     }
     setLoading(true);
 
-    const MAX_ATTEMPTS = 6;
-    const RETRY_DELAY_MS = 1500;
+    const MAX_ATTEMPTS = 3;
+    const RETRY_DELAY_MS = 1200;
 
     try {
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
-          const res = await fetch(`${BASE}/api/login`, {
+          const { res, data } = await fetchJsonWithTimeout<Record<string, unknown>>("/api/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -143,17 +148,6 @@ export default function LoginPage({ mode }: LoginPageProps) {
                 : {}),
             }),
           });
-          let data: Record<string, unknown>;
-          try {
-            data = (await res.json()) as Record<string, unknown>;
-          } catch {
-            setError(
-              res.ok
-                ? "Réponse serveur invalide (pas de JSON). Vérifiez le proxy / l’URL de l’API."
-                : "Réponse serveur invalide.",
-            );
-            return;
-          }
           if (!res.ok) {
             const errMsg = (typeof data.error === "string" && data.error) || "Identifiants incorrects";
             if (
@@ -220,12 +214,16 @@ export default function LoginPage({ mode }: LoginPageProps) {
             navigate("/routers");
           }
           return;
-        } catch {
+        } catch (err) {
+          if (err instanceof Error && err.message === "INVALID_JSON") {
+            setError("Réponse serveur invalide. Vérifiez que l’API est joignable sur https://nanovoucher.com");
+            return;
+          }
           if (attempt < MAX_ATTEMPTS - 1) {
             await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
             continue;
           }
-          setError("Serveur indisponible, veuillez réessayer.");
+          setError(describeFetchFailure(err));
         }
       }
     } finally {
