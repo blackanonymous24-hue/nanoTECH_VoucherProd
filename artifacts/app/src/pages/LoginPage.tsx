@@ -9,6 +9,7 @@ import { useAuth, type UserRole } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { AUTH_SECURITY_REQUIRED_PATH, AUTH_SIGN_IN_PATH } from "@/lib/auth-api-paths";
 import { describeFetchFailure, fetchJsonWithTimeout } from "@/lib/api-fetch";
+import { isNativeAppShell } from "@/lib/native-app-shell";
 
 async function fetchSecurityRequired(login: string, password: string): Promise<boolean | null> {
   try {
@@ -202,7 +203,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
                 ? [manager.routerId]
                 : undefined,
             collaborateur?.routerIds ?? undefined,
-            apkLogin || remember,
+            isNativeAppShell() || remember,
             data.isSuperAdmin === true,
             connectedName,
             connectedUsername,
@@ -218,6 +219,10 @@ export default function LoginPage({ mode }: LoginPageProps) {
         } catch (err) {
           if (err instanceof Error && err.message === "INVALID_JSON") {
             setError("Réponse serveur invalide. Vérifiez que l’API est joignable sur https://nanovoucher.com");
+            return;
+          }
+          if (err instanceof ReferenceError) {
+            setError("Erreur interne après connexion. Rechargez la page (Ctrl+F5) ou mettez à jour l’application.");
             return;
           }
           if (attempt < MAX_ATTEMPTS - 1) {

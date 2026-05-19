@@ -1,6 +1,10 @@
 /** Racine API (même origine que le SPA, ex. "" ou "/app"). */
 export function getApiBase(): string {
-  return import.meta.env.BASE_URL.replace(/\/$/, "");
+  const fromVite = import.meta.env.BASE_URL.replace(/\/$/, "");
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return fromVite ? `${window.location.origin}${fromVite}` : window.location.origin;
+  }
+  return fromVite;
 }
 
 const DEFAULT_TIMEOUT_MS = 25_000;
