@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, ShieldCheck, Plus, Pencil, Trash2, Calendar, Coins,
   CalendarPlus, Power, KeyRound, Loader2, Crown, UserCog, Router as RouterIcon, Search,
-  FileCode, Save, ServerCog, RotateCcw, Upload, BookMarked, Copy, Wifi, Activity,
+  FileCode, ServerCog, Copy, Wifi, Activity, ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
@@ -15,25 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogFooter, DialogDescription, DialogClose,
 } from "@/components/ui/dialog";
-import {
-  DEFAULT_MIKHMON_PHP,
-  PHP_KEY,
-  CUSTOM_DEFAULT_KEY,
-  getCustomDefault,
-} from "@/lib/voucher-ticket-defaults";
-import {
-  TICKET_TEMPLATE_PRESETS,
-  type TicketTemplatePresetId,
-  type TicketTemplateSelectionId,
-  getPresetBody,
-  getStoredTicketPresetId,
-  setStoredTicketPresetId,
-  findMatchingPresetId,
-  resolveTicketTemplateSelection,
-} from "@/lib/voucher-ticket-presets";
-import {
-  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
-} from "@/components/ui/sheet";
+import { TicketTemplateEditor } from "@/components/TicketTemplateEditor";
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -46,11 +28,9 @@ import { foldText } from "@/lib/text";
 import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 import {
   routerConnectionStatusShortLabel,
-  pingRouterTcpApi,
+  pingRouterForSuperAdminTenant,
 } from "@/lib/router-connection-test";
 import { getListRoutersQueryKey } from "@workspace/api-client-react";
-import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
-import { setCurrentPrintTemplateId } from "@/lib/voucher-print-scale";
 
 interface RouterRow {
   id: number;
@@ -104,6 +84,33 @@ function parseAddress(address: string): { host: string; port: number } {
   }
   return { host: address, port: 8728 };
 }
+
+const MAX_ROUTER_CURRENCY_LEN = 24;
+
+function normalizeRouterCurrency(raw: string): string {
+  const v = raw.trim().toUpperCase().slice(0, MAX_ROUTER_CURRENCY_LEN);
+  return v || "FCFA";
+}
+
+type RouterFormPayload = {
+  name: string;
+  hotspotName?: string;
+  contact?: string;
+  currency: string;
+  address: string;
+  username: string;
+  password: string;
+};
+
+const emptyRouterForm: RouterFormPayload = {
+  name: "",
+  hotspotName: "",
+  contact: "",
+  currency: "FCFA",
+  address: "",
+  username: "admin",
+  password: "",
+};
 
 function fmt(d: string | null): string {
   if (!d) return "—";
@@ -722,10 +729,18 @@ export default function SuperAdmins() {
         />
       )}
 
-      {templateTarget && (
-        <TemplateDialog
-          admin={templateTarget}
+      {templateTarget && token && (
+        <TicketTemplateEditor
+          key={templateTarget.id}
+          layout="dialog"
+          isolatedScope
+          title={`Modèle de ticket — ${templateTarget.displayName || templateTarget.login}`}
+          subtitle="Même éditeur que la page Modèle de ticket : les changements sont enregistrés sur le compte de cet administrateur (pas sur le vôtre)."
+          loadPath={`/api/super/admins/${templateTarget.id}/ticket-template`}
+          savePath={`/api/super/admins/${templateTarget.id}/ticket-template`}
+          authHeaders={{ Authorization: `Bearer ${token}` }}
           onClose={() => { setTemplateTarget(null); refresh(); }}
+          onSaved={() => refresh()}
         />
       )}
 
@@ -752,33 +767,122 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
   const { selectWithPing, pingingId: connectingId } = useSelectRouterWithPing();
 
-  /** Identité JWT — pour le super-admin qui ouvre son propre compte, la liste = GET /api/routers (comme le reste de l’app). */
-  const { data: sessionMe, isFetched: sessionMeFetched } = useQuery<{ id: number; isSuperAdmin: boolean }>({
-    queryKey: ["admin", "me", "super-routers-panel"],
-    enabled: !!token && admin.isSuperAdmin,
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/admin/me`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) throw new Error("Session introuvable");
-      return r.json();
-    },
-  });
-  const useSessionRouterList = !!(admin.isSuperAdmin && sessionMe && sessionMe.id === admin.id);
+  const panelQueryKey = ["super", "admin-routers-panel", admin.id] as const;
+  const routerLimit = admin.isSuperAdmin ? null : 5 + admin.extraRouterSlots;
 
-  const [formTarget, setFormTarget] = useState<RouterRow | "create" | null>(null);
+  const [panelView, setPanelView] = useState<"list" | "form">("list");
+  const [editingRouter, setEditingRouter] = useState<RouterRow | null>(null);
+  const [form, setForm] = useState<RouterFormPayload>(emptyRouterForm);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showCopyVendors, setShowCopyVendors] = useState(false);
   const [showCopyRouter, setShowCopyRouter] = useState(false);
   const [pingingIds, setPingingIds] = useState<Set<number>>(new Set());
   const [pingResults, setPingResults] = useState<Record<number, { success: boolean; message: string }>>({});
 
+  const { data: routers = [], isLoading } = useQuery<RouterRow[]>({
+    queryKey: panelQueryKey,
+    enabled: !!token,
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, { headers });
+      if (!r.ok) {
+        const err = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? "Chargement des routeurs impossible");
+      }
+      return r.json();
+    },
+  });
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: panelQueryKey });
+    void qc.invalidateQueries({ queryKey: ["super", "admins"] });
+    void qc.invalidateQueries({ queryKey: getListRoutersQueryKey() });
+  };
+
+  const buildRouterBody = (p: RouterFormPayload, forEdit = false) => {
+    const { host, port } = parseAddress(p.address);
+    const body: Record<string, unknown> = {
+      name: p.name,
+      hotspotName: p.hotspotName?.trim() || undefined,
+      contact: p.contact?.trim() || undefined,
+      currency: normalizeRouterCurrency(p.currency),
+      host,
+      port,
+      username: p.username,
+    };
+    if (!forEdit || p.password.trim()) {
+      body.password = p.password.trim();
+    }
+    return body;
+  };
+
+  const createM = useMutation({
+    mutationFn: async (p: RouterFormPayload) => {
+      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(buildRouterBody(p)),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Création impossible");
+      return r.json();
+    },
+    onSuccess: () => {
+      setPanelView("list");
+      setEditingRouter(null);
+      setForm(emptyRouterForm);
+      invalidate();
+      toast({ title: "Routeur ajouté", description: `Rattaché à ${admin.displayName || admin.login}.` });
+    },
+    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
+
+  const editM = useMutation({
+    mutationFn: async (p: RouterFormPayload & { id: number }) => {
+      const { id, ...rest } = p;
+      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers/${id}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify(buildRouterBody(rest, true)),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Mise à jour impossible");
+      return r.json();
+    },
+    onSuccess: () => {
+      setPanelView("list");
+      setEditingRouter(null);
+      invalidate();
+      toast({ title: "Routeur mis à jour" });
+    },
+    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
+
+  const openCreateForm = () => {
+    setEditingRouter(null);
+    setForm(emptyRouterForm);
+    setPanelView("form");
+  };
+
+  const openEditForm = (r: RouterRow) => {
+    setEditingRouter(r);
+    setForm({
+      name: r.name,
+      hotspotName: r.hotspotName ?? "",
+      contact: r.contact ?? "",
+      currency: normalizeRouterCurrency(r.currency ?? "FCFA"),
+      address: `${r.host}:${r.port}`,
+      username: r.username,
+      password: r.password ?? "",
+    });
+    setPanelView("form");
+  };
+
   const handlePing = async (r: RouterRow) => {
     if (pingingIds.has(r.id)) return;
     setPingingIds((s) => new Set(s).add(r.id));
     try {
-      const data = await pingRouterTcpApi(r.id, token, { force: true });
+      const data = await pingRouterForSuperAdminTenant(admin.id, r.id, token);
       setPingResults((prev) => ({
         ...prev,
-        [r.id]: { success: data.success, message: data.message || (data.success ? "En ligne" : "Échec") },
+        [r.id]: { success: data.success, message: data.message },
       }));
     } catch {
       setPingResults((prev) => ({
@@ -786,59 +890,13 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
         [r.id]: { success: false, message: "Erreur réseau" },
       }));
     } finally {
-      setPingingIds((s) => { const n = new Set(s); n.delete(r.id); return n; });
+      setPingingIds((s) => {
+        const n = new Set(s);
+        n.delete(r.id);
+        return n;
+      });
     }
   };
-
-  const panelQueryKey = ["super", "admin-routers-panel", admin.id, useSessionRouterList ? "session" : "tenant"] as const;
-
-  const { data: routers = [], isLoading } = useQuery<RouterRow[]>({
-    queryKey: panelQueryKey,
-    enabled: !!token && (!admin.isSuperAdmin || sessionMeFetched),
-    queryFn: async () => {
-      if (useSessionRouterList) {
-        const r = await fetch(`${BASE}/api/routers`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!r.ok) throw new Error("Chargement des routeurs impossible");
-        return r.json();
-      }
-      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, { headers });
-      if (!r.ok) throw new Error("Chargement des routeurs impossible");
-      return r.json();
-    },
-  });
-
-  const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: ["super", "admin-routers-panel", admin.id] });
-    void qc.invalidateQueries({ queryKey: getListRoutersQueryKey() });
-  };
-
-  const createM = useMutation({
-    mutationFn: async (p: { name: string; hotspotName?: string; contact?: string; address: string; username: string; password: string }) => {
-      const { host, port } = parseAddress(p.address);
-      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers`, {
-        method: "POST", headers,
-        body: JSON.stringify({ name: p.name, hotspotName: p.hotspotName || undefined, contact: p.contact || undefined, host, port, username: p.username, password: p.password }),
-      });
-      if (!r.ok) throw new Error((await r.json()).error ?? "Création impossible");
-      return r.json();
-    },
-    onSuccess: () => { setFormTarget(null); invalidate(); toast({ title: "Routeur ajouté" }); },
-    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
-  });
-
-  const editM = useMutation({
-    mutationFn: async (p: { id: number; name: string; hotspotName?: string; contact?: string; address: string; username: string; password: string }) => {
-      const { host, port } = parseAddress(p.address);
-      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/routers/${p.id}`, {
-        method: "PUT", headers,
-        body: JSON.stringify({ name: p.name, hotspotName: p.hotspotName || undefined, contact: p.contact || undefined, host, port, username: p.username, password: p.password }),
-      });
-      if (!r.ok) throw new Error((await r.json()).error ?? "Mise à jour impossible");
-      return r.json();
-    },
-    onSuccess: () => { setFormTarget(null); invalidate(); toast({ title: "Routeur mis à jour" }); },
-    onError: (e: Error) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
-  });
 
   const deleteRouter = async (r: RouterRow) => {
     if (!confirm(`Supprimer le routeur « ${r.name} » et toutes ses données ?`)) return;
@@ -849,187 +907,265 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
       invalidate();
       toast({ title: "Routeur supprimé" });
     } catch (e) {
-      toast({ title: "Erreur", description: e instanceof Error ? e.message : "Opération échouée", variant: "destructive" });
+      toast({
+        title: "Erreur",
+        description: e instanceof Error ? e.message : "Opération échouée",
+        variant: "destructive",
+      });
     } finally {
       setDeletingId(null);
     }
   };
 
-  const pending = createM.isPending || editM.isPending;
+  const formPending = createM.isPending || editM.isPending;
+  const canSubmitForm =
+    !formPending
+    && !!form.name.trim()
+    && !!form.address.trim()
+    && !!form.username.trim()
+    && (editingRouter ? true : form.password.length >= 1);
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmitForm) return;
+    if (editingRouter) {
+      editM.mutate({ id: editingRouter.id, ...form, name: form.name.trim(), address: form.address.trim(), username: form.username.trim() });
+    } else {
+      createM.mutate({ ...form, name: form.name.trim(), address: form.address.trim(), username: form.username.trim() });
+    }
+  };
+
+  const atRouterLimit =
+    routerLimit != null && routers.length >= routerLimit && panelView === "list";
 
   return (
     <>
       <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
         <DialogContent className="max-w-2xl w-[calc(100vw-2rem)] flex flex-col gap-0 p-0 max-h-[88vh] overflow-hidden">
-          {/* En-tête */}
           <DialogHeader className="px-4 py-3 border-b shrink-0">
             <DialogTitle className="flex items-center gap-2 text-sm sm:text-base">
-              <ServerCog className="h-4 w-4 text-blue-600 shrink-0" />
-              <span className="truncate">Routeurs — {admin.displayName || admin.login}</span>
+              {panelView === "form" ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => { setPanelView("list"); setEditingRouter(null); }}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              ) : (
+                <ServerCog className="h-4 w-4 text-blue-600 shrink-0" />
+              )}
+              <span className="truncate">
+                {panelView === "form"
+                  ? (editingRouter ? `Modifier — ${editingRouter.name}` : "Ajouter un routeur")
+                  : `Routeurs — ${admin.displayName || admin.login}`}
+              </span>
             </DialogTitle>
             <DialogDescription className="text-xs">
-              {routers.length} routeur{routers.length !== 1 ? "s" : ""}
-              {admin.isSuperAdmin ? " · Limite illimitée" : ` · Limite ${5 + admin.extraRouterSlots}`}
+              {panelView === "form"
+                ? `Enregistrement sur le compte ${admin.displayName || admin.login} (API super-admin).`
+                : (
+                  <>
+                    {routers.length} routeur{routers.length !== 1 ? "s" : ""}
+                    {admin.isSuperAdmin ? " · Limite illimitée" : ` · Limite ${routerLimit}`}
+                    {atRouterLimit ? " · Plafond atteint (crédits requis pour extension auto)" : ""}
+                  </>
+                )}
             </DialogDescription>
           </DialogHeader>
 
-          {/* Barre d'actions */}
-          <div className="flex items-center justify-between px-3 py-2 border-b shrink-0 gap-2 flex-wrap">
-            <span className="text-xs text-gray-500 shrink-0">
-              {isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}
-            </span>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-                disabled={routers.length === 0}
-                title={routers.length === 0 ? "Ajoutez au moins un routeur à cet admin pour recevoir les vendeurs" : undefined}
-                onClick={() => setShowCopyVendors(true)}
-              >
-                <Users className="h-3 w-3" /> <span className="hidden xs:inline">Copier</span> vendeurs
-              </Button>
-              <Button size="sm" variant="accentOutline" className="gap-1" onClick={() => setShowCopyRouter(true)}>
-                <Copy className="h-3 w-3" /> <span className="hidden xs:inline">Copier</span> routeur
-              </Button>
-              <Button size="sm" className="gap-1" onClick={() => setFormTarget("create")}>
-                <Plus className="h-3 w-3" /> Ajouter
-              </Button>
-            </div>
-          </div>
-
-          {/* Liste scrollable */}
-          <div className="overflow-y-auto px-3 py-2 space-y-1.5" style={{ scrollbarGutter: "stable" }}>
-            {isLoading && (
-              <div className="space-y-1.5 py-1">
-                <Skeleton className="h-14 w-full rounded-xl" />
-                <Skeleton className="h-14 w-full rounded-xl" />
-                <Skeleton className="h-14 w-full rounded-xl" />
-              </div>
-            )}
-            {!isLoading && routers.length === 0 && (
-              <div className="py-10 text-center text-sm text-gray-400">
-                {admin.isSuperAdmin
-                  ? "Aucun routeur sur votre compte super-admin. Utilisez « Ajouter » pour en enregistrer un."
-                  : "Aucun routeur pour cet admin."}
-              </div>
-            )}
-            {routers.map((r) => {
-              const pingResult = pingResults[r.id];
-              const pingOk = pingResult?.success === true;
-              const hasPing = r.id in pingResults;
-              const isPinging = pingingIds.has(r.id);
-              const isConnecting = connectingId === r.id;
-              return (
-                <div
-                  key={r.id}
-                  className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group"
-                  title="Cliquer pour se connecter à ce routeur"
-                  onClick={() => void selectWithPing(r.id, { routerData: { id: r.id, name: r.name, ownerAdminId: r.ownerAdminId, hotspotName: r.hotspotName ?? null, contact: r.contact ?? null } })}
-                >
-                  {/* Icône */}
-                  <div className="p-1.5 rounded-lg bg-blue-50 shrink-0">
-                    {isConnecting
-                      ? <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-                      : <Wifi className="h-4 w-4 text-blue-500" />}
+          {panelView === "form" ? (
+            <form onSubmit={handleFormSubmit} className="flex flex-col min-h-0 flex-1">
+              <div className="overflow-y-auto px-4 py-3 space-y-3">
+                <div>
+                  <Label>Nom <span className="text-red-500">*</span></Label>
+                  <Input className="mt-1" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label>Nom du wifi</Label>
+                    <Input className="mt-1" value={form.hotspotName} onChange={(e) => setForm({ ...form, hotspotName: e.target.value })} />
                   </div>
-
-                  {/* Infos */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1 flex-wrap">
-                      <p className="font-bold text-xs text-gray-900 truncate uppercase tracking-wide">{r.name}</p>
-                      {hasPing && pingResult && (
-                        <span
-                          title={pingResult.message}
-                          className={`inline-flex max-w-[12rem] items-center rounded-full px-1 min-h-3.5 text-[9px] font-semibold border shrink-0 truncate ${
-                            pingOk
-                              ? "text-emerald-600 border-emerald-200 bg-emerald-50"
-                              : "text-red-600 border-red-200 bg-red-50"
-                          }`}
-                        >
-                          {routerConnectionStatusShortLabel(pingResult)}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-gray-400 leading-tight truncate font-mono">{r.host}:{r.port}</p>
-                    {hasPing && pingResult && !pingResult.success && (
-                      <p className="text-[9px] text-red-600 leading-snug line-clamp-2" title={pingResult.message}>
-                        {pingResult.message}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                      {/* Ping */}
-                    {!isConnecting && (
-                      <div className="relative">
-                        {isPinging && (
-                          <span className="absolute inset-0 rounded-full animate-ping bg-blue-300 opacity-60 pointer-events-none" />
-                        )}
-                        <Button
-                          size="icon" variant="ghost"
-                          className="h-7 w-7 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200 relative"
-                          title="Tester la connexion"
-                          disabled={isPinging}
-                          onClick={(e) => { e.stopPropagation(); void handlePing(r); }}
-                        >
-                          {isPinging
-                            ? <Loader2 className="h-3 w-3 animate-spin" />
-                            : <Activity className="h-3 w-3" />}
-                        </Button>
-                      </div>
-                    )}
-
-                    {/* Modifier */}
-                    <Button
-                      size="icon" variant="ghost"
-                      className="h-7 w-7 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 border border-slate-200"
-                      title="Modifier"
-                      onClick={(e) => { e.stopPropagation(); setFormTarget(r); }}
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </Button>
-
-                    {/* Séparateur + Supprimer */}
-                    <div className="h-5 w-px bg-gray-200" />
-                    <Button
-                      size="icon" variant="ghost"
-                      className="h-7 w-7 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50 border border-red-200"
-                      title="Supprimer"
-                      disabled={deletingId !== null}
-                      onClick={(e) => { e.stopPropagation(); void deleteRouter(r); }}
-                    >
-                      {deletingId === r.id
-                        ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : <Trash2 className="h-3 w-3" />}
-                    </Button>
+                  <div>
+                    <Label>Contact</Label>
+                    <Input className="mt-1" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
                   </div>
                 </div>
-              );
-            })}
-          </div>
+                <div>
+                  <Label>Devise</Label>
+                  <Input
+                    className="mt-1 font-mono uppercase"
+                    value={form.currency}
+                    onChange={(e) => setForm({ ...form, currency: normalizeRouterCurrency(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <Label>Adresse (hôte:port) <span className="text-red-500">*</span></Label>
+                  <Input
+                    className="mt-1 font-mono"
+                    value={form.address}
+                    onChange={(e) => setForm({ ...form, address: e.target.value })}
+                    placeholder="192.168.88.1:8728"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Utilisateur <span className="text-red-500">*</span></Label>
+                    <Input className="mt-1" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+                  </div>
+                  <div>
+                    <Label>Mot de passe <span className="text-red-500">*</span></Label>
+                    <PasswordInput
+                      className="mt-1"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      placeholder={editingRouter ? "Laisser vide = inchangé" : ""}
+                    />
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="px-4 py-3 border-t gap-2 sm:gap-0">
+                <Button type="button" variant="outline" onClick={() => { setPanelView("list"); setEditingRouter(null); }}>
+                  Annuler
+                </Button>
+                <Button type="submit" disabled={!canSubmitForm}>
+                  {formPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {editingRouter ? "Enregistrer" : "Ajouter"}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : (
+            <>
+              <div className="flex items-center justify-between px-3 py-2 border-b shrink-0 gap-2 flex-wrap">
+                <span className="text-xs text-gray-500 shrink-0">
+                  {isLoading ? "Chargement…" : `${routers.length} routeur${routers.length !== 1 ? "s" : ""}`}
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                    disabled={routers.length === 0}
+                    onClick={() => setShowCopyVendors(true)}
+                  >
+                    <Users className="h-3 w-3" /> Copier vendeurs
+                  </Button>
+                  <Button size="sm" variant="accentOutline" className="gap-1 h-7" onClick={() => setShowCopyRouter(true)}>
+                    <Copy className="h-3 w-3" /> Copier routeur
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1 h-7"
+                    onClick={openCreateForm}
+                    disabled={atRouterLimit}
+                    title={atRouterLimit ? "Limite de routeurs atteinte pour cet admin" : undefined}
+                  >
+                    <Plus className="h-3 w-3" /> Ajouter
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-y-auto px-3 py-2 space-y-1.5" style={{ scrollbarGutter: "stable" }}>
+                {isLoading && (
+                  <div className="space-y-1.5 py-1">
+                    <Skeleton className="h-14 w-full rounded-xl" />
+                    <Skeleton className="h-14 w-full rounded-xl" />
+                  </div>
+                )}
+                {!isLoading && routers.length === 0 && (
+                  <div className="py-10 text-center text-sm text-gray-400">
+                    Aucun routeur pour cet admin. Cliquez sur « Ajouter » pour en créer un.
+                  </div>
+                )}
+                {routers.map((r) => {
+                  const ownerId = r.ownerAdminId ?? admin.id;
+                  const pingResult = pingResults[r.id];
+                  const pingOk = pingResult?.success === true;
+                  const hasPing = r.id in pingResults;
+                  const isPinging = pingingIds.has(r.id);
+                  const isConnecting = connectingId === r.id;
+                  return (
+                    <div
+                      key={r.id}
+                      className="flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2 hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group"
+                      title="Cliquer pour se connecter à ce routeur"
+                      onClick={() =>
+                        void selectWithPing(r.id, {
+                          routerData: {
+                            id: r.id,
+                            name: r.name,
+                            ownerAdminId: ownerId,
+                            hotspotName: r.hotspotName ?? null,
+                            contact: r.contact ?? null,
+                          },
+                        })
+                      }
+                    >
+                      <div className="p-1.5 rounded-lg bg-blue-50 shrink-0">
+                        {isConnecting ? <Loader2 className="h-4 w-4 animate-spin text-blue-400" /> : <Wifi className="h-4 w-4 text-blue-500" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <p className="font-bold text-xs text-gray-900 truncate uppercase tracking-wide">{r.name}</p>
+                          {hasPing && pingResult && (
+                            <span
+                              className={`inline-flex max-w-[12rem] items-center rounded-full px-1 min-h-3.5 text-[9px] font-semibold border shrink-0 truncate ${
+                                pingOk ? "text-emerald-600 border-emerald-200 bg-emerald-50" : "text-red-600 border-red-200 bg-red-50"
+                              }`}
+                            >
+                              {routerConnectionStatusShortLabel(pingResult)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-gray-400 leading-tight truncate font-mono">{r.host}:{r.port}</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {!isConnecting && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 rounded-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 border border-blue-200"
+                            title="Tester la connexion"
+                            disabled={isPinging}
+                            onClick={(e) => { e.stopPropagation(); void handlePing(r); }}
+                          >
+                            {isPinging ? <Loader2 className="h-3 w-3 animate-spin" /> : <Activity className="h-3 w-3" />}
+                          </Button>
+                        )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 border border-slate-200"
+                          title="Modifier"
+                          onClick={(e) => { e.stopPropagation(); openEditForm(r); }}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50 border border-red-200"
+                          title="Supprimer"
+                          disabled={deletingId !== null}
+                          onClick={(e) => { e.stopPropagation(); void deleteRouter(r); }}
+                        >
+                          {deletingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
-      {formTarget !== null && (
-        <RouterFormDialog
-          router={formTarget === "create" ? null : formTarget}
-          onClose={() => setFormTarget(null)}
-          pending={pending}
-          onSubmit={(p) => {
-            if (formTarget === "create") createM.mutate(p);
-            else editM.mutate({ id: formTarget.id, ...p });
-          }}
-        />
-      )}
-
       {showCopyVendors && (
-        <CopyVendorsDialog
-          admin={admin}
-          adminRouters={routers}
-          onClose={() => setShowCopyVendors(false)}
-        />
+        <CopyVendorsDialog admin={admin} adminRouters={routers} onClose={() => setShowCopyVendors(false)} />
       )}
 
       {showCopyRouter && (
@@ -1041,8 +1177,9 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
             setShowCopyRouter(false);
             createM.mutate({
               name: r.name,
-              hotspotName: r.hotspotName ?? undefined,
-              contact: r.contact ?? undefined,
+              hotspotName: r.hotspotName ?? "",
+              contact: r.contact ?? "",
+              currency: normalizeRouterCurrency(r.currency ?? "FCFA"),
               address: `${r.host}:${r.port}`,
               username: r.username,
               password: r.password,
@@ -1053,8 +1190,6 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     </>
   );
 }
-
-/* ══════════════════════════════════════════════════════
    CopyRouterDialog — sélectionner un routeur existant pour le dupliquer
    ══════════════════════════════════════════════════════ */
 interface AllRouterRow extends RouterRow {
@@ -1186,65 +1321,6 @@ function CopyRouterDialog({
           <DialogClose asChild>
             <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
           </DialogClose>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function RouterFormDialog({
-  router, onClose, onSubmit, pending,
-}: {
-  router: RouterRow | null;
-  onClose: () => void;
-  onSubmit: (p: { name: string; hotspotName?: string; contact?: string; address: string; username: string; password: string }) => void;
-  pending: boolean;
-}) {
-  const isEdit = router !== null;
-  const [name, setName] = useState(router?.name ?? "");
-  const [hotspotName, setHotspotName] = useState(router?.hotspotName ?? "");
-  const [contact, setContact] = useState(router?.contact ?? "");
-  const [address, setAddress] = useState(router ? `${router.host}:${router.port}` : "");
-  const [username, setUsername] = useState(router?.username ?? "admin");
-  const [password, setPassword] = useState(router?.password ?? "");
-
-  const canSubmit = !pending && !!name.trim() && !!address.trim() && !!username.trim() && password.length >= 1;
-
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{isEdit ? `Modifier — ${router!.name}` : "Ajouter un routeur"}</DialogTitle>
-          <DialogDescription>{isEdit ? "Modifiez les informations du routeur." : "Ce routeur sera rattaché directement à cet administrateur."}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div><Label>Nom <span className="text-red-500">*</span></Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mon routeur" /></div>
-          <div><Label>Nom du hotspot</Label><Input value={hotspotName} onChange={(e) => setHotspotName(e.target.value)} placeholder="optionnel" /></div>
-          <div><Label>Contact</Label><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="optionnel" /></div>
-          <div>
-            <Label>Adresse (hôte:port) <span className="text-red-500">*</span></Label>
-            <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.88.1:8728" className="font-mono" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label>Utilisateur <span className="text-red-500">*</span></Label><Input value={username} onChange={(e) => setUsername(e.target.value)} /></div>
-            <div>
-              <Label>Mot de passe <span className="text-red-500">*</span></Label>
-              <PasswordInput
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button
-            disabled={!canSubmit}
-            onClick={() => onSubmit({ name: name.trim(), hotspotName: hotspotName.trim() || undefined, contact: contact.trim() || undefined, address: address.trim(), username: username.trim(), password })}
-          >
-            {pending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {isEdit ? "Enregistrer" : "Ajouter"}
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1815,270 +1891,6 @@ function EditDialog({ admin, onClose, onSubmit, pending }: {
   );
 }
 
-function TemplateDialog({ admin, onClose }: {
-  admin: AdminRow;
-  onClose: () => void;
-}) {
-  const { toast } = useToast();
-  const { token } = useAuth();
-  const authHeaders = { Authorization: `Bearer ${token ?? ""}` };
-  const [templateCode, setTemplateCode] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [presetValue, setPresetValue] = useState<TicketTemplateSelectionId>("mikhmon-small");
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { setCurrentPrintTemplateId(presetValue); }, [presetValue]);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, { headers: authHeaders })
-      .then((r) => (r.ok ? r.json() : { template: null, presetId: null }))
-      .then((data: { template: string | null; presetId?: string | null }) => {
-        const raw = data.template ?? "";
-        const fromServer = raw.trim() === "" ? "" : raw;
-        const resolved = resolveTicketTemplateSelection({
-          templateBody: fromServer,
-          serverPresetId: data.presetId,
-        });
-        setPresetValue(resolved);
-        setStoredTicketPresetId(resolved);
-        if (fromServer) {
-          setTemplateCode(fromServer);
-        } else if (resolved !== "custom") {
-          setTemplateCode(getCustomDefault() || getPresetBody(resolved));
-        } else {
-          setTemplateCode(getCustomDefault() || "");
-        }
-      })
-      .catch(() => {
-        const stored = getStoredTicketPresetId();
-        setPresetValue(stored);
-        setStoredTicketPresetId(stored);
-        if (stored === "custom") {
-          setTemplateCode(getCustomDefault() || "");
-        } else {
-          setTemplateCode(getCustomDefault() || getPresetBody(stored));
-        }
-      })
-      .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [admin.id]);
-
-  const persistTemplate = async (
-    template: string,
-    presetForApi: TicketTemplateSelectionId,
-    closeOnSuccess: boolean,
-  ): Promise<boolean> => {
-    setSaving(true);
-    try {
-      const r = await fetch(`${BASE}/api/super/admins/${admin.id}/ticket-template`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ template, presetId: presetForApi }),
-      });
-      if (r.ok) {
-        setPresetValue(presetForApi);
-        setStoredTicketPresetId(presetForApi);
-        if (closeOnSuccess) onClose();
-        return true;
-      }
-      const err = await r.json().catch(() => ({})) as { error?: string };
-      toast({ title: "Erreur", description: err.error ?? "Impossible de sauvegarder.", variant: "destructive" });
-      return false;
-    } catch {
-      toast({ title: "Erreur réseau", variant: "destructive" });
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSave = async () => {
-    const ok = await persistTemplate(templateCode, presetValue, true);
-    if (ok) {
-      toast({ title: "Modèle sauvegardé", description: `Modèle de ticket mis à jour pour ${admin.displayName || admin.login}.` });
-    }
-  };
-
-  const handlePresetChange = (v: string) => {
-    if (v === "custom") {
-      setStoredTicketPresetId("custom");
-      setPresetValue("custom");
-      return;
-    }
-    const id = v as TicketTemplatePresetId;
-    setStoredTicketPresetId(id);
-    setPresetValue(id);
-    const body = getPresetBody(id);
-    setTemplateCode(body);
-    try {
-      localStorage.setItem(PHP_KEY, body);
-      localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
-    } catch { /* ignore */ }
-    const label = TICKET_TEMPLATE_PRESETS.find((p) => p.id === id)?.label ?? id;
-    toast({ title: "Modèle chargé", description: label });
-  };
-
-  const isCustomTemplate = useMemo(() => !loading && presetValue === "custom", [loading, presetValue]);
-
-  const handleReset = async () => {
-    const body = DEFAULT_MIKHMON_PHP;
-    setStoredTicketPresetId("mikhmon-small");
-    setPresetValue("mikhmon-small");
-    setTemplateCode(body);
-    try {
-      localStorage.setItem(PHP_KEY, body);
-      localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
-    } catch { /* ignore */ }
-    const saved = await persistTemplate(body, "mikhmon-small", false);
-    if (saved) {
-      toast({
-        title: "Réinitialisé",
-        description: `Modèle Mikhmon (small) enregistré pour ${admin.displayName || admin.login}.`,
-      });
-    }
-  };
-
-  const handleUseDefaultMikhmon = () => {
-    setStoredTicketPresetId("mikhmon-small");
-    setPresetValue("mikhmon-small");
-    const body = DEFAULT_MIKHMON_PHP;
-    setTemplateCode(body);
-    try {
-      localStorage.setItem(PHP_KEY, body);
-      localStorage.setItem(CUSTOM_DEFAULT_KEY, body);
-    } catch { /* ignore */ }
-    toast({ title: "Mikhmon (small)", description: "Sauvegardez pour l’appliquer à cet admin." });
-  };
-
-  const handleImportPHP = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const raw = ev.target?.result as string;
-      setTemplateCode(raw);
-      setPresetValue(findMatchingPresetId(raw));
-      try { localStorage.setItem(PHP_KEY, raw); localStorage.setItem(CUSTOM_DEFAULT_KEY, raw); } catch { /* ignore */ }
-      toast({ title: "Fichier importé", description: `${file.name} — cliquez Sauvegarder pour le serveur.` });
-    };
-    reader.readAsText(file, "UTF-8");
-    e.target.value = "";
-  };
-
-  const handleSetAsDefault = () => {
-    if (!templateCode.trim()) return;
-    try { localStorage.setItem(CUSTOM_DEFAULT_KEY, templateCode); localStorage.setItem(PHP_KEY, templateCode); } catch { /* ignore */ }
-    toast({ title: "Modèle de base local", description: "Utilisé comme base sur cet appareil." });
-  };
-
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileCode className="h-5 w-5 text-violet-600" />
-            Modèle de ticket — {admin.displayName || admin.login}
-          </DialogTitle>
-          <DialogDescription>
-            Trois modèles intégrés — par défaut <strong>Mikhmon (small)</strong> si le serveur n’a pas encore de modèle pour cet admin.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
-            <RouterIcon className="h-3.5 w-3.5 text-gray-500" />
-            Modèle intégré
-          </Label>
-          <Select
-            value={presetValue}
-            onValueChange={handlePresetChange}
-            disabled={loading || saving}
-          >
-            <SelectTrigger className="h-9 text-sm w-full max-w-md bg-white border-gray-200">
-              <SelectValue placeholder="Choisir un modèle…" />
-            </SelectTrigger>
-            <SelectContent>
-              {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
-                <SelectItem key={id} value={id} className="text-sm">
-                  {label}
-                </SelectItem>
-              ))}
-              {presetValue === "custom" ? (
-                <SelectItem value="custom" className="text-sm text-muted-foreground">
-                  Personnalisé (contenu hors modèles)
-                </SelectItem>
-              ) : null}
-          </SelectContent>
-          </Select>
-          {isCustomTemplate && (
-            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
-              Le texte ne correspond exactement à aucun des trois modèles — choisissez un modèle pour le remplacer, ou continuez à éditer à la main.
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto">
-          {isCustomTemplate ? (
-          <Button
-            variant="warning"
-            size="sm"
-            onClick={() => void handleReset()}
-            disabled={saving || loading}
-            className="shrink-0"
-          >
-            {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-            Réinitialiser
-          </Button>
-          ) : null}
-          <Button variant="outline" size="sm" onClick={handleUseDefaultMikhmon} className="gap-1.5 shrink-0">
-            <FileCode className="h-3.5 w-3.5" />
-            Coller modèle Mikhmon small
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="gap-1.5 shrink-0">
-            <Upload className="h-3.5 w-3.5" />
-            Importer .php
-          </Button>
-          <input ref={fileRef} type="file" accept=".php,.html,.txt" className="hidden" onChange={handleImportPHP} />
-          <Button variant="accentOutline" size="sm" onClick={handleSetAsDefault} className="shrink-0">
-            <BookMarked />
-            Définir par défaut (local)
-          </Button>
-          <VoucherPrintScaleButton templateId={presetValue} compact />
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Chargement…
-          </div>
-        ) : (
-          <textarea
-            className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono resize-y min-h-[240px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            value={templateCode}
-            onChange={(e) => {
-              const next = e.target.value;
-              setTemplateCode(next);
-              setPresetValue(findMatchingPresetId(next));
-            }}
-            spellCheck={false}
-          />
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button disabled={saving || loading} onClick={() => void handleSave()}>
-            {saving
-              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sauvegarde…</>
-              : <><Save className="h-4 w-4 mr-2" />Sauvegarder</>
-            }
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function ForfaitDialog({ admin, mode, onClose, onSubmit, pending }: {
   admin: AdminRow;

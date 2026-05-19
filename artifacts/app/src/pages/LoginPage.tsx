@@ -10,6 +10,21 @@ import { useAppNavigate } from "@/hooks/use-app-navigate";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+async function fetchSecurityRequired(login: string, password: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${BASE}/api/login/security-required`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login: login.trim(), password }),
+    });
+    if (!r.ok) return false;
+    const data = (await r.json()) as { required?: boolean };
+    return !!data.required;
+  } catch {
+    return false;
+  }
+}
+
 interface LoginPageProps {
   mode: "admin" | "vendor" | "choose";
 }
@@ -38,19 +53,11 @@ export default function LoginPage({ mode }: LoginPageProps) {
       return;
     }
     const timer = window.setTimeout(() => {
-      fetch(`${BASE}/api/login/security-required`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login: loginTrimmed, password: form.password }),
-      })
-        .then((r) => (r.ok ? r.json() : { required: false }))
-        .then((data: { required?: boolean }) => {
-          const required = !!data.required;
-          setNeedsSecurityCode(required);
-          if (!required) setSecurityCode("");
-        })
-        .catch(() => setNeedsSecurityCode(false));
-    }, 400);
+      void fetchSecurityRequired(loginTrimmed, form.password).then((required) => {
+        setNeedsSecurityCode(required);
+        if (!required) setSecurityCode("");
+      });
+    }, 300);
     return () => window.clearTimeout(timer);
   }, [form.login, form.password, isAdmin]);
 
@@ -107,8 +114,14 @@ export default function LoginPage({ mode }: LoginPageProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (isAdmin && needsSecurityCode && !securityCode.trim()) {
-      setError("Code de sécurité requis pour ce compte.");
+    const loginTrimmed = form.login.trim();
+    let securityRequired = needsSecurityCode;
+    if (isAdmin && loginTrimmed && form.password) {
+      securityRequired = await fetchSecurityRequired(loginTrimmed, form.password);
+      setNeedsSecurityCode(securityRequired);
+    }
+    if (isAdmin && securityRequired && !securityCode.trim()) {
+      setError("Code de sécurité requis pour ce compte (super-admin originel).");
       return;
     }
     setLoading(true);
@@ -123,9 +136,9 @@ export default function LoginPage({ mode }: LoginPageProps) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              login: form.login.trim(),
+              login: loginTrimmed,
               password: form.password,
-              ...(isAdmin && needsSecurityCode
+              ...(isAdmin && securityRequired
                 ? { verificationCode: securityCode.trim() }
                 : {}),
             }),
@@ -142,7 +155,15 @@ export default function LoginPage({ mode }: LoginPageProps) {
             return;
           }
           if (!res.ok) {
-            setError((typeof data.error === "string" && data.error) || "Identifiants incorrects");
+            const errMsg = (typeof data.error === "string" && data.error) || "Identifiants incorrects";
+            if (
+              isAdmin &&
+              typeof data.error === "string" &&
+              /sécurité|securite/i.test(data.error)
+            ) {
+              setNeedsSecurityCode(true);
+            }
+            setError(errMsg);
             return;
           }
 
@@ -186,7 +207,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
                 ? [manager.routerId]
                 : undefined,
             collaborateur?.routerIds ?? undefined,
-            remember,
+            apkLogin || remember,
             data.isSuperAdmin === true,
             connectedName,
             connectedUsername,
@@ -285,7 +306,6 @@ export default function LoginPage({ mode }: LoginPageProps) {
               </div>
             )}
 
-            {/* Se souvenir de moi */}
             <label className="flex items-center gap-2.5 cursor-pointer select-none group">
               <input
                 type="checkbox"

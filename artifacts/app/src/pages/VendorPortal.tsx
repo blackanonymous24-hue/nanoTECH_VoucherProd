@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { buildStandalonePrintHtml, openPrintHtmlWindow, printReport } from "@/lib/print";
 import { useAuth } from "@/contexts/AuthContext";
+import { isNativeAppShell } from "@/lib/native-app-shell";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1105,6 +1106,14 @@ function Dashboard({ token, vendor, onLogout }: {
     const dashPromise = api("/vendor-portal/me", { headers })
       .then(async (res) => {
         if (res.status === 401 || res.status === 403) {
+          if (isNativeAppShell()) {
+            setError(
+              res.status === 401
+                ? "Session expirée ou interrompue — utilisez Actualiser ou reconnectez-vous manuellement."
+                : "Accès refusé — contactez votre administrateur.",
+            );
+            return;
+          }
           if (!logoutTriggered) { logoutTriggered = true; onLogout(); }
           return;
         }

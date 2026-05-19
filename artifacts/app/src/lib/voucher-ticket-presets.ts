@@ -91,13 +91,28 @@ export function parseServerTicketTemplatePresetId(raw: unknown): TicketTemplateS
 export function resolveTicketTemplateSelection(args: {
   templateBody: string;
   serverPresetId: unknown;
+  /** Super-admin éditant un autre compte : ne pas mélanger avec le localStorage du navigateur. */
+  skipLocalFallback?: boolean;
 }): TicketTemplateSelectionId {
   const fromDb = parseServerTicketTemplatePresetId(args.serverPresetId);
   if (fromDb != null) return fromDb;
 
   const trimmed = args.templateBody.trim();
-  if (!trimmed) return getStoredTicketPresetId();
+  if (!trimmed) {
+    return args.skipLocalFallback ? DEFAULT_TICKET_PRESET_ID : getStoredTicketPresetId();
+  }
   return findMatchingPresetId(args.templateBody);
+}
+
+/** Corps à enregistrer / afficher selon le preset et le HTML serveur. */
+export function resolveTicketTemplateDisplayBody(
+  templateBody: string,
+  presetId: TicketTemplateSelectionId,
+): string {
+  const trimmed = templateBody.trim();
+  if (trimmed) return templateBody;
+  if (presetId !== "custom") return getPresetBody(presetId);
+  return "";
 }
 
 /** Repère si le contenu correspond à un des trois modèles fournis (comparaison assouplie). */

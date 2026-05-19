@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { db, adminSettingsTable } from "@workspace/db";
 import { verifyPassword } from "./admin-auth.js";
+import { findAdminsByLogin } from "./admin-login-unique.js";
 
 export const DEFAULT_SUPER_SECURITY_CODE = "4155";
 
@@ -24,16 +25,25 @@ export function loginMatchesOriginalSuperAdmin(loginTrimmed: string, originalLog
   return loginTrimmed.trim().toLowerCase() === originalLogin.trim().toLowerCase();
 }
 
-/** Identifiant + mot de passe correspondent au super-admin originel (pour afficher le code de sécurité). */
+/**
+ * Même logique que POST /api/login : le code est requis si identifiant + mot de passe
+ * authentifient le compte super-admin originel (plus petit id), pas seulement si le login
+ * textuel correspond à l’originel (évite champ masqué quand plusieurs comptes partagent un login).
+ */
 export async function credentialsMatchOriginalSuperAdmin(
   loginTrimmed: string,
   password: string,
 ): Promise<boolean> {
   if (!loginTrimmed.trim() || !password) return false;
   const original = await getOriginalSuperAdminRow();
-  if (!original?.passwordHash) return false;
-  if (!loginMatchesOriginalSuperAdmin(loginTrimmed, original.login)) return false;
-  return verifyPassword(password, original.passwordHash);
+  if (!original) return false;
+  const adminRows = await findAdminsByLogin(loginTrimmed);
+  for (const row of adminRows) {
+    if (await verifyPassword(password, row.passwordHash)) {
+      return row.id === original.id;
+    }
+  }
+  return false;
 }
 
 export function isValidSuperSecurityCode(

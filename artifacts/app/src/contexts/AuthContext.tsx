@@ -4,6 +4,7 @@ import { abortAllApiRequests } from "@/lib/installAuthFetch";
 import { clearAllSavedPrintLots } from "@/lib/voucher-print-lot-persist";
 import { getListRoutersQueryKey, VOUCHERNET_SESSION_REVOKED_EVENT } from "@workspace/api-client-react";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
+import { isNativeAppShell } from "@/lib/native-app-shell";
 
 const TOKEN_KEY           = "vouchernet_admin_token";
 const ROLE_KEY            = "vouchernet_role";
@@ -66,7 +67,7 @@ interface AuthContextValue {
   collaborateurRouterIds: number[];
   isSuperAdmin: boolean;
   isAuthenticated: boolean;
-  /** Jeton en localStorage (« Se souvenir de moi »). Sur APK : pas de déconnexion idle si vrai. */
+  /** Jeton en localStorage si « Se souvenir de moi » était coché à la connexion. */
   sessionPersisted: boolean;
   connectedName: string | null;
   connectedUsername: string | null;
@@ -188,16 +189,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name?: string | null,
     username?: string | null,
   ) => {
-    writeKey(TOKEN_KEY, t, remember);
-    writeKey(ROLE_KEY, r, remember);
-    if (vi) writeKey(VENDOR_KEY, JSON.stringify(vi), remember);
+    const persist = remember;
+    writeKey(TOKEN_KEY, t, persist);
+    writeKey(ROLE_KEY, r, persist);
+    if (vi) writeKey(VENDOR_KEY, JSON.stringify(vi), persist);
     else     removeKey(VENDOR_KEY);
 
     const mgrIds = r === "manager" && mgrRouterIds ? mgrRouterIds.filter((id) => Number.isFinite(id) && id > 0) : [];
     if (r === "manager" && mgrIds.length > 0) {
-      writeKey(MGR_ROUTER_IDS_KEY, JSON.stringify(mgrIds), remember);
-      writeKey(MGR_ROUTER_KEY, String(mgrIds[0]), remember);
-      writeKey(ROUTER_KEY, String(mgrIds[0]), remember);
+      writeKey(MGR_ROUTER_IDS_KEY, JSON.stringify(mgrIds), persist);
+      writeKey(MGR_ROUTER_KEY, String(mgrIds[0]), persist);
+      writeKey(ROUTER_KEY, String(mgrIds[0]), persist);
     } else {
       removeKey(MGR_ROUTER_IDS_KEY);
       removeKey(MGR_ROUTER_KEY);
@@ -205,19 +207,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (r === "collaborateur" && collabRouterIds && collabRouterIds.length > 0) {
-      writeKey(COLLAB_ROUTER_IDS, JSON.stringify(collabRouterIds), remember);
+      writeKey(COLLAB_ROUTER_IDS, JSON.stringify(collabRouterIds), persist);
     } else {
       removeKey(COLLAB_ROUTER_IDS);
     }
 
     const effectiveSuper = r === "admin" && superAdmin;
-    if (effectiveSuper) writeKey(SUPER_ADMIN_KEY, "1", remember);
+    if (effectiveSuper) writeKey(SUPER_ADMIN_KEY, "1", persist);
     else removeKey(SUPER_ADMIN_KEY);
 
-    if (name) writeKey(CONNECTED_NAME_KEY, name, remember);
+    if (name) writeKey(CONNECTED_NAME_KEY, name, persist);
     else removeKey(CONNECTED_NAME_KEY);
 
-    if (username) writeKey(CONNECTED_USER_KEY, username, remember);
+    if (username) writeKey(CONNECTED_USER_KEY, username, persist);
     else removeKey(CONNECTED_USER_KEY);
 
     setToken(t);
@@ -280,6 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onRevoked = () => {
+      if (isNativeAppShell()) return;
       void logout({ skipRevoke: true });
     };
     window.addEventListener(VOUCHERNET_SESSION_REVOKED_EVENT, onRevoked);

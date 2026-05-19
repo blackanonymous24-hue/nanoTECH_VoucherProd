@@ -9,7 +9,7 @@ import {
 } from "@/lib/voucher-ticket-defaults";
 import {
   getPresetBody,
-  getStoredTicketPresetId,
+  resolveTicketTemplateSelection,
 } from "@/lib/voucher-ticket-presets";
 
 const MKS = "<!--mks-mulai-->";
@@ -260,17 +260,22 @@ export function ticketTemplateUsesQrcode(template: string): boolean {
  */
 export async function fetchEffectiveTicketTemplate(apiBase: string): Promise<string> {
   let fromServer = "";
+  let serverPresetId: unknown = null;
   try {
     const r = await fetch(`${apiBase}/api/admin/ticket-template`);
     if (r.ok) {
-      const data = (await r.json()) as { template?: string | null };
+      const data = (await r.json()) as { template?: string | null; presetId?: string | null };
       fromServer = data.template?.trim() ?? "";
+      serverPresetId = data.presetId;
     }
   } catch {
     /* ignore */
   }
   if (fromServer) return fromServer;
-  const stored = getStoredTicketPresetId();
-  if (stored === "custom") return getCustomDefault() || "";
-  return getCustomDefault() || getPresetBody(stored);
+  const resolved = resolveTicketTemplateSelection({
+    templateBody: "",
+    serverPresetId,
+  });
+  if (resolved !== "custom") return getPresetBody(resolved);
+  return getCustomDefault() || "";
 }

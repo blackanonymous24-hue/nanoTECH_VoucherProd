@@ -11,6 +11,9 @@ import {
   SESSION_LOGOUT_BROADCAST_LS_KEY,
   writeSharedLastActivityTs,
 } from "@/lib/session-cross-tab";
+import { isNativeAppShell } from "@/lib/native-app-shell";
+
+export { isNativeAppShell } from "@/lib/native-app-shell";
 
 /**
  * Cycle de vie session — périmètre :
@@ -18,10 +21,9 @@ import {
  * • Web : déconnexion idle après {@link SESSION_IDLE_LOGOUT_MS} ; pause API après
  *   {@link TAB_HIDE_API_PAUSE_GRACE_MS} si l’onglet est masqué ou l’app réduite (visibility hidden).
  *
- * • APK + « Se souvenir de moi » : aucune déconnexion idle ; pause API immédiate en arrière-plan.
- * • APK sans « Se souvenir de moi » : déconnexion après {@link SESSION_IDLE_LOGOUT_MS}.
+ * • APK (WebView) : aucune déconnexion automatique (idle / broadcast) ; pause API en arrière-plan.
  */
-/** Déconnexion auto après inactivité (web ; APK sans « Se souvenir de moi »). */
+/** Déconnexion auto après inactivité (web uniquement ; jamais sur APK). */
 export const SESSION_IDLE_LOGOUT_MS = 30 * 60 * 1000;
 /** Alias historique — même délai que {@link SESSION_IDLE_LOGOUT_MS}. */
 export const SESSION_IDLE_LOGOUT_REMEMBER_MS = SESSION_IDLE_LOGOUT_MS;
@@ -34,15 +36,9 @@ export const APK_APP_STATE_EVENT = "vouchernet-apk-app-state";
 
 const BC_NAME = "vouchernet-auth-session-v1";
 
-export function isNativeAppShell(): boolean {
-  if (typeof document === "undefined") return false;
-  if (document.documentElement.classList.contains("native-app")) return true;
-  return /nanoTECH-Vouchers(?:Bills)?-Mobile/i.test(navigator.userAgent);
-}
-
-/** APK + jeton localStorage (« Se souvenir de moi ») → pas de déconnexion idle. */
-function isApkRememberMeNoIdleLogout(sessionPersisted: boolean): boolean {
-  return isNativeAppShell() && sessionPersisted;
+/** APK : jamais de déconnexion auto (idle, onglet web, broadcast). */
+function isApkNoAutoLogout(): boolean {
+  return isNativeAppShell();
 }
 
 type BcMsg = { type: "activity"; t: number } | { type: "logout-all"; reason: string; t: number };
@@ -61,9 +57,9 @@ function sharedLastActivityMs(localRef: number): number {
 }
 
 export function SessionLifecycle() {
-  const { isAuthenticated, logout, sessionPersisted } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const apkNative = isNativeAppShell();
-  const apkNoIdleLogout = isApkRememberMeNoIdleLogout(sessionPersisted);
+  const apkNoAutoLogout = isApkNoAutoLogout();
   const lastLocalPulse = useRef(0);
   const lastSharedRef = useRef(Date.now());
   const tabHidePauseTimerRef = useRef<number | null>(null);
@@ -117,7 +113,7 @@ export function SessionLifecycle() {
     };
 
     const applyRemoteLogout = (broadcastTs: number, opts?: { force?: boolean }) => {
-      if (!opts?.force && apkNoIdleLogout) return;
+      if (!opts?.force && apkNoAutoLogout) return;
       if (broadcastTs <= logoutBroadcastSeenRef.current) return;
       logoutBroadcastSeenRef.current = broadcastTs;
       performIdleLogout({ revoke: false, showToast: true });
@@ -133,7 +129,7 @@ export function SessionLifecycle() {
       if (!data || typeof data !== "object") return;
       if (data.type === "activity") bumpShared(data.t);
       if (data.type === "logout-all") {
-        if (apkNoIdleLogout) return;
+        if (apkNoAutoLogout) return;
         applyRemoteLogout(typeof data.t === "number" ? data.t : readSessionLogoutBroadcastTs());
       }
     };
@@ -147,6 +143,7 @@ export function SessionLifecycle() {
         return;
       }
       if (ev.key === AUTH_TOKEN_LS_KEY && ev.oldValue && !ev.newValue) {
+        if (apkNoAutoLogout) return;
         applyRemoteLogout(Date.now(), { force: true });
       }
     };
@@ -188,7 +185,7 @@ export function SessionLifecycle() {
         clearTabHidePauseTimer();
         setApiRequestPause(false);
         pulse("visible");
-        if (!apkNoIdleLogout) checkLogoutBroadcast();
+        if (!apkNoAutoLogout) checkLogoutBroadcast();
         const lsAct = readSharedLastActivityTs();
         if (lsAct > lastSharedRef.current) lastSharedRef.current = lsAct;
         if (apkNative) {
@@ -217,7 +214,7 @@ export function SessionLifecycle() {
     const idleLogoutMs = SESSION_IDLE_LOGOUT_MS;
 
     let intervalId: number | undefined;
-    if (!apkNoIdleLogout) {
+    if (!apkNoAutoLogout) {
       intervalId = window.setInterval(() => {
         checkLogoutBroadcast();
         const last = sharedLastActivityMs(lastSharedRef.current);
@@ -251,7 +248,7 @@ export function SessionLifecycle() {
       if (intervalId !== undefined) window.clearInterval(intervalId);
       setApiRequestPause(false);
     };
-  }, [isAuthenticated, logout, apkNative, apkNoIdleLogout, sessionPersisted]);
+  }, [isAuthenticated, logout, apkNative, apkNoAutoLogout]);
 
   return null;
 }

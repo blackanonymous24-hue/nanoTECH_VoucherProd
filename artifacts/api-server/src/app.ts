@@ -41,6 +41,11 @@ app.use("/api", (_req, res, next) => {
 
 app.use("/api", router);
 
+// Routes /api inconnues → JSON 404 (évite de renvoyer index.html du SPA)
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Route API introuvable" });
+});
+
 // JSON error handler — catches body-parser 413, 400, and other API errors
 // Must be AFTER the router so it only fires for /api paths that errored
 app.use("/api", (err: Error & { status?: number; type?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

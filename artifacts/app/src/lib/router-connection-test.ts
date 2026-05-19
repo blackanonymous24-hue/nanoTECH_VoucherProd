@@ -22,6 +22,27 @@ export function routerConnectionStatusShortLabel(result: {
  * Ping TCP sur le port API (`GET /routers/:id/ping`) — même principe que Mikhmon (fsockopen).
  * Rapide (souvent < 200 ms si joignable) ; ne vérifie pas identifiants ni commandes RouterOS.
  */
+/** Ping TCP pour un routeur d’un admin cible (super-admin → page Administrateurs). */
+export async function pingRouterForSuperAdminTenant(
+  adminId: number,
+  routerId: number,
+  token: string | null | undefined,
+): Promise<RouterConnectionTestResult> {
+  try {
+    const res = await fetch(`${BASE}/api/super/admins/${adminId}/routers/${routerId}/ping`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      return { success: false, message: ROUTER_OFFLINE_LABEL };
+    }
+    const data = (await res.json()) as { success?: boolean };
+    const ok = data.success === true;
+    return { success: ok, message: ok ? "En ligne" : ROUTER_OFFLINE_LABEL };
+  } catch {
+    return { success: false, message: ROUTER_OFFLINE_LABEL };
+  }
+}
+
 export async function pingRouterTcpApi(
   routerId: number,
   token: string | null | undefined,

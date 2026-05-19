@@ -102,9 +102,9 @@ export function setApiRequestPause(
   state.scopeRouterId = scope != null && Number.isFinite(scope) ? scope : null;
   if (state.scopeRouterId != null) {
     abortInFlightRequestsForScopedPause(state.scopeRouterId);
-  } else {
-    abortAllApiRequests();
   }
+  // Pause globale (onglet masqué / APK arrière-plan) : bloquer les nouveaux fetch sans
+  // annuler les requêtes en cours — évite erreurs et déconnexions au retour au premier plan.
 }
 
 /** URL autorisées pendant la pause API (toggle hotspot par paquets — verrou routeur). */
