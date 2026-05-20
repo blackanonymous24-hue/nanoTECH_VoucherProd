@@ -5,6 +5,7 @@
  */
 import { and, asc, desc, eq, gte, isNotNull, lt, notExists, sql } from "drizzle-orm";
 import { db, scriptSalesTable, vendorsTable, vouchersTable } from "@workspace/db";
+import { decodeRouterText } from "./router-encoding.js";
 
 /** Bornes UTC [startOfMonth, startOfNextMonth) — utilisables par les index B-tree. */
 function utcMonthBounds(year: number, month: number): { start: Date; end: Date } {
@@ -272,14 +273,20 @@ export async function fetchUnattributedPeriodSales(
       .orderBy(desc(scriptSalesTable.saleDate));
 
     for (const row of scriptRows) {
-      if (resolveVendorIdFromSale(vendors, { batch: row.batch, username: row.username }) != null) continue;
+      // Décodage défensif (idempotent) : corrige les lignes legacy stockées
+      // mojibakées avant le fix d'encodage à l'ingestion.
+      const decUsername = decodeRouterText(row.username);
+      const decBatch    = decodeRouterText(row.batch);
+      const decLabel    = decodeRouterText(row.label);
+      const decValidity = decodeRouterText(row.validity);
+      if (resolveVendorIdFromSale(vendors, { batch: decBatch, username: decUsername }) != null) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
       if (Number.isNaN(saleDate.getTime()) || !inPeriodUtc(saleDate, period, yUtc, mUtc, dUtc)) continue;
       lines.push({
         id: -row.id,
-        username: row.username,
+        username: decUsername,
         password: "",
-        profileName: row.label?.trim() || row.validity?.trim() || "Script MikHmon",
+        profileName: decLabel.trim() || decValidity.trim() || "Script MikHmon",
         price: row.price ?? "",
         salePrice: row.price ?? "",
         saleIp: row.ip || null,
@@ -287,7 +294,7 @@ export async function fetchUnattributedPeriodSales(
         printedAt: null,
         usedAt: saleDate.toISOString(),
         createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
-        lotOrComment: row.batch?.trim() || null,
+        lotOrComment: decBatch.trim() || null,
         source: "script",
       });
     }
@@ -307,19 +314,22 @@ export async function fetchUnattributedPeriodSales(
       .orderBy(desc(vouchersTable.usedAt));
 
     for (const row of voucherRows) {
+      const decUsername    = decodeRouterText(row.username);
+      const decComment     = row.comment == null ? null : decodeRouterText(row.comment);
+      const decProfileName = decodeRouterText(row.profileName);
       const vendorId = resolveVendorIdFromSale(vendors, {
         vendorId: row.vendorId,
-        comment: row.comment,
-        username: row.username,
+        comment: decComment,
+        username: decUsername,
       });
       if (vendorId != null) continue;
       const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
       if (Number.isNaN(usedAt.getTime()) || !inPeriodUtc(usedAt, period, yUtc, mUtc, dUtc)) continue;
       lines.push({
         id: row.id,
-        username: row.username,
+        username: decUsername,
         password: row.password,
-        profileName: row.profileName,
+        profileName: decProfileName,
         price: row.price ?? "",
         salePrice: row.salePrice,
         saleIp: row.saleIp,
@@ -327,7 +337,7 @@ export async function fetchUnattributedPeriodSales(
         printedAt: row.printedAt ? (row.printedAt instanceof Date ? row.printedAt : new Date(row.printedAt)).toISOString() : null,
         usedAt: usedAt.toISOString(),
         createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
-        lotOrComment: row.comment?.trim() || null,
+        lotOrComment: decComment?.trim() || null,
         source: "voucher",
       });
     }
@@ -420,7 +430,10 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
       );
 
     for (const row of scriptRows) {
-      const vendorId = resolveVendorIdFromSale(vendors, { batch: row.batch, username: row.username });
+      const vendorId = resolveVendorIdFromSale(vendors, {
+        batch: decodeRouterText(row.batch),
+        username: decodeRouterText(row.username),
+      });
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
       if (Number.isNaN(saleDate.getTime())) continue;
       const daily = isUtcDay(saleDate, yUtc, mUtc, dUtc);
@@ -457,8 +470,8 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
     for (const row of voucherRows) {
       const vendorId = resolveVendorIdFromSale(vendors, {
         vendorId: row.vendorId,
-        comment: row.comment,
-        username: row.username,
+        comment: row.comment == null ? null : decodeRouterText(row.comment),
+        username: decodeRouterText(row.username),
       });
       const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
       if (Number.isNaN(usedAt.getTime())) continue;
@@ -557,14 +570,18 @@ export async function fetchVendorPeriodSales(
       .orderBy(desc(scriptSalesTable.saleDate));
 
     for (const row of scriptRows) {
-      if (!saleBelongsToVendor(vendorRow, { batch: row.batch, username: row.username })) continue;
+      const decUsername = decodeRouterText(row.username);
+      const decBatch    = decodeRouterText(row.batch);
+      const decLabel    = decodeRouterText(row.label);
+      const decValidity = decodeRouterText(row.validity);
+      if (!saleBelongsToVendor(vendorRow, { batch: decBatch, username: decUsername })) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
       if (Number.isNaN(saleDate.getTime()) || !inVendorPeriod(saleDate, period, now)) continue;
       lines.push({
         id: -row.id,
-        username: row.username,
+        username: decUsername,
         password: "",
-        profileName: row.label?.trim() || row.validity?.trim() || "Script MikHmon",
+        profileName: decLabel.trim() || decValidity.trim() || "Script MikHmon",
         price: row.price ?? "",
         salePrice: row.price ?? "",
         saleIp: row.ip || null,
@@ -572,7 +589,7 @@ export async function fetchVendorPeriodSales(
         printedAt: null,
         usedAt: saleDate.toISOString(),
         createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
-        lotOrComment: row.batch?.trim() || null,
+        lotOrComment: decBatch.trim() || null,
         source: "script",
       });
     }
@@ -592,18 +609,21 @@ export async function fetchVendorPeriodSales(
       .orderBy(desc(vouchersTable.usedAt));
 
     for (const row of voucherRows) {
+      const decUsername    = decodeRouterText(row.username);
+      const decComment     = row.comment == null ? null : decodeRouterText(row.comment);
+      const decProfileName = decodeRouterText(row.profileName);
       if (!saleBelongsToVendor(vendorRow, {
         vendorId: row.vendorId,
-        comment: row.comment,
-        username: row.username,
+        comment: decComment,
+        username: decUsername,
       })) continue;
       const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
       if (Number.isNaN(usedAt.getTime()) || !inVendorPeriod(usedAt, period, now)) continue;
       lines.push({
         id: row.id,
-        username: row.username,
+        username: decUsername,
         password: row.password,
-        profileName: row.profileName,
+        profileName: decProfileName,
         price: row.price ?? "",
         salePrice: row.salePrice,
         saleIp: row.saleIp,
@@ -611,7 +631,7 @@ export async function fetchVendorPeriodSales(
         printedAt: row.printedAt ? (row.printedAt instanceof Date ? row.printedAt : new Date(row.printedAt)).toISOString() : null,
         usedAt: usedAt.toISOString(),
         createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
-        lotOrComment: row.comment?.trim() || null,
+        lotOrComment: decComment?.trim() || null,
         source: "voucher",
       });
     }

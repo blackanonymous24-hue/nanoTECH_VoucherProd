@@ -14,6 +14,7 @@ import {
 } from "../lib/vendor-settlement.js";
 import { type RouterConnection } from "../lib/mikrotik.js";
 import { aggregateVendorPeriodSales, fetchVendorPeriodSales, type VendorPeriod } from "../lib/vendor-period-sales-aggregate.js";
+import { decodeRouterText } from "../lib/router-encoding.js";
 
 const router = Router();
 
@@ -180,6 +181,16 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
   // qui pourrait laisser passer les ventes d'autres vendeurs.
   const recentFromAgg = recentSales;
 
+  // Décodage défensif (idempotent) pour corriger les lignes legacy stockées
+  // mojibakées (avant le fix d'encodage à l'ingestion). N'affecte pas les
+  // chaînes ASCII / UTF-8 déjà correctes.
+  const decodeVoucher = <T extends { username: string; profileName: string; comment?: string | null }>(v: T): T => ({
+    ...v,
+    username: decodeRouterText(v.username),
+    profileName: decodeRouterText(v.profileName),
+    comment: v.comment == null ? null : decodeRouterText(v.comment),
+  });
+
   const dashPayload = {
     lastFreshAt: new Date().toISOString(),
     vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
@@ -189,12 +200,15 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
     totalPrinted:   Number(totals?.printed ?? 0),
     totalUsed:      Number(totals?.used    ?? 0),
     salesStats,
-    byProfile,
-    recentSales: recentFromAgg.map((v) => ({
-      ...v,
-      price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
-    })),
-    availableVouchers,
+    byProfile: byProfile.map((p) => ({ ...p, profileName: decodeRouterText(p.profileName) })),
+    recentSales: recentFromAgg.map((v) => {
+      const dv = decodeVoucher(v);
+      return {
+        ...dv,
+        price: dv.salePrice || dv.price || priceMap.get(dv.profileName) || "",
+      };
+    }),
+    availableVouchers: availableVouchers.map(decodeVoucher),
   };
   cSet(dashKey, DASH_TTL, dashPayload);
   return dashPayload;

@@ -8,6 +8,7 @@ import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
 import { startMaintenanceScheduler } from "./lib/maintenance-scheduler.js";
 import { startAutoBypassSync } from "./lib/auto-bypass-sync.js";
+import { repairMojibakeOnce } from "./lib/repair-mojibake.js";
 // startDashboardPriorityWarmer est désactivé : le poller SSE partagé (mikrotik-poller.ts)
 // prend en charge le préchauffage des caches à la demande par routeur actif.
 // Le warmer interrogeait TOUS les routeurs toutes les 20 s même sans client connecté,
@@ -70,6 +71,10 @@ async function start() {
     // startDashboardPriorityWarmer() supprimé : le poller SSE partagé remplace le warmer
     // et ne tourne QUE pour les routeurs ayant des clients SSE actifs.
   }, 30_000);
+
+  // Nettoyage one-shot des chaînes mojibakées en DB (script_sales + vouchers).
+  // Différé pour ne pas peser sur le boot, exécuté en arrière-plan.
+  setTimeout(() => { void repairMojibakeOnce(); }, 60_000);
 }
 
 void start();

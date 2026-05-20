@@ -18,6 +18,7 @@ import {
 
 import { getCachedProfilePricesSync, getCachedProfilePrices } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
+import { decodeRouterText } from "../lib/router-encoding.js";
 import { withRouterLock } from "../lib/router-lock.js";
 
 /**
@@ -209,15 +210,21 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
 
   // Usernames already tracked via the vendors table — script entries for
   // these are duplicates and must be excluded to avoid double-listing.
-  const knownUsernames = new Set(voucherRows.map((v) => v.username.toLowerCase()));
+  const knownUsernames = new Set(voucherRows.map((v) => decodeRouterText(v.username).toLowerCase()));
 
   const fromScripts = scriptRows
-    .filter((s) => !knownUsernames.has(s.username.toLowerCase()))
-    .map((s) => ({
+    .filter((s) => !knownUsernames.has(decodeRouterText(s.username).toLowerCase()))
+    .map((s) => {
+      // Décodage défensif (idempotent) — corrige les chaînes legacy mojibakées.
+      const decUsername = decodeRouterText(s.username);
+      const decLabel    = decodeRouterText(s.label);
+      const decValidity = decodeRouterText(s.validity);
+      const decBatch    = decodeRouterText(s.batch);
+      return {
       id: -s.id,
-      username: s.username,
-      profileName: (s.label?.trim() || s.validity?.trim() || "—") as string,
-      comment: s.batch?.trim() || null,
+      username: decUsername,
+      profileName: (decLabel.trim() || decValidity.trim() || "—") as string,
+      comment: decBatch.trim() || null,
       price: s.price ?? "",
       salePrice: s.price ?? null,
       macAddress: s.mac?.trim() || null,
@@ -227,10 +234,20 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
       usedAt: s.saleDate.toISOString(),
       vendorId: null as number | null,
       vendorName: "Script MikroTik" as string | null,
-    }));
+    };
+    });
+
+  // Décodage défensif aussi des lignes voucher (legacy data potentiellement mojibakée).
+  const decodedVouchers = voucherRows.map((v) => ({
+    ...v,
+    username:    decodeRouterText(v.username),
+    profileName: decodeRouterText(v.profileName),
+    comment:     v.comment == null ? null : decodeRouterText(v.comment),
+    vendorName:  v.vendorName == null ? null : decodeRouterText(v.vendorName),
+  }));
 
   type TicketRow = (typeof voucherRows)[number];
-  const merged: TicketRow[] = [...voucherRows, ...fromScripts] as TicketRow[];
+  const merged: TicketRow[] = [...decodedVouchers, ...fromScripts] as TicketRow[];
   merged.sort(
     (a, b) =>
       new Date(b.usedAt ?? b.printedAt ?? b.createdAt).getTime() -

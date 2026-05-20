@@ -8,6 +8,7 @@ import { withRouterLock } from "../lib/router-lock.js";
 import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
+import { decodeRouterText } from "../lib/router-encoding.js";
 import {
   aggregateVendorPeriodSales,
   fetchVendorPeriodSales,
@@ -72,7 +73,13 @@ import { normalizeSettlementMode } from "../lib/vendor-settlement.js";
 
 function safeVendor(v: typeof vendorsTable.$inferSelect) {
   const { passwordHash: _ph, ...rest } = v;
-  return rest;
+  // Décodage défensif (idempotent) — corrige les noms vendeur stockés mojibakés.
+  return {
+    ...rest,
+    name: decodeRouterText(rest.name),
+    commentSuffix:  rest.commentSuffix  == null ? null : decodeRouterText(rest.commentSuffix),
+    commentSuffix2: rest.commentSuffix2 == null ? null : decodeRouterText(rest.commentSuffix2),
+  };
 }
 
 /** Attribute existing vouchers whose comment ends with commentSuffix to the vendor.
@@ -744,6 +751,7 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     .filter((row) => validProfileNames.size === 0 || validProfileNames.has(row.profileName))
     .map((row) => ({
     ...row,
+    profileName: decodeRouterText(row.profileName),
     price:    priceMap.get(row.profileName) ?? "",
     weekSold: weekCountMap.get(row.profileName) ?? 0,
   }));
@@ -758,10 +766,13 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     0,
   );
 
-  // Enrich recentVouchers: use salePrice (from sync), else price (from generation), else profile cache
+  // Décodage défensif (idempotent) — corrige les chaînes legacy stockées mojibakées.
   const enrichedRecentVouchers = recentVouchers.map((v) => ({
     ...v,
-    price: v.salePrice || v.price || priceMap.get(v.profileName) || "",
+    username:    decodeRouterText(v.username),
+    profileName: decodeRouterText(v.profileName),
+    comment:     v.comment == null ? null : decodeRouterText(v.comment),
+    price:       v.salePrice || v.price || priceMap.get(v.profileName) || "",
   }));
 
   res.json({

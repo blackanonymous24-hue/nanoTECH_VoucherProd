@@ -7,6 +7,7 @@ import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, listHotspotProfileSchedulers, removeSystemScheduler, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
+import { decodeRouterText } from "../lib/router-encoding.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
@@ -3138,12 +3139,20 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       }
     }
 
-    const scriptEntries = rows.map(({ price, rawName, ...rest }) => ({
+    const scriptEntries = rows.map(({ price, rawName, username, validity, label, batch, ip, mac, ...rest }) => ({
       ...rest,
-      rawName: rawName ?? null,
-      price: parseFloat(price) || 0,
-      source: liveRawNames.size > 0 && rawName && liveRawNames.has(rawName) ? ("mikrotik+local" as const) : ("local-db" as const),
-      origin: "script" as const,
+      // Décodage défensif (idempotent) : corrige aussi les lignes legacy
+      // stockées mojibakées avant le fix d'encodage côté ingestion.
+      username: decodeRouterText(username),
+      validity: decodeRouterText(validity),
+      label:    decodeRouterText(label),
+      batch:    batch == null ? null : decodeRouterText(batch),
+      ip,
+      mac,
+      rawName:  rawName ?? null,
+      price:    parseFloat(price) || 0,
+      source:   liveRawNames.size > 0 && rawName && liveRawNames.has(rawName) ? ("mikrotik+local" as const) : ("local-db" as const),
+      origin:   "script" as const,
     }));
 
     const voucherRows =
@@ -3175,13 +3184,13 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
     const voucherEntries = voucherRows.map((v) => ({
       date: v.date,
       time: v.time,
-      username: v.username,
+      username: decodeRouterText(v.username),
       price: Number(v.amt) || 0,
       ip: v.saleIp ?? "",
       mac: v.macAddress ?? "",
-      validity: v.validity ?? "",
-      label: v.profileName ?? "",
-      batch: v.comment ?? null,
+      validity: decodeRouterText(v.validity ?? ""),
+      label: decodeRouterText(v.profileName ?? ""),
+      batch: v.comment == null ? null : decodeRouterText(v.comment),
       rawName: `voucher:${v.id}`,
       source: "local-db" as const,
       origin: "voucher" as const,
