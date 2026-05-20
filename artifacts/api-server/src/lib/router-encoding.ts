@@ -7,7 +7,7 @@
  * (terminal SSH UTF-8, WinBox Win1252, copie depuis un autre routeur), on
  * peut recevoir deux formes de "mojibake" pour le même mot "Koné" :
  *
- *   1. UTF-8 brut interprété en latin1 → "KonÃ©" (5 chars, octets C3 A9)
+ *   1. UTF-8 brut interprété en latin1 → "Koné" (5 chars, octets C3 A9)
  *   2. Win1252 natif                   → "Koné" (4 chars, octet E9 directement)
  *
  * `decodeRouterText` est IDEMPOTENT : appliqué sur une chaîne déjà correcte
@@ -99,7 +99,7 @@ export function fixEncoding(str: string): string {
  * en DB et potentiellement mojibakés). À utiliser au moment du rendu API.
  *
  *   decodeRouterText(undefined)      → ""
- *   decodeRouterText("Famille KonÃ©") → "Famille Koné"
+ *   decodeRouterText("Famille Koné") → "Famille Koné"
  *   decodeRouterText("Famille Koné")  → "Famille Koné"  (no-op)
  *   decodeRouterText("Pierre")        → "Pierre"        (no-op)
  */

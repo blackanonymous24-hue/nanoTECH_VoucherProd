@@ -41,12 +41,12 @@ import { ScrollablePopoverList } from "@/components/ui/scrollable-popover-list";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-/** SÃ©lecteur de routeur (header) : ping TCP uniquement (`useSelectRouterWithPing` â†’ `GET /api/routers/:id/ping?force=1`). */
+/** Sélecteur de routeur (header) : ping TCP uniquement (`useSelectRouterWithPing` → `GET /api/routers/:id/ping?force=1`). */
 function RouterSelector({ className, compact }: { className?: string; compact?: boolean }) {
   const { selectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked, borrowedRouter } = useRouterContext();
   const { selectWithPing, pingingId } = useSelectRouterWithPing();
 
-  // Liste effective : routeurs propres + routeur empruntÃ© s'il est actif
+  // Liste effective : routeurs propres + routeur emprunté s'il est actif
   const effectiveRouters = [
     ...routers,
     ...(borrowedRouter && !routers.some((r) => r.id === borrowedRouter.id)
@@ -59,7 +59,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
       {isRouterLocked ? (
         <div className="flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-white/5 border border-white/10 text-xs text-gray-200 min-w-0 flex-1">
           <Router className="h-3 w-3 text-gray-400 flex-shrink-0" />
-          <span className="truncate">{selectedRouter?.name ?? "Routeur assignÃ©"}</span>
+          <span className="truncate">{selectedRouter?.name ?? "Routeur assigné"}</span>
           <span className="ml-0.5 text-[9px] text-amber-400 font-medium flex-shrink-0">ðŸ”’</span>
         </div>
       ) : routersLoading && effectiveRouters.length === 0 ? (
@@ -90,7 +90,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
                 className="text-xs focus:bg-white/10 focus:text-white"
               >
                 <span className="flex items-center gap-1">
-                  <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wide">â†—</span>
+                  <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wide">↗</span>
                   {borrowedRouter.name}
                 </span>
               </SelectItem>
@@ -130,22 +130,22 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const isAdmin = role === "admin";
   const isManager = role === "manager";
   const isCollaborateur = role === "collaborateur";
-  /* â”€â”€ Hotspot collapsible (sous-section dans RÃ©seau) â”€â”€ */
+  /* ── Hotspot collapsible (sous-section dans Réseau) ── */
   const hotspotPaths = ["/sessions", "/ip-bindings", "/dhcp-leases", "/hotspot-cookies", "/profile-schedulers"];
   const isHotspotPage = hotspotPaths.some((p) => location.startsWith(p));
   const [hotspotOpen, setHotspotOpen] = useState(() => isHotspotPage);
   useEffect(() => { if (isHotspotPage) setHotspotOpen(true); }, [isHotspotPage]);
-  /* â”€â”€ Vendeurs collapsible (sous-section dans Tickets) â”€â”€ */
+  /* ── Vendeurs collapsible (sous-section dans Tickets) ── */
   const vendorNavPaths = ["/vendors"];
   const isVendorPage = vendorNavPaths.some((p) => location.startsWith(p));
   const [vendorsOpen, setVendorsOpen] = useState(() => isVendorPage);
   useEffect(() => { if (isVendorPage) setVendorsOpen(true); }, [isVendorPage]);
-  /* â”€â”€ Outils collapsible â”€â”€ */
+  /* ── Outils collapsible ── */
   const outilsPaths = ["/ticket-template", "/managers", "/collaborateurs", "/maintenance"];
   const isOutilsPage = outilsPaths.some((p) => location.startsWith(p));
   const [outilsOpen, setOutilsOpen] = useState(() => isOutilsPage);
   useEffect(() => { if (isOutilsPage) setOutilsOpen(true); }, [isOutilsPage]);
-  /* â”€â”€ SystÃ¨me collapsible â”€â”€ */
+  /* ── Système collapsible ── */
   const [systemeOpen, setSystemeOpen] = useState(false);
   const [systemAction, setSystemAction] = useState<"reboot" | "shutdown" | null>(null);
   const [isSystemLoading, setIsSystemLoading] = useState(false);
@@ -165,10 +165,10 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         throw new Error(err.error ?? `HTTP ${res.status}`);
       }
       toast({
-        title: action === "reboot" ? "RedÃ©marrage envoyÃ©" : "Extinction envoyÃ©e",
+        title: action === "reboot" ? "Redémarrage envoyé" : "Extinction envoyée",
         description: action === "reboot"
-          ? "Le MikroTik va redÃ©marrer dans quelques secondes."
-          : "Le MikroTik va s'Ã©teindre dans quelques secondes.",
+          ? "Le MikroTik va redémarrer dans quelques secondes."
+          : "Le MikroTik va s'éteindre dans quelques secondes.",
       });
     } catch (err) {
       toast({ title: "Erreur", description: String(err), variant: "destructive" });
@@ -176,7 +176,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       setIsSystemLoading(false);
     }
   };
-  /* â”€â”€ Vendeurs du routeur â€” menu + versement journalier â”€â”€ */
+  /* ── Vendeurs du routeur — menu + versement journalier ── */
   const { data: vendorsList } = useQuery<
     { id: number; settlementMode?: string | null; isDemo?: boolean }[]
   >({
@@ -194,7 +194,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     staleTime: 60_000,
     retry: 1,
   });
-  // undefined = chargement en cours â†’ on affiche par dÃ©faut pour Ã©viter le flash
+  // undefined = chargement en cours → on affiche par défaut pour éviter le flash
   const hasVendors = selectedRouterId
     ? (vendorsList === undefined || vendorsList.length > 0)
     : false;
@@ -202,13 +202,13 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const isVouchersPage = location.startsWith("/vouchers");
   const isVisible = usePageVisibility();
 
-  /* â”€â”€ Masquage du menu quand on est sur la page Routeurs ou sans routeur â”€â”€ */
+  /* ── Masquage du menu quand on est sur la page Routeurs ou sans routeur ── */
   const isRoutersPage = location.startsWith("/routers");
   const effectiveRouterCount = routers.length + (borrowedRouter ? 1 : 0);
   const hasNoRouters = !routersLoading && effectiveRouterCount === 0;
   // Pour les admins/super-admins uniquement : masquer tout le menu sauf "Routeurs"
-  // quand on est sur la page Routeurs OU quand aucun routeur n'est encore configurÃ©.
-  // Managers et collaborateurs voient toujours leur menu (ils sont liÃ©s Ã  un routeur).
+  // quand on est sur la page Routeurs OU quand aucun routeur n'est encore configuré.
+  // Managers et collaborateurs voient toujours leur menu (ils sont liés à un routeur).
   const hideOtherMenuItems = !isManager && !isCollaborateur && (isRoutersPage || hasNoRouters);
 
   const isNavActive = (href: string) => {
@@ -234,7 +234,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     onNavigate?.();
   };
 
-  /* â”€â”€ Low-stock alert: per-vendor per-profile granularity â”€â”€ */
+  /* ── Low-stock alert: per-vendor per-profile granularity ── */
   const { data: stockAlerts } = useQuery<{
     count: number;
     alerts: { vendorId: number | null; vendorName: string; profileName: string; available: number }[];
@@ -247,22 +247,22 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       return res.json() as Promise<{ count: number; alerts: { vendorId: number | null; vendorName: string; profileName: string; available: number }[] }>;
     },
     staleTime: 60_000,
-    // Ne jamais polluer l'onglet en arriÃ¨re-plan : on suspend le polling
-    // quand l'onglet est cachÃ© ou minimisÃ© (Page Visibility API).
+    // Ne jamais polluer l'onglet en arrière-plan : on suspend le polling
+    // quand l'onglet est caché ou minimisé (Page Visibility API).
     refetchInterval: isVisible ? 60_000 : false,
     refetchIntervalInBackground: false,
     retry: 2,
   });
   const lowStockCount = stockAlerts?.count ?? 0;
 
-  /* â”€â”€ Password change dialog state (managers only) â”€â”€ */
+  /* ── Password change dialog state (managers only) ── */
   const [showPwd, setShowPwd]     = useState(false);
   const [pwdNew, setPwdNew]       = useState("");
   const [pwdError, setPwdError]   = useState("");
   const [pwdSuccess, setPwdSuccess] = useState(false);
   const [pwdLoading, setPwdLoading] = useState(false);
 
-  /* â”€â”€ Credentials change dialog (admin / manager / collaborateur) â”€â”€ */
+  /* ── Credentials change dialog (admin / manager / collaborateur) ── */
   const [showCreds,    setShowCreds]    = useState(false);
   const [credLogin,    setCredLogin]    = useState("");
   const [credPassword, setCredPassword] = useState("");
@@ -272,7 +272,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const [credError,    setCredError]    = useState("");
   const [credSuccess,  setCredSuccess]  = useState(false);
 
-  /* â”€â”€ Add hotspot user dialog state (admin + manager) â”€â”€ */
+  /* ── Add hotspot user dialog state (admin + manager) ── */
   const [showAddUser, setShowAddUser]           = useState(false);
   const [addName, setAddName]                   = useState("");
   const [addPassword, setAddPassword]           = useState("");
@@ -291,7 +291,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   const [addEditLoading, setAddEditLoading]     = useState(false);
   const [addRecapUser, setAddRecapUser]         = useState<{ name: string; password: string; profile: string; server: string; limitUptime: string; limitBytes: string; comment: string } | null>(null);
 
-  /* Profils : cache local puis refresh (mÃªme logique que GÃ©nÃ©rer) */
+  /* Profils : cache local puis refresh (même logique que Générer) */
   const { profiles: liveProfiles, refreshing: profilesRefreshing } = useSharedRouterProfiles();
   const dialogProfiles = useMemo(
     () =>
@@ -342,7 +342,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
     if (!addName.trim())    { setAddError("Le nom d'utilisateur est requis."); return; }
     if (!addPassword.trim()){ setAddError("Le mot de passe est requis."); return; }
     if (!addProfile)        { setAddError("Le profil est requis."); return; }
-    if (!selectedRouterId)  { setAddError("Aucun routeur sÃ©lectionnÃ©."); return; }
+    if (!selectedRouterId)  { setAddError("Aucun routeur sélectionné."); return; }
 
     const body = buildMikhmonAddUserRequestBody({
       name: addName,
@@ -382,7 +382,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         setAddError("");
       }
     } catch {
-      setAddError("Erreur rÃ©seau. RÃ©essayez.");
+      setAddError("Erreur réseau. Réessayez.");
     } finally {
       setAddLoading(false);
     }
@@ -414,7 +414,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         setAddError("");
       }
     } catch {
-      setAddError("Erreur rÃ©seau. RÃ©essayez.");
+      setAddError("Erreur réseau. Réessayez.");
     } finally {
       setAddEditLoading(false);
     }
@@ -451,7 +451,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         setPwdSuccess(true);
       }
     } catch {
-      setPwdError("Erreur rÃ©seau. RÃ©essayez.");
+      setPwdError("Erreur réseau. Réessayez.");
     } finally {
       setPwdLoading(false);
     }
@@ -504,7 +504,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       if (credLogin.trim() && credLogin.trim() !== (connectedUsername ?? "")) body.login = credLogin.trim();
       if (credPassword) body.password = credPassword;
 
-      if (!body.login && !body.password) { setCredError("Aucune modification dÃ©tectÃ©e."); setCredLoading(false); return; }
+      if (!body.login && !body.password) { setCredError("Aucune modification détectée."); setCredLoading(false); return; }
 
       const ur = await fetch(endpoint, {
         method: "PUT",
@@ -513,12 +513,12 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       });
       if (!ur.ok) {
         const d = await ur.json() as { error?: string };
-        setCredError(d.error ?? "Erreur lors de la mise Ã  jour"); setCredLoading(false); return;
+        setCredError(d.error ?? "Erreur lors de la mise à jour"); setCredLoading(false); return;
       }
       if (body.login) updateConnectedInfo({ username: body.login });
       setCredSuccess(true);
     } catch {
-      setCredError("Erreur rÃ©seau. RÃ©essayez.");
+      setCredError("Erreur réseau. Réessayez.");
     } finally {
       setCredLoading(false);
     }
@@ -546,7 +546,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 
   const navGroups = [
     {
-      label: "RÃ©seau",
+      label: "Réseau",
       collapsible: false,
       items: [
         { href: "/",              label: "Tableau de bord", icon: LayoutDashboard },
@@ -569,9 +569,9 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       label: "Tickets",
       collapsible: false,
       items: [
-        { href: "/generate",      label: "GÃ©nÃ©rer un ticket",   icon: Zap },
+        { href: "/generate",      label: "Générer un ticket",   icon: Zap },
         { href: "/vouchers",      label: "Mes Tickets",         icon: Ticket },
-        { href: "/ticket-lookup", label: "VÃ©rifier un ticket",  icon: SearchCheck },
+        { href: "/ticket-lookup", label: "Vérifier un ticket",  icon: SearchCheck },
         { href: "/sales/report",  label: "Rapport de vente",    icon: Receipt },
       ],
       sub: {
@@ -599,7 +599,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   return (
     <div className="flex flex-col h-auto min-h-0 md:h-full">
 
-      {/* â”€â”€ Brand â”€â”€ */}
+      {/* ── Brand ── */}
       <div className="px-5 pt-5 pb-4 flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <BrandLogo size="md" />
@@ -612,10 +612,10 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         </div>
       </div>
 
-      {/* â”€â”€ Divider â”€â”€ */}
+      {/* ── Divider ── */}
       <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent flex-shrink-0" />
 
-      {/* â”€â”€ Router selector â”€â”€ */}
+      {/* ── Router selector ── */}
       {!isRoutersPage && (
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
         <p className="px-1 mb-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
@@ -625,7 +625,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       </div>
       )}
 
-      {/* â”€â”€ Nav â”€â”€ */}
+      {/* ── Nav ── */}
       <nav
         className={cn(
           "flex-none sidebar-nav px-3 py-2 min-h-0",
@@ -635,10 +635,10 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         )}
       >
 
-        {/* â”€â”€ Mode routeurs masquÃ© : seul "Routeurs" visible â”€â”€ */}
+        {/* ── Mode routeurs masqué : seul "Routeurs" visible ── */}
         {hideOtherMenuItems && (
           <div className="mb-1">
-            <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">RÃ©seau</p>
+            <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">Réseau</p>
             <div className="space-y-0.5">
               <Link
                 href="/routers"
@@ -655,14 +655,14 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               </Link>
               {hasNoRouters && (
                 <p className="px-2.5 pt-2 pb-1 text-[11px] text-gray-600 italic leading-snug">
-                  Configurez un routeur pour accÃ©der au menu complet.
+                  Configurez un routeur pour accéder au menu complet.
                 </p>
               )}
             </div>
           </div>
         )}
 
-        {/* â”€â”€ Notification stock faible â”€â”€ */}
+        {/* ── Notification stock faible ── */}
         {!hideOtherMenuItems && (() => {
           const hasAlerts = lowStockCount > 0;
           return (
@@ -710,7 +710,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         })()}
 
         {!hideOtherMenuItems && navGroups.map((group, gi) => (
-            /* â”€â”€ Groupe normal â”€â”€ */
+            /* ── Groupe normal ── */
             <div key={group.label} className={cn("mb-1", gi > 0 && "mt-3")}>
               <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">
                 {group.label}
@@ -742,7 +742,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                           </span>
                         )}
                       </Link>
-                      {/* Ajouter un utilisateur hotspot â€” juste aprÃ¨s GÃ©nÃ©rer */}
+                      {/* Ajouter un utilisateur hotspot — juste après Générer */}
                       {href === "/generate" && (isAdmin || isManager || isCollaborateur) && (
                         <button
                           onClick={openAddUserDialog}
@@ -815,7 +815,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             </div>
         ))}
 
-        {/* â”€â”€ Outils + SystÃ¨me (collapsibles) â”€â”€ */}
+        {/* ── Outils + Système (collapsibles) ── */}
         {!hideOtherMenuItems && (
         <div className="mt-3 mb-1">
           <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">Outils</p>
@@ -842,8 +842,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               {outilsOpen && (
                 <div className="space-y-0.5 mt-0.5">
                   {[
-                    { href: "/ticket-template", label: "ModÃ¨le de ticket", icon: FileCode, show: isAdmin || isSuperAdmin },
-                    { href: "/managers",        label: "GÃ©rants de zone",  icon: UserCog,  show: isAdmin || isSuperAdmin },
+                    { href: "/ticket-template", label: "Modèle de ticket", icon: FileCode, show: isAdmin || isSuperAdmin },
+                    { href: "/managers",        label: "Gérants de zone",  icon: UserCog,  show: isAdmin || isSuperAdmin },
                     { href: "/collaborateurs",  label: "Collaborateurs",   icon: Users,    show: isAdmin || isSuperAdmin },
                     { href: "/maintenance",     label: "Maintenance",      icon: Wrench,   show: isAdmin },
                   ].filter((i) => i.show).map(({ href, label, icon: Icon }) => {
@@ -867,7 +867,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               )}
             </div>
 
-            {/* SystÃ¨me collapsible â€” admin/superadmin uniquement */}
+            {/* Système collapsible — admin/superadmin uniquement */}
             {(isAdmin || isSuperAdmin) && (
               <div>
                 <button
@@ -875,7 +875,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100"
                 >
                   <Cpu className="h-4 w-4 flex-shrink-0 text-gray-500" />
-                  <span className="flex-1 text-left">SystÃ¨me</span>
+                  <span className="flex-1 text-left">Système</span>
                   {!systemeOpen && (
                     <span className="text-[10px] font-semibold tabular-nums bg-white/8 text-gray-500 rounded-full px-1.5 py-0.5">2</span>
                   )}
@@ -889,7 +889,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                       className="flex items-center gap-2.5 pl-8 pr-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-white/[0.06] hover:text-gray-100 w-full disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <RefreshCw className="h-4 w-4 flex-shrink-0 text-gray-500" />
-                      <span className="flex-1 text-left truncate">RedÃ©marrer le MikroTik</span>
+                      <span className="flex-1 text-left truncate">Redémarrer le MikroTik</span>
                     </button>
                     <button
                       disabled={!selectedRouterId || isSystemLoading}
@@ -897,7 +897,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                       className="flex items-center gap-2.5 pl-8 pr-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-gray-400 hover:bg-red-900/20 hover:text-red-300 w-full disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <PowerOff className="h-4 w-4 flex-shrink-0 text-gray-500" />
-                      <span className="flex-1 text-left truncate">Ã‰teindre le MikroTik</span>
+                      <span className="flex-1 text-left truncate">Éteindre le MikroTik</span>
                     </button>
                   </div>
                 )}
@@ -910,13 +910,13 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 
       </nav>
 
-      {/* â”€â”€ Divider â”€â”€ */}
+      {/* ── Divider ── */}
       <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent flex-shrink-0" />
 
-      {/* â”€â”€ Footer â”€â”€ */}
+      {/* ── Footer ── */}
       <div className="px-3 py-3 flex-shrink-0">
         <div className="flex items-start justify-between gap-2">
-          {/* Gauche : badge = nom de l'utilisateur colorÃ© selon son rÃ´le */}
+          {/* Gauche : badge = nom de l'utilisateur coloré selon son rôle */}
           <div className="flex flex-col gap-1 min-w-0">
             {isSuperAdmin ? (
               <span className="text-[9px] font-bold uppercase tracking-wide text-orange-400 bg-orange-500/15 px-2 py-0.5 rounded-full ring-1 ring-orange-400/40 self-start cursor-default">
@@ -936,26 +936,26 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 ].join(" ")}
               >
                 {connectedName
-                  || (isManager ? "GÃ©rant de zone" : isCollaborateur ? "Collaborateur" : "Admin")}
+                  || (isManager ? "Gérant de zone" : isCollaborateur ? "Collaborateur" : "Admin")}
               </button>
             ) : null}
           </div>
 
-          {/* Droite : DÃ©connexion */}
+          {/* Droite : Déconnexion */}
           <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
             <button
               onClick={handleLogout}
               className="flex items-center gap-1 text-[11px] font-medium text-red-400/80 hover:text-red-300 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10 whitespace-nowrap"
-              title="Se dÃ©connecter"
+              title="Se déconnecter"
             >
               <LogOut className="h-3.5 w-3.5" />
-              <span>DÃ©connexion</span>
+              <span>Déconnexion</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* â”€â”€ Credentials change dialog (admin / manager / collaborateur) â”€â”€ */}
+      {/* ── Credentials change dialog (admin / manager / collaborateur) ── */}
       <Dialog open={showCreds} onOpenChange={(v) => { if (!v && !credLoading) setShowCreds(false); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -970,7 +970,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
                 <CheckCircle2 className="h-6 w-6 text-emerald-600" />
               </div>
-              <p className="text-sm font-medium text-emerald-700">Identifiants mis Ã  jour !</p>
+              <p className="text-sm font-medium text-emerald-700">Identifiants mis à jour !</p>
               <Button className="mt-2" onClick={() => setShowCreds(false)}>Fermer</Button>
             </div>
           ) : credCodeStep ? (
@@ -983,7 +983,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                     type="password"
                     value={credCode}
                     onChange={(e) => setCredCode(e.target.value)}
-                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    placeholder="••••••••"
                     className="w-full h-9 text-sm border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                     autoComplete="current-password"
                     onKeyDown={(e) => e.key === "Enter" && void handleCredsSubmit()}
@@ -999,7 +999,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                   Retour
                 </Button>
                 <Button onClick={() => void handleCredsSubmit()} disabled={credLoading}>
-                  {credLoading ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />VÃ©rificationâ€¦</> : "Valider"}
+                  {credLoading ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Vérification…</> : "Valider"}
                 </Button>
               </DialogFooter>
             </>
@@ -1022,7 +1022,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                   <PasswordInput
                     value={credPassword}
                     onChange={(e) => setCredPassword(e.target.value)}
-                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    placeholder="••••••••"
                     className="h-9 text-sm"
                     autoComplete="new-password"
                     onKeyDown={(e) => e.key === "Enter" && handleCredsContinue()}
@@ -1041,7 +1041,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         </DialogContent>
       </Dialog>
 
-      {/* â”€â”€ Password change dialog (manager only) â”€â”€ */}
+      {/* ── Password change dialog (manager only) ── */}
       <Dialog open={showPwd} onOpenChange={(v) => { if (!v) setShowPwd(false); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -1056,7 +1056,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center">
                 <CheckCircle2 className="h-6 w-6 text-emerald-600" />
               </div>
-              <p className="text-sm font-medium text-emerald-700">Mot de passe modifiÃ© avec succÃ¨s !</p>
+              <p className="text-sm font-medium text-emerald-700">Mot de passe modifié avec succès !</p>
               <Button className="mt-2" onClick={() => setShowPwd(false)}>Fermer</Button>
             </div>
           ) : (
@@ -1067,7 +1067,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                   <PasswordInput
                     value={pwdNew}
                     onChange={(e) => setPwdNew(e.target.value)}
-                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    placeholder="••••••••"
                     className="h-9 text-sm"
                     autoComplete="new-password"
                     onKeyDown={(e) => e.key === "Enter" && void handleChangePwd()}
@@ -1082,7 +1082,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                   Annuler
                 </Button>
                 <Button onClick={() => void handleChangePwd()} disabled={pwdLoading}>
-                  {pwdLoading ? "Enregistrementâ€¦" : "Enregistrer"}
+                  {pwdLoading ? "Enregistrement…" : "Enregistrer"}
                 </Button>
               </DialogFooter>
             </>
@@ -1090,7 +1090,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         </DialogContent>
       </Dialog>
 
-      {/* â”€â”€ Add hotspot user dialog â€” style Mikhmon compact â”€â”€ */}
+      {/* ── Add hotspot user dialog — style Mikhmon compact ── */}
       <Dialog open={showAddUser} onOpenChange={(v) => {
         if (!v && !addLoading && !addEditLoading) {
           setShowAddUser(false);
@@ -1102,14 +1102,14 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           <DialogHeader className="px-3 pt-2 pb-1.5 border-b border-slate-600 bg-slate-700">
             <DialogTitle className="text-sm font-semibold flex items-center gap-1.5 text-slate-100">
               {addDialogMode === "recap"
-                ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /><span className="truncate">Client ajoutÃ© â€” {addEditOriginalName}</span></>
+                ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /><span className="truncate">Client ajouté — {addEditOriginalName}</span></>
                 : addDialogMode === "edit"
-                ? <><Pencil className="h-3.5 w-3.5 text-cyan-400" /><span className="truncate">Modifier â€” {addEditOriginalName}</span></>
+                ? <><Pencil className="h-3.5 w-3.5 text-cyan-400" /><span className="truncate">Modifier — {addEditOriginalName}</span></>
                 : <><UserPlus className="h-3.5 w-3.5" /> Ajouter un client</>}
             </DialogTitle>
           </DialogHeader>
 
-          {/* â”€â”€ Buttons bar â”€â”€ */}
+          {/* ── Buttons bar ── */}
           <div className="flex items-center gap-2 px-3 pt-2 pb-2 bg-slate-700">
             <Button type="button" size="sm"
               onClick={() => { setShowAddUser(false); setAddDialogMode("create"); setAddEditOriginalName(""); setAddRecapUser(null); }}
@@ -1143,7 +1143,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             )}
           </div>
 
-          {/* â”€â”€ RECAP card (mode recap seulement) â”€â”€ */}
+          {/* ── RECAP card (mode recap seulement) ── */}
           {addDialogMode === "recap" && addRecapUser && (
             <div className="px-3 pb-4 pt-2 bg-slate-700 overflow-y-auto space-y-2">
               <div className="bg-slate-800 rounded-lg border border-slate-600 divide-y divide-slate-600 text-xs overflow-hidden">
@@ -1154,7 +1154,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 <div className="grid grid-cols-[76px_1fr] px-3 py-2 items-center">
                   <span className="text-slate-400">Password</span>
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="font-mono text-slate-100 truncate">{addShowPassword ? addRecapUser.password : "â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"}</span>
+                    <span className="font-mono text-slate-100 truncate">{addShowPassword ? addRecapUser.password : "••••••••"}</span>
                     <button type="button" onClick={() => setAddShowPassword((v) => !v)}
                       className="h-5 w-5 flex-shrink-0 flex items-center justify-center rounded bg-slate-600 hover:bg-slate-500 text-slate-300">
                       {addShowPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
@@ -1203,10 +1203,10 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             }`}
           >
 
-            {/* â”€â”€ EDIT mode banner â”€â”€ */}
+            {/* ── EDIT mode banner ── */}
             {addDialogMode === "edit" && (
               <p className="text-xs text-emerald-300 bg-emerald-900/30 border border-emerald-700 rounded px-2 py-1.5">
-                âœ“ Utilisateur crÃ©Ã©. Modifiez les champs si besoin, puis Enregistrer.
+                âœ“ Utilisateur créé. Modifiez les champs si besoin, puis Enregistrer.
               </p>
             )}
 
@@ -1385,25 +1385,25 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             )}
             {!selectedRouterId && (
               <p className="text-xs text-amber-300 bg-amber-900/30 border border-amber-700 rounded px-2 py-1.5">
-                âš  SÃ©lectionnez d'abord un routeur dans la barre latÃ©rale.
+                âš  Sélectionnez d'abord un routeur dans la barre latérale.
               </p>
             )}
           </div>
         </DialogContent>
       </Dialog>
-      {/* â”€â”€ Confirmation action systÃ¨me â”€â”€ */}
+      {/* ── Confirmation action système ── */}
       <AlertDialog open={systemAction !== null} onOpenChange={(open) => { if (!open) setSystemAction(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               {systemAction === "reboot"
-                ? <><RefreshCw className="h-4 w-4 text-amber-500" /> RedÃ©marrer le MikroTik ?</>
-                : <><PowerOff className="h-4 w-4 text-red-500" /> Ã‰teindre le MikroTik ?</>}
+                ? <><RefreshCw className="h-4 w-4 text-amber-500" /> Redémarrer le MikroTik ?</>
+                : <><PowerOff className="h-4 w-4 text-red-500" /> Éteindre le MikroTik ?</>}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {systemAction === "reboot"
-                ? "Le routeur sera indisponible pendant le redÃ©marrage. Les sessions Hotspot actives seront interrompues."
-                : "Le routeur va s'Ã©teindre complÃ¨tement. Il faudra le rallumer manuellement pour qu'il soit de nouveau accessible."}
+                ? "Le routeur sera indisponible pendant le redémarrage. Les sessions Hotspot actives seront interrompues."
+                : "Le routeur va s'éteindre complètement. Il faudra le rallumer manuellement pour qu'il soit de nouveau accessible."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1415,7 +1415,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             >
               {isSystemLoading
                 ? <Loader2 className="h-4 w-4 animate-spin" />
-                : systemAction === "reboot" ? "RedÃ©marrer" : "Ã‰teindre"}
+                : systemAction === "reboot" ? "Redémarrer" : "Éteindre"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1436,20 +1436,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <RouterProfilesProvider>
     <div className="flex h-svh bg-gray-100 dark:bg-gray-950 overflow-hidden">
 
-      {/* â”€â”€ Desktop sidebar â”€â”€ */}
+      {/* ── Desktop sidebar ── */}
       {!isMobile && (
         <aside className="w-60 bg-[#0d1117] text-white flex-col flex-shrink-0 border-r border-white/[0.06] md:flex fixed top-0 left-0 z-10 h-svh overflow-y-auto sidebar-scroll">
           <NavContent />
         </aside>
       )}
 
-      {/* â”€â”€ Mobile: top bar + custom slide-in drawer â”€â”€ */}
+      {/* ── Mobile: top bar + custom slide-in drawer ── */}
       <div className={cn("flex flex-col flex-1 min-w-0 overflow-hidden", !isMobile && "ml-60")}>
 
-        {/* Mobile top bar â€” 2 rows to avoid overlap on portrait phones */}
+        {/* Mobile top bar — 2 rows to avoid overlap on portrait phones */}
         {isMobile && (
           <header className="bg-[#0d1117] text-white px-3 pt-2 pb-2.5 flex-shrink-0 border-b border-white/[0.06] z-30 relative">
-            {/* Grille : menu Ã  gauche (44px), titre + routeur Ã  droite â€” le select nâ€™est plus sous le hamburger */}
+            {/* Grille : menu à gauche (44px), titre + routeur à droite — le select n’est plus sous le hamburger */}
             <div className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2 gap-y-2 items-center">
               <Button
                 size="icon"
@@ -1477,7 +1477,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </header>
         )}
 
-        {/* Mobile slide-in drawer â€” positioned below the header */}
+        {/* Mobile slide-in drawer — positioned below the header */}
         {isMobile && (
           <div className="relative flex-1 min-w-0 overflow-hidden flex flex-col">
             {/* Backdrop */}
@@ -1488,7 +1488,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               />
             )}
 
-            {/* Sliding nav panel â€” full height so it never clips content */}
+            {/* Sliding nav panel — full height so it never clips content */}
             <div
               className={cn(
                 "absolute top-0 left-0 h-full w-64 max-w-[min(18rem,85vw)] bg-[#0d1117] text-white border-r border-white/[0.06] z-20 flex flex-col overflow-y-auto overflow-x-hidden transition-transform duration-300 ease-in-out shadow-2xl",
@@ -1498,7 +1498,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <NavContent mobileDrawer onNavigate={() => setMobileOpen(false)} />
             </div>
 
-            {/* Main content â€” scrollable always, pointer-events blocked by backdrop when menu open */}
+            {/* Main content — scrollable always, pointer-events blocked by backdrop when menu open */}
             <main className="flex-1 overflow-y-auto">
               <div className="p-3 sm:p-6 max-w-7xl mx-auto">{children}</div>
             </main>

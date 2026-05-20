@@ -1552,7 +1552,7 @@ export async function listLogs(
         topics: fromWin1252((e["topics"] as string) ?? ""),
         // Hotspot messages frequently embed user-typed names (comments, full names).
         // node-routeros decodes the socket bytes 1:1 as latin-1, so UTF-8 names
-        // (e.g. "Famille Koné") arrive mojibake'd ("Famille KonÃ©") and need to be
+        // (e.g. "Famille Koné") arrive mojibake'd ("Famille Koné") and need to be
         // re-decoded as UTF-8 before being shipped to the browser.
         message: fromWin1252((e["message"] as string) ?? ""),
       }));
