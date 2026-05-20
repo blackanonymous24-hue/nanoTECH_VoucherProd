@@ -549,6 +549,13 @@ router.use("/routers/:id", async (req, res, next) => {
     res.status(403).json({ error: "Accès refusé à ce routeur" });
     return;
   }
+
+  // Gérant de zone : consultation autorisée, suppressions interdites (scripts, users, schedulers…).
+  if (scope.kind === "manager" && req.method === "DELETE") {
+    res.status(403).json({ error: "Les gérants de zone ne peuvent pas supprimer de données." });
+    return;
+  }
+
   next();
 });
 
@@ -644,6 +651,13 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/routers/:id", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind !== "admin" && scope.kind !== "super") {
+    res.status(403).json({ error: "Seuls les administrateurs peuvent supprimer un routeur." });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
@@ -2765,16 +2779,9 @@ router.get("/routers/:id/dashboard-priority", async (req, res): Promise<void> =>
  * Détail des ventes sans suffixe vendeur reconnu (scripts + bons).
  */
 router.get("/routers/:id/unattributed-period-sales", async (req, res): Promise<void> => {
-  const adminScope = getAdminScopeFromHeader(req);
-  if (!adminScope) { res.status(401).json({ error: "Non authentifié" }); return; }
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  if (!adminScope.isSuperAdmin || adminScope.isImpersonating) {
-    const [r] = await db.select({ owner: routersTable.ownerAdminId })
-      .from(routersTable).where(eq(routersTable.id, id));
-    if (!r || r.owner !== adminScope.adminId) { res.status(403).json({ error: "Accès refusé" }); return; }
-  }
 
   const { period } = req.query as { period?: string };
   if (period !== "today" && period !== "month") {
@@ -3041,15 +3048,8 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
  *   (none)                   → all history (scripts seulement)
  */
 router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
-  const adminScope = getAdminScopeFromHeader(req);
-  if (!adminScope) { res.status(401).json({ error: "Non authentifié" }); return; }
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
-  if (!adminScope.isSuperAdmin || adminScope.isImpersonating) {
-    const [r] = await db.select({ owner: routersTable.ownerAdminId })
-      .from(routersTable).where(eq(routersTable.id, id));
-    if (!r || r.owner !== adminScope.adminId) { res.status(403).json({ error: "Accès refusé" }); return; }
-  }
 
   const yearRaw  = req.query.year  ? parseInt(req.query.year  as string, 10) : null;
   const monthRaw = req.query.month ? parseInt(req.query.month as string, 10) : null;

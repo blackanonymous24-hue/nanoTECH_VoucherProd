@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { canDelete } from "@/lib/permissions";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function fmtDateFr(iso: string) {
@@ -61,12 +63,14 @@ function ArrearRow({
   routerId,
   onDone,
   onOptimisticDeletePayment,
+  allowDelete,
 }: {
   vendorId: number;
   entry: DailyArrearEntry;
   routerId: number;
   onDone: () => Promise<void> | void;
   onOptimisticDeletePayment: (vendorId: number, date: string, paymentId: number) => void;
+  allowDelete: boolean;
 }) {
   const [amount, setAmount]   = useState(String(entry.remaining));
   const [loading, setLoading] = useState(false);
@@ -193,6 +197,7 @@ function ArrearRow({
               className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 pl-2 pr-1 py-0.5 text-[10px] text-emerald-700"
             >
               <span className="font-semibold tabular-nums">{fmtAmount(p.amount)}</span>
+              {allowDelete && (
               <button
                 type="button"
                 onClick={() => void deletePayment(p.id, p.amount)}
@@ -205,6 +210,7 @@ function ArrearRow({
                   ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
                   : <X className="h-2.5 w-2.5" />}
               </button>
+              )}
             </span>
           ))}
         </div>
@@ -220,12 +226,14 @@ function VendorCard({
   routerId,
   onRefresh,
   onOptimisticDeletePayment,
+  allowDelete,
 }: {
   row: VendorRow;
   viewDate: string;
   routerId: number;
   onRefresh: () => void;
   onOptimisticDeletePayment: (vendorId: number, date: string, paymentId: number) => void;
+  allowDelete: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const daySales = row.arrears.find((a) => a.date === viewDate)?.salesAmount ?? 0;
@@ -267,6 +275,7 @@ function VendorCard({
               routerId={routerId}
               onDone={onRefresh}
               onOptimisticDeletePayment={onOptimisticDeletePayment}
+              allowDelete={allowDelete}
             />
           ))}
         </CardContent>
@@ -281,6 +290,8 @@ function VendorCard({
 /* ── Main page ──────────────────────────────────────────────── */
 export default function DailyPayments() {
   const { selectedRouterId } = useRouterContext();
+  const { role } = useAuth();
+  const allowDelete = canDelete(role);
   const [, navigate] = useLocation();
   const [date, setDate]      = useState(todayIso);
   const queryClient          = useQueryClient();
@@ -472,6 +483,7 @@ export default function DailyPayments() {
           routerId={selectedRouterId}
           onRefresh={refresh}
           onOptimisticDeletePayment={onOptimisticDeletePayment}
+          allowDelete={allowDelete}
         />
       ))}
     </div>

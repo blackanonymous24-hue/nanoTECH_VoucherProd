@@ -16,6 +16,8 @@ import {
 import { Cookie, RefreshCw, Search, Router, Trash2 } from "lucide-react";
 import { foldText } from "@/lib/text";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { canDelete } from "@/lib/permissions";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const COOKIES_CACHE_KEY = "hotspot-cookies-cache:v1";
@@ -33,6 +35,8 @@ interface HotspotCookie {
 
 export default function HotspotCookies() {
   const { selectedRouterId } = useRouterContext();
+  const { role } = useAuth();
+  const allowDelete = canDelete(role);
   const { toast } = useToast();
   const [cookies, setCookies] = useState<HotspotCookie[]>([]);
   const [loading, setLoading] = useState(false);
@@ -167,6 +171,7 @@ export default function HotspotCookies() {
             >
               <RefreshCw className={`h-4 w-4 ${loading || refreshing ? "animate-spin" : ""}`} />
             </Button>
+            {allowDelete && (
             <Button
               variant="outline"
               size="sm"
@@ -176,6 +181,7 @@ export default function HotspotCookies() {
             >
               {clearingAll ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </Button>
+            )}
           </div>
         )}
       </div>
@@ -224,7 +230,7 @@ export default function HotspotCookies() {
               <Table className="min-w-[760px]">
                 <TableHeader>
                   <TableRow className="bg-gray-50 [&_th]:h-7 [&_th]:py-0 [&_th]:leading-tight">
-                    <TableHead className="w-12 text-center">Action</TableHead>
+                    {allowDelete && <TableHead className="w-12 text-center">Action</TableHead>}
                     <TableHead>Utilisateur</TableHead>
                     <TableHead>Adresse MAC</TableHead>
                     <TableHead>Domaine</TableHead>
@@ -236,7 +242,7 @@ export default function HotspotCookies() {
                     <>
                       {[...Array(6)].map((_, idx) => (
                         <TableRow key={`sk-${idx}`}>
-                          <TableCell><Skeleton className="h-8 w-8 mx-auto" /></TableCell>
+                          {allowDelete && <TableCell><Skeleton className="h-8 w-8 mx-auto" /></TableCell>}
                           <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
@@ -247,6 +253,7 @@ export default function HotspotCookies() {
                   )}
                   {filtered.map((x) => (
                     <TableRow key={x.id}>
+                      {allowDelete && (
                       <TableCell className="text-center">
                         <Button
                           size="icon"
@@ -259,6 +266,7 @@ export default function HotspotCookies() {
                           {busyCookieId === x.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </Button>
                       </TableCell>
+                      )}
                       <TableCell className="font-medium">{x.user || "—"}</TableCell>
                       <TableCell className="font-mono text-xs">{x.macAddress || "—"}</TableCell>
                       <TableCell>{x.domain || "—"}</TableCell>

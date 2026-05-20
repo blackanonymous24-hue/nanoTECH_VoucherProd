@@ -11,6 +11,8 @@ import {
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { canDelete } from "@/lib/permissions";
 import { paidShownVersusWeekContext, weekAmountDue } from "@/lib/vendorWeekPaymentDisplay";
 import { vendorSoldDayTitle, yesterdayIsoLocal } from "@/lib/vendorSoldDayTitle";
 
@@ -164,12 +166,14 @@ function VendorRow({
   weekStart,
   onMutated,
   onOptimisticDeletePayment,
+  allowDelete,
 }: {
   vendor: VendorWeekEntry;
   routerId: number;
   weekStart: string;
   onMutated: () => Promise<void> | void;
   onOptimisticDeletePayment: (vendorId: number, paymentId: number, source: "weekly" | "daily") => void;
+  allowDelete: boolean;
 }) {
   const [open, setOpen]     = useState(false);
   const [amount, setAmount] = useState("");
@@ -386,6 +390,7 @@ function VendorRow({
                   <span className="font-semibold text-gray-800 tabular-nums">{fmtAmount(p.amount)} FCFA</span>
                   <span className="text-gray-400">{new Date(p.paidAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</span>
                   {p.note && <span className="text-gray-500 italic truncate flex-1">— {p.note}</span>}
+                  {allowDelete && (
                   <button
                     type="button"
                     className="ml-auto p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0 disabled:opacity-50"
@@ -397,6 +402,7 @@ function VendorRow({
                       ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -414,6 +420,7 @@ function WeekCard({
   routerId,
   colorClass,
   queryClient,
+  allowDelete,
   onPrev,
   onNext,
   canGoPrev,
@@ -424,6 +431,7 @@ function WeekCard({
   routerId: number;
   colorClass: string;
   queryClient: ReturnType<typeof useQueryClient>;
+  allowDelete: boolean;
   onPrev?: () => void;
   onNext?: () => void;
   canGoPrev?: boolean;
@@ -566,7 +574,7 @@ function WeekCard({
           <p className="text-center text-xs text-gray-400 py-6">Aucune vente cette semaine</p>
         )}
         {!isLoading && (data?.vendors ?? []).map((v) => (
-          <VendorRow key={v.vendorId} vendor={v} routerId={routerId} weekStart={weekStart} onMutated={onMutated} onOptimisticDeletePayment={onOptimisticDeletePayment} />
+          <VendorRow key={v.vendorId} vendor={v} routerId={routerId} weekStart={weekStart} onMutated={onMutated} onOptimisticDeletePayment={onOptimisticDeletePayment} allowDelete={allowDelete} />
         ))}
       </CardContent>
     </Card>
@@ -584,7 +592,7 @@ interface DailyPaymentWithVendor {
   paidAt: string;
 }
 
-function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
+function WeeklyDailyPaymentsSection({ routerId, allowDelete }: { routerId: number; allowDelete: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const monday = currentMonday();
@@ -692,6 +700,7 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
                 <span className="text-sm font-bold text-emerald-700 tabular-nums flex-shrink-0">
                   {fmtAmount(p.amount)} FCFA
                 </span>
+                {allowDelete && (
                 <button
                   type="button"
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleDelete(p.id, p.amount); }}
@@ -704,6 +713,7 @@ function WeeklyDailyPaymentsSection({ routerId }: { routerId: number }) {
                     : <Trash2 className="h-3.5 w-3.5" />
                   }
                 </button>
+                )}
               </div>
             ))}
           </div>
@@ -1017,6 +1027,8 @@ const MAX_WEEK_OFFSET = 4;
 
 export default function VendorPayments() {
   const { selectedRouterId } = useRouterContext();
+  const { role } = useAuth();
+  const allowDelete = canDelete(role);
   const qc = useQueryClient();
   const [weekOffset, setWeekOffset] = useState(0); // 0 = last week, 1 = 2 weeks ago, ...
 
@@ -1062,6 +1074,7 @@ export default function VendorPayments() {
         routerId={selectedRouterId}
         colorClass="bg-blue-500"
         queryClient={qc}
+        allowDelete={allowDelete}
       />
 
       {/* Semaine(s) précédente(s) — carousel */}
@@ -1072,6 +1085,7 @@ export default function VendorPayments() {
           routerId={selectedRouterId}
           colorClass={weekOffset === 0 ? "bg-gray-400" : "bg-amber-400"}
           queryClient={qc}
+          allowDelete={allowDelete}
           onPrev={() => setWeekOffset((o) => Math.min(o + 1, MAX_WEEK_OFFSET))}
           onNext={() => setWeekOffset((o) => Math.max(o - 1, 0))}
           canGoPrev={weekOffset < MAX_WEEK_OFFSET}
@@ -1096,10 +1110,12 @@ export default function VendorPayments() {
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
             Versements journaliers — semaine en cours
           </CardTitle>
+          {allowDelete && (
           <p className="text-xs text-gray-400">Cliquez sur 🗑 pour corriger une erreur de saisie</p>
+          )}
         </CardHeader>
         <CardContent className="pt-1 pb-4">
-          <WeeklyDailyPaymentsSection routerId={selectedRouterId} />
+          <WeeklyDailyPaymentsSection routerId={selectedRouterId} allowDelete={allowDelete} />
         </CardContent>
       </Card>
 

@@ -480,6 +480,13 @@ router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
 });
 
 router.delete("/vouchers/:id", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind === "manager") {
+    res.status(403).json({ error: "Les gérants de zone ne peuvent pas supprimer de données." });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }

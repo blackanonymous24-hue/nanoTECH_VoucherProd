@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { foldText } from "@/lib/text";
+import { useAuth } from "@/contexts/AuthContext";
+import { canDelete } from "@/lib/permissions";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const ALL = "_all"; // sentinel for "no filter" in Select (empty string not allowed)
@@ -65,6 +67,8 @@ function exportCSV(entries: SaleEntry[], filename: string) {
 
 export default function SellingReport() {
   const { selectedRouterId } = useRouterContext();
+  const { role } = useAuth();
+  const allowDelete = canDelete(role);
   const { toast } = useToast();
   const now = new Date();
 
@@ -410,6 +414,7 @@ export default function SellingReport() {
               >
                 <FileDown className="h-3.5 w-3.5" /> CSV
               </Button>
+              {allowDelete && (
               <Button
                 size="sm"
                 variant="outline"
@@ -425,6 +430,7 @@ export default function SellingReport() {
                 {deletingMonthScripts ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 Supprimer de Mikrotik
               </Button>
+              )}
             </div>
           </div>
 
@@ -506,6 +512,7 @@ export default function SellingReport() {
         </CardContent>
       </Card>
 
+      {allowDelete && (
       <DeleteConfirmDialog
         open={confirmDeleteMonth}
         onOpenChange={(o) => { if (!o && !deletingMonthScripts) setConfirmDeleteMonth(false); }}
@@ -514,6 +521,7 @@ export default function SellingReport() {
         onConfirm={() => void handleDeleteSelectedMonthScripts()}
         loading={deletingMonthScripts}
       />
+      )}
     </div>
   );
 }

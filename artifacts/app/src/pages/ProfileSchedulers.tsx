@@ -18,6 +18,8 @@ import { foldText } from "@/lib/text";
 import { sortMikrotikRowsByCreationOrder } from "@/lib/routerProfilesSort";
 import { useToast } from "@/hooks/use-toast";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
+import { useAuth } from "@/contexts/AuthContext";
+import { canDelete } from "@/lib/permissions";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -36,6 +38,8 @@ interface ProfileScheduler {
 
 export default function ProfileSchedulers() {
   const { selectedRouterId } = useRouterContext();
+  const { role } = useAuth();
+  const allowDelete = canDelete(role);
   const { toast } = useToast();
   const [schedulers, setSchedulers] = useState<ProfileScheduler[]>([]);
   const [loading, setLoading] = useState(false);
@@ -179,7 +183,7 @@ export default function ProfileSchedulers() {
                 <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow className="bg-gray-50 [&_th]:h-7 [&_th]:py-0 [&_th]:leading-tight">
-                      <TableHead className="w-12 text-center">Action</TableHead>
+                      {allowDelete && <TableHead className="w-12 text-center">Action</TableHead>}
                       <TableHead>Nom (forfait)</TableHead>
                       <TableHead>Intervalle</TableHead>
                       <TableHead>État</TableHead>
@@ -191,12 +195,12 @@ export default function ProfileSchedulers() {
                     {loading && schedulers.length === 0 ? (
                       Array.from({ length: 6 }).map((_, i) => (
                         <TableRow key={i}>
-                          <TableCell colSpan={6}><Skeleton className="h-6 w-full" /></TableCell>
+                          <TableCell colSpan={allowDelete ? 6 : 5}><Skeleton className="h-6 w-full" /></TableCell>
                         </TableRow>
                       ))
                     ) : filtered.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-sm text-gray-500 py-10">
+                        <TableCell colSpan={allowDelete ? 6 : 5} className="text-center text-sm text-gray-500 py-10">
                           {schedulers.length === 0
                             ? "Aucun scheduler de profil sur ce routeur."
                             : "Aucun résultat pour cette recherche."}
@@ -205,6 +209,7 @@ export default function ProfileSchedulers() {
                     ) : (
                       filtered.map((s) => (
                         <TableRow key={s.id} className="hover:bg-gray-50/80">
+                          {allowDelete && (
                           <TableCell className="text-center">
                             <Button
                               type="button"
@@ -218,6 +223,7 @@ export default function ProfileSchedulers() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </TableCell>
+                          )}
                           <TableCell className="font-medium text-sm">
                             <span className="inline-flex items-center gap-1.5">
                               <span
@@ -267,6 +273,7 @@ export default function ProfileSchedulers() {
         </>
       )}
 
+      {allowDelete && (
       <DeleteConfirmDialog
         open={!!pendingDelete}
         onOpenChange={(open) => { if (!open && !deleting) setPendingDelete(null); }}
@@ -283,6 +290,7 @@ export default function ProfileSchedulers() {
         loading={deleting}
         confirmLabel="Supprimer"
       />
+      )}
     </div>
   );
 }

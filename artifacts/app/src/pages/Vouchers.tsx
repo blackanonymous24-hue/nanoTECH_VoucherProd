@@ -39,6 +39,8 @@ import {
 } from "@/lib/mikhmon-add-user";
 import { ScrollablePopoverList } from "@/components/ui/scrollable-popover-list";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { canDelete } from "@/lib/permissions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -365,6 +367,8 @@ function describeVoucherHotspotApplyError(err: unknown): string {
 
 export default function Vouchers() {
   const { selectedRouterId, routers, selectedRouter } = useRouterContext();
+  const { role } = useAuth();
+  const allowDelete = canDelete(role);
   const { toast } = useToast();
 
   const [view, setView] = useState<"list" | "lots">("list");
@@ -2003,6 +2007,7 @@ export default function Vouchers() {
                             {isDisabling && disablingLotComment === filterComment ? "En cours..." : "Réactiver"}
                           </Button>
                         )}
+                        {allowDelete && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -2017,6 +2022,7 @@ export default function Vouchers() {
                           )}
                           Supprimer
                         </Button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2136,6 +2142,8 @@ export default function Vouchers() {
                         );
                       })()}
 
+                      {allowDelete && (
+                      <>
                       <div className="h-4 w-px bg-blue-200 flex-shrink-0 ml-auto" />
 
                       {/* Supprimer — poussé à droite */}
@@ -2150,6 +2158,8 @@ export default function Vouchers() {
                           {selectedUsernames.size}
                         </span>
                       </button>
+                      </>
+                      )}
                     </>
                   )}
                 </div>
@@ -2181,6 +2191,7 @@ export default function Vouchers() {
                 </AlertDialogContent>
               </AlertDialog>
 
+              {allowDelete && (
               <DeleteConfirmDialog
                 open={confirmDeleteSelected}
                 onOpenChange={(o) => { if (!isDeletingSelected) setConfirmDeleteSelected(o); }}
@@ -2190,6 +2201,7 @@ export default function Vouchers() {
                 loading={isDeletingSelected}
                 confirmLabel="Supprimer définitivement"
               />
+              )}
 
               <Card>
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -2234,6 +2246,7 @@ export default function Vouchers() {
                           onToggle={() => toggleSelect(user.username)}
                           onEdit={() => openEditUser(user)}
                           onRequestDelete={() => setConfirmDeleteEditUser(user)}
+                          showDelete={allowDelete}
                           onMikrotikToggle={() => void handleUserRowMikrotikToggle(user)}
                           mikrotikTogglingUser={userRowMikrotikToggle}
                           deleteBusy={isDeletingEditUser}
@@ -2527,6 +2540,7 @@ export default function Vouchers() {
                               <Unlock className="h-3.5 w-3.5" aria-hidden />
                             )}
                           </Button>
+                          {allowDelete && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -2539,6 +2553,7 @@ export default function Vouchers() {
                               ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                               : <Trash2 className="h-3.5 w-3.5" />}
                           </Button>
+                          )}
                         </div>
                       </div>
                       {lotPowerBusy &&
@@ -2757,6 +2772,7 @@ export default function Vouchers() {
               <div className="flex-1" />
 
               {/* Trash + Prolonger — extrême droite */}
+              {allowDelete && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -2780,6 +2796,7 @@ export default function Vouchers() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Supprimer</TooltipContent>
               </Tooltip>
+              )}
               {!profileIsUnlimited(editingUser?.profile) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -2949,6 +2966,7 @@ export default function Vouchers() {
         </DialogContent>
       </Dialog>
 
+      {allowDelete && (
       <DeleteConfirmDialog
         open={!!confirmDeleteEditUser}
         onOpenChange={(o) => { if (!o && !isDeletingEditUser) setConfirmDeleteEditUser(null); }}
@@ -2957,6 +2975,7 @@ export default function Vouchers() {
         onConfirm={() => void handleConfirmDeleteEditUser()}
         loading={isDeletingEditUser}
       />
+      )}
 
       {/* ── Add User dialog (Mikhmon-style compact) ─────────────────────── */}
       <Dialog open={addUserOpen} onOpenChange={(o) => {
@@ -3254,6 +3273,7 @@ export default function Vouchers() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {allowDelete && (
       <DeleteConfirmDialog
         open={!!deletingLot}
         onOpenChange={(o) => { if (!o && !isDeletingLot) setDeletingLot(null); }}
@@ -3262,6 +3282,7 @@ export default function Vouchers() {
         onConfirm={() => deletingLot && handleDeleteLot(deletingLot)}
         loading={isDeletingLot}
       />
+      )}
 
       {/* Hidden download icon for accessibility */}
       <Download className="hidden" />
@@ -3376,6 +3397,7 @@ function UserRow({
   onToggle,
   onEdit,
   onRequestDelete,
+  showDelete,
   onMikrotikToggle,
   mikrotikTogglingUser,
   deleteBusy,
@@ -3388,6 +3410,7 @@ function UserRow({
   onToggle: () => void;
   onEdit: () => void;
   onRequestDelete: () => void;
+  showDelete: boolean;
   onMikrotikToggle: () => void;
   mikrotikTogglingUser: string | null;
   deleteBusy: boolean;
@@ -3625,6 +3648,7 @@ function UserRow({
             <Unlock className="h-3.5 w-3.5" aria-hidden />
           )}
         </button>
+        {showDelete && (
         <button
           type="button"
           onClick={(e) => {
@@ -3638,6 +3662,7 @@ function UserRow({
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
         </button>
+        )}
       </div>
     </div>
   );

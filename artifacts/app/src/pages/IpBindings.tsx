@@ -34,6 +34,8 @@ import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { ShieldCheck, RefreshCw, Plus, Search, Trash2, Pencil, ShieldOff, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { foldText } from "@/lib/text";
+import { useAuth } from "@/contexts/AuthContext";
+import { canDelete } from "@/lib/permissions";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const IP_BINDINGS_CACHE_KEY = "ip-bindings-cache:v1";
@@ -262,6 +264,8 @@ function typeBadge(type: BindingType) {
 
 export default function IpBindings() {
   const { selectedRouterId } = useRouterContext();
+  const { role } = useAuth();
+  const allowDelete = canDelete(role);
   const { toast } = useToast();
 
   const [bindings, setBindings] = useState<IpBinding[] | null>(null);
@@ -870,6 +874,7 @@ export default function IpBindings() {
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
+                        {allowDelete && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -880,6 +885,7 @@ export default function IpBindings() {
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1199,6 +1205,7 @@ export default function IpBindings() {
         </DialogContent>
       </Dialog>
 
+      {allowDelete && (
       <DeleteConfirmDialog
         open={!!confirmDelete}
         onOpenChange={(o) => { if (!o && !deleting) setConfirmDelete(null); }}
@@ -1207,6 +1214,7 @@ export default function IpBindings() {
         onConfirm={() => void handleDelete()}
         loading={deleting}
       />
+      )}
     </div>
   );
 }

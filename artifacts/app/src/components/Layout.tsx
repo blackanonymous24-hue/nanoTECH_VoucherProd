@@ -4,7 +4,7 @@ import { RouterProfilesProvider, useSharedRouterProfiles } from "@/hooks/use-rou
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Router, Ticket, Zap, Wifi,
-  PackageOpen, Activity, Users, BarChart3, FileCode, LogOut,
+  PackageOpen, Activity, Users, BarChart3, FileCode, LogOut, CalendarDays, TrendingUp,
   UserCog, Menu, X, Receipt, ListOrdered, Wallet, KeyRound, CheckCircle2, Bell, Wrench, CreditCard, UserPlus, SearchCheck, ShieldCheck, Crown, Database, Cookie, ChevronDown,
   Eye, EyeOff, ChevronsUpDown, Check, Save, Loader2, Pencil, FilePlus2,
   PowerOff, RefreshCw, Cpu, CalendarClock,
@@ -579,6 +579,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         label: "Performance de vente",
         icon: Users,
         items: [
+          { href: "/sales/daily",   label: "Ventes journalières",  icon: CalendarDays },
+          { href: "/sales/monthly", label: "Ventes mensuelles",    icon: TrendingUp },
           { href: "/vendors",                    label: "Vendeurs",             icon: Users },
           ...(showDailySettlementNav ? [{ href: "/vendors/versement-du-jour", label: "Versement Journalier", icon: CreditCard }] : []),
           ...(hasVendors ? [{ href: "/vendors/versements",        label: "Versement Hebdo",      icon: Wallet }] : []),
@@ -815,8 +817,8 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             </div>
         ))}
 
-        {/* ── Outils + Système (collapsibles) ── */}
-        {!hideOtherMenuItems && (
+        {/* ── Outils + Système (collapsibles) — masqué pour le gérant de zone ── */}
+        {!hideOtherMenuItems && !isManager && (
         <div className="mt-3 mb-1">
           <p className="px-2 mb-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-gray-600">Outils</p>
           <div className="space-y-0.5">

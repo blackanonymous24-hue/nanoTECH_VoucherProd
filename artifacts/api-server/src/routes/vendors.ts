@@ -5,7 +5,7 @@ import { hashPassword } from "../lib/vendor-auth.js";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { enableDisableHotspotUsersByComment, type RouterConnection } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
-import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache } from "./routers.js";
+import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache, resolveCallerScope, type CallerScope } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
@@ -130,6 +130,55 @@ function vendorTenantCond(scope: NonNullable<ReturnType<typeof getAdminScopeOpti
   return (!scope.isSuperAdmin || scope.isImpersonating)
     ? eq(vendorsTable.ownerAdminId, scope.adminId)
     : undefined;
+}
+
+/** Lecture vendeurs / ventes : admin, super-admin, gérant de zone, collaborateur. */
+async function resolveVendorReadScope(
+  req: import("express").Request,
+  res: import("express").Response,
+): Promise<CallerScope | null> {
+  const scope = await resolveCallerScope(req);
+  if (!scope) {
+    res.status(401).json({ error: "Non authentifié" });
+    return null;
+  }
+  if (scope.kind === "vendor") {
+    res.status(403).json({ error: "Accès refusé" });
+    return null;
+  }
+  return scope;
+}
+
+function vendorReadableByScope(
+  scope: CallerScope,
+  vendor: { ownerAdminId: number; routerId: number | null },
+): boolean {
+  if (scope.kind === "super") return true;
+  if (scope.kind === "admin") return vendor.ownerAdminId === scope.adminId;
+  if (scope.kind === "manager" || scope.kind === "collaborateur") {
+    if (vendor.routerId == null || !scope.routerIds.includes(vendor.routerId)) return false;
+    if (scope.adminId != null && vendor.ownerAdminId !== scope.adminId) return false;
+    return true;
+  }
+  return false;
+}
+
+function assertRouterReadable(
+  scope: CallerScope,
+  routerId: number | null,
+  res: import("express").Response,
+): routerId is number {
+  if (routerId == null || Number.isNaN(routerId)) {
+    res.status(400).json({ error: "routerId requis" });
+    return false;
+  }
+  if (scope.kind === "manager" || scope.kind === "collaborateur") {
+    if (!scope.routerIds.includes(routerId)) {
+      res.status(403).json({ error: "Accès refusé à ce routeur" });
+      return false;
+    }
+  }
+  return true;
 }
 
 router.get("/vendors", async (req, res): Promise<void> => {
@@ -552,16 +601,29 @@ router.get("/vendors/stock-alerts", async (req, res): Promise<void> => {
 });
 
 router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorReadScope(req, res);
+  if (!scope) return;
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
+  if (scope.kind === "manager" || scope.kind === "collaborateur") {
+    if (!assertRouterReadable(scope, routerId, res)) return;
+  }
+  const tenantCond =
+    scope.kind === "admin"
+      ? eq(vendorsTable.ownerAdminId, scope.adminId)
+      : scope.kind === "manager" || scope.kind === "collaborateur"
+        ? scope.adminId != null
+          ? eq(vendorsTable.ownerAdminId, scope.adminId)
+          : undefined
+        : scope.kind === "super"
+          ? undefined
+          : undefined;
   const vendors = await db
     .select()
     .from(vendorsTable)
     .where(and(
       routerId ? eq(vendorsTable.routerId, routerId) : undefined,
       eq(vendorsTable.isDemo, false),
-      vendorTenantCond(scope),
+      tenantCond,
     ))
     .orderBy(vendorsTable.name);
 
@@ -793,8 +855,8 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
  * Returns sold vouchers + byProfile breakdown for the given period.
  * ──────────────────────────────────────────────────────────────── */
 router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorReadScope(req, res);
+  if (!scope) return;
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
@@ -803,13 +865,13 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Période invalide" }); return;
   }
 
-  const cacheKey = `${scope.isSuperAdmin && !scope.isImpersonating ? "super" : scope.adminId}:${id}:${period}`;
+  const cacheKey = `${scope.kind}:${scope.kind === "admin" || scope.kind === "super" ? scope.adminId : scope.adminId ?? 0}:${id}:${period}`;
   const hit = apscGet(cacheKey);
   if (hit) { res.json(hit); return; }
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
-  if ((!scope.isSuperAdmin || scope.isImpersonating) && vendor.ownerAdminId !== scope.adminId) {
+  if (!vendorReadableByScope(scope, vendor)) {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 

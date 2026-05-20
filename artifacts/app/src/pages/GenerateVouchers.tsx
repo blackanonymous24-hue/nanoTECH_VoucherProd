@@ -48,6 +48,7 @@ import {
 import { buildVoucherTicketPhpFieldsFromRouter } from "@/lib/voucher-ticket-template-semantics";
 import { fetchLotPrintData } from "@/lib/fetch-lot-print-data";
 import { useAuth } from "@/contexts/AuthContext";
+import { canDelete } from "@/lib/permissions";
 import {
   DEFAULT_GEN_CHAR_TYPE,
   GEN_CHAR_TYPE_OPTIONS,
@@ -323,6 +324,7 @@ function makeBatchId(mode: "vc" | "up" = "vc"): string {
 export default function GenerateVouchers() {
   const { selectedRouterId, selectedRouter } = useRouterContext();
   const { connectedUsername, role } = useAuth();
+  const allowDelete = canDelete(role);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const operatorKey =
@@ -1300,6 +1302,7 @@ export default function GenerateVouchers() {
                 <Button size="sm" variant="outline" className="gap-1 px-2.5" onClick={() => handleExportCsv(lastLot)} title="Exporter .csv">
                   <Table2 className="h-3.5 w-3.5" />
                 </Button>
+                {allowDelete && (
                 <Button
                   size="sm"
                   variant="destructive"
@@ -1310,6 +1313,7 @@ export default function GenerateVouchers() {
                 >
                   {isDeletingLastLot ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 </Button>
+                )}
               </div>
 
               {/* ── Liste des codes — masquée sur mobile ── */}
@@ -1348,6 +1352,7 @@ export default function GenerateVouchers() {
         </div>
       </div>
 
+      {allowDelete && (
       <DeleteConfirmDialog
         open={!!confirmDeleteLastLot}
         onOpenChange={(o) => { if (!o && !isDeletingLastLot) setConfirmDeleteLastLot(null); }}
@@ -1356,6 +1361,7 @@ export default function GenerateVouchers() {
         onConfirm={() => confirmDeleteLastLot && void handleDeleteLastLot(confirmDeleteLastLot)}
         loading={isDeletingLastLot}
       />
+      )}
     </div>
   );
 }
