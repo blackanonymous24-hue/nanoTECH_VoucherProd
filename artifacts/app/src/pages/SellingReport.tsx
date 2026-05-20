@@ -114,8 +114,8 @@ export default function SellingReport() {
       return res.json();
     },
     enabled: !!selectedRouterId,
-    staleTime: 0,
-    refetchInterval: 30_000,
+    staleTime: 30_000,        // évite les refetch en rafale au changement de filtre
+    refetchInterval: 60_000,  // rafraîchissement plus espacé
   });
 
   const entries = data ?? [];
@@ -127,34 +127,14 @@ export default function SellingReport() {
     [entries, presenceByKey],
   );
 
+  // Le calcul de "presence MikroTik" (badge montrant si la ligne existe encore
+  // côté routeur) déclenchait un second appel `?presence=1` lourd à chaque
+  // changement de filtre — il scannait tous les scripts du mois sur MikroTik.
+  // On le désactive : la presence pourra être réactivée à la demande via un
+  // bouton dédié si besoin. On garde l'état pour rétro-compat (toujours vide).
   useEffect(() => {
     setPresenceByKey({});
-    if (!selectedRouterId || !appliedYear || !appliedMonth) return;
-    const controller = new AbortController();
-    const run = async () => {
-      setPresenceRefreshing(true);
-      try {
-        const params = new URLSearchParams();
-        params.set("year", appliedYear);
-        params.set("month", appliedMonth);
-        if (appliedDay) params.set("day", appliedDay);
-        params.set("presence", "1");
-        const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`, { signal: controller.signal });
-        if (!res.ok) return;
-        const liveEntries = await res.json() as SaleEntry[];
-        const next: Record<string, "mikrotik+local" | "local-db"> = {};
-        for (const e of liveEntries) {
-          next[saleEntryKey(e)] = e.source === "mikrotik+local" ? "mikrotik+local" : "local-db";
-        }
-        setPresenceByKey(next);
-      } catch {
-        // Keep DB view even if MikroTik presence refresh fails.
-      } finally {
-        setPresenceRefreshing(false);
-      }
-    };
-    void run();
-    return () => controller.abort();
+    setPresenceRefreshing(false);
   }, [selectedRouterId, appliedYear, appliedMonth, appliedDay]);
 
   const preparedEntries = useMemo<PreparedSaleEntry[]>(

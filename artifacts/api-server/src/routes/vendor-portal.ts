@@ -175,28 +175,10 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
     }
   }
 
-  let recentFromAgg = recentSales;
-  if (vendor.routerId) {
-    const todayAgg = await fetchVendorPeriodSales(vendor.id, vendor.routerId, "today");
-    if (todayAgg && todayAgg.vouchers.length > 0) {
-      recentFromAgg = todayAgg.vouchers.slice(0, 300).map((v) => ({
-        id: v.id,
-        vendorId: vendor.id,
-        routerId: vendor.routerId,
-        username: v.username,
-        password: v.password,
-        profileName: v.profileName,
-        price: v.price,
-        salePrice: v.salePrice,
-        saleIp: v.saleIp,
-        macAddress: v.macAddress,
-        printedAt: v.printedAt ? new Date(v.printedAt) : null,
-        usedAt: v.usedAt ? new Date(v.usedAt) : null,
-        createdAt: new Date(v.createdAt),
-        comment: v.lotOrComment,
-      })) as typeof recentSales;
-    }
-  }
+  // Ventes récentes : on garde STRICTEMENT le résultat DB filtré par
+  // `vendorId === vendor.id` (lignes 113-116) — pas d'agrégation par suffixe
+  // qui pourrait laisser passer les ventes d'autres vendeurs.
+  const recentFromAgg = recentSales;
 
   const dashPayload = {
     lastFreshAt: new Date().toISOString(),

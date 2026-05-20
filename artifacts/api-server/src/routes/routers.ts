@@ -3055,10 +3055,11 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   const dayRaw   = req.query.day   ? parseInt(req.query.day   as string, 10) : null;
   const withPresence = String(req.query.presence ?? "") === "1" || String(req.query.presence ?? "") === "true";
 
-  // Sync the script cache before reading so the report includes the latest
-  // MikroTik sales entries. syncScriptCache() is throttled to 1 min so this
-  // is effectively a no-op when called repeatedly. We cap the wait at 12 s to
-  // keep the response snappy even on slow routers.
+  // Sync du cache MikroTik en arrière-plan — on ne bloque PAS la réponse.
+  // syncScriptCache est dédupliqué (inFlight) et throttlé, donc plusieurs
+  // requêtes consécutives ne lancent qu'une seule synchro. Le rapport
+  // est servi depuis la DB (déjà fraîche grâce au backfill incrémental
+  // toutes les 15 s et au sync jour-seul en routine).
   try {
     const [routerRow] = await db
       .select({ host: routersTable.host, port: routersTable.port, username: routersTable.username, password: routersTable.password })
@@ -3069,25 +3070,36 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
       markRouterActive(id);
       ensureUsageSyncScheduled(id, conn);
-      await Promise.race([
-        syncScriptCache(id, conn),
-        new Promise<void>((resolve) => setTimeout(resolve, 12_000)),
-      ]);
+      // fire-and-forget : la prochaine requête (auto-refresh) bénéficiera des données fraîches
+      void syncScriptCache(id, conn).catch(() => { /* non-blocking */ });
     }
   } catch {
-    // Non-blocking: if the router is unreachable we still serve data from DB.
+    // Non-blocking
   }
 
   try {
-    const conditions: ReturnType<typeof eq>[] = [eq(scriptSalesTable.routerId, id) as any];
+    // Construction des bornes UTC sargables (utilise idx_script_sales_router_date)
+    let rangeStart: Date | null = null;
+    let rangeEnd: Date | null = null;
     if (yearRaw !== null && !Number.isNaN(yearRaw)) {
-      conditions.push(sql`EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yearRaw}` as any);
+      const mIdx = (monthRaw !== null && !Number.isNaN(monthRaw)) ? monthRaw - 1 : 0;
+      const dIdx = (dayRaw !== null && !Number.isNaN(dayRaw)) ? dayRaw : 1;
+      if (dayRaw !== null && !Number.isNaN(dayRaw)) {
+        rangeStart = new Date(Date.UTC(yearRaw, mIdx, dIdx, 0, 0, 0, 0));
+        rangeEnd   = new Date(rangeStart.getTime() + 86_400_000);
+      } else if (monthRaw !== null && !Number.isNaN(monthRaw)) {
+        rangeStart = new Date(Date.UTC(yearRaw, mIdx, 1, 0, 0, 0, 0));
+        rangeEnd   = new Date(Date.UTC(yearRaw, mIdx + 1, 1, 0, 0, 0, 0));
+      } else {
+        rangeStart = new Date(Date.UTC(yearRaw, 0, 1, 0, 0, 0, 0));
+        rangeEnd   = new Date(Date.UTC(yearRaw + 1, 0, 1, 0, 0, 0, 0));
+      }
     }
-    if (monthRaw !== null && !Number.isNaN(monthRaw)) {
-      conditions.push(sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${monthRaw}` as any);
-    }
-    if (dayRaw !== null && !Number.isNaN(dayRaw)) {
-      conditions.push(sql`EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dayRaw}` as any);
+
+    const conditions: ReturnType<typeof eq>[] = [eq(scriptSalesTable.routerId, id) as any];
+    if (rangeStart && rangeEnd) {
+      conditions.push(gte(scriptSalesTable.saleDate, rangeStart) as any);
+      conditions.push(lt (scriptSalesTable.saleDate, rangeEnd)   as any);
     }
 
     const rows = await db
@@ -3135,7 +3147,7 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
     }));
 
     const voucherRows =
-      yearRaw !== null && !Number.isNaN(yearRaw)
+      rangeStart && rangeEnd
         ? await db
             .select({
               id: vouchersTable.id,
@@ -3154,13 +3166,8 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
               eq(vouchersTable.routerId, id),
               isNotNull(vouchersTable.usedAt),
               voucherNotCoveredByScriptSameUtcDay(),
-              sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yearRaw}`,
-              ...(monthRaw !== null && !Number.isNaN(monthRaw)
-                ? [sql`EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${monthRaw}`]
-                : []),
-              ...(dayRaw !== null && !Number.isNaN(dayRaw)
-                ? [sql`EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${dayRaw}`]
-                : []),
+              gte(vouchersTable.usedAt, rangeStart),
+              lt (vouchersTable.usedAt, rangeEnd),
             ))
             .orderBy(desc(vouchersTable.usedAt))
         : [];

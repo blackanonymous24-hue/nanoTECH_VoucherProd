@@ -1842,7 +1842,9 @@ export async function fetchScriptSales(
 
       const rawDate  = (p[0] ?? "").trim();
       const rawTime  = (p[1] ?? "").trim();
-      const username = (p[2] ?? "").trim();
+      // Les champs alphanumériques peuvent contenir des accents écrits depuis
+      // WinBox (ex. nom de vendeur "Famille Koné") — décodage Win1252 → UTF-8.
+      const username = decodeRouterText((p[2] ?? "").trim());
       if (!username) continue;
 
       // Day filter: works for both ISO (ends with -DD) and legacy (contains /DD/)
@@ -1861,9 +1863,9 @@ export async function fetchScriptSales(
         price:    parseFloat(p[3]) || 0,
         ip:       (p[4] ?? "").trim(),
         mac:      (p[5] ?? "").trim(),
-        validity: (p[6] ?? "").trim(),
-        label:    (p[7] ?? "").trim(),
-        batch:    (p[8] ?? "").trim(),
+        validity: decodeRouterText((p[6] ?? "").trim()),
+        label:    decodeRouterText((p[7] ?? "").trim()),
+        batch:    decodeRouterText((p[8] ?? "").trim()),
         _ts:      parsed.getTime(),
       });
     }
@@ -1896,7 +1898,8 @@ export async function fetchSaleDetails(conn: RouterConnection, monthsBack = 13):
 
     const datePart = parts[0].trim();
     const timePart = parts[1].trim();
-    const username = parts[2].trim().toLowerCase();
+    // Décodage Win1252 → UTF-8 pour les noms d'utilisateur accentués (clé Map en minuscule).
+    const username = decodeRouterText(parts[2].trim()).toLowerCase();
     const priceStr = parts[3].trim();
     const ip       = parts.length >= 5 ? parts[4].trim() : "";
     const mac      = parts.length >= 6 ? parts[5].trim() : "";

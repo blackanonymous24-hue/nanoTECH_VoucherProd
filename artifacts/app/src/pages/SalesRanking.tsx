@@ -363,11 +363,19 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
     refetchInterval: false,
   });
 
+  // Prefetch limité aux 5 premiers vendeurs du classement (par CA décroissant)
+  // pour ne pas saturer le serveur de N requêtes parallèles si beaucoup de
+  // vendeurs ont vendu. Les autres se chargent à la demande (clic).
   useEffect(() => {
     const reportPeriod = isDaily ? "today" : "month";
-    const rows = (data ?? []).filter((d) =>
-      (isDaily ? d.salesStats.todaySold : d.salesStats.thisMonthSold) > 0,
-    );
+    const rows = (data ?? [])
+      .filter((d) => (isDaily ? d.salesStats.todaySold : d.salesStats.thisMonthSold) > 0)
+      .sort((a, b) => {
+        const aAmt = isDaily ? a.salesStats.todayAmount : a.salesStats.thisMonthAmount;
+        const bAmt = isDaily ? b.salesStats.todayAmount : b.salesStats.thisMonthAmount;
+        return bAmt - aAmt;
+      })
+      .slice(0, 5);
     if (rows.length === 0) return;
     for (const row of rows) {
       const vendorId = row.vendor.id;

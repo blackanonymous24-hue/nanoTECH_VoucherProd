@@ -3,8 +3,15 @@
  * `readSalesQuickFromDb` + rapport de ventes : scripts par suffixe de lot,
  * bons hors doublon script même login + même jour UTC.
  */
-import { and, asc, desc, eq, isNotNull, notExists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, lt, notExists, sql } from "drizzle-orm";
 import { db, scriptSalesTable, vendorsTable, vouchersTable } from "@workspace/db";
+
+/** Bornes UTC [startOfMonth, startOfNextMonth) — utilisables par les index B-tree. */
+function utcMonthBounds(year: number, month: number): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const end   = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  return { start, end };
+}
 
 /** Ligne synthétique ventes sans suffixe reconnu (pas de fiche vendeur). */
 export const UNATTRIBUTED_VENDOR_ID = 0;
@@ -173,7 +180,14 @@ const PERIOD_LABELS: Record<VendorPeriod, string> = {
   month: "Mois en cours",
 };
 
-/** Vente rattachée au vendeur : vendorId, suffixe lot/commentaire, ou préfixe ticketLetter. */
+/**
+ * Vente rattachée au vendeur — règles strictes (évite la pollution entre vendeurs) :
+ *   1. `vendorId` explicite — match parfait
+ *   2. Suffixe vendeur (`commentSuffix` / `commentSuffix2`) en fin de lot OU commentaire
+ *   3. `ticketLetter` (≥ 2 caractères) en fin de lot OU commentaire — JAMAIS en
+ *      préfixe d'username (trop permissif : un seul caractère ferait matcher
+ *      n'importe quel username commençant par cette lettre).
+ */
 export function saleBelongsToVendor(
   vendor: VendorSuffixRow,
   opts: {
@@ -186,13 +200,13 @@ export function saleBelongsToVendor(
   if (opts.vendorId === vendor.id) return true;
   const text = opts.comment ?? opts.batch ?? "";
   if (resolveVendorIdBySuffix(text, [vendor]) === vendor.id) return true;
+
   const letter = vendor.ticketLetter?.trim();
-  if (!letter) return false;
+  if (!letter || letter.length < 2) return false; // exige ≥ 2 caractères
   const low = letter.toLowerCase();
-  const u = opts.username?.trim();
-  if (u && u.toLowerCase().startsWith(low)) return true;
+
   const b = opts.batch?.trim();
-  if (b && (b.toLowerCase().endsWith(low) || b.toLowerCase().includes(low))) return true;
+  if (b && b.toLowerCase().endsWith(low)) return true;
   const c = opts.comment?.trim();
   if (c && c.toLowerCase().endsWith(low)) return true;
   return false;
@@ -230,6 +244,7 @@ export async function fetchUnattributedPeriodSales(
 
   try {
     const vendors = await loadRouterVendorsForAttribution(routerId);
+    const { start: monthStart, end: monthEnd } = utcMonthBounds(yUtc, mUtc);
 
     const lines: UnattributedSaleLine[] = [];
 
@@ -250,8 +265,8 @@ export async function fetchUnattributedPeriodSales(
       .where(
         and(
           eq(scriptSalesTable.routerId, routerId),
-          sql`EXTRACT(YEAR FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}`,
-          sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}`,
+          gte(scriptSalesTable.saleDate, monthStart),
+          lt(scriptSalesTable.saleDate, monthEnd),
         ),
       )
       .orderBy(desc(scriptSalesTable.saleDate));
@@ -285,8 +300,8 @@ export async function fetchUnattributedPeriodSales(
           eq(vouchersTable.routerId, routerId),
           isNotNull(vouchersTable.usedAt),
           voucherNotCoveredByScriptSameUtcDay(),
-          sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}`,
-          sql`EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}`,
+          gte(vouchersTable.usedAt, monthStart),
+          lt(vouchersTable.usedAt, monthEnd),
         ),
       )
       .orderBy(desc(vouchersTable.usedAt));
@@ -356,6 +371,7 @@ export async function fetchUnattributedPeriodSales(
 export async function aggregateVendorPeriodSales(routerId: number): Promise<VendorPeriodAggRow[] | null> {
   const now = new Date();
   const { y: yUtc, m: mUtc, day: dUtc } = utcParts(now);
+  const { start: monthStart, end: monthEnd } = utcMonthBounds(yUtc, mUtc);
 
   try {
     const vendors = await loadRouterVendorsForAttribution(routerId);
@@ -398,8 +414,8 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
       .where(
         and(
           eq(scriptSalesTable.routerId, routerId),
-          sql`EXTRACT(YEAR FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}`,
-          sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}`,
+          gte(scriptSalesTable.saleDate, monthStart),
+          lt(scriptSalesTable.saleDate, monthEnd),
         ),
       );
 
@@ -433,8 +449,8 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
           eq(vouchersTable.routerId, routerId),
           isNotNull(vouchersTable.usedAt),
           voucherNotCoveredByScriptSameUtcDay(),
-          sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}`,
-          sql`EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}`,
+          gte(vouchersTable.usedAt, monthStart),
+          lt(vouchersTable.usedAt, monthEnd),
         ),
       );
 
@@ -514,6 +530,7 @@ export async function fetchVendorPeriodSales(
     const vendorRow: VendorSuffixRow = vendor;
     const now = new Date();
     const { y: yUtc, m: mUtc } = utcParts(now);
+    const { start: monthStart, end: monthEnd } = utcMonthBounds(yUtc, mUtc);
     const lines: UnattributedSaleLine[] = [];
 
     const scriptRows = await db
@@ -533,8 +550,8 @@ export async function fetchVendorPeriodSales(
       .where(
         and(
           eq(scriptSalesTable.routerId, routerId),
-          sql`EXTRACT(YEAR FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}`,
-          sql`EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}`,
+          gte(scriptSalesTable.saleDate, monthStart),
+          lt(scriptSalesTable.saleDate, monthEnd),
         ),
       )
       .orderBy(desc(scriptSalesTable.saleDate));
@@ -568,8 +585,8 @@ export async function fetchVendorPeriodSales(
           eq(vouchersTable.routerId, routerId),
           isNotNull(vouchersTable.usedAt),
           voucherNotCoveredByScriptSameUtcDay(),
-          sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}`,
-          sql`EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}`,
+          gte(vouchersTable.usedAt, monthStart),
+          lt(vouchersTable.usedAt, monthEnd),
         ),
       )
       .orderBy(desc(vouchersTable.usedAt));

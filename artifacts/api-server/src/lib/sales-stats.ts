@@ -1,5 +1,17 @@
-import { and, eq, isNotNull, ne, sql } from "drizzle-orm";
+import { and, eq, gte, isNotNull, lt, ne, sql } from "drizzle-orm";
 import { db, vouchersTable } from "@workspace/db";
+
+/** Bornes UTC : [startOfDay, end) — sargable, exploite l'index (router_id, used_at). */
+function utcDayBounds(d: Date = new Date()): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+  const end   = new Date(start.getTime() + 86_400_000);
+  return { start, end };
+}
+function utcMonthBounds(d: Date = new Date()): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
+  const end   = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+  return { start, end };
+}
 
 /**
  * Returns per-profile period counts AND actual salePrice sums for a vendor.
@@ -21,12 +33,15 @@ export function buildProfilePeriodCounts(vendorId: number, routerId?: number | n
     ...(routerId != null ? [eq(vouchersTable.routerId, routerId)] : []),
   ];
 
-  const utcToday = sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(YEAR FROM (now() AT TIME ZONE 'UTC'))
-    AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(MONTH FROM (now() AT TIME ZONE 'UTC'))
-    AND EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(DAY FROM (now() AT TIME ZONE 'UTC'))`;
-  const utcYesterday = sql`(${vouchersTable.usedAt} AT TIME ZONE 'UTC')::date = ((now() AT TIME ZONE 'UTC')::date - interval '1 day')`;
-  const utcThisMonth = sql`EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(YEAR FROM (now() AT TIME ZONE 'UTC'))
-    AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = EXTRACT(MONTH FROM (now() AT TIME ZONE 'UTC'))`;
+  // Bornes calculées côté Node (UTC) — utilisent l'index B-tree (router_id, used_at).
+  const now = new Date();
+  const dayB   = utcDayBounds(now);
+  const monthB = utcMonthBounds(now);
+  const yesterdayB = utcDayBounds(new Date(dayB.start.getTime() - 86_400_000));
+
+  const utcToday     = sql`${vouchersTable.usedAt} >= ${dayB.start}      AND ${vouchersTable.usedAt} < ${dayB.end}`;
+  const utcYesterday = sql`${vouchersTable.usedAt} >= ${yesterdayB.start} AND ${vouchersTable.usedAt} < ${yesterdayB.end}`;
+  const utcThisMonth = sql`${vouchersTable.usedAt} >= ${monthB.start}    AND ${vouchersTable.usedAt} < ${monthB.end}`;
 
   return db
     .select({
