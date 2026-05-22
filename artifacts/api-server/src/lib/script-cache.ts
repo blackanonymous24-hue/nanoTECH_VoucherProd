@@ -20,7 +20,7 @@
  */
 import { eq, and, sql, inArray, desc } from "drizzle-orm";
 import { db, scriptSalesTable, routersTable } from "@workspace/db";
-import { fetchScriptSales, removeMikhmonScriptsByRawNames, type RouterConnection, type SaleEntry } from "./mikrotik.js";
+import { fetchScriptSales, removeMikhmonScriptsByRawNames, type RouterConnection, type SaleEntry, persistRouterTimezoneOffset } from "./mikrotik.js";
 import { logger } from "./logger.js";
 
 /** Shape returned by getCachedSaleDetails — mirrors mikrotik.ts SaleDetail */
@@ -36,7 +36,7 @@ const BACKFILL_MAX_MONTHS = 12;
 /** Pause entre 2 mois de backfill historique — laisse souffler le MikroTik */
 const BACKFILL_PAUSE_MS   = 3_000;
 /** Combien de temps un mois est considéré « frais » (sync du mois entier inutile) */
-const MONTH_FRESHNESS_MS  = 60 * 60 * 1000; // 1 h
+const MONTH_FRESHNESS_MS  = 5 * 60 * 1000; // 5 min (réduit pour alignement temps réel MikHmon)
 /** Throttle minimal entre 2 sync « jour courant » sur le même routeur */
 const DAY_SYNC_MIN_GAP_MS = 10 * 1000;      // 10 s
 
@@ -84,10 +84,11 @@ interface ScriptSalesRow {
   rawName:  string;
 }
 
-function entriesToRows(routerId: number, entries: SaleEntry[]): ScriptSalesRow[] {
+function entriesToRows(routerId: number, entries: (SaleEntry & { _ts?: number })[]): ScriptSalesRow[] {
   return entries.map((e) => {
     const raw = [e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch].join("-|-");
-    const dt  = new Date(`${e.date}T${e.time || "00:00:00"}`);
+    // Use pre-computed timestamp if available (from fetchScriptSales with timezone offset)
+    const dt = e._ts !== undefined ? new Date(e._ts) : new Date(`${e.date}T${e.time || "00:00:00"}`);
     return {
       routerId,
       username:  e.username,
@@ -374,6 +375,9 @@ export async function syncScriptCache(
       const inserted = await persistRows(rows);
 
       await autoCleanMikrotikIfEnabled(routerId, conn, rows);
+
+      // Persist detected timezone offset to DB
+      persistRouterTimezoneOffset(routerId, conn.host, conn.port, db).catch(() => {});
 
       if (inserted > 0) {
         logger.info(

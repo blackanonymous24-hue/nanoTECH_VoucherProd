@@ -2284,15 +2284,23 @@ const SALES_TTL = 5 * 60 * 1000; // 5 minutes
 
 const voucherRowMoney = sql`coalesce(nullif(regexp_replace(coalesce(${vouchersTable.salePrice}, ${vouchersTable.price}), '[^0-9.]', '', 'g'), '')::numeric, 0)`;
 
-/** Pas de double comptage : bon ignoré s'il existe déjà une vente script même user + même jour UTC. */
-function voucherNotCoveredByScriptSameUtcDay() {
+/** Pas de double comptage : bon ignoré s'il existe déjà une vente script même user + même jour LOCAL (aligné MikHmon). */
+function voucherNotCoveredByScriptSameLocalDay(now: Date, tzOffsetMinutes = 0) {
+  const nowMikrotik = new Date(now.getTime() + tzOffsetMinutes * 60000);
+  const startOfDayMikrotik = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), nowMikrotik.getUTCDate()));
+  const endOfDayMikrotik = new Date(startOfDayMikrotik.getTime() + 86_400_000);
+  const startOfDay = new Date(startOfDayMikrotik.getTime() - tzOffsetMinutes * 60000);
+  const endOfDay = new Date(endOfDayMikrotik.getTime() - tzOffsetMinutes * 60000);
   return notExists(
     db.select({ id: scriptSalesTable.id })
       .from(scriptSalesTable)
       .where(and(
         eq(scriptSalesTable.routerId, vouchersTable.routerId),
         sql`lower(${scriptSalesTable.username}) = lower(${vouchersTable.username})`,
-        sql`((${scriptSalesTable.saleDate} AT TIME ZONE 'UTC')::date) = ((${vouchersTable.usedAt} AT TIME ZONE 'UTC')::date)`,
+        sql`${scriptSalesTable.saleDate} >= ${startOfDay.toISOString()}`,
+        sql`${scriptSalesTable.saleDate} < ${endOfDay.toISOString()}`,
+        sql`${vouchersTable.usedAt} >= ${startOfDay.toISOString()}`,
+        sql`${vouchersTable.usedAt} < ${endOfDay.toISOString()}`,
       )),
   );
 }
@@ -2300,7 +2308,11 @@ function voucherNotCoveredByScriptSameUtcDay() {
 /**
  * Agrégats jour / mois pour le tableau de bord — **même périmètre** que
  * `GET /routers/:id/sales-report` : `mikrotik_script_sales` + bons vendus
- * **hors doublon** (pas de ligne script même login + même jour UTC), dates UTC.
+ * **hors doublon** (pas de ligne script même login + même jour).
+ *
+ * Utilise les bornes de date calculées en JS (heure locale serveur) pour
+ * garantir l'alignement exact avec MikHmon, indépendamment de la timezone
+ * de la session PostgreSQL.
  */
 async function readSalesQuickFromDb(routerId: number): Promise<{
   dailyCount: number;
@@ -2308,31 +2320,50 @@ async function readSalesQuickFromDb(routerId: number): Promise<{
   monthlyCount: number;
   monthlyAmount: number;
 } | null> {
+  // Fetch router's timezone offset from DB
+  const [routerRow] = await db
+    .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
+    .from(routersTable)
+    .where(eq(routersTable.id, routerId))
+    .limit(1);
+
+  const tzOffset = routerRow?.timezoneOffsetMinutes ?? 0;
   const now = new Date();
-  const yUtc = now.getUTCFullYear();
-  const mUtc = now.getUTCMonth() + 1;
-  const dUtc = now.getUTCDate();
+
+  // Calculate day/month boundaries in MikroTik's local time, then convert to UTC
+  // MikroTik local midnight = UTC midnight - tzOffset
+  const nowUtc = Date.now();
+  const nowMikrotik = new Date(nowUtc + tzOffset * 60000);
+  const startOfDayMikrotik = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), nowMikrotik.getUTCDate()));
+  const endOfDayMikrotik = new Date(startOfDayMikrotik.getTime() + 86_400_000);
+  const startOfMonthMikrotik = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), 1));
+  const endOfMonthMikrotik = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth() + 1, 1));
+
+  // Convert back to UTC timestamps for DB comparison
+  const startOfDay = new Date(startOfDayMikrotik.getTime() - tzOffset * 60000);
+  const endOfDay = new Date(endOfDayMikrotik.getTime() - tzOffset * 60000);
+  const startOfMonth = new Date(startOfMonthMikrotik.getTime() - tzOffset * 60000);
+  const endOfMonth = new Date(endOfMonthMikrotik.getTime() - tzOffset * 60000);
+
   try {
     const [scriptRow, voucherRow] = await Promise.all([
       db
         .select({
           dailyCount: sql<number>`cast(count(*) filter (where
-            EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}
-            AND EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}
-            AND EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dUtc}
+            ${scriptSalesTable.saleDate} >= ${startOfDay.toISOString()}
+            AND ${scriptSalesTable.saleDate} < ${endOfDay.toISOString()}
           ) as int)`,
           dailyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
-            EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}
-            AND EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}
-            AND EXTRACT(DAY   FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${dUtc}
+            ${scriptSalesTable.saleDate} >= ${startOfDay.toISOString()}
+            AND ${scriptSalesTable.saleDate} < ${endOfDay.toISOString()}
           ), 0)`,
           monthlyCount: sql<number>`cast(count(*) filter (where
-            EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}
-            AND EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}
+            ${scriptSalesTable.saleDate} >= ${startOfMonth.toISOString()}
+            AND ${scriptSalesTable.saleDate} < ${endOfMonth.toISOString()}
           ) as int)`,
           monthlyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
-            EXTRACT(YEAR  FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${yUtc}
-            AND EXTRACT(MONTH FROM ${scriptSalesTable.saleDate} AT TIME ZONE 'UTC') = ${mUtc}
+            ${scriptSalesTable.saleDate} >= ${startOfMonth.toISOString()}
+            AND ${scriptSalesTable.saleDate} < ${endOfMonth.toISOString()}
           ), 0)`,
         })
         .from(scriptSalesTable)
@@ -2340,29 +2371,27 @@ async function readSalesQuickFromDb(routerId: number): Promise<{
       db
         .select({
           dailyCount: sql<number>`cast(count(*) filter (where
-            EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}
-            AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}
-            AND EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${dUtc}
+            ${vouchersTable.usedAt} >= ${startOfDay.toISOString()}
+            AND ${vouchersTable.usedAt} < ${endOfDay.toISOString()}
           ) as int)`,
           dailyAmount: sql<number>`coalesce(sum(${voucherRowMoney}) filter (where
-            EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}
-            AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}
-            AND EXTRACT(DAY FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${dUtc}
+            ${vouchersTable.usedAt} >= ${startOfDay.toISOString()}
+            AND ${vouchersTable.usedAt} < ${endOfDay.toISOString()}
           ), 0)`,
           monthlyCount: sql<number>`cast(count(*) filter (where
-            EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}
-            AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}
+            ${vouchersTable.usedAt} >= ${startOfMonth.toISOString()}
+            AND ${vouchersTable.usedAt} < ${endOfMonth.toISOString()}
           ) as int)`,
           monthlyAmount: sql<number>`coalesce(sum(${voucherRowMoney}) filter (where
-            EXTRACT(YEAR FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${yUtc}
-            AND EXTRACT(MONTH FROM ${vouchersTable.usedAt} AT TIME ZONE 'UTC') = ${mUtc}
+            ${vouchersTable.usedAt} >= ${startOfMonth.toISOString()}
+            AND ${vouchersTable.usedAt} < ${endOfMonth.toISOString()}
           ), 0)`,
         })
         .from(vouchersTable)
         .where(and(
           eq(vouchersTable.routerId, routerId),
           isNotNull(vouchersTable.usedAt),
-          voucherNotCoveredByScriptSameUtcDay(),
+          voucherNotCoveredByScriptSameLocalDay(now, tzOffset),
         )),
     ]);
     const s = scriptRow[0];
@@ -3079,6 +3108,14 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   }
 
   try {
+    // Fetch router timezone offset for date boundary calculations
+    const [tzRouterRow] = await db
+      .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
+      .from(routersTable)
+      .where(eq(routersTable.id, id))
+      .limit(1);
+    const routerTzOffset = tzRouterRow?.timezoneOffsetMinutes ?? 0;
+
     // Construction des bornes UTC sargables (utilise idx_script_sales_router_date)
     let rangeStart: Date | null = null;
     let rangeEnd: Date | null = null;
@@ -3174,7 +3211,7 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
             .where(and(
               eq(vouchersTable.routerId, id),
               isNotNull(vouchersTable.usedAt),
-              voucherNotCoveredByScriptSameUtcDay(),
+              voucherNotCoveredByScriptSameLocalDay(new Date(), routerTzOffset),
               gte(vouchersTable.usedAt, rangeStart),
               lt (vouchersTable.usedAt, rangeEnd),
             ))

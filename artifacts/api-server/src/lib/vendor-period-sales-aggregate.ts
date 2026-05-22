@@ -1,17 +1,37 @@
 /**
- * Agrégation ventes par vendeur (jour / mois UTC) — alignée sur
- * `readSalesQuickFromDb` + rapport de ventes : scripts par suffixe de lot,
- * bons hors doublon script même login + même jour UTC.
+ * Agrégation ventes par vendeur (jour / mois LOCAL) — alignée sur
+ * le comportement exact de MikHmon originel.
+ *
+ * MikHmon utilise l'heure locale du serveur pour toutes les bornes de date.
+ * Ce module fait de même pour garantir l'alignement parfait.
+ *
+ * Les bornes ISO sont calculées en JS (heure locale) puis converties en UTC
+ * via .toISOString() pour une comparaison correcte avec les timestamps en base.
  */
 import { and, asc, desc, eq, gte, isNotNull, lt, notExists, sql } from "drizzle-orm";
-import { db, scriptSalesTable, vendorsTable, vouchersTable } from "@workspace/db";
+import { db, scriptSalesTable, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
 import { decodeRouterText } from "./router-encoding.js";
 
-/** Bornes UTC [startOfMonth, startOfNextMonth) — utilisables par les index B-tree. */
-function utcMonthBounds(year: number, month: number): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
-  const end   = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
-  return { start, end };
+/** Bornes locales [startOfMonth, startOfNextMonth) pour comparaison DB. */
+function localMonthBounds(now: Date, tzOffsetMinutes = 0): { start: Date; end: Date } {
+  const nowMikrotik = new Date(now.getTime() + tzOffsetMinutes * 60000);
+  const start = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth() + 1, 1));
+  return {
+    start: new Date(start.getTime() - tzOffsetMinutes * 60000),
+    end: new Date(end.getTime() - tzOffsetMinutes * 60000),
+  };
+}
+
+/** Bornes du jour local pour comparaison DB. */
+function localDayBounds(now: Date, tzOffsetMinutes = 0): { start: Date; end: Date } {
+  const nowMikrotik = new Date(now.getTime() + tzOffsetMinutes * 60000);
+  const start = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), nowMikrotik.getUTCDate()));
+  const end = new Date(start.getTime() + 86_400_000);
+  return {
+    start: new Date(start.getTime() - tzOffsetMinutes * 60000),
+    end: new Date(end.getTime() - tzOffsetMinutes * 60000),
+  };
 }
 
 /** Ligne synthétique ventes sans suffixe reconnu (pas de fiche vendeur). */
@@ -54,7 +74,12 @@ async function loadRouterVendorsForAttribution(routerId: number): Promise<Vendor
     .orderBy(asc(vendorsTable.name));
 }
 
-function voucherNotCoveredByScriptSameUtcDay() {
+/**
+ * Vérifie qu'un voucher n'est pas déjà couvert par un script pour le même
+ * username le même jour LOCAL (aligné sur MikHmon).
+ */
+function voucherNotCoveredByScriptSameLocalDay(now: Date, tzOffsetMinutes = 0) {
+  const { start: dayStart, end: dayEnd } = localDayBounds(now, tzOffsetMinutes);
   return notExists(
     db
       .select({ id: scriptSalesTable.id })
@@ -63,7 +88,10 @@ function voucherNotCoveredByScriptSameUtcDay() {
         and(
           eq(scriptSalesTable.routerId, vouchersTable.routerId),
           sql`lower(${scriptSalesTable.username}) = lower(${vouchersTable.username})`,
-          sql`((${scriptSalesTable.saleDate} AT TIME ZONE 'UTC')::date) = ((${vouchersTable.usedAt} AT TIME ZONE 'UTC')::date)`,
+          sql`${scriptSalesTable.saleDate} >= ${dayStart}`,
+          sql`${scriptSalesTable.saleDate} < ${dayEnd}`,
+          sql`${vouchersTable.usedAt} >= ${dayStart}`,
+          sql`${vouchersTable.usedAt} < ${dayEnd}`,
         ),
       ),
   );
@@ -95,17 +123,19 @@ function resolveVendorIdBySuffix(
   return bestId;
 }
 
-function utcParts(d: Date) {
-  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, day: d.getUTCDate() };
+/** Parties de date locale (comme MikHmon). */
+function localParts(d: Date, tzOffsetMinutes = 0) {
+  const adjusted = new Date(d.getTime() + tzOffsetMinutes * 60000);
+  return { y: adjusted.getUTCFullYear(), m: adjusted.getUTCMonth() + 1, day: adjusted.getUTCDate() };
 }
 
-function isUtcDay(d: Date, y: number, m: number, day: number): boolean {
-  const p = utcParts(d);
+function isLocalDay(d: Date, y: number, m: number, day: number, tzOffsetMinutes = 0): boolean {
+  const p = localParts(d, tzOffsetMinutes);
   return p.y === y && p.m === m && p.day === day;
 }
 
-function isUtcMonth(d: Date, y: number, m: number): boolean {
-  const p = utcParts(d);
+function isLocalMonth(d: Date, y: number, m: number, tzOffsetMinutes = 0): boolean {
+  const p = localParts(d, tzOffsetMinutes);
   return p.y === y && p.m === m;
 }
 
@@ -123,7 +153,6 @@ export type UnattributedSaleLine = {
   printedAt: string | null;
   usedAt: string | null;
   createdAt: string;
-  /** Lot script ou commentaire bon — utile pour diagnostiquer l'attribution. */
   lotOrComment: string | null;
   source: "script" | "voucher";
 };
@@ -143,35 +172,35 @@ function parsePriceNum(price: string | null | undefined): number {
   return parseFloat(price.replace(/\s/g, "")) || 0;
 }
 
-function inPeriodUtc(d: Date, period: UnattributedPeriod, yUtc: number, mUtc: number, dUtc: number): boolean {
-  if (period === "today") return isUtcDay(d, yUtc, mUtc, dUtc);
-  return isUtcMonth(d, yUtc, mUtc);
+function inPeriodLocal(d: Date, period: UnattributedPeriod, yLocal: number, mLocal: number, dLocal: number, tzOffsetMinutes = 0): boolean {
+  if (period === "today") return isLocalDay(d, yLocal, mLocal, dLocal, tzOffsetMinutes);
+  return isLocalMonth(d, yLocal, mLocal, tzOffsetMinutes);
 }
 
-function utcYesterdayParts(now = new Date()) {
-  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
-  return utcParts(prev);
+function localYesterdayParts(now = new Date(), tzOffsetMinutes = 0) {
+  const prev = new Date(now.getTime() + tzOffsetMinutes * 60000 - 86_400_000);
+  return localParts(prev, tzOffsetMinutes);
 }
 
-/** Dernière semaine calendaire (lun → dim) en UTC, alignée portail admin. */
-function inUtcLastWeek(d: Date, now = new Date()): boolean {
-  const dow = now.getUTCDay();
+function inLocalLastWeek(d: Date, now = new Date(), tzOffsetMinutes = 0): boolean {
+  const adjustedNow = new Date(now.getTime() + tzOffsetMinutes * 60000);
+  const dow = adjustedNow.getUTCDay();
   const diffToMonday = dow === 0 ? -6 : 1 - dow;
-  const thisMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diffToMonday));
+  const thisMonday = new Date(Date.UTC(adjustedNow.getUTCFullYear(), adjustedNow.getUTCMonth(), adjustedNow.getUTCDate() + diffToMonday));
   const lastMonday = new Date(thisMonday.getTime() - 7 * 86_400_000);
   const t = d.getTime();
   return t >= lastMonday.getTime() && t < thisMonday.getTime();
 }
 
-function inVendorPeriod(d: Date, period: VendorPeriod, now = new Date()): boolean {
-  const { y: yUtc, m: mUtc, day: dUtc } = utcParts(now);
-  if (period === "today") return isUtcDay(d, yUtc, mUtc, dUtc);
+function inVendorPeriodLocal(d: Date, period: VendorPeriod, now = new Date(), tzOffsetMinutes = 0): boolean {
+  const { y: yLocal, m: mLocal, day: dLocal } = localParts(now, tzOffsetMinutes);
+  if (period === "today") return isLocalDay(d, yLocal, mLocal, dLocal, tzOffsetMinutes);
   if (period === "yesterday") {
-    const yp = utcYesterdayParts(now);
-    return isUtcDay(d, yp.y, yp.m, yp.day);
+    const yp = localYesterdayParts(now, tzOffsetMinutes);
+    return isLocalDay(d, yp.y, yp.m, yp.day, tzOffsetMinutes);
   }
-  if (period === "week") return inUtcLastWeek(d, now);
-  return isUtcMonth(d, yUtc, mUtc);
+  if (period === "week") return inLocalLastWeek(d, now, tzOffsetMinutes);
+  return isLocalMonth(d, yLocal, mLocal, tzOffsetMinutes);
 }
 
 const PERIOD_LABELS: Record<VendorPeriod, string> = {
@@ -181,14 +210,6 @@ const PERIOD_LABELS: Record<VendorPeriod, string> = {
   month: "Mois en cours",
 };
 
-/**
- * Vente rattachée au vendeur — règles strictes (évite la pollution entre vendeurs) :
- *   1. `vendorId` explicite — match parfait
- *   2. Suffixe vendeur (`commentSuffix` / `commentSuffix2`) en fin de lot OU commentaire
- *   3. `ticketLetter` (≥ 2 caractères) en fin de lot OU commentaire — JAMAIS en
- *      préfixe d'username (trop permissif : un seul caractère ferait matcher
- *      n'importe quel username commençant par cette lettre).
- */
 export function saleBelongsToVendor(
   vendor: VendorSuffixRow,
   opts: {
@@ -203,7 +224,7 @@ export function saleBelongsToVendor(
   if (resolveVendorIdBySuffix(text, [vendor]) === vendor.id) return true;
 
   const letter = vendor.ticketLetter?.trim();
-  if (!letter || letter.length < 2) return false; // exige ≥ 2 caractères
+  if (!letter || letter.length < 2) return false;
   const low = letter.toLowerCase();
 
   const b = opts.batch?.trim();
@@ -231,13 +252,21 @@ function resolveVendorIdFromSale(
   return null;
 }
 
-/** Détail des ventes non rattachées à un suffixe vendeur (scripts + bons hors doublon). */
 export async function fetchUnattributedPeriodSales(
   routerId: number,
   period: UnattributedPeriod,
 ): Promise<UnattributedPeriodSalesResult | null> {
+  // Fetch router's timezone offset from DB
+  const [routerRow] = await db
+    .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
+    .from(routersTable)
+    .where(eq(routersTable.id, routerId))
+    .limit(1);
+
+  const tzOffset = routerRow?.timezoneOffsetMinutes ?? 0;
   const now = new Date();
-  const { y: yUtc, m: mUtc, day: dUtc } = utcParts(now);
+  const { y: yLocal, m: mLocal, day: dLocal } = localParts(now, tzOffset);
+  const { start: monthStart, end: monthEnd } = localMonthBounds(now, tzOffset);
   const labels: Record<UnattributedPeriod, string> = {
     today: "Aujourd'hui",
     month: "Mois en cours",
@@ -245,8 +274,6 @@ export async function fetchUnattributedPeriodSales(
 
   try {
     const vendors = await loadRouterVendorsForAttribution(routerId);
-    const { start: monthStart, end: monthEnd } = utcMonthBounds(yUtc, mUtc);
-
     const lines: UnattributedSaleLine[] = [];
 
     const scriptRows = await db
@@ -273,15 +300,13 @@ export async function fetchUnattributedPeriodSales(
       .orderBy(desc(scriptSalesTable.saleDate));
 
     for (const row of scriptRows) {
-      // Décodage défensif (idempotent) : corrige les lignes legacy stockées
-      // mojibakées avant le fix d'encodage à l'ingestion.
       const decUsername = decodeRouterText(row.username);
       const decBatch    = decodeRouterText(row.batch);
       const decLabel    = decodeRouterText(row.label);
       const decValidity = decodeRouterText(row.validity);
       if (resolveVendorIdFromSale(vendors, { batch: decBatch, username: decUsername }) != null) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
-      if (Number.isNaN(saleDate.getTime()) || !inPeriodUtc(saleDate, period, yUtc, mUtc, dUtc)) continue;
+      if (Number.isNaN(saleDate.getTime()) || !inPeriodLocal(saleDate, period, yLocal, mLocal, dLocal, tzOffset)) continue;
       lines.push({
         id: -row.id,
         username: decUsername,
@@ -306,7 +331,7 @@ export async function fetchUnattributedPeriodSales(
         and(
           eq(vouchersTable.routerId, routerId),
           isNotNull(vouchersTable.usedAt),
-          voucherNotCoveredByScriptSameUtcDay(),
+          voucherNotCoveredByScriptSameLocalDay(now, tzOffset),
           gte(vouchersTable.usedAt, monthStart),
           lt(vouchersTable.usedAt, monthEnd),
         ),
@@ -324,7 +349,7 @@ export async function fetchUnattributedPeriodSales(
       });
       if (vendorId != null) continue;
       const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
-      if (Number.isNaN(usedAt.getTime()) || !inPeriodUtc(usedAt, period, yUtc, mUtc, dUtc)) continue;
+      if (Number.isNaN(usedAt.getTime()) || !inPeriodLocal(usedAt, period, yLocal, mLocal, dLocal, tzOffset)) continue;
       lines.push({
         id: row.id,
         username: decUsername,
@@ -379,9 +404,17 @@ export async function fetchUnattributedPeriodSales(
 }
 
 export async function aggregateVendorPeriodSales(routerId: number): Promise<VendorPeriodAggRow[] | null> {
+  // Fetch router's timezone offset from DB
+  const [routerRow] = await db
+    .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
+    .from(routersTable)
+    .where(eq(routersTable.id, routerId))
+    .limit(1);
+
+  const tzOffset = routerRow?.timezoneOffsetMinutes ?? 0;
   const now = new Date();
-  const { y: yUtc, m: mUtc, day: dUtc } = utcParts(now);
-  const { start: monthStart, end: monthEnd } = utcMonthBounds(yUtc, mUtc);
+  const { y: yLocal, m: mLocal, day: dLocal } = localParts(now, tzOffset);
+  const { start: monthStart, end: monthEnd } = localMonthBounds(now, tzOffset);
 
   try {
     const vendors = await loadRouterVendorsForAttribution(routerId);
@@ -436,8 +469,8 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
       });
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
       if (Number.isNaN(saleDate.getTime())) continue;
-      const daily = isUtcDay(saleDate, yUtc, mUtc, dUtc);
-      const monthly = isUtcMonth(saleDate, yUtc, mUtc);
+      const daily = isLocalDay(saleDate, yLocal, mLocal, dLocal, tzOffset);
+      const monthly = isLocalMonth(saleDate, yLocal, mLocal, tzOffset);
       const amount = parsePriceNum(row.price);
       if (vendorId == null) {
         bumpUnattr(daily, monthly, amount);
@@ -461,7 +494,7 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
         and(
           eq(vouchersTable.routerId, routerId),
           isNotNull(vouchersTable.usedAt),
-          voucherNotCoveredByScriptSameUtcDay(),
+          voucherNotCoveredByScriptSameLocalDay(now, tzOffset),
           gte(vouchersTable.usedAt, monthStart),
           lt(vouchersTable.usedAt, monthEnd),
         ),
@@ -475,8 +508,8 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
       });
       const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
       if (Number.isNaN(usedAt.getTime())) continue;
-      const daily = isUtcDay(usedAt, yUtc, mUtc, dUtc);
-      const monthly = isUtcMonth(usedAt, yUtc, mUtc);
+      const daily = isLocalDay(usedAt, yLocal, mLocal, dLocal, tzOffset);
+      const monthly = isLocalMonth(usedAt, yLocal, mLocal, tzOffset);
       const amount = parsePriceNum(row.salePrice ?? row.price);
       if (vendorId == null) {
         bumpUnattr(daily, monthly, amount);
@@ -520,30 +553,37 @@ export type VendorPeriodSalesResult = {
   vouchers: UnattributedSaleLine[];
 };
 
-/** Ventes d'un vendeur (bons + scripts), alignées sur le classement admin. */
 export async function fetchVendorPeriodSales(
   vendorId: number,
   routerId: number,
   period: VendorPeriod,
 ): Promise<VendorPeriodSalesResult | null> {
   try {
-    const [vendor] = await db
-      .select({
-        id: vendorsTable.id,
-        name: vendorsTable.name,
-        isDemo: vendorsTable.isDemo,
-        commentSuffix: vendorsTable.commentSuffix,
-        commentSuffix2: vendorsTable.commentSuffix2,
-        ticketLetter: vendorsTable.ticketLetter,
-      })
-      .from(vendorsTable)
-      .where(eq(vendorsTable.id, vendorId));
-    if (!vendor) return null;
+    const [vendor, routerRow] = await Promise.all([
+      db
+        .select({
+          id: vendorsTable.id,
+          name: vendorsTable.name,
+          isDemo: vendorsTable.isDemo,
+          commentSuffix: vendorsTable.commentSuffix,
+          commentSuffix2: vendorsTable.commentSuffix2,
+          ticketLetter: vendorsTable.ticketLetter,
+        })
+        .from(vendorsTable)
+        .where(eq(vendorsTable.id, vendorId)),
+      db
+        .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
+        .from(routersTable)
+        .where(eq(routersTable.id, routerId))
+        .limit(1),
+    ]);
+    if (!vendor[0]) return null;
 
-    const vendorRow: VendorSuffixRow = vendor;
+    const tzOffset = routerRow[0]?.timezoneOffsetMinutes ?? 0;
+    const vendorRow: VendorSuffixRow = vendor[0];
     const now = new Date();
-    const { y: yUtc, m: mUtc } = utcParts(now);
-    const { start: monthStart, end: monthEnd } = utcMonthBounds(yUtc, mUtc);
+    const { start: monthStart, end: monthEnd } = localMonthBounds(now, tzOffset);
+    const { y: yLocal, m: mLocal, day: dLocal } = localParts(now, tzOffset);
     const lines: UnattributedSaleLine[] = [];
 
     const scriptRows = await db
@@ -576,7 +616,7 @@ export async function fetchVendorPeriodSales(
       const decValidity = decodeRouterText(row.validity);
       if (!saleBelongsToVendor(vendorRow, { batch: decBatch, username: decUsername })) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
-      if (Number.isNaN(saleDate.getTime()) || !inVendorPeriod(saleDate, period, now)) continue;
+      if (Number.isNaN(saleDate.getTime()) || !inVendorPeriodLocal(saleDate, period, now, tzOffset)) continue;
       lines.push({
         id: -row.id,
         username: decUsername,
@@ -601,7 +641,7 @@ export async function fetchVendorPeriodSales(
         and(
           eq(vouchersTable.routerId, routerId),
           isNotNull(vouchersTable.usedAt),
-          voucherNotCoveredByScriptSameUtcDay(),
+          voucherNotCoveredByScriptSameLocalDay(now, tzOffset),
           gte(vouchersTable.usedAt, monthStart),
           lt(vouchersTable.usedAt, monthEnd),
         ),
@@ -618,7 +658,7 @@ export async function fetchVendorPeriodSales(
         username: decUsername,
       })) continue;
       const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
-      if (Number.isNaN(usedAt.getTime()) || !inVendorPeriod(usedAt, period, now)) continue;
+      if (Number.isNaN(usedAt.getTime()) || !inVendorPeriodLocal(usedAt, period, now, tzOffset)) continue;
       lines.push({
         id: row.id,
         username: decUsername,
@@ -659,7 +699,7 @@ export async function fetchVendorPeriodSales(
       .sort((a, b) => b.count - a.count);
 
     return {
-      vendorName: vendor.name,
+      vendorName: vendorRow.name,
       period,
       label: PERIOD_LABELS[period],
       total: lines.length,
