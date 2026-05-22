@@ -20,7 +20,14 @@
  */
 import { eq, and, sql, inArray, desc, asc, gte, lt } from "drizzle-orm";
 import { db, scriptSalesTable, routersTable } from "@workspace/db";
-import { fetchScriptSales, removeMikhmonScriptsByRawNames, type RouterConnection, type SaleEntry } from "./mikrotik.js";
+import {
+  fetchScriptSales,
+  getRouterInfo,
+  parseMikhmonDate,
+  removeMikhmonScriptsByRawNames,
+  type RouterConnection,
+  type SaleEntry,
+} from "./mikrotik.js";
 import { getMikhmonCalendar, mikhmonMonthRange, mikhmonMonthRangeFor } from "./mikhmon-calendar.js";
 import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
 import {
@@ -111,11 +118,11 @@ interface ScriptSalesRow {
 function entriesToRows(routerId: number, entries: SaleEntry[]): ScriptSalesRow[] {
   return entries.map((e) => {
     const raw = [e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch].join("-|-");
-    const dt  = new Date(`${e.date}T${e.time || "00:00:00"}`);
+    const dt  = parseMikhmonDate(e.date, e.time || "00:00:00");
     return {
       routerId,
       username:  e.username,
-      saleDate:  isNaN(dt.getTime()) ? new Date() : dt,
+      saleDate:  dt ?? new Date(),
       price:     String(e.price ?? ""),
       ip:        e.ip       ?? "",
       mac:       e.mac      ?? "",
@@ -375,21 +382,47 @@ function scheduleHistoricalBackfill(
  * Renvoie le nombre de nouvelles lignes insérées (pour le sync de premier plan ;
  * le backfill historique tourne en arrière-plan et n'est pas comptabilisé ici).
  */
+/** Horloge routeur pour calendrier MikHmon (évite décalage jour/mois vs Mikhmon). */
+async function resolveRouterClockDate(
+  conn: RouterConnection,
+  routerClockDate?: string | null,
+): Promise<string | null> {
+  if (routerClockDate !== undefined) return routerClockDate;
+  try {
+    const info = await getRouterInfo(conn);
+    return info.clockDate ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type SyncScriptCacheOptions = {
+  /** Ignore le marqueur « mois frais » et refait un pull mois complet (cache partiel). */
+  forceFullMonth?: boolean;
+};
+
 export async function syncScriptCache(
   routerId: number,
   conn: RouterConnection,
+  routerClockDate?: string | null,
+  opts?: SyncScriptCacheOptions,
 ): Promise<number> {
   const existing = inFlight.get(routerId);
   if (existing) return existing;
 
   const promise = (async () => {
     try {
-      const cal = getMikhmonCalendar(null);
+      const clock = await resolveRouterClockDate(conn, routerClockDate);
+      const cal = getMikhmonCalendar(clock);
       const thisYear  = cal.y;
       const thisMonth = cal.m;
       const thisDay   = cal.d;
       const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
       const thisMonthKey = monthKey(routerId, thisYear, thisMonth);
+
+      if (opts?.forceFullMonth) {
+        monthSyncedAt.delete(thisMonthKey);
+      }
 
       await closePreviousMonthIfNeeded(routerId, cal);
       await hydrateCurrentMonthSyncMarker(routerId, thisYear, thisMonth);
@@ -400,31 +433,6 @@ export async function syncScriptCache(
         .from(scriptSalesTable)
         .where(eq(scriptSalesTable.routerId, routerId));
       const isEmpty = Number(countRow?.n ?? 0) === 0;
-
-      // ── B. Si DB non vide mais aucune trace en mémoire (process restart) :
-      //       on considère les données existantes comme baseline → mode jour
-      //       direct (sans relancer un sync mois complet inutile).
-      if (!isEmpty && !monthSyncedAt.has(thisMonthKey)) {
-        const [latest] = await db
-          .select({ saleDate: scriptSalesTable.saleDate })
-          .from(scriptSalesTable)
-          .where(eq(scriptSalesTable.routerId, routerId))
-          .orderBy(desc(scriptSalesTable.saleDate))
-          .limit(1);
-        // Si la donnée la plus récente est de ce mois-ci, on marque le mois
-        // comme « partiellement frais » (timestamp daté pour forcer un resync
-        // dans ~5 min plutôt qu'à la prochaine tick).
-        if (latest?.saleDate) {
-          const d = latest.saleDate;
-          if (d.getFullYear() === thisYear && d.getMonth() + 1 === thisMonth) {
-            monthSyncedAt.set(thisMonthKey, Date.now() - MONTH_FRESHNESS_MS + 5 * 60_000);
-            logger.info(
-              { routerId },
-              "script cache: baseline DB → mode jour-courant (resync mois dans ~5 min)",
-            );
-          }
-        }
-      }
 
       let entries: SaleEntry[] = [];
       let mode: "first-month" | "current-month" | "today-only" | "skipped" = "skipped";
@@ -488,12 +496,8 @@ export async function syncScriptCache(
           mikrotikSync: true,
         });
       } else {
+        // Sync jour seul : n'étend pas la fenêtre « mois frais » (sinon plus de resync mois complet).
         inserted = await persistRows(rows);
-        const cnt = await countScriptSalesInMonth(routerId, thisYear, thisMonth);
-        await upsertMonthSyncRecord(routerId, thisYear, thisMonth, cnt, {
-          verified: false,
-          mikrotikSync: true,
-        });
       }
 
       await autoCleanMikrotikIfEnabled(routerId, conn, rows);

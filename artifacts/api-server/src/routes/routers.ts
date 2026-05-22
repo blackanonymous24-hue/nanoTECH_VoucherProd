@@ -2372,7 +2372,7 @@ async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host
     const sc = routerCacheScope(ownerAdminId, id);
     const infoHit = mGet(`info:${sc}`) ?? mGetStale(`info:${sc}`);
     const clockDate = (infoHit as { clockDate?: string | null } | null)?.clockDate ?? null;
-    void syncScriptCache(id, conn).catch(() => { /* non-blocking */ });
+    await syncScriptCache(id, conn, clockDate).catch(() => { /* non-blocking */ });
     const quick = await readSalesQuickFromDb(id, clockDate);
     const mm = String(new Date().getMonth() + 1).padStart(2, "0");
     const y = new Date().getFullYear();
@@ -2649,18 +2649,40 @@ async function buildDashboardPrioritySnapshot(id: number) {
     ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
     : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
 
-  // Ventes KPI : affichage immédiat depuis la DB (mois/jour calendrier routeur), sync MikroTik incrémentale en BG.
-  const routerClockDate = info?.clockDate ?? null;
-  void syncScriptCache(id, conn).catch(() => { /* non-blocking */ });
+  // Ventes KPI : horloge routeur, sync incrémentale (jour/mois), puis lecture DB — aligné Mikhmon.
+  let routerClockDate = info?.clockDate ?? null;
+  if (!routerClockDate) {
+    try {
+      const liveInfo = await getRouterInfo(conn);
+      routerClockDate = liveInfo.clockDate ?? null;
+      mSet(infoKey, MIK_TTL.info, liveInfo);
+    } catch { /* garde null */ }
+  }
+  const DASHBOARD_SYNC_MS = 22_000;
+  const runSync = (forceFullMonth: boolean) =>
+    Promise.race([
+      syncScriptCache(id, conn, routerClockDate, { forceFullMonth }),
+      new Promise<number>((_, reject) => {
+        setTimeout(() => reject(new Error("sync_timeout")), DASHBOARD_SYNC_MS);
+      }),
+    ]).catch(() => 0);
+
+  await runSync(false);
+
   if (!salesRefreshing.has(id)) {
     setImmediate(() => {
       void triggerSalesRefresh(r.ownerAdminId, id, r.host, r.port, r.username, r.password);
     });
   }
-  const [dbQuickSales, vendorRanking] = await Promise.all([
+  let [dbQuickSales, vendorRanking] = await Promise.all([
     readSalesQuickFromDb(id, routerClockDate),
     readVendorRankingQuickFromDb(id, routerClockDate),
   ]);
+  if (dbQuickSales && dbQuickSales.dailyCount === 0 && dbQuickSales.monthlyCount > 0) {
+    await runSync(true);
+    const retry = await readSalesQuickFromDb(id, routerClockDate);
+    if (retry) dbQuickSales = retry;
+  }
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
   const d = String(new Date().getDate()).padStart(2, "0");
@@ -3107,7 +3129,7 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       markRouterActive(id);
       ensureUsageSyncScheduled(id, conn);
       // fire-and-forget : la prochaine requête (auto-refresh) bénéficiera des données fraîches
-      void syncScriptCache(id, conn).catch(() => { /* non-blocking */ });
+      void syncScriptCache(id, conn, null).catch(() => { /* non-blocking */ });
     }
   } catch {
     // Non-blocking

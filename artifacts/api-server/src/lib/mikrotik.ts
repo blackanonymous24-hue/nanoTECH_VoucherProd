@@ -1635,7 +1635,7 @@ export interface SaleEntry {
 const MIKHMON_MONTH_ABBR = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
 /** Parse both ISO ("2026-02-02") and legacy ("nov/04/2025") date parts into a Date. */
-function parseMikhmonDate(datePart: string, timePart?: string): Date | null {
+export function parseMikhmonDate(datePart: string, timePart?: string): Date | null {
   const time = timePart && /^\d{1,2}:\d{2}:\d{2}$/.test(timePart) ? timePart : "00:00:00";
   if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
     const d = new Date(`${datePart}T${time}`);
