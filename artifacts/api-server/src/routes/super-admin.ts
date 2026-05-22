@@ -5,7 +5,12 @@ import { hashPassword } from "../lib/admin-auth.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
 import { getAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { pingRouter } from "../lib/mikrotik.js";
-import { normalizeRouterConnection, mergeMikhmonHostPort } from "../lib/router-host.js";
+import { normalizeRouterConnection, mergeMikhmonHostPort, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
+import {
+  reconcileSalesCacheAfterConnectionChange,
+  routerConnectionPatchChanged,
+} from "../lib/router-sales-on-reconnect.js";
+import { purgeRouterRowVolatileCaches } from "./routers.js";
 import {
   adminLoginPasswordCollisionMessage,
   findAdminLoginPasswordHashCollision,
@@ -545,7 +550,15 @@ router.put("/super/admins/:id/routers/:routerId", async (req, res): Promise<void
     res.status(400).json({ error: "ID invalide" }); return;
   }
 
-  const [r] = await db.select().from(routersTable)
+  const [r] = await db
+    .select({
+      host: routersTable.host,
+      port: routersTable.port,
+      username: routersTable.username,
+      password: routersTable.password,
+      mikrotikSerial: routersTable.mikrotikSerial,
+    })
+    .from(routersTable)
     .where(and(eq(routersTable.id, routerId), eq(routersTable.ownerAdminId, adminId)));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
@@ -559,17 +572,43 @@ router.put("/super/admins/:id/routers/:routerId", async (req, res): Promise<void
   if (hotspotName !== undefined) updates.hotspotName = hotspotName || null;
   if (contact !== undefined) updates.contact = contact || null;
   if (currency !== undefined) updates.currency = currency.trim().slice(0, 24) || "FCFA";
-  if (host !== undefined) updates.host = host;
-  if (port !== undefined) updates.port = port;
+  if (host !== undefined) {
+    const merged = mergeMikhmonHostPort(host, port);
+    if (!merged.host) {
+      res.status(400).json({ error: "Adresse IP ou hôte invalide" });
+      return;
+    }
+    updates.host = merged.host;
+    updates.port = merged.port;
+  } else if (port !== undefined) {
+    updates.port = port > 0 ? port : DEFAULT_ROUTER_API_PORT;
+  }
   if (username !== undefined) updates.username = username;
   if (password !== undefined && password !== "") updates.password = password;
+
+  const connPatch = { host, port, username, password };
+  let salesReset: Awaited<ReturnType<typeof reconcileSalesCacheAfterConnectionChange>> | null = null;
+  if (routerConnectionPatchChanged(r, connPatch)) {
+    salesReset = await reconcileSalesCacheAfterConnectionChange(routerId, r, connPatch);
+    updates.mikrotikSerial = salesReset.mikrotikSerial;
+  }
 
   const [updated] = await db.update(routersTable)
     .set(updates)
     .where(and(eq(routersTable.id, routerId), eq(routersTable.ownerAdminId, adminId)))
     .returning();
 
-  res.json(updated);
+  if (updated) purgeRouterRowVolatileCaches(adminId, routerId);
+  res.json({
+    ...updated,
+    ...(salesReset?.salesCacheCleared
+      ? {
+          salesCacheCleared: true,
+          salesCacheMessage:
+            "Cache ventes réinitialisé : nouvelle adresse ou autre MikroTik détecté.",
+        }
+      : {}),
+  });
 });
 
 // ---------------------------------------------------------------------------

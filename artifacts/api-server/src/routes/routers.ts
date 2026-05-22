@@ -10,6 +10,11 @@ import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
+import {
+  persistRouterMikrotikSerialIfMissing,
+  reconcileSalesCacheAfterConnectionChange,
+  routerConnectionPatchChanged,
+} from "../lib/router-sales-on-reconnect.js";
 import { aggregateScriptSalesDeduped } from "../lib/script-sales-dedup.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
@@ -601,6 +606,19 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
+  const [existing] = await db
+    .select({
+      ownerAdminId: routersTable.ownerAdminId,
+      host: routersTable.host,
+      port: routersTable.port,
+      username: routersTable.username,
+      password: routersTable.password,
+      mikrotikSerial: routersTable.mikrotikSerial,
+    })
+    .from(routersTable)
+    .where(eq(routersTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
   const { name, hotspotName, contact, currency, host, port, username, password, autoDeleteSalesScripts, isActive } = req.body as {
     name?: string;
     hotspotName?: string;
@@ -644,6 +662,15 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  const connPatch = { host, port, username, password };
+  let salesReset: Awaited<ReturnType<typeof reconcileSalesCacheAfterConnectionChange>> | null = null;
+  if (routerConnectionPatchChanged(existing, connPatch)) {
+    salesReset = await reconcileSalesCacheAfterConnectionChange(id, existing, connPatch);
+    if (salesReset.mikrotikSerial !== undefined) {
+      updates.mikrotikSerial = salesReset.mikrotikSerial;
+    }
+  }
+
   const [updated] = await db
     .update(routersTable)
     .set(updates)
@@ -666,7 +693,16 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
 
   if (!updated) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   purgeRouterRowVolatileCaches(updated.ownerAdminId, updated.id);
-  res.json(updated);
+  res.json({
+    ...updated,
+    ...(salesReset?.salesCacheCleared
+      ? {
+          salesCacheCleared: true,
+          salesCacheMessage:
+            "Cache ventes réinitialisé : nouvelle adresse ou autre MikroTik détecté. Les totaux seront resynchronisés depuis le routeur.",
+        }
+      : {}),
+  });
 });
 
 router.delete("/routers/:id", async (req, res): Promise<void> => {
@@ -2653,7 +2689,10 @@ async function buildDashboardPrioritySnapshot(id: number) {
       const liveInfo = await getRouterInfo(conn);
       routerClockDate = liveInfo.clockDate ?? null;
       mSet(infoKey, MIK_TTL.info, liveInfo);
+      void persistRouterMikrotikSerialIfMissing(id, liveInfo.serialNumber);
     } catch { /* garde null */ }
+  } else if (info?.serialNumber) {
+    void persistRouterMikrotikSerialIfMissing(id, info.serialNumber);
   }
   const DASHBOARD_SYNC_MS = 22_000;
   const runSync = (forceFullMonth: boolean) =>

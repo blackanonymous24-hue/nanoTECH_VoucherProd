@@ -21,6 +21,8 @@ export const routersTable = pgTable("routers", {
   timezoneOffsetMinutes: integer("timezone_offset_minutes").notNull().default(0),
   /** If true, auto-delete MikroTik sales scripts after local cache persist. */
   autoDeleteSalesScripts: boolean("auto_delete_sales_scripts").notNull().default(false),
+  /** Dernier n° de série connu (/system/routerboard) — détecte un autre MikroTik après changement d'IP. */
+  mikrotikSerial: text("mikrotik_serial"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

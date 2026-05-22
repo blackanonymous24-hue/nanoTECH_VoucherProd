@@ -267,8 +267,15 @@ export default function Routers() {
     };
     if (editRouter) {
       // password vide = non modifié → le serveur conserve l'ancien
-      await updateMutation.mutateAsync({ id: editRouter.id, data: { ...basePayload, password: form.password } });
-      toast({ title: "Routeur mis à jour" });
+      const updated = await updateMutation.mutateAsync({
+        id: editRouter.id,
+        data: { ...basePayload, password: form.password },
+      }) as { salesCacheCleared?: boolean; salesCacheMessage?: string };
+      if (updated.salesCacheCleared && updated.salesCacheMessage) {
+        toast({ title: "Routeur mis à jour", description: updated.salesCacheMessage });
+      } else {
+        toast({ title: "Routeur mis à jour" });
+      }
     } else {
       await createMutation.mutateAsync({ data: { ...basePayload, password: form.password } });
       toast({ title: "Routeur ajouté" });
