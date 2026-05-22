@@ -18,6 +18,7 @@ export async function ensureScriptSalesMonthSyncTable(): Promise<void> {
         year integer NOT NULL,
         month integer NOT NULL,
         last_sync_at timestamptz NOT NULL DEFAULT now(),
+        mikrotik_sync_at timestamptz,
         verified_at timestamptz,
         script_count integer NOT NULL DEFAULT 0,
         CONSTRAINT uq_script_month_sync_router_ym UNIQUE (router_id, year, month)
@@ -26,6 +27,15 @@ export async function ensureScriptSalesMonthSyncTable(): Promise<void> {
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_script_month_sync_router
       ON mikrotik_script_sales_month_sync (router_id)
+    `);
+    await db.execute(sql`
+      ALTER TABLE mikrotik_script_sales_month_sync
+      ADD COLUMN IF NOT EXISTS mikrotik_sync_at timestamptz
+    `);
+    await db.execute(sql`
+      UPDATE mikrotik_script_sales_month_sync
+      SET verified_at = NULL
+      WHERE verified_at IS NOT NULL AND mikrotik_sync_at IS NULL
     `);
     logger.info("DB compat: table mikrotik_script_sales_month_sync vérifiée / ajoutée");
   } catch (err) {
@@ -84,10 +94,22 @@ export async function upsertMonthSyncRecord(
   year: number,
   month: number,
   scriptCount: number,
-  opts: { verified?: boolean },
+  opts: { verified?: boolean; mikrotikSync?: boolean },
 ): Promise<void> {
   const now = new Date();
-  const verifiedAt = opts.verified ? now : null;
+  const existing = await getMonthSyncRow(routerId, year, month);
+  const mikrotikSyncAt =
+    opts.mikrotikSync ? now : (existing?.mikrotikSyncAt ?? null);
+  const canVerify = !!(mikrotikSyncAt);
+  const verifiedAt = opts.verified && canVerify ? now : (existing?.verifiedAt ?? null);
+
+  if (opts.verified && !canVerify) {
+    logger.warn(
+      { routerId, year, month },
+      "script month sync: refus marquage vérifié sans pull MikroTik préalable",
+    );
+  }
+
   await db
     .insert(scriptSalesMonthSyncTable)
     .values({
@@ -95,6 +117,7 @@ export async function upsertMonthSyncRecord(
       year,
       month,
       lastSyncAt: now,
+      mikrotikSyncAt,
       verifiedAt,
       scriptCount,
     })
@@ -107,9 +130,20 @@ export async function upsertMonthSyncRecord(
       set: {
         lastSyncAt: now,
         scriptCount,
-        ...(opts.verified ? { verifiedAt: now } : {}),
+        ...(opts.mikrotikSync ? { mikrotikSyncAt: now } : {}),
+        ...(opts.verified && canVerify ? { verifiedAt: now } : {}),
       },
     });
+}
+
+/** true si ce mois a déjà été rapatrié depuis le MikroTik au moins une fois. */
+export async function monthHadMikrotikSync(
+  routerId: number,
+  year: number,
+  month: number,
+): Promise<boolean> {
+  const row = await getMonthSyncRow(routerId, year, month);
+  return row?.mikrotikSyncAt != null;
 }
 
 /** Marque le mois précédent comme vérifié quand le calendrier routeur avance. */
@@ -124,46 +158,10 @@ export async function closePreviousMonthIfNeeded(
   if (row?.verifiedAt) return;
   const cnt = await countScriptSalesInMonth(routerId, py, pm);
   if (cnt === 0 && !row) return;
-  await upsertMonthSyncRecord(routerId, py, pm, cnt, { verified: true });
-}
-
-/**
- * Mois passés déjà présents en base mais sans marqueur (après restart / migration) :
- * dédoublonnage local puis marquage « vérifié » sans pull MikroTik.
- */
-export async function bootstrapVerifiedMonthsFromDb(
-  routerId: number,
-  cal?: MikhmonCalendar,
-): Promise<number> {
-  const ref = cal ?? getMikhmonCalendar(null);
-  const rows = await db
-    .select({
-      year: sql<number>`extract(year from ${scriptSalesTable.saleDate})::int`,
-      month: sql<number>`extract(month from ${scriptSalesTable.saleDate})::int`,
-      cnt: sql<number>`count(*)::int`,
-    })
-    .from(scriptSalesTable)
-    .where(eq(scriptSalesTable.routerId, routerId))
-    .groupBy(
-      sql`extract(year from ${scriptSalesTable.saleDate})`,
-      sql`extract(month from ${scriptSalesTable.saleDate})`,
-    );
-
-  let marked = 0;
-  for (const r of rows) {
-    const y = Number(r.year);
-    const m = Number(r.month);
-    const cnt = Number(r.cnt);
-    if (!y || !m || cnt <= 0) continue;
-    if (!isCalendarMonthBefore(y, m, ref)) continue;
-    if (await isPastMonthVerified(routerId, y, m, ref)) continue;
-    await upsertMonthSyncRecord(routerId, y, m, cnt, { verified: true });
-    marked++;
-  }
-  if (marked > 0) {
-    logger.info({ routerId, marked }, "script month sync: mois passés marqués vérifiés depuis la base");
-  }
-  return marked;
+  await upsertMonthSyncRecord(routerId, py, pm, cnt, {
+    verified: true,
+    mikrotikSync: row?.mikrotikSyncAt != null,
+  });
 }
 
 export async function clearRouterMonthSyncMarkers(routerId: number): Promise<void> {

@@ -12,7 +12,9 @@ export const scriptSalesMonthSyncTable = pgTable("mikrotik_script_sales_month_sy
   month: integer("month").notNull(),
   /** Dernier pull MikroTik réussi pour ce mois (y compris mois en cours). */
   lastSyncAt: timestamp("last_sync_at", { withTimezone: true }).notNull().defaultNow(),
-  /** Mois clos : sync complète + dédoublonnage validés — ne plus interroger le routeur. */
+  /** Premier pull MikroTik réussi pour ce mois (obligatoire avant verified_at). */
+  mikrotikSyncAt: timestamp("mikrotik_sync_at", { withTimezone: true }),
+  /** Mois clos : sync MikroTik + dédoublonnage — ne plus interroger le routeur. */
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
   scriptCount: integer("script_count").notNull().default(0),
 }, (t) => [
