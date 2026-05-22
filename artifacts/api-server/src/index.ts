@@ -3,6 +3,7 @@ import "./load-env.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
 import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureRouterTimezoneOffsetColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensureTicketTemplatePresetColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureManagerRoutersTable, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensureVendorSettlementModeColumn, ensurePrintScaleColumns, ensureUserSessionsTable, ensureSessionEpochColumns, normalizeStoredRouterHosts } from "./lib/ensure-router-currency-column.js";
+import { ensureScriptSalesMonthSyncTable } from "./lib/script-sales-month-sync.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
@@ -52,6 +53,7 @@ async function start() {
   await ensurePrintScaleColumns();
   await ensureUserSessionsTable();
   await ensureSessionEpochColumns();
+  await ensureScriptSalesMonthSyncTable();
   await normalizeStoredRouterHosts();
   await ensureSuperAdminPasswordPlainBackfill();
 

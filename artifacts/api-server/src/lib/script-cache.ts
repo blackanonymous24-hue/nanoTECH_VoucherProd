@@ -21,8 +21,16 @@
 import { eq, and, sql, inArray, desc, asc, gte, lt } from "drizzle-orm";
 import { db, scriptSalesTable, routersTable } from "@workspace/db";
 import { fetchScriptSales, removeMikhmonScriptsByRawNames, type RouterConnection, type SaleEntry } from "./mikrotik.js";
-import { getMikhmonCalendar, mikhmonMonthRange } from "./mikhmon-calendar.js";
+import { getMikhmonCalendar, mikhmonMonthRange, mikhmonMonthRangeFor } from "./mikhmon-calendar.js";
 import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
+import {
+  closePreviousMonthIfNeeded,
+  countScriptSalesInMonth,
+  isPastMonthVerified,
+  upsertMonthSyncRecord,
+  getMonthSyncRow,
+  clearRouterMonthSyncMarkers,
+} from "./script-sales-month-sync.js";
 import { logger } from "./logger.js";
 
 /** Shape returned by getCachedSaleDetails — mirrors mikrotik.ts SaleDetail */
@@ -65,8 +73,21 @@ export function clearRouterScriptCache(routerId: number): void {
     if (k.startsWith(`${routerId}:`)) monthSyncedAt.delete(k);
   }
   lastDaySyncAt.delete(routerId);
+  void clearRouterMonthSyncMarkers(routerId).catch(() => { /* non-blocking */ });
   // Note : on ne touche pas à `inFlight` — si une sync est en cours, elle finira
   // naturellement et le prochain appelant relancera une nouvelle sync derrière.
+}
+
+/** Réhydrate le throttle mois courant depuis la base (survit au restart API). */
+async function hydrateCurrentMonthSyncMarker(
+  routerId: number,
+  year: number,
+  month: number,
+): Promise<void> {
+  const key = monthKey(routerId, year, month);
+  if (monthSyncedAt.has(key)) return;
+  const row = await getMonthSyncRow(routerId, year, month);
+  if (row?.lastSyncAt) monthSyncedAt.set(key, row.lastSyncAt.getTime());
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -252,6 +273,26 @@ async function autoCleanMikrotikIfEnabled(
   }
 }
 
+/** Mois passés déjà en base : dédoublonnage local puis marquage « vérifié » (sans pull MikroTik). */
+async function ensurePastMonthsVerifiedLocally(
+  routerId: number,
+  cal: ReturnType<typeof getMikhmonCalendar>,
+): Promise<void> {
+  for (let i = 1; i <= BACKFILL_MAX_MONTHS; i++) {
+    const dt = new Date(cal.y, cal.m - 1 - i, 1);
+    const y = dt.getFullYear();
+    const m = dt.getMonth() + 1;
+    if (await isPastMonthVerified(routerId, y, m, cal)) continue;
+    const cnt = await countScriptSalesInMonth(routerId, y, m);
+    if (cnt <= 0) continue;
+    const { start: monthStart, end: monthEnd } = mikhmonMonthRangeFor(y, m);
+    await dedupeScriptSalesInRange(routerId, monthStart, monthEnd);
+    const after = await countScriptSalesInMonth(routerId, y, m);
+    await upsertMonthSyncRecord(routerId, y, m, after, { verified: true });
+    monthSyncedAt.set(monthKey(routerId, y, m), Date.now());
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Backfill historique en arrière-plan
 // ────────────────────────────────────────────────────────────────────────────
@@ -264,28 +305,35 @@ async function autoCleanMikrotikIfEnabled(
  * S'arrête dès qu'un mois renvoie 0 entrée (les mois plus anciens seront
  * également vides — pas la peine de continuer à scanner).
  */
-function scheduleHistoricalBackfill(routerId: number, conn: RouterConnection): void {
+function scheduleHistoricalBackfill(
+  routerId: number,
+  conn: RouterConnection,
+  cal: ReturnType<typeof getMikhmonCalendar>,
+): void {
   if (backfillRunning.has(routerId)) return;
   backfillRunning.add(routerId);
 
   setImmediate(async () => {
     try {
       logger.info({ routerId }, "script cache: backfill historique démarré en arrière-plan");
-      const now = new Date();
-      const baseYear  = now.getFullYear();
-      const baseMonth = now.getMonth(); // 0-indexed
       let totalInserted = 0;
 
       for (let i = 1; i <= BACKFILL_MAX_MONTHS; i++) {
-        const dt = new Date(baseYear, baseMonth - i, 1);
+        const dt = new Date(cal.y, cal.m - 1 - i, 1);
         const y  = dt.getFullYear();
         const m  = dt.getMonth() + 1;
+        const { start: monthStart, end: monthEnd } = mikhmonMonthRangeFor(y, m);
 
-        // Si déjà sync récemment, on saute
-        const last = monthSyncedAt.get(monthKey(routerId, y, m)) ?? 0;
-        if (last > 0 && Date.now() - last < MONTH_FRESHNESS_MS) continue;
+        if (await isPastMonthVerified(routerId, y, m, cal)) continue;
 
-        // Petite pause pour laisser souffler le MikroTik (sauf le 1er mois)
+        const existingInDb = await countScriptSalesInMonth(routerId, y, m);
+        if (existingInDb > 0) {
+          await dedupeScriptSalesInRange(routerId, monthStart, monthEnd);
+          await upsertMonthSyncRecord(routerId, y, m, existingInDb, { verified: true });
+          monthSyncedAt.set(monthKey(routerId, y, m), Date.now());
+          continue;
+        }
+
         if (i > 1) await new Promise((r) => setTimeout(r, BACKFILL_PAUSE_MS));
 
         try {
@@ -295,19 +343,19 @@ function scheduleHistoricalBackfill(routerId: number, conn: RouterConnection): v
             30_000,
           );
           const rows = entriesToRows(routerId, entries);
-          const inserted = await persistRows(rows);
+          const { inserted, deduped } = await appendMonthScriptSales(routerId, rows, monthStart, monthEnd);
           monthSyncedAt.set(monthKey(routerId, y, m), Date.now());
           totalInserted += inserted;
 
-          if (inserted > 0) {
+          if (entries.length > 0) {
+            const totalInDb = await countScriptSalesInMonth(routerId, y, m);
+            await upsertMonthSyncRecord(routerId, y, m, totalInDb, { verified: true });
             logger.info(
-              { routerId, year: y, month: m, fetched: entries.length, inserted },
+              { routerId, year: y, month: m, fetched: entries.length, inserted, deduped },
               "script cache: backfill mois OK",
             );
-          }
-
-          // Si ce mois est vide → tous les plus anciens le seront aussi
-          if (entries.length === 0) {
+          } else {
+            await upsertMonthSyncRecord(routerId, y, m, 0, { verified: true });
             logger.info(
               { routerId, stoppedAt: `${y}-${m}`, totalInserted },
               "script cache: backfill historique terminé (mois antérieur vide)",
@@ -315,7 +363,6 @@ function scheduleHistoricalBackfill(routerId: number, conn: RouterConnection): v
             break;
           }
         } catch (err) {
-          // On loggue et on continue avec le mois suivant — pas critique
           logger.warn(
             { routerId, year: y, month: m, err },
             "script cache: backfill mois en échec (continue)",
@@ -355,6 +402,10 @@ export async function syncScriptCache(
       const thisDay   = cal.d;
       const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
       const thisMonthKey = monthKey(routerId, thisYear, thisMonth);
+
+      await ensurePastMonthsVerifiedLocally(routerId, cal);
+      await closePreviousMonthIfNeeded(routerId, cal);
+      await hydrateCurrentMonthSyncMarker(routerId, thisYear, thisMonth);
 
       // ── A. La DB a-t-elle des données pour ce routeur ? ─────────────────
       const [countRow] = await db
@@ -406,8 +457,7 @@ export async function syncScriptCache(
           30_000,
         );
         monthSyncedAt.set(thisMonthKey, Date.now());
-        // Backfill historique silencieux en arrière-plan
-        scheduleHistoricalBackfill(routerId, conn);
+        scheduleHistoricalBackfill(routerId, conn, cal);
       } else {
         const lastMonthSync = monthSyncedAt.get(thisMonthKey) ?? 0;
         const monthIsFresh  = lastMonthSync > 0 && Date.now() - lastMonthSync < MONTH_FRESHNESS_MS;
@@ -434,8 +484,7 @@ export async function syncScriptCache(
             30_000,
           );
           monthSyncedAt.set(thisMonthKey, Date.now());
-          // Si des mois plus anciens manquent encore, on les rapatrie en BG.
-          scheduleHistoricalBackfill(routerId, conn);
+          scheduleHistoricalBackfill(routerId, conn, cal);
         }
       }
 
@@ -446,8 +495,12 @@ export async function syncScriptCache(
       if (mode === "first-month" || mode === "current-month") {
         const rec = await appendMonthScriptSales(routerId, rows, monthStart, monthEnd);
         inserted = rec.inserted;
+        const cnt = await countScriptSalesInMonth(routerId, thisYear, thisMonth);
+        await upsertMonthSyncRecord(routerId, thisYear, thisMonth, cnt, { verified: false });
       } else {
         inserted = await persistRows(rows);
+        const cnt = await countScriptSalesInMonth(routerId, thisYear, thisMonth);
+        await upsertMonthSyncRecord(routerId, thisYear, thisMonth, cnt, { verified: false });
       }
 
       await autoCleanMikrotikIfEnabled(routerId, conn, rows);

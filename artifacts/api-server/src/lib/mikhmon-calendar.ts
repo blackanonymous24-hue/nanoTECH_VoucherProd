@@ -65,6 +65,20 @@ export function mikhmonMonthRange(cal: MikhmonCalendar): { start: Date; end: Dat
   return { start: cal.startOfMonth, end: new Date(cal.y, cal.m, 1) };
 }
 
+/** Bornes UTC pour un mois calendaire arbitraire (m = 1..12). */
+export function mikhmonMonthRangeFor(year: number, month: number): { start: Date; end: Date } {
+  return { start: new Date(year, month - 1, 1), end: new Date(year, month, 1) };
+}
+
+/** true si (year, month) est strictement avant le mois calendaire de référence. */
+export function isCalendarMonthBefore(
+  year: number,
+  month: number,
+  ref: Pick<MikhmonCalendar, "y" | "m">,
+): boolean {
+  return year < ref.y || (year === ref.y && month < ref.m);
+}
+
 export type MikhmonVendorPeriod = "today" | "yesterday" | "week" | "month";
 
 /** Filtre période ventes (calendrier routeur / MikHmon), pas UTC serveur. */

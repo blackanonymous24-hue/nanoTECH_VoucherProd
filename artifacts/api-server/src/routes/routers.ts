@@ -2363,6 +2363,7 @@ async function readVendorRankingQuickFromDb(routerId: number, routerClockDate?: 
   return aggregateVendorPeriodSales(routerId, routerClockDate);
 }
 
+/** Rafraîchit le cache ventes depuis la DB locale (+ sync incrémentale MikroTik en arrière-plan). */
 async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host: string, port: number, username: string, password: string) {
   if (salesRefreshing.has(id)) return;
   salesRefreshing.add(id);
@@ -2371,10 +2372,41 @@ async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host
     const sc = routerCacheScope(ownerAdminId, id);
     const infoHit = mGet(`info:${sc}`) ?? mGetStale(`info:${sc}`);
     const clockDate = (infoHit as { clockDate?: string | null } | null)?.clockDate ?? null;
-    // Use 90s timeout — background work, not tied to a short HTTP client deadline
-    const data = await fetchSalesFromScripts(conn, 90_000, clockDate);
-    const scope = routerCacheScope(ownerAdminId, id);
-    salesCache.set(scope, { data, updatedAt: Date.now() });
+    void syncScriptCache(id, conn).catch(() => { /* non-blocking */ });
+    const quick = await readSalesQuickFromDb(id, clockDate);
+    const mm = String(new Date().getMonth() + 1).padStart(2, "0");
+    const y = new Date().getFullYear();
+    const d = String(new Date().getDate()).padStart(2, "0");
+    const data: SalesReport = quick
+      ? {
+          dailyCount: quick.dailyCount,
+          dailyAmount: quick.dailyAmount,
+          monthlyCount: quick.monthlyCount,
+          monthlyAmount: quick.monthlyAmount,
+          yesterdayCount: 0,
+          yesterdayAmount: 0,
+          weekCount: 0,
+          weekAmount: 0,
+          lastWeekCount: 0,
+          lastWeekAmount: 0,
+          lastMonthCount: 0,
+          lastMonthAmount: 0,
+          totalCount: 0,
+          totalAmount: 0,
+          dateLabel: `${y}-${mm}-${d}`,
+          monthLabel: `${mm}${y}`,
+        }
+      : {
+          dailyCount: 0, dailyAmount: 0,
+          yesterdayCount: 0, yesterdayAmount: 0,
+          weekCount: 0, weekAmount: 0,
+          lastWeekCount: 0, lastWeekAmount: 0,
+          monthlyCount: 0, monthlyAmount: 0,
+          lastMonthCount: 0, lastMonthAmount: 0,
+          totalCount: 0, totalAmount: 0,
+          dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`,
+        };
+    salesCache.set(sc, { data, updatedAt: Date.now() });
   } catch { /* keep stale cache on error */ } finally {
     salesRefreshing.delete(id);
   }
@@ -2617,13 +2649,10 @@ async function buildDashboardPrioritySnapshot(id: number) {
     ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
     : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
 
-  // Ventes KPI : priorité cache live MikHmon (scripts routeur), sinon DB calendrier routeur.
-  const salesCached = salesCache.get(sc);
+  // Ventes KPI : affichage immédiat depuis la DB (mois/jour calendrier routeur), sync MikroTik incrémentale en BG.
   const routerClockDate = info?.clockDate ?? null;
-  /** Fraîcheur ventes live (aligné rythme Mikhmon ~10 s). */
-  const LIVE_SALES_MAX_AGE_MS = 10_000;
-  const liveSalesFresh = salesCached && (now - salesCached.updatedAt) < LIVE_SALES_MAX_AGE_MS;
-  if (!liveSalesFresh && !salesRefreshing.has(id)) {
+  void syncScriptCache(id, conn).catch(() => { /* non-blocking */ });
+  if (!salesRefreshing.has(id)) {
     setImmediate(() => {
       void triggerSalesRefresh(r.ownerAdminId, id, r.host, r.port, r.username, r.password);
     });
@@ -2635,21 +2664,14 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
   const d = String(new Date().getDate()).padStart(2, "0");
-  const salesFromCache = salesCached
-    ? {
-      dailyCount: salesCached.data.dailyCount,
-      dailyAmount: salesCached.data.dailyAmount,
-      monthlyCount: salesCached.data.monthlyCount,
-      monthlyAmount: salesCached.data.monthlyAmount,
-    }
-    : null;
-  const refreshingSales = salesRefreshing.has(id);
-  // KPI tableau de bord = live MikroTik (comme MikHmon). La DB garde l’historique même si
-  // scripts purgés sur le routeur ; on ne l’affiche qu’en secours (dédoublonnée).
-  const dm = salesFromCache
-    ?? (!refreshingSales && dbQuickSales
-      ? dbQuickSales
-      : { dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0 });
+  const salesCached = salesCache.get(sc);
+  const dm = dbQuickSales ?? {
+    dailyCount: salesCached?.data.dailyCount ?? 0,
+    dailyAmount: salesCached?.data.dailyAmount ?? 0,
+    monthlyCount: salesCached?.data.monthlyCount ?? 0,
+    monthlyAmount: salesCached?.data.monthlyAmount ?? 0,
+  };
+  const salesKnown = dbQuickSales != null;
   const sales: SalesReport & { _cachedAt: number | null } = {
     dailyCount: dm.dailyCount,
     dailyAmount: dm.dailyAmount,
@@ -2667,9 +2689,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
     totalAmount: salesCached?.data.totalAmount ?? 0,
     dateLabel: `${y}-${mm}-${d}`,
     monthLabel: `${mm}${y}`,
-    _cachedAt: salesCached
-      ? salesCached.updatedAt
-      : (dbQuickSales != null && !refreshingSales ? Date.now() : null),
+    _cachedAt: salesKnown ? Date.now() : (salesCached?.updatedAt ?? null),
   };
 
   return {
@@ -2683,7 +2703,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
       // sessionsKnown : vrai si le cache plein OU le fast count (cold-start parallèle) ont des données
       sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
       usersKnown: !!usersCached,
-      salesKnown: liveSalesFresh || !!salesCached || (dbQuickSales != null && !refreshingSales),
+      salesKnown,
       vendorRankingKnown: vendorRanking != null,
       infoKnown: !!(infoFreshAfter || infoStaleAfter),
     },

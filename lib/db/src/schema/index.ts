@@ -4,6 +4,7 @@ export * from "./vouchers.js";
 export * from "./admin-settings.js";
 export * from "./managers.js";
 export * from "./script-sales.js";
+export * from "./script-sales-month-sync.js";
 export * from "./vendor-payments.js";
 export * from "./vendor-daily-payments.js";
 export * from "./profiles-cache.js";
