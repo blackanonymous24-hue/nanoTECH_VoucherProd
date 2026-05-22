@@ -18,17 +18,28 @@ export function parseMikhmonIpHost(iphost: string): { host: string; port: number
   return { host: s, port: DEFAULT_ROUTER_API_PORT };
 }
 
-/** Corrige host/port DB (évite `socket.connect(port, "ip:port")` qui échoue toujours). */
+/**
+ * Corrige host/port DB.
+ * - `v1.mikroot.com:2520` dans host → host + port extraits du suffixe.
+ * - `v1.mikroot.com` + port 2520 en colonne → on garde le port SQL (ne pas forcer 8728).
+ */
 export function normalizeRouterHostPort(host: string, port: number): { host: string; port: number } {
-  const parsed = parseMikhmonIpHost(host);
-  if (parsed.host) {
-    return {
-      host: parsed.host,
-      port: parsed.port > 0 ? parsed.port : (port > 0 ? port : DEFAULT_ROUTER_API_PORT),
-    };
+  const s = host.trim();
+  if (!s) {
+    return { host: "", port: port > 0 ? port : DEFAULT_ROUTER_API_PORT };
+  }
+  const colonIdx = s.lastIndexOf(":");
+  if (colonIdx > 0) {
+    const portStr = s.slice(colonIdx + 1);
+    if (/^\d+$/.test(portStr)) {
+      const parsedPort = parseInt(portStr, 10);
+      if (parsedPort >= 1 && parsedPort <= 65535) {
+        return { host: s.slice(0, colonIdx).trim(), port: parsedPort };
+      }
+    }
   }
   return {
-    host: host.trim(),
+    host: s,
     port: port > 0 ? port : DEFAULT_ROUTER_API_PORT,
   };
 }

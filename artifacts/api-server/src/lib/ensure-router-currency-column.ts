@@ -176,20 +176,27 @@ export async function ensurePrintScaleColumns(): Promise<void> {
 /**
  * Sessions actives par appareil (logout / idle ne touchent que la ligne concernée).
  */
-/** Corrige les lignes `host` contenant `:port` (connexions MikroTik impossibles sinon). */
+/** Corrige uniquement `host` contenant `:port` (ne modifie jamais le port si host est déjà nu). */
 export async function normalizeStoredRouterHosts(): Promise<void> {
   try {
     const rows = await db.select({ id: routersTable.id, host: routersTable.host, port: routersTable.port }).from(routersTable);
     let fixed = 0;
     for (const r of rows) {
-      const norm = normalizeRouterHostPort(r.host, r.port);
-      if (norm.host !== r.host.trim() || norm.port !== r.port) {
-        await db.update(routersTable).set({ host: norm.host, port: norm.port }).where(eq(routersTable.id, r.id));
-        fixed++;
-      }
+      const h = r.host.trim();
+      const colonIdx = h.lastIndexOf(":");
+      if (colonIdx <= 0) continue;
+      const portStr = h.slice(colonIdx + 1);
+      if (!/^\d+$/.test(portStr)) continue;
+      const parsedPort = parseInt(portStr, 10);
+      if (parsedPort < 1 || parsedPort > 65535) continue;
+      const hostOnly = h.slice(0, colonIdx).trim();
+      if (!hostOnly) continue;
+      if (hostOnly === h && parsedPort === r.port) continue;
+      await db.update(routersTable).set({ host: hostOnly, port: parsedPort }).where(eq(routersTable.id, r.id));
+      fixed++;
     }
     if (fixed > 0) {
-      logger.info({ fixed }, "DB compat: host/port routeurs normalisés (format Mikhmon ip:port)");
+      logger.info({ fixed }, "DB compat: host « ip:port » scindé en host + port");
     }
   } catch (err) {
     logger.error({ err }, "DB compat: normalisation host/port routeurs échouée");

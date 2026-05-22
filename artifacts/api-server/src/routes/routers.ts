@@ -717,7 +717,11 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
     password: r.password,
   });
   const online = await pingRouter(conn);
-  const payload = { success: online };
+  const payload = {
+    success: online,
+    host: conn.host,
+    port: conn.port,
+  };
   mSet(ck, MIK_TTL.ping, payload);
   res.json(payload);
 });

@@ -54,14 +54,23 @@ export async function pingRouterTcpApi(
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
-      await res.json().catch(() => ({}));
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.status === 401) {
+        return { success: false, message: body.error ?? "Session expirée — reconnectez-vous" };
+      }
       return {
         success: false,
-        message: ROUTER_OFFLINE_LABEL,
+        message: body.error ?? ROUTER_OFFLINE_LABEL,
       };
     }
-    const data = (await res.json()) as { success?: boolean };
+    const data = (await res.json()) as { success?: boolean; host?: string; port?: number };
     const ok = data.success === true;
+    if (!ok && data.host && data.port) {
+      return {
+        success: false,
+        message: `Hors ligne (${data.host}:${data.port})`,
+      };
+    }
     return {
       success: ok,
       message: ok ? "En ligne" : ROUTER_OFFLINE_LABEL,

@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { pingRouterTcpApi, ROUTER_OFFLINE_LABEL } from "@/lib/router-connection-test";
+import { pingRouterTcpApi, testRouterConnectionApi, ROUTER_OFFLINE_LABEL } from "@/lib/router-connection-test";
 
 /**
  * Ping TCP (`/ping?force=1`) avant connexion (3 tentatives courtes), toujours un test réel sans cache.
@@ -43,8 +43,8 @@ export function useSelectRouterWithPing() {
           break;
         }
 
-        toast.error(ROUTER_OFFLINE_LABEL, {
-          duration: 3000,
+        toast.error(data.message?.trim() || ROUTER_OFFLINE_LABEL, {
+          duration: 4000,
           id: "router-ping-fail",
         });
 
