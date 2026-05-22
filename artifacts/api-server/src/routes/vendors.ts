@@ -3,7 +3,7 @@ import { eq, desc, and, ne, count, sql, isNotNull, isNull, ilike, inArray, gte, 
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
-import { enableDisableHotspotUsersByComment, type RouterConnection } from "../lib/mikrotik.js";
+import { enableDisableHotspotUsersByComment, getRouterInfo, type RouterConnection } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache, resolveCallerScope, type CallerScope } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -645,10 +645,30 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
     dailyAmount: number;
     monthlyAmount: number;
   }>>();
+  const clockByRouter = new Map<number, string | null>();
   const loadPeriodAgg = async (rid: number) => {
     let m = periodAggByRouter.get(rid);
     if (!m) {
-      const rows = await aggregateVendorPeriodSales(rid);
+      let clock = clockByRouter.get(rid);
+      if (clock === undefined) {
+        const row = routerRows.find((r) => r.id === rid);
+        if (row) {
+          try {
+            clock = (await getRouterInfo({
+              host: row.host,
+              port: row.port,
+              username: row.username,
+              password: row.password,
+            })).clockDate ?? null;
+          } catch {
+            clock = null;
+          }
+        } else {
+          clock = null;
+        }
+        clockByRouter.set(rid, clock ?? null);
+      }
+      const rows = await aggregateVendorPeriodSales(rid, clock);
       m = new Map((rows ?? []).map((r) => [
         r.vendorId,
         {
@@ -693,7 +713,21 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
   );
 
   if (routerId) {
-    const aggRows = await aggregateVendorPeriodSales(routerId);
+    const row = routerRows.find((r) => r.id === routerId);
+    let clock: string | null = null;
+    if (row) {
+      try {
+        clock = (await getRouterInfo({
+          host: row.host,
+          port: row.port,
+          username: row.username,
+          password: row.password,
+        })).clockDate ?? null;
+      } catch {
+        clock = null;
+      }
+    }
+    const aggRows = await aggregateVendorPeriodSales(routerId, clock);
     const unattr = aggRows?.find((r) => r.vendorId === UNATTRIBUTED_VENDOR_ID);
     if (unattr && (unattr.dailySold > 0 || unattr.monthlySold > 0)) {
       summaries.push({
@@ -880,14 +914,28 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     return;
   }
 
-  const agg = await fetchVendorPeriodSales(id, vendor.routerId, period as VendorPeriod);
+  const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
+  let routerClock: string | null = null;
+  if (routerRow) {
+    try {
+      routerClock = (await getRouterInfo({
+        host: routerRow.host,
+        port: routerRow.port,
+        username: routerRow.username,
+        password: routerRow.password,
+      })).clockDate ?? null;
+    } catch {
+      routerClock = null;
+    }
+  }
+
+  const agg = await fetchVendorPeriodSales(id, vendor.routerId, period as VendorPeriod, routerClock);
   if (!agg) {
     res.status(500).json({ error: "Impossible de charger les ventes" });
     return;
   }
 
   let priceMap = new Map<string, string>();
-  const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
   if (routerRow) {
     const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
     priceMap = getCachedProfilePricesSync(vendor.routerId, conn);

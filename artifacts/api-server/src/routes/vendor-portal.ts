@@ -18,7 +18,7 @@ import {
   isDailySettlementVendor,
   vendorDateAmountMaps,
 } from "../lib/vendor-settlement.js";
-import { type RouterConnection } from "../lib/mikrotik.js";
+import { getRouterInfo, type RouterConnection } from "../lib/mikrotik.js";
 import { aggregateVendorPeriodSales, fetchVendorPeriodSales, type VendorPeriod } from "../lib/vendor-period-sales-aggregate.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 
@@ -157,10 +157,23 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
   };
 
   if (vendor.routerId) {
+    let routerClock: string | null = null;
+    if (routerRow) {
+      try {
+        routerClock = (await getRouterInfo({
+          host: routerRow.host,
+          port: routerRow.port,
+          username: routerRow.username,
+          password: routerRow.password,
+        })).clockDate ?? null;
+      } catch {
+        routerClock = null;
+      }
+    }
     if (vendor.isDemo) {
       const [todayAgg, monthAgg] = await Promise.all([
-        fetchVendorPeriodSales(vendor.id, vendor.routerId, "today"),
-        fetchVendorPeriodSales(vendor.id, vendor.routerId, "month"),
+        fetchVendorPeriodSales(vendor.id, vendor.routerId, "today", routerClock),
+        fetchVendorPeriodSales(vendor.id, vendor.routerId, "month", routerClock),
       ]);
       if (todayAgg) {
         salesStats.todaySold = todayAgg.total;
@@ -171,7 +184,7 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
         salesStats.lastMonthAmount = monthAgg.revenue;
       }
     } else {
-      const aggRows = await aggregateVendorPeriodSales(vendor.routerId);
+      const aggRows = await aggregateVendorPeriodSales(vendor.routerId, routerClock);
       const mine = aggRows?.find((r) => r.vendorId === vendor.id);
       if (mine) {
         salesStats.todaySold = mine.dailySold;
@@ -395,16 +408,30 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
     return;
   }
 
-  const agg = await fetchVendorPeriodSales(vendor.id, vendor.routerId, period as VendorPeriod);
-  if (!agg) {
-    res.status(500).json({ error: "Impossible de charger les ventes" });
-    return;
-  }
-
   const [routerRow, cachedPeriodProfiles] = await Promise.all([
     db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId)).then((r) => r[0] ?? null),
     db.select({ profileName: profilesCacheTable.profileName }).from(profilesCacheTable).where(eq(profilesCacheTable.routerId, vendor.routerId)),
   ]);
+
+  let routerClock: string | null = null;
+  if (routerRow) {
+    try {
+      routerClock = (await getRouterInfo({
+        host: routerRow.host,
+        port: routerRow.port,
+        username: routerRow.username,
+        password: routerRow.password,
+      })).clockDate ?? null;
+    } catch {
+      routerClock = null;
+    }
+  }
+
+  const agg = await fetchVendorPeriodSales(vendor.id, vendor.routerId, period as VendorPeriod, routerClock);
+  if (!agg) {
+    res.status(500).json({ error: "Impossible de charger les ventes" });
+    return;
+  }
 
   let periodPriceMap = new Map<string, string>();
   if (routerRow) {

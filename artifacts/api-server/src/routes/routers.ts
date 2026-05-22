@@ -2376,8 +2376,8 @@ async function readSalesQuickFromDb(
   }
 }
 
-async function readVendorRankingQuickFromDb(routerId: number) {
-  return aggregateVendorPeriodSales(routerId);
+async function readVendorRankingQuickFromDb(routerId: number, routerClockDate?: string | null) {
+  return aggregateVendorPeriodSales(routerId, routerClockDate);
 }
 
 async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host: string, port: number, username: string, password: string) {
@@ -2647,7 +2647,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
   }
   const [dbQuickSales, vendorRanking] = await Promise.all([
     readSalesQuickFromDb(id, routerClockDate),
-    readVendorRankingQuickFromDb(id),
+    readVendorRankingQuickFromDb(id, routerClockDate),
   ]);
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
@@ -2808,10 +2808,24 @@ router.get("/routers/:id/unattributed-period-sales", async (req, res): Promise<v
     return;
   }
 
-  const result = await fetchUnattributedPeriodSales(id, period);
+  const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  let routerClock: string | null = null;
+  if (routerRow) {
+    try {
+      routerClock = (await getRouterInfo({
+        host: routerRow.host,
+        port: routerRow.port,
+        username: routerRow.username,
+        password: routerRow.password,
+      })).clockDate ?? null;
+    } catch {
+      routerClock = null;
+    }
+  }
+
+  const result = await fetchUnattributedPeriodSales(id, period, routerClock);
   if (!result) { res.status(500).json({ error: "Impossible de charger les ventes non attribuées" }); return; }
 
-  const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   let priceMap = new Map<string, string>();
   if (routerRow) {
     const conn: RouterConnection = {

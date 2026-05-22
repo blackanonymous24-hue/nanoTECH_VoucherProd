@@ -1,38 +1,17 @@
 /**
- * Agrégation ventes par vendeur (jour / mois LOCAL) — alignée sur
- * le comportement exact de MikHmon originel.
- *
- * MikHmon utilise l'heure locale du serveur pour toutes les bornes de date.
- * Ce module fait de même pour garantir l'alignement parfait.
- *
- * Les bornes ISO sont calculées en JS (heure locale) puis converties en UTC
- * via .toISOString() pour une comparaison correcte avec les timestamps en base.
+ * Agrégation ventes par vendeur — alignée MikHmon :
+ * - scripts `comment=mikhmon` en base (pas de double comptage bons SQL)
+ * - calendrier routeur (/system clock) comme live-report + tableau de bord
  */
-import { and, asc, desc, eq, gte, isNotNull, lt, notExists, sql } from "drizzle-orm";
-import { db, scriptSalesTable, vendorsTable, vouchersTable, routersTable } from "@workspace/db";
+import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
+import { db, scriptSalesTable, vendorsTable } from "@workspace/db";
 import { decodeRouterText } from "./router-encoding.js";
-
-/** Bornes locales [startOfMonth, startOfNextMonth) pour comparaison DB. */
-function localMonthBounds(now: Date, tzOffsetMinutes = 0): { start: Date; end: Date } {
-  const nowMikrotik = new Date(now.getTime() + tzOffsetMinutes * 60000);
-  const start = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth() + 1, 1));
-  return {
-    start: new Date(start.getTime() - tzOffsetMinutes * 60000),
-    end: new Date(end.getTime() - tzOffsetMinutes * 60000),
-  };
-}
-
-/** Bornes du jour local pour comparaison DB. */
-function localDayBounds(now: Date, tzOffsetMinutes = 0): { start: Date; end: Date } {
-  const nowMikrotik = new Date(now.getTime() + tzOffsetMinutes * 60000);
-  const start = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), nowMikrotik.getUTCDate()));
-  const end = new Date(start.getTime() + 86_400_000);
-  return {
-    start: new Date(start.getTime() - tzOffsetMinutes * 60000),
-    end: new Date(end.getTime() - tzOffsetMinutes * 60000),
-  };
-}
+import {
+  getMikhmonCalendar,
+  mikhmonMonthRange,
+  saleInMikhmonPeriod,
+  type MikhmonVendorPeriod,
+} from "./mikhmon-calendar.js";
 
 /** Ligne synthétique ventes sans suffixe reconnu (pas de fiche vendeur). */
 export const UNATTRIBUTED_VENDOR_ID = 0;
@@ -74,29 +53,6 @@ async function loadRouterVendorsForAttribution(routerId: number): Promise<Vendor
     .orderBy(asc(vendorsTable.name));
 }
 
-/**
- * Vérifie qu'un voucher n'est pas déjà couvert par un script pour le même
- * username le même jour LOCAL (aligné sur MikHmon).
- */
-function voucherNotCoveredByScriptSameLocalDay(now: Date, tzOffsetMinutes = 0) {
-  const { start: dayStart, end: dayEnd } = localDayBounds(now, tzOffsetMinutes);
-  return notExists(
-    db
-      .select({ id: scriptSalesTable.id })
-      .from(scriptSalesTable)
-      .where(
-        and(
-          eq(scriptSalesTable.routerId, vouchersTable.routerId),
-          sql`lower(${scriptSalesTable.username}) = lower(${vouchersTable.username})`,
-          sql`${scriptSalesTable.saleDate} >= ${dayStart}`,
-          sql`${scriptSalesTable.saleDate} < ${dayEnd}`,
-          sql`${vouchersTable.usedAt} >= ${dayStart}`,
-          sql`${vouchersTable.usedAt} < ${dayEnd}`,
-        ),
-      ),
-  );
-}
-
 function vendorSuffixes(v: VendorSuffixRow): string[] {
   return [v.commentSuffix, v.commentSuffix2]
     .map((s) => (typeof s === "string" ? s.trim() : ""))
@@ -123,22 +79,6 @@ function resolveVendorIdBySuffix(
   return bestId;
 }
 
-/** Parties de date locale (comme MikHmon). */
-function localParts(d: Date, tzOffsetMinutes = 0) {
-  const adjusted = new Date(d.getTime() + tzOffsetMinutes * 60000);
-  return { y: adjusted.getUTCFullYear(), m: adjusted.getUTCMonth() + 1, day: adjusted.getUTCDate() };
-}
-
-function isLocalDay(d: Date, y: number, m: number, day: number, tzOffsetMinutes = 0): boolean {
-  const p = localParts(d, tzOffsetMinutes);
-  return p.y === y && p.m === m && p.day === day;
-}
-
-function isLocalMonth(d: Date, y: number, m: number, tzOffsetMinutes = 0): boolean {
-  const p = localParts(d, tzOffsetMinutes);
-  return p.y === y && p.m === m;
-}
-
 export type UnattributedPeriod = "today" | "month";
 
 export type UnattributedSaleLine = {
@@ -153,6 +93,7 @@ export type UnattributedSaleLine = {
   printedAt: string | null;
   usedAt: string | null;
   createdAt: string;
+  /** Lot script ou commentaire bon — utile pour diagnostiquer l'attribution. */
   lotOrComment: string | null;
   source: "script" | "voucher";
 };
@@ -172,37 +113,6 @@ function parsePriceNum(price: string | null | undefined): number {
   return parseFloat(price.replace(/\s/g, "")) || 0;
 }
 
-function inPeriodLocal(d: Date, period: UnattributedPeriod, yLocal: number, mLocal: number, dLocal: number, tzOffsetMinutes = 0): boolean {
-  if (period === "today") return isLocalDay(d, yLocal, mLocal, dLocal, tzOffsetMinutes);
-  return isLocalMonth(d, yLocal, mLocal, tzOffsetMinutes);
-}
-
-function localYesterdayParts(now = new Date(), tzOffsetMinutes = 0) {
-  const prev = new Date(now.getTime() + tzOffsetMinutes * 60000 - 86_400_000);
-  return localParts(prev, tzOffsetMinutes);
-}
-
-function inLocalLastWeek(d: Date, now = new Date(), tzOffsetMinutes = 0): boolean {
-  const adjustedNow = new Date(now.getTime() + tzOffsetMinutes * 60000);
-  const dow = adjustedNow.getUTCDay();
-  const diffToMonday = dow === 0 ? -6 : 1 - dow;
-  const thisMonday = new Date(Date.UTC(adjustedNow.getUTCFullYear(), adjustedNow.getUTCMonth(), adjustedNow.getUTCDate() + diffToMonday));
-  const lastMonday = new Date(thisMonday.getTime() - 7 * 86_400_000);
-  const t = d.getTime();
-  return t >= lastMonday.getTime() && t < thisMonday.getTime();
-}
-
-function inVendorPeriodLocal(d: Date, period: VendorPeriod, now = new Date(), tzOffsetMinutes = 0): boolean {
-  const { y: yLocal, m: mLocal, day: dLocal } = localParts(now, tzOffsetMinutes);
-  if (period === "today") return isLocalDay(d, yLocal, mLocal, dLocal, tzOffsetMinutes);
-  if (period === "yesterday") {
-    const yp = localYesterdayParts(now, tzOffsetMinutes);
-    return isLocalDay(d, yp.y, yp.m, yp.day, tzOffsetMinutes);
-  }
-  if (period === "week") return inLocalLastWeek(d, now, tzOffsetMinutes);
-  return isLocalMonth(d, yLocal, mLocal, tzOffsetMinutes);
-}
-
 const PERIOD_LABELS: Record<VendorPeriod, string> = {
   today: "Aujourd'hui",
   yesterday: "Hier",
@@ -210,6 +120,14 @@ const PERIOD_LABELS: Record<VendorPeriod, string> = {
   month: "Mois en cours",
 };
 
+/**
+ * Vente rattachée au vendeur — règles strictes (évite la pollution entre vendeurs) :
+ *   1. `vendorId` explicite — match parfait
+ *   2. Suffixe vendeur (`commentSuffix` / `commentSuffix2`) en fin de lot OU commentaire
+ *   3. `ticketLetter` (≥ 2 caractères) en fin de lot OU commentaire — JAMAIS en
+ *      préfixe d'username (trop permissif : un seul caractère ferait matcher
+ *      n'importe quel username commençant par cette lettre).
+ */
 export function saleBelongsToVendor(
   vendor: VendorSuffixRow,
   opts: {
@@ -224,7 +142,7 @@ export function saleBelongsToVendor(
   if (resolveVendorIdBySuffix(text, [vendor]) === vendor.id) return true;
 
   const letter = vendor.ticketLetter?.trim();
-  if (!letter || letter.length < 2) return false;
+  if (!letter || letter.length < 2) return false; // exige ≥ 2 caractères
   const low = letter.toLowerCase();
 
   const b = opts.batch?.trim();
@@ -252,21 +170,13 @@ function resolveVendorIdFromSale(
   return null;
 }
 
+/** Détail des ventes non rattachées à un suffixe vendeur (scripts MikHmon uniquement). */
 export async function fetchUnattributedPeriodSales(
   routerId: number,
   period: UnattributedPeriod,
+  routerClockDate?: string | null,
 ): Promise<UnattributedPeriodSalesResult | null> {
-  // Fetch router's timezone offset from DB
-  const [routerRow] = await db
-    .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
-    .from(routersTable)
-    .where(eq(routersTable.id, routerId))
-    .limit(1);
-
-  const tzOffset = routerRow?.timezoneOffsetMinutes ?? 0;
-  const now = new Date();
-  const { y: yLocal, m: mLocal, day: dLocal } = localParts(now, tzOffset);
-  const { start: monthStart, end: monthEnd } = localMonthBounds(now, tzOffset);
+  const cal = getMikhmonCalendar(routerClockDate);
   const labels: Record<UnattributedPeriod, string> = {
     today: "Aujourd'hui",
     month: "Mois en cours",
@@ -274,6 +184,8 @@ export async function fetchUnattributedPeriodSales(
 
   try {
     const vendors = await loadRouterVendorsForAttribution(routerId);
+    const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
+
     const lines: UnattributedSaleLine[] = [];
 
     const scriptRows = await db
@@ -300,13 +212,15 @@ export async function fetchUnattributedPeriodSales(
       .orderBy(desc(scriptSalesTable.saleDate));
 
     for (const row of scriptRows) {
+      // Décodage défensif (idempotent) : corrige les lignes legacy stockées
+      // mojibakées avant le fix d'encodage à l'ingestion.
       const decUsername = decodeRouterText(row.username);
       const decBatch    = decodeRouterText(row.batch);
       const decLabel    = decodeRouterText(row.label);
       const decValidity = decodeRouterText(row.validity);
       if (resolveVendorIdFromSale(vendors, { batch: decBatch, username: decUsername }) != null) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
-      if (Number.isNaN(saleDate.getTime()) || !inPeriodLocal(saleDate, period, yLocal, mLocal, dLocal, tzOffset)) continue;
+      if (Number.isNaN(saleDate.getTime()) || !saleInMikhmonPeriod(saleDate, period, cal)) continue;
       lines.push({
         id: -row.id,
         username: decUsername,
@@ -321,49 +235,6 @@ export async function fetchUnattributedPeriodSales(
         createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
         lotOrComment: decBatch.trim() || null,
         source: "script",
-      });
-    }
-
-    const voucherRows = await db
-      .select()
-      .from(vouchersTable)
-      .where(
-        and(
-          eq(vouchersTable.routerId, routerId),
-          isNotNull(vouchersTable.usedAt),
-          voucherNotCoveredByScriptSameLocalDay(now, tzOffset),
-          gte(vouchersTable.usedAt, monthStart),
-          lt(vouchersTable.usedAt, monthEnd),
-        ),
-      )
-      .orderBy(desc(vouchersTable.usedAt));
-
-    for (const row of voucherRows) {
-      const decUsername    = decodeRouterText(row.username);
-      const decComment     = row.comment == null ? null : decodeRouterText(row.comment);
-      const decProfileName = decodeRouterText(row.profileName);
-      const vendorId = resolveVendorIdFromSale(vendors, {
-        vendorId: row.vendorId,
-        comment: decComment,
-        username: decUsername,
-      });
-      if (vendorId != null) continue;
-      const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
-      if (Number.isNaN(usedAt.getTime()) || !inPeriodLocal(usedAt, period, yLocal, mLocal, dLocal, tzOffset)) continue;
-      lines.push({
-        id: row.id,
-        username: decUsername,
-        password: row.password,
-        profileName: decProfileName,
-        price: row.price ?? "",
-        salePrice: row.salePrice,
-        saleIp: row.saleIp,
-        macAddress: row.macAddress,
-        printedAt: row.printedAt ? (row.printedAt instanceof Date ? row.printedAt : new Date(row.printedAt)).toISOString() : null,
-        usedAt: usedAt.toISOString(),
-        createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
-        lotOrComment: decComment?.trim() || null,
-        source: "voucher",
       });
     }
 
@@ -403,18 +274,12 @@ export async function fetchUnattributedPeriodSales(
   }
 }
 
-export async function aggregateVendorPeriodSales(routerId: number): Promise<VendorPeriodAggRow[] | null> {
-  // Fetch router's timezone offset from DB
-  const [routerRow] = await db
-    .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
-    .from(routersTable)
-    .where(eq(routersTable.id, routerId))
-    .limit(1);
-
-  const tzOffset = routerRow?.timezoneOffsetMinutes ?? 0;
-  const now = new Date();
-  const { y: yLocal, m: mLocal, day: dLocal } = localParts(now, tzOffset);
-  const { start: monthStart, end: monthEnd } = localMonthBounds(now, tzOffset);
+export async function aggregateVendorPeriodSales(
+  routerId: number,
+  routerClockDate?: string | null,
+): Promise<VendorPeriodAggRow[] | null> {
+  const cal = getMikhmonCalendar(routerClockDate);
+  const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
 
   try {
     const vendors = await loadRouterVendorsForAttribution(routerId);
@@ -469,48 +334,9 @@ export async function aggregateVendorPeriodSales(routerId: number): Promise<Vend
       });
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
       if (Number.isNaN(saleDate.getTime())) continue;
-      const daily = isLocalDay(saleDate, yLocal, mLocal, dLocal, tzOffset);
-      const monthly = isLocalMonth(saleDate, yLocal, mLocal, tzOffset);
+      const daily = saleInMikhmonPeriod(saleDate, "today", cal);
+      const monthly = saleInMikhmonPeriod(saleDate, "month", cal);
       const amount = parsePriceNum(row.price);
-      if (vendorId == null) {
-        bumpUnattr(daily, monthly, amount);
-        continue;
-      }
-      if (demoVendorIds.has(vendorId)) continue;
-      bump(vendorId, daily, monthly, amount);
-    }
-
-    const voucherRows = await db
-      .select({
-        vendorId: vouchersTable.vendorId,
-        comment: vouchersTable.comment,
-        username: vouchersTable.username,
-        usedAt: vouchersTable.usedAt,
-        salePrice: vouchersTable.salePrice,
-        price: vouchersTable.price,
-      })
-      .from(vouchersTable)
-      .where(
-        and(
-          eq(vouchersTable.routerId, routerId),
-          isNotNull(vouchersTable.usedAt),
-          voucherNotCoveredByScriptSameLocalDay(now, tzOffset),
-          gte(vouchersTable.usedAt, monthStart),
-          lt(vouchersTable.usedAt, monthEnd),
-        ),
-      );
-
-    for (const row of voucherRows) {
-      const vendorId = resolveVendorIdFromSale(vendors, {
-        vendorId: row.vendorId,
-        comment: row.comment == null ? null : decodeRouterText(row.comment),
-        username: decodeRouterText(row.username),
-      });
-      const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
-      if (Number.isNaN(usedAt.getTime())) continue;
-      const daily = isLocalDay(usedAt, yLocal, mLocal, dLocal, tzOffset);
-      const monthly = isLocalMonth(usedAt, yLocal, mLocal, tzOffset);
-      const amount = parsePriceNum(row.salePrice ?? row.price);
       if (vendorId == null) {
         bumpUnattr(daily, monthly, amount);
         continue;
@@ -553,37 +379,30 @@ export type VendorPeriodSalesResult = {
   vouchers: UnattributedSaleLine[];
 };
 
+/** Ventes d'un vendeur (scripts MikHmon), alignées sur le classement admin. */
 export async function fetchVendorPeriodSales(
   vendorId: number,
   routerId: number,
   period: VendorPeriod,
+  routerClockDate?: string | null,
 ): Promise<VendorPeriodSalesResult | null> {
   try {
-    const [vendor, routerRow] = await Promise.all([
-      db
-        .select({
-          id: vendorsTable.id,
-          name: vendorsTable.name,
-          isDemo: vendorsTable.isDemo,
-          commentSuffix: vendorsTable.commentSuffix,
-          commentSuffix2: vendorsTable.commentSuffix2,
-          ticketLetter: vendorsTable.ticketLetter,
-        })
-        .from(vendorsTable)
-        .where(eq(vendorsTable.id, vendorId)),
-      db
-        .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
-        .from(routersTable)
-        .where(eq(routersTable.id, routerId))
-        .limit(1),
-    ]);
-    if (!vendor[0]) return null;
+    const cal = getMikhmonCalendar(routerClockDate);
+    const [vendor] = await db
+      .select({
+        id: vendorsTable.id,
+        name: vendorsTable.name,
+        isDemo: vendorsTable.isDemo,
+        commentSuffix: vendorsTable.commentSuffix,
+        commentSuffix2: vendorsTable.commentSuffix2,
+        ticketLetter: vendorsTable.ticketLetter,
+      })
+      .from(vendorsTable)
+      .where(eq(vendorsTable.id, vendorId));
+    if (!vendor) return null;
 
-    const tzOffset = routerRow[0]?.timezoneOffsetMinutes ?? 0;
-    const vendorRow: VendorSuffixRow = vendor[0];
-    const now = new Date();
-    const { start: monthStart, end: monthEnd } = localMonthBounds(now, tzOffset);
-    const { y: yLocal, m: mLocal, day: dLocal } = localParts(now, tzOffset);
+    const vendorRow: VendorSuffixRow = vendor;
+    const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
     const lines: UnattributedSaleLine[] = [];
 
     const scriptRows = await db
@@ -616,7 +435,7 @@ export async function fetchVendorPeriodSales(
       const decValidity = decodeRouterText(row.validity);
       if (!saleBelongsToVendor(vendorRow, { batch: decBatch, username: decUsername })) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
-      if (Number.isNaN(saleDate.getTime()) || !inVendorPeriodLocal(saleDate, period, now, tzOffset)) continue;
+      if (Number.isNaN(saleDate.getTime()) || !saleInMikhmonPeriod(saleDate, period as MikhmonVendorPeriod, cal)) continue;
       lines.push({
         id: -row.id,
         username: decUsername,
@@ -631,48 +450,6 @@ export async function fetchVendorPeriodSales(
         createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
         lotOrComment: decBatch.trim() || null,
         source: "script",
-      });
-    }
-
-    const voucherRows = await db
-      .select()
-      .from(vouchersTable)
-      .where(
-        and(
-          eq(vouchersTable.routerId, routerId),
-          isNotNull(vouchersTable.usedAt),
-          voucherNotCoveredByScriptSameLocalDay(now, tzOffset),
-          gte(vouchersTable.usedAt, monthStart),
-          lt(vouchersTable.usedAt, monthEnd),
-        ),
-      )
-      .orderBy(desc(vouchersTable.usedAt));
-
-    for (const row of voucherRows) {
-      const decUsername    = decodeRouterText(row.username);
-      const decComment     = row.comment == null ? null : decodeRouterText(row.comment);
-      const decProfileName = decodeRouterText(row.profileName);
-      if (!saleBelongsToVendor(vendorRow, {
-        vendorId: row.vendorId,
-        comment: decComment,
-        username: decUsername,
-      })) continue;
-      const usedAt = row.usedAt instanceof Date ? row.usedAt : new Date(row.usedAt!);
-      if (Number.isNaN(usedAt.getTime()) || !inVendorPeriodLocal(usedAt, period, now, tzOffset)) continue;
-      lines.push({
-        id: row.id,
-        username: decUsername,
-        password: row.password,
-        profileName: decProfileName,
-        price: row.price ?? "",
-        salePrice: row.salePrice,
-        saleIp: row.saleIp,
-        macAddress: row.macAddress,
-        printedAt: row.printedAt ? (row.printedAt instanceof Date ? row.printedAt : new Date(row.printedAt)).toISOString() : null,
-        usedAt: usedAt.toISOString(),
-        createdAt: (row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt)).toISOString(),
-        lotOrComment: decComment?.trim() || null,
-        source: "voucher",
       });
     }
 
@@ -699,7 +476,7 @@ export async function fetchVendorPeriodSales(
       .sort((a, b) => b.count - a.count);
 
     return {
-      vendorName: vendorRow.name,
+      vendorName: vendor.name,
       period,
       label: PERIOD_LABELS[period],
       total: lines.length,

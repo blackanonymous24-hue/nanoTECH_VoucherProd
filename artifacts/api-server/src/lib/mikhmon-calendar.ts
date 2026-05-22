@@ -59,3 +59,35 @@ export function getMikhmonCalendar(routerClockDate?: string | null): MikhmonCale
     startOfMonth,
   };
 }
+
+/** Bornes mois courant [début, début mois suivant) — même logique que readSalesQuickFromDb. */
+export function mikhmonMonthRange(cal: MikhmonCalendar): { start: Date; end: Date } {
+  return { start: cal.startOfMonth, end: new Date(cal.y, cal.m, 1) };
+}
+
+export type MikhmonVendorPeriod = "today" | "yesterday" | "week" | "month";
+
+/** Filtre période ventes (calendrier routeur / MikHmon), pas UTC serveur. */
+export function saleInMikhmonPeriod(
+  saleDate: Date,
+  period: MikhmonVendorPeriod,
+  cal: MikhmonCalendar,
+): boolean {
+  const ts = saleDate.getTime();
+  if (Number.isNaN(ts)) return false;
+  if (period === "today") {
+    return ts >= cal.todayMidnight.getTime() && ts < cal.tomorrowMidnight.getTime();
+  }
+  if (period === "yesterday") {
+    const yestStart = cal.todayMidnight.getTime() - 86_400_000;
+    return ts >= yestStart && ts < cal.todayMidnight.getTime();
+  }
+  if (period === "month") {
+    const { start, end } = mikhmonMonthRange(cal);
+    return ts >= start.getTime() && ts < end.getTime();
+  }
+  const dayOfWeek = (cal.todayMidnight.getDay() + 6) % 7;
+  const startOfWeek = new Date(cal.todayMidnight.getTime() - dayOfWeek * 86_400_000);
+  const startOfLastWeek = new Date(startOfWeek.getTime() - 7 * 86_400_000);
+  return ts >= startOfLastWeek.getTime() && ts < startOfWeek.getTime();
+}
