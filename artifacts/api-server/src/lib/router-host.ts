@@ -1,6 +1,20 @@
 /** Port API RouterOS par défaut (Mikhmon). */
 export const DEFAULT_ROUTER_API_PORT = 8728;
 
+/** Délai fsockopen Mikhmon (ping-test.php). */
+export const MIKHMON_PING_TIMEOUT_MS = 5_000;
+
+/** `iphost` se termine par `:port` numérique (comme explode(':', $iphost) en PHP). */
+export function iphostHasExplicitPort(iphost: string): boolean {
+  const s = iphost.trim();
+  const colonIdx = s.lastIndexOf(":");
+  if (colonIdx <= 0) return false;
+  const portStr = s.slice(colonIdx + 1);
+  if (!/^\d+$/.test(portStr)) return false;
+  const p = parseInt(portStr, 10);
+  return p >= 1 && p <= 65535;
+}
+
 /** Parse `192.168.1.1` ou `203.0.113.1:23728` (format Mikhmon iphost). */
 export function parseMikhmonIpHost(iphost: string): { host: string; port: number } {
   const s = iphost.trim();
@@ -16,6 +30,25 @@ export function parseMikhmonIpHost(iphost: string): { host: string; port: number
     }
   }
   return { host: s, port: DEFAULT_ROUTER_API_PORT };
+}
+
+/**
+ * Fusion host + port corps JSON (création / édition).
+ * Si `iphost` contient `:port`, ce port prime (champ unique Mikhmon).
+ * Sinon on garde le port SQL / corps (ex. `v1.mikroot.com` + colonne 2520).
+ */
+export function mergeMikhmonHostPort(
+  hostInput: string,
+  portFromBody?: number | null,
+): { host: string; port: number } {
+  const parsed = parseMikhmonIpHost(hostInput);
+  if (!parsed.host) return { host: "", port: DEFAULT_ROUTER_API_PORT };
+  if (iphostHasExplicitPort(hostInput)) return parsed;
+  const bodyPort = portFromBody != null && portFromBody > 0 ? portFromBody : 0;
+  return {
+    host: parsed.host,
+    port: bodyPort > 0 ? bodyPort : DEFAULT_ROUTER_API_PORT,
+  };
 }
 
 /**

@@ -5,6 +5,7 @@ import { hashPassword } from "../lib/admin-auth.js";
 import { requireSuperAdminScope } from "../lib/tenant.js";
 import { getAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { pingRouter } from "../lib/mikrotik.js";
+import { normalizeRouterConnection, mergeMikhmonHostPort } from "../lib/router-host.js";
 import {
   adminLoginPasswordCollisionMessage,
   findAdminLoginPasswordHashCollision,
@@ -604,8 +605,14 @@ router.get("/super/admins/:id/routers/:routerId/ping", async (req, res): Promise
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  const online = await pingRouter({ host: r.host, port: r.port, username: r.username, password: r.password });
-  res.json({ success: online });
+  const conn = normalizeRouterConnection({
+    host: r.host,
+    port: r.port,
+    username: r.username,
+    password: r.password,
+  });
+  const online = await pingRouter(conn);
+  res.json({ success: online, host: conn.host, port: conn.port });
 });
 
 // ---------------------------------------------------------------------------
@@ -696,6 +703,11 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
   }
 
   const currencyNorm = (currency ?? "FCFA").trim().slice(0, 24) || "FCFA";
+  const { host: hostNorm, port: portNorm } = mergeMikhmonHostPort(host, port);
+  if (!hostNorm) {
+    res.status(400).json({ error: "Adresse IP ou hôte invalide" });
+    return;
+  }
 
   const [created] = await db
     .insert(routersTable)
@@ -705,8 +717,8 @@ router.post("/super/admins/:id/routers", async (req, res): Promise<void> => {
       hotspotName: hotspotName?.trim() || null,
       contact: contact?.trim() || null,
       currency: currencyNorm,
-      host: host.trim(),
-      port: port ?? 8728,
+      host: hostNorm,
+      port: portNorm,
       username: username.trim(),
       password: password.trim(),
       isActive: isActive ?? true,

@@ -660,14 +660,15 @@ export default function Routers() {
                 <Label>IP / Host</Label>
                 <Input
                   className="mt-1 font-mono"
-                  placeholder="192.168.1.1"
+                  placeholder="10.88.88.1 ou 192.168.1.1:8728"
                   value={form.host}
                   onChange={(e) => setForm({ ...form, host: e.target.value })}
                   required
                 />
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Connexion API RouterOS (port {DEFAULT_ROUTER_API_PORT} par défaut). NAT : saisir{" "}
-                  <span className="font-mono">ip:port</span> (ex. 203.0.113.1:23728).
+                  Adresse <span className="font-mono">iphost</span> Mikhmon (session routeur), pas l’URL du panel VPN.
+                  Port {DEFAULT_ROUTER_API_PORT} par défaut ; NAT / tunnel : <span className="font-mono">ip:port</span> (ex.{" "}
+                  <span className="font-mono">10.0.0.1:8728</span>).
                 </p>
               </div>
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">

@@ -6,6 +6,16 @@
 /** Port API RouterOS (connexion TCP sortante de l’app). */
 export const DEFAULT_ROUTER_API_PORT = 8728;
 
+export function iphostHasExplicitPort(iphost: string): boolean {
+  const s = iphost.trim();
+  const colonIdx = s.lastIndexOf(":");
+  if (colonIdx <= 0) return false;
+  const portStr = s.slice(colonIdx + 1);
+  if (!/^\d+$/.test(portStr)) return false;
+  const p = parseInt(portStr, 10);
+  return p >= 1 && p <= 65535;
+}
+
 /** Parse `iphost` saisi : `192.168.1.1` ou `203.0.113.1:23728`. */
 export function parseMikhmonIpHost(iphost: string): { host: string; port: number } {
   const s = iphost.trim();

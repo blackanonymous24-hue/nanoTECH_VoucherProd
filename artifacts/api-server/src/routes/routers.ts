@@ -18,7 +18,7 @@ import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
 import { getMikhmonCalendar } from "../lib/mikhmon-calendar.js";
-import { normalizeRouterConnection, parseMikhmonIpHost, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
+import { normalizeRouterConnection, mergeMikhmonHostPort, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -460,7 +460,7 @@ router.post("/routers", async (req, res): Promise<void> => {
   }
 
   const currencyNorm = (currency ?? "FCFA").trim().slice(0, 24) || "FCFA";
-  const { host: hostNorm, port: portNorm } = parseMikhmonIpHost(host);
+  const { host: hostNorm, port: portNorm } = mergeMikhmonHostPort(host, port);
   if (!hostNorm) {
     res.status(400).json({ error: "Adresse IP ou hôte invalide" });
     return;
@@ -476,7 +476,7 @@ router.post("/routers", async (req, res): Promise<void> => {
       contact: contact ?? null,
       currency: currencyNorm,
       host: hostNorm,
-      port: (port != null && port > 0) ? port : portNorm,
+      port: portNorm,
       username,
       password,
       autoDeleteSalesScripts: autoDeleteSalesScripts ?? false,
@@ -620,15 +620,16 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
     updates.currency = c || "FCFA";
   }
   if (host !== undefined) {
-    const parsed = parseMikhmonIpHost(host);
-    if (!parsed.host) {
+    const merged = mergeMikhmonHostPort(host, port);
+    if (!merged.host) {
       res.status(400).json({ error: "Adresse IP ou hôte invalide" });
       return;
     }
-    updates.host = parsed.host;
-    if (port === undefined) updates.port = parsed.port;
+    updates.host = merged.host;
+    updates.port = merged.port;
+  } else if (port !== undefined) {
+    updates.port = port > 0 ? port : DEFAULT_ROUTER_API_PORT;
   }
-  if (port !== undefined) updates.port = port;
   if (username !== undefined) updates.username = username;
   // Chaîne vide = "ne pas changer le mot de passe" (cas édition sans modification)
   if (password !== undefined && password !== "") updates.password = password;

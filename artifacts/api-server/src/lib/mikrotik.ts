@@ -2,7 +2,7 @@ import { RouterOSAPI } from "node-routeros";
 import net from "net";
 import { toWin1252, fromWin1252, fixEncoding, decodeRouterText } from "./router-encoding.js";
 import { getMikhmonCalendar } from "./mikhmon-calendar.js";
-import { normalizeRouterConnection } from "./router-host.js";
+import { normalizeRouterConnection, MIKHMON_PING_TIMEOUT_MS } from "./router-host.js";
 
 /** Filtre scheduler par nom de profil (UTF-8 + forme Win1252 sur le fil). */
 async function printSchedulersByProfileName(
@@ -317,7 +317,7 @@ export async function withRouter<T>(
 export async function pingRouter(conn: RouterConnection): Promise<boolean> {
   const c = normalizeRouterConnection(conn);
   if (!c.host) return false;
-  if (await tcpPing(c.host, c.port, 3_000)) return true;
+  if (await tcpPing(c.host, c.port, MIKHMON_PING_TIMEOUT_MS)) return true;
   try {
     const apiTest = await testConnection(c);
     return apiTest.success;

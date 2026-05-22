@@ -1,7 +1,6 @@
 import { sql, eq } from "drizzle-orm";
 import { db, routersTable } from "@workspace/db";
 import { logger } from "./logger.js";
-import { normalizeRouterHostPort } from "./router-host.js";
 
 /**
  * Si le dépôt a été mis à jour (schéma Drizzle + API) sans exécuter la migration
