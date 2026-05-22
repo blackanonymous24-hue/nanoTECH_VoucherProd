@@ -2347,7 +2347,33 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
 
 // ─── Sales cache ─────────────────────────────────────────────────────────────
 const salesRefreshing = new Set<number>();
+const dashboardSalesSyncInFlight = new Set<number>();
 const SALES_TTL = 5 * 60 * 1000; // 5 minutes
+
+function emptyDashboardSales(clockDate?: string | null): SalesReport & { _cachedAt: number | null } {
+  const cal = getMikhmonCalendar(clockDate);
+  const mm = String(cal.m).padStart(2, "0");
+  const d = String(cal.d).padStart(2, "0");
+  return {
+    dailyCount: 0,
+    dailyAmount: 0,
+    yesterdayCount: 0,
+    yesterdayAmount: 0,
+    weekCount: 0,
+    weekAmount: 0,
+    lastWeekCount: 0,
+    lastWeekAmount: 0,
+    monthlyCount: 0,
+    monthlyAmount: 0,
+    lastMonthCount: 0,
+    lastMonthAmount: 0,
+    totalCount: 0,
+    totalAmount: 0,
+    dateLabel: `${cal.y}-${mm}-${d}`,
+    monthLabel: `${mm}${cal.y}`,
+    _cachedAt: null,
+  };
+}
 
 const voucherRowMoney = sql`coalesce(nullif(regexp_replace(coalesce(${vouchersTable.salePrice}, ${vouchersTable.price}), '[^0-9.]', '', 'g'), '')::numeric, 0)`;
 
@@ -2552,7 +2578,7 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   }
 });
 
-async function buildDashboardPrioritySnapshot(id: number) {
+async function buildDashboardKpiFastSnapshot(id: number) {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) throw new Error("ROUTER_NOT_FOUND");
   const sc = routerCacheScope(r.ownerAdminId, id);
@@ -2686,18 +2712,33 @@ async function buildDashboardPrioritySnapshot(id: number) {
     ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
     : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
 
-  // Ventes KPI : horloge routeur, sync incrémentale (jour/mois), puis lecture DB — aligné Mikhmon.
-  let routerClockDate = info?.clockDate ?? null;
-  if (!routerClockDate) {
-    try {
-      const liveInfo = await getRouterInfo(conn);
-      routerClockDate = liveInfo.clockDate ?? null;
-      mSet(infoKey, MIK_TTL.info, liveInfo);
-      void persistRouterMikrotikSerialIfMissing(id, liveInfo.serialNumber);
-    } catch { /* garde null */ }
-  } else if (info?.serialNumber) {
-    void persistRouterMikrotikSerialIfMissing(id, info.serialNumber);
-  }
+  const routerClockDate = info?.clockDate ?? null;
+
+  return {
+    serverTs: now,
+    sessionsCount,
+    users,
+    sales: emptyDashboardSales(routerClockDate),
+    vendorRanking: null,
+    info,
+    availability: {
+      sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
+      usersKnown: !!usersCached,
+      salesKnown: false,
+      vendorRankingKnown: false,
+      infoKnown: !!(infoFreshAfter || infoStaleAfter),
+    },
+  };
+}
+
+/** Sync ventes + agrégats (arrière-plan — ne bloque pas clients / users). */
+async function runDashboardSalesSyncJob(
+  id: number,
+  ownerAdminId: number | null,
+  conn: RouterConnection,
+  routerClockDate: string | null,
+): Promise<void> {
+  const sc = routerCacheScope(ownerAdminId, id);
   const DASHBOARD_SYNC_MS = 28_000;
   const runSync = (opts?: { forceFullMonth?: boolean }) =>
     Promise.race([
@@ -2711,29 +2752,18 @@ async function buildDashboardPrioritySnapshot(id: number) {
       }),
     ]).catch(() => 0);
 
-  let syncCompleted = false;
   try {
     await runSync();
-    syncCompleted = true;
     const cal = getMikhmonCalendar(routerClockDate);
     const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
     await reconcileSaleDatesFromRawName(id, monthStart, monthEnd);
-  } catch {
-    syncCompleted = false;
-  }
+  } catch { /* non-blocking */ }
 
-  if (!salesRefreshing.has(id)) {
-    setImmediate(() => {
-      void triggerSalesRefresh(r.ownerAdminId, id, r.host, r.port, r.username, r.password);
-    });
-  }
   let monthLoad = await loadScriptSalesAggRowsForMikhmonMonth(id, routerClockDate);
   let dbQuickSales = aggregateScriptSalesDeduped(monthLoad.rows, monthLoad.cal);
-  let vendorRanking = await readVendorRankingQuickFromDb(id, routerClockDate);
 
   if (isMikhmonMonthCacheIncomplete(dbQuickSales, monthLoad.cal, monthLoad.rows)) {
     await runSync({ forceFullMonth: true });
-    syncCompleted = true;
     const cal = getMikhmonCalendar(routerClockDate);
     const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
     await reconcileSaleDatesFromRawName(id, monthStart, monthEnd);
@@ -2741,69 +2771,75 @@ async function buildDashboardPrioritySnapshot(id: number) {
     dbQuickSales = aggregateScriptSalesDeduped(monthLoad.rows, monthLoad.cal);
   }
 
-  if (dbQuickSales.dailyCount === 0 && dbQuickSales.monthlyCount > 0) {
-    await runSync({ forceFullMonth: true });
-    monthLoad = await loadScriptSalesAggRowsForMikhmonMonth(id, routerClockDate);
-    dbQuickSales = aggregateScriptSalesDeduped(monthLoad.rows, monthLoad.cal);
-  }
-  if (dbQuickSales && dbQuickSales.dailyCount === 0) {
-    try {
-      const cal = getMikhmonCalendar(routerClockDate);
-      const liveEntries = await fetchScriptSales(
-        conn,
-        { type: "day", year: cal.y, month: cal.m, day: cal.d },
-        15_000,
-      );
-      if (liveEntries.length > 0) {
-        const overlayRows = liveEntries.flatMap((e) => {
-          const rawName = [e.date, e.time || "00:00:00", e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch].join("-|-");
-          const saleDate = parseMikhmonDate(e.date, e.time || "00:00:00");
-          if (!saleDate || Number.isNaN(saleDate.getTime())) return [];
-          return [{
-            username: e.username,
-            saleDate,
-            price: String(e.price ?? ""),
-            ip: e.ip,
-            mac: e.mac,
-            rawName,
-          }];
-        });
-        const overlay = aggregateScriptSalesDeduped(overlayRows, cal);
-        if (overlay.dailyCount > 0) {
-          dbQuickSales = {
-            ...dbQuickSales,
-            dailyCount: overlay.dailyCount,
-            dailyAmount: overlay.dailyAmount,
-          };
-        }
-      }
-    } catch { /* non-blocking */ }
-  }
   const dashCal = getMikhmonCalendar(routerClockDate);
   const mm = String(dashCal.m).padStart(2, "0");
   const y = dashCal.y;
   const d = String(dashCal.d).padStart(2, "0");
+  setSalesCache(sc, {
+    data: {
+      dailyCount: dbQuickSales.dailyCount,
+      dailyAmount: dbQuickSales.dailyAmount,
+      monthlyCount: dbQuickSales.monthlyCount,
+      monthlyAmount: dbQuickSales.monthlyAmount,
+      yesterdayCount: 0,
+      yesterdayAmount: 0,
+      weekCount: 0,
+      weekAmount: 0,
+      lastWeekCount: 0,
+      lastWeekAmount: 0,
+      lastMonthCount: 0,
+      lastMonthAmount: 0,
+      totalCount: 0,
+      totalAmount: 0,
+      dateLabel: `${y}-${mm}-${d}`,
+      monthLabel: `${mm}${y}`,
+    },
+    updatedAt: Date.now(),
+  });
+}
+
+async function buildDashboardPrioritySnapshot(id: number) {
+  const fast = await buildDashboardKpiFastSnapshot(id);
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
+  if (!r) throw new Error("ROUTER_NOT_FOUND");
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  const routerClockDate = (fast.info as { clockDate?: string | null } | null)?.clockDate ?? null;
+
+  if (!dashboardSalesSyncInFlight.has(id)) {
+    dashboardSalesSyncInFlight.add(id);
+    setImmediate(() => {
+      void runDashboardSalesSyncJob(id, r.ownerAdminId, conn, routerClockDate)
+        .finally(() => { dashboardSalesSyncInFlight.delete(id); });
+    });
+  }
+
   const salesCached = getSalesCache(sc);
+  let dbQuickSales: { dailyCount: number; dailyAmount: number; monthlyCount: number; monthlyAmount: number } | null = null;
+  try {
+    const monthLoad = await loadScriptSalesAggRowsForMikhmonMonth(id, routerClockDate);
+    dbQuickSales = aggregateScriptSalesDeduped(monthLoad.rows, monthLoad.cal);
+  } catch {
+    dbQuickSales = null;
+  }
+
+  const vendorRanking = await readVendorRankingQuickFromDb(id, routerClockDate).catch(() => null);
+
   const dm = dbQuickSales ?? {
     dailyCount: salesCached?.data.dailyCount ?? 0,
     dailyAmount: salesCached?.data.dailyAmount ?? 0,
     monthlyCount: salesCached?.data.monthlyCount ?? 0,
     monthlyAmount: salesCached?.data.monthlyAmount ?? 0,
   };
-  // Ne pas marquer les ventes « connues » tant que la sync n'a pas tourné et qu'il n'y a
-  // ni cache RAM ni agrégat non nul — évite d'afficher 0 FCFA à tort au premier paint.
   const salesKnown =
-    dbQuickSales != null &&
-    (salesCached != null ||
-      syncCompleted ||
-      dbQuickSales.dailyCount > 0 ||
-      dbQuickSales.monthlyCount > 0);
-  if (dbQuickSales && !salesKnown) {
-    logger.info(
-      { routerId: id, syncCompleted, hasSalesCache: !!salesCached, daily: dbQuickSales.dailyCount, monthly: dbQuickSales.monthlyCount },
-      "dashboard-priority: ventes pas encore prêtes (skeleton côté client)",
-    );
-  }
+    (salesCached != null && salesCached.updatedAt > 0) ||
+    (dbQuickSales != null && (dbQuickSales.dailyCount > 0 || dbQuickSales.monthlyCount > 0));
+
+  const dashCal = getMikhmonCalendar(routerClockDate);
+  const mm = String(dashCal.m).padStart(2, "0");
+  const y = dashCal.y;
+  const d = String(dashCal.d).padStart(2, "0");
+
   const sales: SalesReport & { _cachedAt: number | null } = {
     dailyCount: dm.dailyCount,
     dailyAmount: dm.dailyAmount,
@@ -2823,26 +2859,15 @@ async function buildDashboardPrioritySnapshot(id: number) {
     monthLabel: `${mm}${y}`,
     _cachedAt: salesKnown ? Date.now() : (salesCached?.updatedAt ?? null),
   };
-  const salesKnownFinal =
-    salesKnown || sales.dailyCount > 0 || sales.monthlyCount > 0;
-  if (salesKnownFinal && sales._cachedAt == null) {
-    sales._cachedAt = Date.now();
-  }
 
   return {
-    serverTs: now,
-    sessionsCount,
-    users,
+    ...fast,
     sales,
     vendorRanking,
-    info,
     availability: {
-      // sessionsKnown : vrai si le cache plein OU le fast count (cold-start parallèle) ont des données
-      sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
-      usersKnown: !!usersCached,
-      salesKnown: salesKnownFinal,
+      ...fast.availability,
+      salesKnown: salesKnown || sales.dailyCount > 0 || sales.monthlyCount > 0,
       vendorRankingKnown: vendorRanking != null,
-      infoKnown: !!(infoFreshAfter || infoStaleAfter),
     },
   };
 }
@@ -2920,8 +2945,11 @@ router.get("/routers/:id/dashboard-priority", async (req, res): Promise<void> =>
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+  const fastOnly = req.query.fast === "1" || req.query.fast === "true";
   try {
-    const snapshot = await buildDashboardPrioritySnapshot(id);
+    const snapshot = fastOnly
+      ? await buildDashboardKpiFastSnapshot(id)
+      : await buildDashboardPrioritySnapshot(id);
     res.json(snapshot);
   } catch (err) {
     if (err instanceof Error && err.message === "ROUTER_NOT_FOUND") {

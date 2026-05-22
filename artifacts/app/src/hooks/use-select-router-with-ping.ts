@@ -34,6 +34,7 @@ export function useSelectRouterWithPing() {
       activeRef.current = true;
       setPingingId(id);
       setIsPingFailed(false);
+      void prefetchRouterDashboardPriority(id);
 
       let success = false;
 
@@ -59,9 +60,6 @@ export function useSelectRouterWithPing() {
       setSelectedRouterId(id);
       /** Pastille du sélecteur : reflète tout de suite le ping TCP (avant dashboard / SSE). */
       setRouterOnline(success);
-      if (success) {
-        void prefetchRouterDashboardPriority(id);
-      }
 
       if (!success) {
         setIsPingFailed(true);

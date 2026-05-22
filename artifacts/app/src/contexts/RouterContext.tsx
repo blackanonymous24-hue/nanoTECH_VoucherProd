@@ -3,7 +3,10 @@ import { useListRouters, getListRoutersQueryKey } from "@workspace/api-client-re
 import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
-import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
+import {
+  prefetchAllRoutersDashboardKpi,
+  prefetchRouterDashboardPriority,
+} from "@/lib/prefetch-router-dashboard-priority";
 
 export type BorrowedRouter = { id: number; name: string; ownerAdminId: number; hotspotName?: string | null; contact?: string | null };
 
@@ -147,6 +150,12 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(STORAGE_KEY, String(firstId));
     }
   }, [isAuthenticated, routersFetched, routers, selectedRouterId, borrowedRouter]);
+
+  // MikHmon : précharger clients actifs / utilisateurs pour chaque routeur de la barre.
+  useEffect(() => {
+    if (!isAuthenticated || !routersFetched || routers.length === 0) return;
+    prefetchAllRoutersDashboardKpi(routers.map((r) => r.id));
+  }, [isAuthenticated, routersFetched, routers.map((r) => r.id).join(",")]);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
