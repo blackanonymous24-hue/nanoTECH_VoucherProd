@@ -3,9 +3,10 @@ import { db, scriptSalesTable, scriptSalesMonthSyncTable } from "@workspace/db";
 import {
   getMikhmonCalendar,
   isCalendarMonthBefore,
-  mikhmonMonthRangeFor,
   type MikhmonCalendar,
 } from "./mikhmon-calendar.js";
+import { aggregateScriptSalesDeduped } from "./script-sales-dedup.js";
+import { loadScriptSalesAggRowsForYearMonth } from "./script-sales-query.js";
 import { logger } from "./logger.js";
 
 /** Crée la table de suivi si absente (idempotent). */
@@ -43,21 +44,22 @@ export async function ensureScriptSalesMonthSyncTable(): Promise<void> {
   }
 }
 
+/** Nombre de ventes uniques du mois (date script MikHmon, pas seulement sale_date SQL). */
 export async function countScriptSalesInMonth(
   routerId: number,
   year: number,
   month: number,
 ): Promise<number> {
-  const { start, end } = mikhmonMonthRangeFor(year, month);
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(scriptSalesTable)
-    .where(and(
-      eq(scriptSalesTable.routerId, routerId),
-      gte(scriptSalesTable.saleDate, start),
-      lt(scriptSalesTable.saleDate, end),
-    ));
-  return Number(row?.n ?? 0);
+  const rows = await loadScriptSalesAggRowsForYearMonth(routerId, year, month);
+  const cal = {
+    y: year,
+    m: month,
+    isoDateLabel: "",
+    todayMidnight: new Date(year, month - 1, 1),
+    tomorrowMidnight: new Date(year, month, 1),
+    startOfMonth: new Date(year, month - 1, 1),
+  };
+  return aggregateScriptSalesDeduped(rows, cal).monthlyCount;
 }
 
 export async function getMonthSyncRow(

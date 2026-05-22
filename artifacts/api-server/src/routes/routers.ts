@@ -18,7 +18,8 @@ import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
-import { getMikhmonCalendar, mikhmonMonthRange } from "../lib/mikhmon-calendar.js";
+import { getMikhmonCalendar } from "../lib/mikhmon-calendar.js";
+import { loadScriptSalesAggRowsForMikhmonMonth } from "../lib/script-sales-query.js";
 import { normalizeRouterConnection, mergeMikhmonHostPort, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
 
 const router = Router();
@@ -2306,6 +2307,11 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
 // ─── Sales cache ─────────────────────────────────────────────────────────────
 interface SalesCacheEntry { data: SalesReport; updatedAt: number; }
 const salesCache = new Map<string, SalesCacheEntry>();
+
+/** Vide le cache RAM ventes (tous admins / gérants / dashboards). */
+export function purgeAllSalesRamCaches(): void {
+  salesCache.clear();
+}
 const salesRefreshing = new Set<number>();
 const SALES_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -2336,24 +2342,8 @@ async function readSalesQuickFromDb(
   monthlyCount: number;
   monthlyAmount: number;
 } | null> {
-  const cal = getMikhmonCalendar(routerClockDate);
-  const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
   try {
-    const rows = await db
-      .select({
-        username: scriptSalesTable.username,
-        saleDate: scriptSalesTable.saleDate,
-        price: scriptSalesTable.price,
-        ip: scriptSalesTable.ip,
-        mac: scriptSalesTable.mac,
-        rawName: scriptSalesTable.rawName,
-      })
-      .from(scriptSalesTable)
-      .where(and(
-        eq(scriptSalesTable.routerId, routerId),
-        gte(scriptSalesTable.saleDate, monthStart),
-        lt(scriptSalesTable.saleDate, monthEnd),
-      ));
+    const { cal, rows } = await loadScriptSalesAggRowsForMikhmonMonth(routerId, routerClockDate);
     return aggregateScriptSalesDeduped(rows, cal);
   } catch {
     return null;
@@ -2373,11 +2363,12 @@ async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host
     const sc = routerCacheScope(ownerAdminId, id);
     const infoHit = mGet(`info:${sc}`) ?? mGetStale(`info:${sc}`);
     const clockDate = (infoHit as { clockDate?: string | null } | null)?.clockDate ?? null;
-    await syncScriptCache(id, conn, clockDate).catch(() => { /* non-blocking */ });
+    await syncScriptCache(id, conn, clockDate, { skipBackfill: true }).catch(() => { /* non-blocking */ });
     const quick = await readSalesQuickFromDb(id, clockDate);
-    const mm = String(new Date().getMonth() + 1).padStart(2, "0");
-    const y = new Date().getFullYear();
-    const d = String(new Date().getDate()).padStart(2, "0");
+    const cal = getMikhmonCalendar(clockDate);
+    const mm = String(cal.m).padStart(2, "0");
+    const y = cal.y;
+    const d = String(cal.d).padStart(2, "0");
     const data: SalesReport = quick
       ? {
           dailyCount: quick.dailyCount,
@@ -2673,7 +2664,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const DASHBOARD_SYNC_MS = 22_000;
   const runSync = (forceFullMonth: boolean) =>
     Promise.race([
-      syncScriptCache(id, conn, routerClockDate, { forceFullMonth }),
+      syncScriptCache(id, conn, routerClockDate, { forceFullMonth, skipBackfill: true }),
       new Promise<number>((_, reject) => {
         setTimeout(() => reject(new Error("sync_timeout")), DASHBOARD_SYNC_MS);
       }),
@@ -2710,16 +2701,18 @@ async function buildDashboardPrioritySnapshot(id: number) {
         15_000,
       );
       if (liveEntries.length > 0) {
-        const overlayRows = liveEntries.map((e) => {
+        const overlayRows = liveEntries.flatMap((e) => {
           const rawName = [e.date, e.time || "00:00:00", e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch].join("-|-");
-          return {
+          const saleDate = parseMikhmonDate(e.date, e.time || "00:00:00");
+          if (!saleDate || Number.isNaN(saleDate.getTime())) return [];
+          return [{
             username: e.username,
-            saleDate: parseMikhmonDate(e.date, e.time || "00:00:00") ?? new Date(),
+            saleDate,
             price: String(e.price ?? ""),
             ip: e.ip,
             mac: e.mac,
             rawName,
-          };
+          }];
         });
         const overlay = aggregateScriptSalesDeduped(overlayRows, cal);
         if (overlay.dailyCount > 0) {
@@ -2732,9 +2725,10 @@ async function buildDashboardPrioritySnapshot(id: number) {
       }
     } catch { /* non-blocking */ }
   }
-  const mm = String(new Date().getMonth() + 1).padStart(2, "0");
-  const y = new Date().getFullYear();
-  const d = String(new Date().getDate()).padStart(2, "0");
+  const dashCal = getMikhmonCalendar(routerClockDate);
+  const mm = String(dashCal.m).padStart(2, "0");
+  const y = dashCal.y;
+  const d = String(dashCal.d).padStart(2, "0");
   const salesCached = salesCache.get(sc);
   const dm = dbQuickSales ?? {
     dailyCount: salesCached?.data.dailyCount ?? 0,

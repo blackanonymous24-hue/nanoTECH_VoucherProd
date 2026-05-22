@@ -8,11 +8,11 @@ import { db, scriptSalesTable, vendorsTable } from "@workspace/db";
 import { decodeRouterText } from "./router-encoding.js";
 import {
   getMikhmonCalendar,
-  mikhmonMonthRange,
   saleInMikhmonPeriod,
   type MikhmonVendorPeriod,
 } from "./mikhmon-calendar.js";
 import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
+import { loadScriptSalesAggRowsForMikhmonMonth } from "./script-sales-query.js";
 
 /** Ligne synthétique ventes sans suffixe reconnu (pas de fiche vendeur). */
 export const UNATTRIBUTED_VENDOR_ID = 0;
@@ -280,8 +280,7 @@ export async function aggregateVendorPeriodSales(
   routerId: number,
   routerClockDate?: string | null,
 ): Promise<VendorPeriodAggRow[] | null> {
-  const cal = getMikhmonCalendar(routerClockDate);
-  const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
+  const { cal, rows: scriptRows } = await loadScriptSalesAggRowsForMikhmonMonth(routerId, routerClockDate);
 
   try {
     const vendors = await loadRouterVendorsForAttribution(routerId);
@@ -312,25 +311,6 @@ export async function aggregateVendorPeriodSales(
       if (daily) { unattrDaily += 1; unattrDailyAmount += amount; }
       if (monthly) { unattrMonthly += 1; unattrMonthlyAmount += amount; }
     };
-
-    const scriptRows = await db
-      .select({
-        batch: scriptSalesTable.batch,
-        username: scriptSalesTable.username,
-        saleDate: scriptSalesTable.saleDate,
-        price: scriptSalesTable.price,
-        ip: scriptSalesTable.ip,
-        mac: scriptSalesTable.mac,
-        rawName: scriptSalesTable.rawName,
-      })
-      .from(scriptSalesTable)
-      .where(
-        and(
-          eq(scriptSalesTable.routerId, routerId),
-          gte(scriptSalesTable.saleDate, monthStart),
-          lt(scriptSalesTable.saleDate, monthEnd),
-        ),
-      );
 
     const countedKeys = new Set<string>();
     for (const row of scriptRows) {

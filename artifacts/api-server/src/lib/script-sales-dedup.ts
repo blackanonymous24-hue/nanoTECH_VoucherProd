@@ -4,6 +4,12 @@ import { isoDayFromRawName, saleInMikhmonMonth, saleOnMikhmonIsoDay } from "./mi
  * Clé logique d'une vente script — pour dédoublonner sans toucher à l'historique
  * (ventes dont le script a été purgé sur le MikroTik doivent rester en base).
  */
+/** Heure script (champ 1 du rawName) — une vente = un script MikHmon. */
+function mikhmonTimeFromRawName(rawName: string | null | undefined): string {
+  if (!rawName?.trim()) return "";
+  return rawName.split("-|-")[1]?.trim() || "00:00:00";
+}
+
 export function scriptSaleLogicalKey(
   username: string,
   saleDate: Date,
@@ -15,7 +21,12 @@ export function scriptSaleLogicalKey(
   const u = username.trim().toLowerCase();
   const p = (price ?? "").trim();
   const day = isoDayFromRawName(rawName);
-  if (day) return `${u}|${day}|${p}`;
+  if (day) {
+    const t = mikhmonTimeFromRawName(rawName);
+    const i = (ip ?? "").trim().toLowerCase();
+    const m = (mac ?? "").trim().toLowerCase();
+    return `${u}|${day}|${t}|${p}|${i}|${m}`;
+  }
   const ts = saleDate instanceof Date ? saleDate.getTime() : new Date(saleDate).getTime();
   const sec = Number.isNaN(ts) ? 0 : Math.floor(ts / 1000);
   const i = (ip ?? "").trim().toLowerCase();
@@ -29,6 +40,7 @@ export type ScriptSaleAggRow = {
   price: string | null;
   ip?: string | null;
   mac?: string | null;
+  batch?: string | null;
   /** Date script MikHmon (champ 0 du rawName) — aligne le jour avec MikHmon. */
   rawName?: string | null;
 };
