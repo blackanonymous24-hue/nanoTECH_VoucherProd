@@ -16,7 +16,7 @@ import { logger } from "./logger.js";
  * independent MikroTik connections per second.
  */
 
-const POLL_INTERVAL_MS = parseInt(process.env.MIK_POLLER_INTERVAL_MS ?? "5000", 10);
+const POLL_INTERVAL_MS = parseInt(process.env.MIK_POLLER_INTERVAL_MS ?? "10000", 10);
 
 interface PollerEntry {
   emitter: EventEmitter;

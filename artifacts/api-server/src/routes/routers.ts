@@ -18,6 +18,7 @@ import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
 import { getMikhmonCalendar } from "../lib/mikhmon-calendar.js";
+import { normalizeRouterConnection, parseMikhmonIpHost, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -459,6 +460,11 @@ router.post("/routers", async (req, res): Promise<void> => {
   }
 
   const currencyNorm = (currency ?? "FCFA").trim().slice(0, 24) || "FCFA";
+  const { host: hostNorm, port: portNorm } = parseMikhmonIpHost(host);
+  if (!hostNorm) {
+    res.status(400).json({ error: "Adresse IP ou hôte invalide" });
+    return;
+  }
 
   const [created] = await db
     .insert(routersTable)
@@ -469,8 +475,8 @@ router.post("/routers", async (req, res): Promise<void> => {
       hotspotName: hotspotName ?? null,
       contact: contact ?? null,
       currency: currencyNorm,
-      host,
-      port: port ?? 8728,
+      host: hostNorm,
+      port: (port != null && port > 0) ? port : portNorm,
       username,
       password,
       autoDeleteSalesScripts: autoDeleteSalesScripts ?? false,
@@ -613,7 +619,15 @@ router.put("/routers/:id", async (req, res): Promise<void> => {
     const c = currency.trim().slice(0, 24);
     updates.currency = c || "FCFA";
   }
-  if (host !== undefined) updates.host = host;
+  if (host !== undefined) {
+    const parsed = parseMikhmonIpHost(host);
+    if (!parsed.host) {
+      res.status(400).json({ error: "Adresse IP ou hôte invalide" });
+      return;
+    }
+    updates.host = parsed.host;
+    if (port === undefined) updates.port = parsed.port;
+  }
   if (port !== undefined) updates.port = port;
   if (username !== undefined) updates.username = username;
   // Chaîne vide = "ne pas changer le mot de passe" (cas édition sans modification)
@@ -696,16 +710,13 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
     if (hit) { res.json(hit); return; }
   }
 
-  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-  let online = await pingRouter(conn);
-  if (!online) {
-    try {
-      const apiTest = await testConnection(conn);
-      online = apiTest.success;
-    } catch {
-      online = false;
-    }
-  }
+  const conn = normalizeRouterConnection({
+    host: r.host,
+    port: r.port,
+    username: r.username,
+    password: r.password,
+  });
+  const online = await pingRouter(conn);
   const payload = { success: online };
   mSet(ck, MIK_TTL.ping, payload);
   res.json(payload);
@@ -2621,7 +2632,8 @@ async function buildDashboardPrioritySnapshot(id: number) {
   // Ventes KPI : priorité cache live MikHmon (scripts routeur), sinon DB calendrier routeur.
   const salesCached = salesCache.get(sc);
   const routerClockDate = info?.clockDate ?? null;
-  const LIVE_SALES_MAX_AGE_MS = 90_000;
+  /** Fraîcheur ventes live (aligné rythme Mikhmon ~10 s). */
+  const LIVE_SALES_MAX_AGE_MS = 10_000;
   const liveSalesFresh = salesCached && (now - salesCached.updatedAt) < LIVE_SALES_MAX_AGE_MS;
   if (!liveSalesFresh && !salesRefreshing.has(id)) {
     setImmediate(() => {

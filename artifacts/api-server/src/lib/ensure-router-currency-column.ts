@@ -1,6 +1,7 @@
-import { sql } from "drizzle-orm";
-import { db } from "@workspace/db";
+import { sql, eq } from "drizzle-orm";
+import { db, routersTable } from "@workspace/db";
 import { logger } from "./logger.js";
+import { normalizeRouterHostPort } from "./router-host.js";
 
 /**
  * Si le dépôt a été mis à jour (schéma Drizzle + API) sans exécuter la migration
@@ -175,6 +176,26 @@ export async function ensurePrintScaleColumns(): Promise<void> {
 /**
  * Sessions actives par appareil (logout / idle ne touchent que la ligne concernée).
  */
+/** Corrige les lignes `host` contenant `:port` (connexions MikroTik impossibles sinon). */
+export async function normalizeStoredRouterHosts(): Promise<void> {
+  try {
+    const rows = await db.select({ id: routersTable.id, host: routersTable.host, port: routersTable.port }).from(routersTable);
+    let fixed = 0;
+    for (const r of rows) {
+      const norm = normalizeRouterHostPort(r.host, r.port);
+      if (norm.host !== r.host.trim() || norm.port !== r.port) {
+        await db.update(routersTable).set({ host: norm.host, port: norm.port }).where(eq(routersTable.id, r.id));
+        fixed++;
+      }
+    }
+    if (fixed > 0) {
+      logger.info({ fixed }, "DB compat: host/port routeurs normalisés (format Mikhmon ip:port)");
+    }
+  } catch (err) {
+    logger.error({ err }, "DB compat: normalisation host/port routeurs échouée");
+  }
+}
+
 export async function ensureUserSessionsTable(): Promise<void> {
   try {
     await db.execute(sql`

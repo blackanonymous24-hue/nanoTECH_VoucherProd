@@ -2,6 +2,7 @@ import { RouterOSAPI } from "node-routeros";
 import net from "net";
 import { toWin1252, fromWin1252, fixEncoding, decodeRouterText } from "./router-encoding.js";
 import { getMikhmonCalendar } from "./mikhmon-calendar.js";
+import { normalizeRouterConnection } from "./router-host.js";
 
 /** Filtre scheduler par nom de profil (UTF-8 + forme Win1252 sur le fil). */
 async function printSchedulersByProfileName(
@@ -267,6 +268,7 @@ export async function withRouter<T>(
   timeout = 15000,
   priority: "high" | "normal" = "normal",
 ): Promise<T> {
+  conn = normalizeRouterConnection(conn);
   const key = `${conn.host}:${conn.port}`;
   const sem = getRouterSemaphore(conn.host, conn.port);
   await sem.acquire(priority);
@@ -311,24 +313,17 @@ export async function withRouter<T>(
  * est en ligne. Équivalent de fsockopen($host, $port, $errno, $errstr, 3) en PHP.
  * Résultat typique : <200 ms si en ligne, ~3 s si hors ligne.
  */
+/** Ping TCP Mikhmon (fsockopen 3 s) puis test API si le port filtre le TCP sans auth. */
 export async function pingRouter(conn: RouterConnection): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const socket = new net.Socket();
-    let settled = false;
-
-    const done = (result: boolean) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolve(result);
-    };
-
-    socket.setTimeout(3_000);
-    socket.once("connect", () => done(true));
-    socket.once("timeout", () => done(false));
-    socket.once("error",   () => done(false));
-    socket.connect(conn.port, conn.host);
-  });
+  const c = normalizeRouterConnection(conn);
+  if (!c.host) return false;
+  if (await tcpPing(c.host, c.port, 3_000)) return true;
+  try {
+    const apiTest = await testConnection(c);
+    return apiTest.success;
+  } catch {
+    return false;
+  }
 }
 
 /** Message lisible pour l’UI (test connexion / ping API). */
