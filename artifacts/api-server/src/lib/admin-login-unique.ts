@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db, adminSettingsTable } from "@workspace/db";
 import { verifyPassword } from "./admin-auth.js";
 
@@ -11,7 +11,8 @@ export async function findAdminsByLogin(
   return db
     .select()
     .from(adminSettingsTable)
-    .where(eq(adminSettingsTable.login, key));
+    .where(eq(adminSettingsTable.login, key))
+    .orderBy(asc(adminSettingsTable.id));
 }
 
 /**
@@ -27,13 +28,11 @@ export async function authenticateAdminByCredentials(
   if (!loginExact) return null;
 
   const rows = await findAdminsByLogin(loginExact);
-  if (rows.length === 0) return null;
-
-  const admin = rows[0];
-  if (admin.login !== loginExact) return null;
-
-  const ok = await verifyPassword(password, admin.passwordHash);
-  return ok ? admin : null;
+  for (const admin of rows) {
+    if (admin.login !== loginExact) continue;
+    if (await verifyPassword(password, admin.passwordHash)) return admin;
+  }
+  return null;
 }
 
 /**
