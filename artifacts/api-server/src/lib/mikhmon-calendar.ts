@@ -52,6 +52,23 @@ export function saleOnMikhmonIsoDay(
   return `${y}-${m}-${d}` === isoDateLabel;
 }
 
+/** true si la vente appartient au mois calendaire MikHmon (champ date du script en priorité). */
+export function saleInMikhmonMonth(
+  saleDate: Date,
+  cal: Pick<MikhmonCalendar, "y" | "m" | "startOfMonth">,
+  rawName?: string | null,
+): boolean {
+  const fromRaw = isoDayFromRawName(rawName);
+  if (fromRaw) {
+    const [y, mo] = fromRaw.split("-").map(Number);
+    return y === cal.y && mo === cal.m;
+  }
+  const ts = saleDate.getTime();
+  if (Number.isNaN(ts)) return false;
+  const nextMonthStart = new Date(cal.y, cal.m, 1).getTime();
+  return ts >= cal.startOfMonth.getTime() && ts < nextMonthStart;
+}
+
 /** Parse la date RouterOS (jan/21/2026 ou 2026-05-21). */
 export function parseRouterClockDate(clockDate: string | null | undefined): Date | null {
   if (!clockDate?.trim()) return null;
@@ -137,8 +154,7 @@ export function saleInMikhmonPeriod(
     return saleOnMikhmonIsoDay(saleDate, `${y}-${m}-${d}`, rawName);
   }
   if (period === "month") {
-    const { start, end } = mikhmonMonthRange(cal);
-    return ts >= start.getTime() && ts < end.getTime();
+    return saleInMikhmonMonth(saleDate, cal, rawName);
   }
   const dayOfWeek = (cal.todayMidnight.getDay() + 6) % 7;
   const startOfWeek = new Date(cal.todayMidnight.getTime() - dayOfWeek * 86_400_000);

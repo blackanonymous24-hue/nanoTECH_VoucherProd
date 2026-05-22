@@ -346,6 +346,7 @@ export async function aggregateVendorPeriodSales(
         row.price,
         row.ip,
         row.mac,
+        row.rawName,
       );
       if (countedKeys.has(dedupKey)) continue;
       countedKeys.add(dedupKey);

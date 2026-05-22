@@ -19,7 +19,7 @@
  *      pour rattraper d'éventuels scripts insérés tardivement.
  */
 import { eq, and, sql, inArray, desc, asc, gte, lt } from "drizzle-orm";
-import { db, scriptSalesTable, routersTable } from "@workspace/db";
+import { db, scriptSalesTable, scriptSalesMonthSyncTable, routersTable } from "@workspace/db";
 import {
   fetchScriptSales,
   getRouterInfo,
@@ -84,6 +84,30 @@ export function clearRouterScriptCache(routerId: number): void {
   void clearRouterMonthSyncMarkers(routerId).catch(() => { /* non-blocking */ });
   // Note : on ne touche pas à `inFlight` — si une sync est en cours, elle finira
   // naturellement et le prochain appelant relancera une nouvelle sync derrière.
+}
+
+/**
+ * Efface le cache ventes local (scripts MikHmon en base) pour un routeur.
+ * Les scripts sur le MikroTik ne sont pas touchés — la prochaine sync les réimporte.
+ */
+export async function resetRouterSalesCache(routerId: number): Promise<{
+  deletedSales: number;
+  deletedMarkers: number;
+}> {
+  const deleted = await db
+    .delete(scriptSalesTable)
+    .where(eq(scriptSalesTable.routerId, routerId))
+    .returning({ id: scriptSalesTable.id });
+  const markerRows = await db
+    .delete(scriptSalesMonthSyncTable)
+    .where(eq(scriptSalesMonthSyncTable.routerId, routerId))
+    .returning({ id: scriptSalesMonthSyncTable.id });
+  clearRouterScriptCache(routerId);
+  logger.info(
+    { routerId, deletedSales: deleted.length, deletedMarkers: markerRows.length },
+    "script cache: reset ventes local (DB + marqueurs mois)",
+  );
+  return { deletedSales: deleted.length, deletedMarkers: markerRows.length };
 }
 
 /** Réhydrate le throttle mois courant depuis la base (survit au restart API). */
@@ -180,7 +204,7 @@ async function dedupeScriptSalesInRange(
 
   for (const row of rows) {
     const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
-    const key = scriptSaleLogicalKey(row.username, saleDate, row.price, row.ip, row.mac);
+    const key = scriptSaleLogicalKey(row.username, saleDate, row.price, row.ip, row.mac, row.rawName);
     const existingId = keepIdByKey.get(key);
     if (existingId == null) {
       keepIdByKey.set(key, row.id);
@@ -399,6 +423,8 @@ async function resolveRouterClockDate(
 export type SyncScriptCacheOptions = {
   /** Ignore le marqueur « mois frais » et refait un pull mois complet (cache partiel). */
   forceFullMonth?: boolean;
+  /** Ne pas lancer le backfill historique (12 mois) — KPI dashboard plus fiables. */
+  skipBackfill?: boolean;
 };
 
 export async function syncScriptCache(
@@ -452,7 +478,7 @@ export async function syncScriptCache(
           30_000,
         );
         monthSyncedAt.set(thisMonthKey, Date.now());
-        scheduleHistoricalBackfill(routerId, conn, cal);
+        if (!opts?.skipBackfill) scheduleHistoricalBackfill(routerId, conn, cal);
       } else {
         const lastMonthSync = monthSyncedAt.get(thisMonthKey) ?? 0;
         const monthIsFresh  = lastMonthSync > 0 && Date.now() - lastMonthSync < MONTH_FRESHNESS_MS;
@@ -479,7 +505,7 @@ export async function syncScriptCache(
             30_000,
           );
           monthSyncedAt.set(thisMonthKey, Date.now());
-          scheduleHistoricalBackfill(routerId, conn, cal);
+          if (!opts?.skipBackfill) scheduleHistoricalBackfill(routerId, conn, cal);
         }
       }
 

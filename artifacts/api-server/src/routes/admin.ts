@@ -13,7 +13,7 @@ import { verifyPassword as verifyCollabPassword, createToken as createCollabToke
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
 import { purgeOldMikhmonScripts } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
-import { clearRouterScriptCache } from "../lib/script-cache.js";
+import { clearRouterScriptCache, resetRouterSalesCache, syncScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { logger } from "../lib/logger.js";
 import { revokeSessionForToken } from "../lib/session-epoch-middleware.js";
@@ -721,6 +721,79 @@ router.post("/admin/purge-phantoms", async (req, res): Promise<void> => {
  * Forces a complete script-cache reload + historical backfill for a specific router.
  * Used to recover missed vouchers caused by router timeouts.
  */
+/**
+ * POST /api/admin/routers/:routerId/reset-sales-cache
+ * Efface mikrotik_script_sales + marqueurs de sync pour ce routeur, puis resync le mois en cours.
+ */
+router.post("/admin/routers/:routerId/reset-sales-cache", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+
+  const routerId = parseInt(req.params.routerId, 10);
+  if (isNaN(routerId)) {
+    res.status(400).json({ error: "routerId invalide" });
+    return;
+  }
+
+  const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+  if (!r) {
+    res.status(404).json({ error: "Routeur introuvable" });
+    return;
+  }
+
+  try {
+    const cleared = await resetRouterSalesCache(routerId);
+    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+    const inserted = await syncScriptCache(routerId, conn, null, { forceFullMonth: true, skipBackfill: true });
+    res.json({ ok: true, ...cleared, scriptInserted: inserted });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * POST /api/admin/reset-all-sales-cache
+ * Réinitialise le cache ventes de tous les routeurs puis resync le mois en cours (un par un).
+ */
+router.post("/admin/reset-all-sales-cache", async (req, res): Promise<void> => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {
+    res.status(401).json({ error: "Non authentifié" });
+    return;
+  }
+
+  const routers = await db.select().from(routersTable);
+  const results: { routerId: number; name: string; deletedSales: number; scriptInserted: number; error?: string }[] = [];
+
+  for (const r of routers) {
+    try {
+      const cleared = await resetRouterSalesCache(r.id);
+      const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+      const inserted = await syncScriptCache(r.id, conn, null, { forceFullMonth: true, skipBackfill: true });
+      results.push({
+        routerId: r.id,
+        name: r.name ?? r.host,
+        deletedSales: cleared.deletedSales,
+        scriptInserted: inserted,
+      });
+    } catch (err: unknown) {
+      results.push({
+        routerId: r.id,
+        name: r.name ?? r.host,
+        deletedSales: 0,
+        scriptInserted: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  res.json({ ok: true, routers: results.length, results });
+});
+
 router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ") || !verifyAdminToken(auth.slice(7))) {
