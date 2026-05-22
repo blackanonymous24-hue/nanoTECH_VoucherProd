@@ -1,15 +1,15 @@
-import { isoDayFromRawName, saleInMikhmonMonth, saleOnMikhmonIsoDay } from "./mikhmon-calendar.js";
+import {
+  isoDayFromRawName,
+  saleInMikhmonMonth,
+  saleOnMikhmonDayExact,
+  saleOnMikhmonIsoDay,
+  type MikhmonCalendar,
+} from "./mikhmon-calendar.js";
 
 /**
  * Clé logique d'une vente script — pour dédoublonner sans toucher à l'historique
  * (ventes dont le script a été purgé sur le MikroTik doivent rester en base).
  */
-/** Heure script (champ 1 du rawName) — une vente = un script MikHmon. */
-function mikhmonTimeFromRawName(rawName: string | null | undefined): string {
-  if (!rawName?.trim()) return "";
-  return rawName.split("-|-")[1]?.trim() || "00:00:00";
-}
-
 export function scriptSaleLogicalKey(
   username: string,
   saleDate: Date,
@@ -21,12 +21,7 @@ export function scriptSaleLogicalKey(
   const u = username.trim().toLowerCase();
   const p = (price ?? "").trim();
   const day = isoDayFromRawName(rawName);
-  if (day) {
-    const t = mikhmonTimeFromRawName(rawName);
-    const i = (ip ?? "").trim().toLowerCase();
-    const m = (mac ?? "").trim().toLowerCase();
-    return `${u}|${day}|${t}|${p}|${i}|${m}`;
-  }
+  if (day) return `${u}|${day}|${p}`;
   const ts = saleDate instanceof Date ? saleDate.getTime() : new Date(saleDate).getTime();
   const sec = Number.isNaN(ts) ? 0 : Math.floor(ts / 1000);
   const i = (ip ?? "").trim().toLowerCase();
@@ -40,22 +35,21 @@ export type ScriptSaleAggRow = {
   price: string | null;
   ip?: string | null;
   mac?: string | null;
-  batch?: string | null;
   /** Date script MikHmon (champ 0 du rawName) — aligne le jour avec MikHmon. */
   rawName?: string | null;
 };
 
-/** Compte / somme avec dédoublonnage (une vente = une clé logique). */
+/**
+ * Agrégats tableau de bord — même règles que MikHmon livereport.php :
+ *   • Aujourd'hui : datePart du script === jour routeur (legacy ou ISO)
+ *   • Mois : tous les scripts du mois owner (ici : lignes déjà filtrées mois + dédup technique)
+ */
 export function aggregateScriptSalesDeduped(
   rows: ScriptSaleAggRow[],
-  cal: {
-    isoDateLabel: string;
-    todayMidnight: Date;
-    tomorrowMidnight: Date;
-    startOfMonth: Date;
-    y: number;
-    m: number;
-  },
+  cal: Pick<
+    MikhmonCalendar,
+    "isoDateLabel" | "legacyDateLabel" | "todayMidnight" | "tomorrowMidnight" | "startOfMonth" | "y" | "m"
+  >,
 ): {
   dailyCount: number;
   dailyAmount: number;
@@ -80,7 +74,10 @@ export function aggregateScriptSalesDeduped(
     const key = scriptSaleLogicalKey(row.username, saleDate, row.price, row.ip, row.mac, row.rawName);
     const amount = parseAmount(row.price);
 
-    if (saleOnMikhmonIsoDay(saleDate, cal.isoDateLabel, row.rawName)) {
+    const isToday =
+      saleOnMikhmonDayExact(row.rawName, cal) ||
+      saleOnMikhmonIsoDay(saleDate, cal.isoDateLabel, row.rawName);
+    if (isToday) {
       if (!seenDaily.has(key)) {
         seenDaily.add(key);
         dailyCount += 1;

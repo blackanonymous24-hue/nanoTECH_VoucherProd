@@ -23,8 +23,12 @@ import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
-import { getMikhmonCalendar } from "../lib/mikhmon-calendar.js";
-import { loadScriptSalesAggRowsForMikhmonMonth } from "../lib/script-sales-query.js";
+import { getMikhmonCalendar, mikhmonMonthRange } from "../lib/mikhmon-calendar.js";
+import {
+  isMikhmonMonthCacheIncomplete,
+  loadScriptSalesAggRowsForMikhmonMonth,
+  reconcileSaleDatesFromRawName,
+} from "../lib/script-sales-query.js";
 import { deleteSalesCache, getSalesCache, setSalesCache } from "../lib/sales-ram-cache.js";
 import { normalizeRouterConnection, mergeMikhmonHostPort, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
 
@@ -2393,7 +2397,7 @@ async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host
     const sc = routerCacheScope(ownerAdminId, id);
     const infoHit = mGet(`info:${sc}`) ?? mGetStale(`info:${sc}`);
     const clockDate = (infoHit as { clockDate?: string | null } | null)?.clockDate ?? null;
-    await syncScriptCache(id, conn, clockDate, { skipBackfill: true }).catch(() => { /* non-blocking */ });
+    await syncScriptCache(id, conn, clockDate, { forDashboard: true, skipBackfill: true }).catch(() => { /* non-blocking */ });
     const quick = await readSalesQuickFromDb(id, clockDate);
     const cal = getMikhmonCalendar(clockDate);
     const mm = String(cal.m).padStart(2, "0");
@@ -2694,10 +2698,14 @@ async function buildDashboardPrioritySnapshot(id: number) {
   } else if (info?.serialNumber) {
     void persistRouterMikrotikSerialIfMissing(id, info.serialNumber);
   }
-  const DASHBOARD_SYNC_MS = 22_000;
-  const runSync = (forceFullMonth: boolean) =>
+  const DASHBOARD_SYNC_MS = 28_000;
+  const runSync = (opts?: { forceFullMonth?: boolean }) =>
     Promise.race([
-      syncScriptCache(id, conn, routerClockDate, { forceFullMonth, skipBackfill: true }),
+      syncScriptCache(id, conn, routerClockDate, {
+        forDashboard: true,
+        forceFullMonth: opts?.forceFullMonth,
+        skipBackfill: true,
+      }),
       new Promise<number>((_, reject) => {
         setTimeout(() => reject(new Error("sync_timeout")), DASHBOARD_SYNC_MS);
       }),
@@ -2705,8 +2713,11 @@ async function buildDashboardPrioritySnapshot(id: number) {
 
   let syncCompleted = false;
   try {
-    await runSync(false);
+    await runSync();
     syncCompleted = true;
+    const cal = getMikhmonCalendar(routerClockDate);
+    const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
+    await reconcileSaleDatesFromRawName(id, monthStart, monthEnd);
   } catch {
     syncCompleted = false;
   }
@@ -2716,14 +2727,24 @@ async function buildDashboardPrioritySnapshot(id: number) {
       void triggerSalesRefresh(r.ownerAdminId, id, r.host, r.port, r.username, r.password);
     });
   }
-  let [dbQuickSales, vendorRanking] = await Promise.all([
-    readSalesQuickFromDb(id, routerClockDate),
-    readVendorRankingQuickFromDb(id, routerClockDate),
-  ]);
-  if (dbQuickSales && dbQuickSales.dailyCount === 0 && dbQuickSales.monthlyCount > 0) {
-    await runSync(true);
-    const retry = await readSalesQuickFromDb(id, routerClockDate);
-    if (retry) dbQuickSales = retry;
+  let monthLoad = await loadScriptSalesAggRowsForMikhmonMonth(id, routerClockDate);
+  let dbQuickSales = aggregateScriptSalesDeduped(monthLoad.rows, monthLoad.cal);
+  let vendorRanking = await readVendorRankingQuickFromDb(id, routerClockDate);
+
+  if (isMikhmonMonthCacheIncomplete(dbQuickSales, monthLoad.cal, monthLoad.rows)) {
+    await runSync({ forceFullMonth: true });
+    syncCompleted = true;
+    const cal = getMikhmonCalendar(routerClockDate);
+    const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
+    await reconcileSaleDatesFromRawName(id, monthStart, monthEnd);
+    monthLoad = await loadScriptSalesAggRowsForMikhmonMonth(id, routerClockDate);
+    dbQuickSales = aggregateScriptSalesDeduped(monthLoad.rows, monthLoad.cal);
+  }
+
+  if (dbQuickSales.dailyCount === 0 && dbQuickSales.monthlyCount > 0) {
+    await runSync({ forceFullMonth: true });
+    monthLoad = await loadScriptSalesAggRowsForMikhmonMonth(id, routerClockDate);
+    dbQuickSales = aggregateScriptSalesDeduped(monthLoad.rows, monthLoad.cal);
   }
   if (dbQuickSales && dbQuickSales.dailyCount === 0) {
     try {

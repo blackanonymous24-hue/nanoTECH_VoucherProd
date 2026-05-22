@@ -7,6 +7,7 @@ import { db, scriptSalesTable } from "@workspace/db";
 import { logger } from "./logger.js";
 import {
   getMikhmonCalendar,
+  isoDayFromRawName,
   mikhmonMonthRange,
   saleInMikhmonMonth,
   type MikhmonCalendar,
@@ -187,4 +188,41 @@ export async function reconcileSaleDatesFromRawName(
     logger.info({ routerId, updated }, "script sales: sale_date réalignée depuis rawName");
   }
   return updated;
+}
+
+/** Nombre de jours distincts (date script) présents dans le cache mois — détecte sync « jour seul ». */
+export function countDistinctMikhmonSaleDays(rows: ScriptSaleAggRow[], cal: MikhmonCalendar): number {
+  const days = new Set<string>();
+  for (const row of rows) {
+    const fromRaw = isoDayFromRawName(row.rawName);
+    if (fromRaw) {
+      days.add(fromRaw);
+      continue;
+    }
+    const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
+    if (Number.isNaN(saleDate.getTime())) continue;
+    if (!saleInMikhmonMonth(saleDate, cal, row.rawName)) continue;
+    const y = saleDate.getFullYear();
+    const m = String(saleDate.getMonth() + 1).padStart(2, "0");
+    const d = String(saleDate.getDate()).padStart(2, "0");
+    days.add(`${y}-${m}-${d}`);
+  }
+  return days.size;
+}
+
+/**
+ * true si le cache local ne contient manifestement pas tout le mois (ex. mensuel === jour
+ * alors qu'on est après le 1er du mois).
+ */
+export function isMikhmonMonthCacheIncomplete(
+  agg: { dailyCount: number; monthlyCount: number },
+  cal: MikhmonCalendar,
+  rows: ScriptSaleAggRow[],
+): boolean {
+  if (agg.monthlyCount === 0) return true;
+  if (cal.d <= 1) return false;
+  if (agg.monthlyCount === agg.dailyCount && agg.dailyCount > 0) return true;
+  const distinctDays = countDistinctMikhmonSaleDays(rows, cal);
+  if (distinctDays < Math.min(cal.d, 2) && agg.monthlyCount > 0) return true;
+  return false;
 }

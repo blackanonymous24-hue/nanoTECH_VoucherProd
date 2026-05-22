@@ -52,10 +52,13 @@ export function saleOnMikhmonIsoDay(
   return `${y}-${m}-${d}` === isoDateLabel;
 }
 
-/** true si la vente appartient au mois calendaire MikHmon (champ date du script en priorité). */
+/**
+ * true si la vente appartient au mois en cours (comme livereport.php : tous les scripts
+ * owner=may2026, ou fetchSalesFromScripts : saleTs >= startOfMonth && saleTs < tomorrowMidnight).
+ */
 export function saleInMikhmonMonth(
   saleDate: Date,
-  cal: Pick<MikhmonCalendar, "y" | "m" | "startOfMonth">,
+  cal: Pick<MikhmonCalendar, "y" | "m" | "startOfMonth" | "tomorrowMidnight">,
   rawName?: string | null,
 ): boolean {
   const fromRaw = isoDayFromRawName(rawName);
@@ -65,8 +68,18 @@ export function saleInMikhmonMonth(
   }
   const ts = saleDate.getTime();
   if (Number.isNaN(ts)) return false;
-  const nextMonthStart = new Date(cal.y, cal.m, 1).getTime();
-  return ts >= cal.startOfMonth.getTime() && ts < nextMonthStart;
+  return ts >= cal.startOfMonth.getTime() && ts < cal.tomorrowMidnight.getTime();
+}
+
+/** Jour exact MikHmon livereport : explode(name)[0] === "may/22/2026" ou "2026-05-22". */
+export function saleOnMikhmonDayExact(
+  rawName: string | null | undefined,
+  cal: Pick<MikhmonCalendar, "isoDateLabel" | "legacyDateLabel">,
+): boolean {
+  if (!rawName?.trim()) return false;
+  const datePart = rawName.split("-|-")[0]?.trim() ?? "";
+  if (!datePart) return false;
+  return datePart === cal.isoDateLabel || datePart === cal.legacyDateLabel;
 }
 
 /** Parse la date RouterOS (jan/21/2026 ou 2026-05-21). */
@@ -144,7 +157,7 @@ export function saleInMikhmonPeriod(
   const ts = saleDate.getTime();
   if (Number.isNaN(ts)) return false;
   if (period === "today") {
-    return saleOnMikhmonIsoDay(saleDate, cal.isoDateLabel, rawName);
+    return saleOnMikhmonDayExact(rawName, cal) || saleOnMikhmonIsoDay(saleDate, cal.isoDateLabel, rawName);
   }
   if (period === "yesterday") {
     const yest = new Date(cal.todayMidnight.getTime() - 86_400_000);

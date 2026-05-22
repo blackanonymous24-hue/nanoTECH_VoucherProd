@@ -30,7 +30,6 @@ import {
 } from "./mikrotik.js";
 import { getMikhmonCalendar, mikhmonMonthRange, mikhmonMonthRangeFor } from "./mikhmon-calendar.js";
 import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
-import { reconcileSaleDatesFromRawName } from "./script-sales-query.js";
 import {
   closePreviousMonthIfNeeded,
   countScriptSalesInMonth,
@@ -82,17 +81,9 @@ export function clearRouterScriptCache(routerId: number): void {
     if (k.startsWith(`${routerId}:`)) monthSyncedAt.delete(k);
   }
   lastDaySyncAt.delete(routerId);
-  backfillRunning.delete(routerId);
   void clearRouterMonthSyncMarkers(routerId).catch(() => { /* non-blocking */ });
   // Note : on ne touche pas à `inFlight` — si une sync est en cours, elle finira
   // naturellement et le prochain appelant relancera une nouvelle sync derrière.
-}
-
-/** Vide tous les marqueurs mémoire sync ventes (tous routeurs / tous admins). */
-export function clearAllScriptCacheMemory(): void {
-  monthSyncedAt.clear();
-  lastDaySyncAt.clear();
-  backfillRunning.clear();
 }
 
 /**
@@ -117,36 +108,6 @@ export async function resetRouterSalesCache(routerId: number): Promise<{
     "script cache: reset ventes local (DB + marqueurs mois)",
   );
   return { deletedSales: deleted.length, deletedMarkers: markerRows.length };
-}
-
-/**
- * Purge globale du cache ventes (tous routeurs, tous tenants).
- * TRUNCATE rapide + marqueurs mémoire ; les scripts MikroTik ne sont pas supprimés.
- */
-export async function resetAllSalesCacheGlobal(): Promise<{
-  deletedSales: number;
-  deletedMarkers: number;
-}> {
-  const [salesBefore] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(scriptSalesTable);
-  const [markersBefore] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(scriptSalesMonthSyncTable);
-
-  // DELETE (pas TRUNCATE) : l'utilisateur app n'est pas toujours owner des séquences.
-  await db.delete(scriptSalesTable).where(sql`true`);
-  await db.delete(scriptSalesMonthSyncTable).where(sql`true`);
-
-  clearAllScriptCacheMemory();
-
-  const deletedSales = Number(salesBefore?.n ?? 0);
-  const deletedMarkers = Number(markersBefore?.n ?? 0);
-  logger.warn(
-    { deletedSales, deletedMarkers },
-    "script cache: purge globale ventes (tous routeurs / tous rôles)",
-  );
-  return { deletedSales, deletedMarkers };
 }
 
 /** Réhydrate le throttle mois courant depuis la base (survit au restart API). */
@@ -179,25 +140,22 @@ interface ScriptSalesRow {
 }
 
 function entriesToRows(routerId: number, entries: SaleEntry[]): ScriptSalesRow[] {
-  const rows: ScriptSalesRow[] = [];
-  for (const e of entries) {
+  return entries.map((e) => {
     const raw = [e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch].join("-|-");
-    const dt = parseMikhmonDate(e.date, e.time || "00:00:00");
-    if (!dt || Number.isNaN(dt.getTime())) continue;
-    rows.push({
+    const dt  = parseMikhmonDate(e.date, e.time || "00:00:00");
+    return {
       routerId,
-      username: e.username,
-      saleDate: dt,
-      price: String(e.price ?? ""),
-      ip: e.ip ?? "",
-      mac: e.mac ?? "",
-      validity: e.validity ?? "",
-      label: e.label ?? "",
-      batch: e.batch ?? "",
-      rawName: raw,
-    });
-  }
-  return rows;
+      username:  e.username,
+      saleDate:  dt ?? new Date(),
+      price:     String(e.price ?? ""),
+      ip:        e.ip       ?? "",
+      mac:       e.mac      ?? "",
+      validity:  e.validity ?? "",
+      label:     e.label    ?? "",
+      batch:     e.batch    ?? "",
+      rawName:   raw,
+    };
+  });
 }
 
 async function persistRows(rows: ScriptSalesRow[]): Promise<number> {
@@ -467,6 +425,11 @@ export type SyncScriptCacheOptions = {
   forceFullMonth?: boolean;
   /** Ne pas lancer le backfill historique (12 mois) — KPI dashboard plus fiables. */
   skipBackfill?: boolean;
+  /**
+   * Tableau de bord / KPI : toujours rapatrier le mois en cours (comme MikHmon ?owner=may2026),
+   * jamais le mode « jour seul » qui faisait mensuel === aujourd'hui.
+   */
+  forDashboard?: boolean;
 };
 
 export async function syncScriptCache(
@@ -525,8 +488,8 @@ export async function syncScriptCache(
         const lastMonthSync = monthSyncedAt.get(thisMonthKey) ?? 0;
         const monthIsFresh  = lastMonthSync > 0 && Date.now() - lastMonthSync < MONTH_FRESHNESS_MS;
 
-        if (monthIsFresh) {
-          // Mois en cours déjà sync récemment → on ne récupère que le JOUR.
+        if (monthIsFresh && !opts?.forDashboard && !opts?.forceFullMonth) {
+          // Hors dashboard : mois frais → sync jour seul (rapide pour usage-sync).
           const lastDay = lastDaySyncAt.get(routerId) ?? 0;
           if (Date.now() - lastDay < DAY_SYNC_MIN_GAP_MS) {
             return 0; // throttle silencieux
@@ -558,7 +521,6 @@ export async function syncScriptCache(
       if (mode === "first-month" || mode === "current-month") {
         const rec = await appendMonthScriptSales(routerId, rows, monthStart, monthEnd);
         inserted = rec.inserted;
-        await reconcileSaleDatesFromRawName(routerId, monthStart, monthEnd);
         const cnt = await countScriptSalesInMonth(routerId, thisYear, thisMonth);
         await upsertMonthSyncRecord(routerId, thisYear, thisMonth, cnt, {
           verified: false,
@@ -567,9 +529,6 @@ export async function syncScriptCache(
       } else {
         // Sync jour seul : n'étend pas la fenêtre « mois frais » (sinon plus de resync mois complet).
         inserted = await persistRows(rows);
-        if (inserted > 0) {
-          await dedupeScriptSalesInRange(routerId, monthStart, monthEnd);
-        }
       }
 
       await autoCleanMikrotikIfEnabled(routerId, conn, rows);

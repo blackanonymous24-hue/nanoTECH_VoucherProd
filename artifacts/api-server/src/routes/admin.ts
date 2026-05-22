@@ -13,13 +13,7 @@ import { verifyPassword as verifyCollabPassword, createToken as createCollabToke
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
 import { purgeOldMikhmonScripts } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
-import {
-  clearRouterScriptCache,
-  resetAllSalesCacheGlobal,
-  resetRouterSalesCache,
-  syncScriptCache,
-} from "../lib/script-cache.js";
-import { purgeAllSalesRamCaches } from "../lib/sales-ram-cache.js";
+import { clearRouterScriptCache, resetRouterSalesCache, syncScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { logger } from "../lib/logger.js";
 import { revokeSessionForToken } from "../lib/session-epoch-middleware.js";
@@ -753,7 +747,11 @@ router.post("/admin/routers/:routerId/reset-sales-cache", async (req, res): Prom
   try {
     const cleared = await resetRouterSalesCache(routerId);
     const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-    const inserted = await syncScriptCache(routerId, conn, null, { forceFullMonth: true, skipBackfill: true });
+    const inserted = await syncScriptCache(routerId, conn, null, {
+      forDashboard: true,
+      forceFullMonth: true,
+      skipBackfill: true,
+    });
     res.json({ ok: true, ...cleared, scriptInserted: inserted });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -763,10 +761,7 @@ router.post("/admin/routers/:routerId/reset-sales-cache", async (req, res): Prom
 
 /**
  * POST /api/admin/reset-all-sales-cache
- * Purge globale mikrotik_script_sales (+ marqueurs mois) pour TOUS les routeurs / tenants,
- * puis resync mois en cours depuis MikroTik (formats owner ISO + legacy RouterOS).
- *
- * Body optionnel : { resync?: boolean (default true), concurrency?: number (default 4) }
+ * Réinitialise le cache ventes de tous les routeurs puis resync le mois en cours (un par un).
  */
 router.post("/admin/reset-all-sales-cache", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -775,70 +770,36 @@ router.post("/admin/reset-all-sales-cache", async (req, res): Promise<void> => {
     return;
   }
 
-  const resync = req.body?.resync !== false;
-  const concurrency = Math.min(8, Math.max(1, Number(req.body?.concurrency) || 4));
-
-  try {
-  const cleared = await resetAllSalesCacheGlobal();
-  purgeAllSalesRamCaches();
-
-  if (!resync) {
-    res.json({
-      ok: true,
-      purged: cleared,
-      resync: false,
-      message: "Base ventes vidée. Resync au prochain accès dashboard ou force-sync.",
-    });
-    return;
-  }
-
   const routers = await db.select().from(routersTable);
-  type Row = { routerId: number; name: string; scriptInserted: number; error?: string };
-  const results: Row[] = [];
-  let idx = 0;
+  const results: { routerId: number; name: string; deletedSales: number; scriptInserted: number; error?: string }[] = [];
 
-  async function worker(): Promise<void> {
-    for (;;) {
-      const i = idx++;
-      if (i >= routers.length) return;
-      const r = routers[i]!;
-      try {
-        clearRouterScriptCache(r.id);
-        const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
-        const inserted = await syncScriptCache(r.id, conn, null, {
-          forceFullMonth: true,
-          skipBackfill: true,
-        });
-        results.push({
-          routerId: r.id,
-          name: r.name ?? r.host,
-          scriptInserted: inserted,
-        });
-      } catch (err: unknown) {
-        results.push({
-          routerId: r.id,
-          name: r.name ?? r.host,
-          scriptInserted: 0,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+  for (const r of routers) {
+    try {
+      const cleared = await resetRouterSalesCache(r.id);
+      const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+      const inserted = await syncScriptCache(r.id, conn, null, {
+        forDashboard: true,
+        forceFullMonth: true,
+        skipBackfill: true,
+      });
+      results.push({
+        routerId: r.id,
+        name: r.name ?? r.host,
+        deletedSales: cleared.deletedSales,
+        scriptInserted: inserted,
+      });
+    } catch (err: unknown) {
+      results.push({
+        routerId: r.id,
+        name: r.name ?? r.host,
+        deletedSales: 0,
+        scriptInserted: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(concurrency, routers.length) }, () => worker()));
-
-  res.json({
-    ok: true,
-    purged: cleared,
-    resync: true,
-    routers: routers.length,
-    results,
-  });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ err }, "reset-all-sales-cache failed");
-    res.status(500).json({ error: msg });
-  }
+  res.json({ ok: true, routers: results.length, results });
 });
 
 router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<void> => {
