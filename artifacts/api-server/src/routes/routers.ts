@@ -20,6 +20,7 @@ import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
 import { getMikhmonCalendar } from "../lib/mikhmon-calendar.js";
 import { loadScriptSalesAggRowsForMikhmonMonth } from "../lib/script-sales-query.js";
+import { deleteSalesCache, getSalesCache, setSalesCache } from "../lib/sales-ram-cache.js";
 import { normalizeRouterConnection, mergeMikhmonHostPort, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
 
 const router = Router();
@@ -2305,13 +2306,6 @@ router.delete("/routers/:id/ip-bindings/:bindingId", async (req, res): Promise<v
 });
 
 // ─── Sales cache ─────────────────────────────────────────────────────────────
-interface SalesCacheEntry { data: SalesReport; updatedAt: number; }
-const salesCache = new Map<string, SalesCacheEntry>();
-
-/** Vide le cache RAM ventes (tous admins / gérants / dashboards). */
-export function purgeAllSalesRamCaches(): void {
-  salesCache.clear();
-}
 const salesRefreshing = new Set<number>();
 const SALES_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -2398,7 +2392,7 @@ async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host
           totalCount: 0, totalAmount: 0,
           dateLabel: `${y}-${mm}-${d}`, monthLabel: `${mm}${y}`,
         };
-    salesCache.set(sc, { data, updatedAt: Date.now() });
+    setSalesCache(sc, { data, updatedAt: Date.now() });
   } catch { /* keep stale cache on error */ } finally {
     salesRefreshing.delete(id);
   }
@@ -2412,7 +2406,7 @@ export function purgeRouterRowVolatileCaches(ownerAdminId: number | null, router
   _usersCountCache.delete(scope);
   ipBindingsCache.delete(scope);
   hotspotCookiesCache.delete(scope);
-  salesCache.delete(scope);
+  deleteSalesCache(scope);
   purgeMikKeysForScope(scope);
   clearRouterScriptCache(routerId);
 }
@@ -2484,7 +2478,7 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
   const salesScope = routerCacheScope(r.ownerAdminId, id);
-  const cached = salesCache.get(salesScope);
+  const cached = getSalesCache(salesScope);
   const now = Date.now();
 
   // Trigger background refresh if cache is absent, stale (> TTL), or aging (> 2min)
@@ -2729,7 +2723,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const mm = String(dashCal.m).padStart(2, "0");
   const y = dashCal.y;
   const d = String(dashCal.d).padStart(2, "0");
-  const salesCached = salesCache.get(sc);
+  const salesCached = getSalesCache(sc);
   const dm = dbQuickSales ?? {
     dailyCount: salesCached?.data.dailyCount ?? 0,
     dailyAmount: salesCached?.data.dailyAmount ?? 0,

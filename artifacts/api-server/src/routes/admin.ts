@@ -19,7 +19,7 @@ import {
   resetRouterSalesCache,
   syncScriptCache,
 } from "../lib/script-cache.js";
-import { purgeAllSalesRamCaches } from "./routers.js";
+import { purgeAllSalesRamCaches } from "../lib/sales-ram-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { logger } from "../lib/logger.js";
 import { revokeSessionForToken } from "../lib/session-epoch-middleware.js";
