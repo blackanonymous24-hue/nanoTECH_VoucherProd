@@ -16,6 +16,42 @@ export type MikhmonCalendar = {
   startOfMonth: Date;
 };
 
+/** Convertit une date script MikHmon (ISO ou legacy) en YYYY-MM-DD. */
+export function toIsoDateStr(datePart: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+  const leg = datePart.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
+  if (leg) {
+    const mIdx = MIKHMON_MONTH_ABBR.indexOf(leg[1].toLowerCase());
+    if (mIdx >= 0) {
+      return `${leg[3]}-${String(mIdx + 1).padStart(2, "0")}-${String(Number(leg[2])).padStart(2, "0")}`;
+    }
+  }
+  return datePart;
+}
+
+/** Jour calendaire MikHmon extrait du rawName script (champ date avant -|-). */
+export function isoDayFromRawName(rawName: string | null | undefined): string | null {
+  if (!rawName?.trim()) return null;
+  const datePart = rawName.split("-|-")[0]?.trim() ?? "";
+  if (!datePart) return null;
+  const iso = toIsoDateStr(datePart);
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+}
+
+/** true si la vente appartient au jour cal.isoDateLabel (comme le filtre jour MikHmon). */
+export function saleOnMikhmonIsoDay(
+  saleDate: Date,
+  isoDateLabel: string,
+  rawName?: string | null,
+): boolean {
+  const fromRaw = isoDayFromRawName(rawName);
+  if (fromRaw) return fromRaw === isoDateLabel;
+  const y = saleDate.getFullYear();
+  const m = String(saleDate.getMonth() + 1).padStart(2, "0");
+  const d = String(saleDate.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}` === isoDateLabel;
+}
+
 /** Parse la date RouterOS (jan/21/2026 ou 2026-05-21). */
 export function parseRouterClockDate(clockDate: string | null | undefined): Date | null {
   if (!clockDate?.trim()) return null;
@@ -86,15 +122,19 @@ export function saleInMikhmonPeriod(
   saleDate: Date,
   period: MikhmonVendorPeriod,
   cal: MikhmonCalendar,
+  rawName?: string | null,
 ): boolean {
   const ts = saleDate.getTime();
   if (Number.isNaN(ts)) return false;
   if (period === "today") {
-    return ts >= cal.todayMidnight.getTime() && ts < cal.tomorrowMidnight.getTime();
+    return saleOnMikhmonIsoDay(saleDate, cal.isoDateLabel, rawName);
   }
   if (period === "yesterday") {
-    const yestStart = cal.todayMidnight.getTime() - 86_400_000;
-    return ts >= yestStart && ts < cal.todayMidnight.getTime();
+    const yest = new Date(cal.todayMidnight.getTime() - 86_400_000);
+    const y = yest.getFullYear();
+    const m = String(yest.getMonth() + 1).padStart(2, "0");
+    const d = String(yest.getDate()).padStart(2, "0");
+    return saleOnMikhmonIsoDay(saleDate, `${y}-${m}-${d}`, rawName);
   }
   if (period === "month") {
     const { start, end } = mikhmonMonthRange(cal);

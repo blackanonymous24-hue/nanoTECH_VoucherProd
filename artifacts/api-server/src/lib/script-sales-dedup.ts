@@ -1,3 +1,5 @@
+import { saleOnMikhmonIsoDay } from "./mikhmon-calendar.js";
+
 /**
  * Clé logique d'une vente script — pour dédoublonner sans toucher à l'historique
  * (ventes dont le script a été purgé sur le MikroTik doivent rester en base).
@@ -24,12 +26,15 @@ export type ScriptSaleAggRow = {
   price: string | null;
   ip?: string | null;
   mac?: string | null;
+  /** Date script MikHmon (champ 0 du rawName) — aligne le jour avec MikHmon. */
+  rawName?: string | null;
 };
 
 /** Compte / somme avec dédoublonnage (une vente = une clé logique). */
 export function aggregateScriptSalesDeduped(
   rows: ScriptSaleAggRow[],
   cal: {
+    isoDateLabel: string;
     todayMidnight: Date;
     tomorrowMidnight: Date;
     startOfMonth: Date;
@@ -62,7 +67,7 @@ export function aggregateScriptSalesDeduped(
     const ts = saleDate.getTime();
     const amount = parseAmount(row.price);
 
-    if (ts >= cal.todayMidnight.getTime() && ts < cal.tomorrowMidnight.getTime()) {
+    if (saleOnMikhmonIsoDay(saleDate, cal.isoDateLabel, row.rawName)) {
       if (!seenDaily.has(key)) {
         seenDaily.add(key);
         dailyCount += 1;

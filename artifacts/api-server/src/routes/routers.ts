@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, listHotspotProfileSchedulers, removeSystemScheduler, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, parseMikhmonDate, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, listHotspotProfileSchedulers, removeSystemScheduler, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 import { runUsageSync } from "../lib/usage-sync.js";
@@ -2346,6 +2346,7 @@ async function readSalesQuickFromDb(
         price: scriptSalesTable.price,
         ip: scriptSalesTable.ip,
         mac: scriptSalesTable.mac,
+        rawName: scriptSalesTable.rawName,
       })
       .from(scriptSalesTable)
       .where(and(
@@ -2682,6 +2683,37 @@ async function buildDashboardPrioritySnapshot(id: number) {
     await runSync(true);
     const retry = await readSalesQuickFromDb(id, routerClockDate);
     if (retry) dbQuickSales = retry;
+  }
+  if (dbQuickSales && dbQuickSales.dailyCount === 0) {
+    try {
+      const cal = getMikhmonCalendar(routerClockDate);
+      const liveEntries = await fetchScriptSales(
+        conn,
+        { type: "day", year: cal.y, month: cal.m, day: cal.d },
+        15_000,
+      );
+      if (liveEntries.length > 0) {
+        const overlayRows = liveEntries.map((e) => {
+          const rawName = [e.date, e.time || "00:00:00", e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch].join("-|-");
+          return {
+            username: e.username,
+            saleDate: parseMikhmonDate(e.date, e.time || "00:00:00") ?? new Date(),
+            price: String(e.price ?? ""),
+            ip: e.ip,
+            mac: e.mac,
+            rawName,
+          };
+        });
+        const overlay = aggregateScriptSalesDeduped(overlayRows, cal);
+        if (overlay.dailyCount > 0) {
+          dbQuickSales = {
+            ...dbQuickSales,
+            dailyCount: overlay.dailyCount,
+            dailyAmount: overlay.dailyAmount,
+          };
+        }
+      }
+    } catch { /* non-blocking */ }
   }
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();

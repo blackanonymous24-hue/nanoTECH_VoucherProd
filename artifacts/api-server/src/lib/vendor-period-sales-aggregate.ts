@@ -200,6 +200,7 @@ export async function fetchUnattributedPeriodSales(
         validity: scriptSalesTable.validity,
         label: scriptSalesTable.label,
         batch: scriptSalesTable.batch,
+        rawName: scriptSalesTable.rawName,
         createdAt: scriptSalesTable.createdAt,
       })
       .from(scriptSalesTable)
@@ -221,7 +222,7 @@ export async function fetchUnattributedPeriodSales(
       const decValidity = decodeRouterText(row.validity);
       if (resolveVendorIdFromSale(vendors, { batch: decBatch, username: decUsername }) != null) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
-      if (Number.isNaN(saleDate.getTime()) || !saleInMikhmonPeriod(saleDate, period, cal)) continue;
+      if (Number.isNaN(saleDate.getTime()) || !saleInMikhmonPeriod(saleDate, period, cal, row.rawName)) continue;
       lines.push({
         id: -row.id,
         username: decUsername,
@@ -320,6 +321,7 @@ export async function aggregateVendorPeriodSales(
         price: scriptSalesTable.price,
         ip: scriptSalesTable.ip,
         mac: scriptSalesTable.mac,
+        rawName: scriptSalesTable.rawName,
       })
       .from(scriptSalesTable)
       .where(
@@ -347,8 +349,8 @@ export async function aggregateVendorPeriodSales(
       );
       if (countedKeys.has(dedupKey)) continue;
       countedKeys.add(dedupKey);
-      const daily = saleInMikhmonPeriod(saleDate, "today", cal);
-      const monthly = saleInMikhmonPeriod(saleDate, "month", cal);
+      const daily = saleInMikhmonPeriod(saleDate, "today", cal, row.rawName);
+      const monthly = saleInMikhmonPeriod(saleDate, "month", cal, row.rawName);
       const amount = parsePriceNum(row.price);
       if (vendorId == null) {
         bumpUnattr(daily, monthly, amount);
@@ -429,6 +431,7 @@ export async function fetchVendorPeriodSales(
         validity: scriptSalesTable.validity,
         label: scriptSalesTable.label,
         batch: scriptSalesTable.batch,
+        rawName: scriptSalesTable.rawName,
         createdAt: scriptSalesTable.createdAt,
       })
       .from(scriptSalesTable)
@@ -448,7 +451,7 @@ export async function fetchVendorPeriodSales(
       const decValidity = decodeRouterText(row.validity);
       if (!saleBelongsToVendor(vendorRow, { batch: decBatch, username: decUsername })) continue;
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
-      if (Number.isNaN(saleDate.getTime()) || !saleInMikhmonPeriod(saleDate, period as MikhmonVendorPeriod, cal)) continue;
+      if (Number.isNaN(saleDate.getTime()) || !saleInMikhmonPeriod(saleDate, period as MikhmonVendorPeriod, cal, row.rawName)) continue;
       lines.push({
         id: -row.id,
         username: decUsername,
