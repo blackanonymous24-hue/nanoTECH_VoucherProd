@@ -16,7 +16,13 @@ import { withRouterLock } from "../lib/router-lock.js";
 import { clearRouterScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { logger } from "../lib/logger.js";
-import { incrementSessionEpochForToken } from "../lib/session-epoch-middleware.js";
+import { revokeSessionForToken } from "../lib/session-epoch-middleware.js";
+import {
+  deviceLabelFromRequest,
+  isSessionPersistentRequest,
+  newSessionId,
+  registerUserSession,
+} from "../lib/user-session-store.js";
 import {
   adminLoginPasswordCollisionMessage,
   findAdminLoginPasswordHashCollision,
@@ -144,10 +150,18 @@ async function postLogin(req: Request, res: Response): Promise<void> {
           return;
         }
       }
+      const adminSessionId = newSessionId();
+      await registerUserSession({
+        sessionId: adminSessionId,
+        userType: "admin",
+        userId: adminRow.id,
+        deviceLabel: deviceLabelFromRequest(req),
+        persistent: isSessionPersistentRequest(req),
+      });
       res.json({
         role: "admin",
         isSuperAdmin: adminRow.isSuperAdmin,
-        token: createAdminToken(adminRow.id, adminRow.isSuperAdmin, adminRow.sessionEpoch ?? 0),
+        token: createAdminToken(adminRow.id, adminRow.isSuperAdmin, adminRow.sessionEpoch ?? 0, adminSessionId),
         admin: {
           id: adminRow.id,
           login: adminRow.login,
@@ -174,9 +188,17 @@ async function postLogin(req: Request, res: Response): Promise<void> {
       if (routerIds.length === 0 && manager.routerId != null) {
         routerIds = [manager.routerId];
       }
+      const managerSessionId = newSessionId();
+      await registerUserSession({
+        sessionId: managerSessionId,
+        userType: "manager",
+        userId: manager.id,
+        deviceLabel: deviceLabelFromRequest(req),
+        persistent: isSessionPersistentRequest(req),
+      });
       res.json({
         role: "manager",
-        token: createManagerToken(manager.id, routerIds, manager.sessionEpoch ?? 0),
+        token: createManagerToken(manager.id, routerIds, manager.sessionEpoch ?? 0, managerSessionId),
         manager: {
           id: manager.id,
           name: manager.name,
@@ -197,9 +219,17 @@ async function postLogin(req: Request, res: Response): Promise<void> {
   if (vendor?.passwordHash && vendor.isActive) {
     const valid = await verifyVendorPassword(password, vendor.passwordHash);
     if (valid) {
+      const vendorSessionId = newSessionId();
+      await registerUserSession({
+        sessionId: vendorSessionId,
+        userType: "vendor",
+        userId: vendor.id,
+        deviceLabel: deviceLabelFromRequest(req),
+        persistent: isSessionPersistentRequest(req),
+      });
       res.json({
         role: "vendor",
-        token: createVendorToken(vendor.id, vendor.sessionEpoch ?? 0),
+        token: createVendorToken(vendor.id, vendor.sessionEpoch ?? 0, vendorSessionId),
         vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
       });
       return;
@@ -219,9 +249,17 @@ async function postLogin(req: Request, res: Response): Promise<void> {
         .from(collaborateurRoutersTable)
         .where(eq(collaborateurRoutersTable.collaborateurId, collab.id));
       const routerIds = routerRows.map((r) => r.routerId);
+      const collabSessionId = newSessionId();
+      await registerUserSession({
+        sessionId: collabSessionId,
+        userType: "collaborateur",
+        userId: collab.id,
+        deviceLabel: deviceLabelFromRequest(req),
+        persistent: isSessionPersistentRequest(req),
+      });
       res.json({
         role: "collaborateur",
-        token: createCollabToken(collab.id, routerIds, collab.sessionEpoch ?? 0),
+        token: createCollabToken(collab.id, routerIds, collab.sessionEpoch ?? 0, collabSessionId),
         collaborateur: { id: collab.id, name: collab.name, username: collab.username, routerIds },
       });
       return;
@@ -240,14 +278,14 @@ async function postLogin(req: Request, res: Response): Promise<void> {
 router.post("/login", postLogin);
 router.post("/auth/sign-in", postLogin);
 
-/** Révoque tous les jetons du compte (autres navigateurs / onglets). */
+/** Révoque uniquement la session de l'appareil courant (logout / idle). */
 router.post("/session/revoke", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) {
     res.status(401).json({ error: "Non authentifié" });
     return;
   }
-  const ok = await incrementSessionEpochForToken(auth.slice(7));
+  const ok = await revokeSessionForToken(auth.slice(7));
   if (!ok) {
     res.status(401).json({ error: "Non authentifié" });
     return;

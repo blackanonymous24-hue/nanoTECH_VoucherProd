@@ -173,8 +173,35 @@ export async function ensurePrintScaleColumns(): Promise<void> {
 }
 
 /**
- * Colonne session_epoch sur admin_settings, vendors, managers et collaborateurs.
- * Utilisée par sessionEpochMiddleware pour invalider les sessions sur logout / idle.
+ * Sessions actives par appareil (logout / idle ne touchent que la ligne concernée).
+ */
+export async function ensureUserSessionsTable(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        id serial PRIMARY KEY,
+        session_id uuid NOT NULL UNIQUE,
+        user_type text NOT NULL,
+        user_id integer NOT NULL,
+        device_label text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        last_active_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_session_id ON user_sessions (session_id)
+    `);
+    await db.execute(sql`
+      ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS persistent boolean NOT NULL DEFAULT false
+    `);
+    logger.info("DB compat: table user_sessions vérifiée / ajoutée");
+  } catch (err) {
+    logger.error({ err }, "DB compat: impossible de créer user_sessions");
+  }
+}
+
+/**
+ * Colonne session_epoch — invalidation globale (anciens jetons sans session_id uniquement).
  */
 export async function ensureSessionEpochColumns(): Promise<void> {
   try {

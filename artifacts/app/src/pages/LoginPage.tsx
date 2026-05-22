@@ -139,9 +139,13 @@ export default function LoginPage({ mode }: LoginPageProps) {
     try {
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
+          const persistSession = isNativeAppShell() || remember;
           const { res, data } = await fetchJsonWithTimeout<Record<string, unknown>>(AUTH_SIGN_IN_PATH, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(persistSession ? { "X-Session-Persistent": "1" } : {}),
+            },
             body: JSON.stringify({
               login: loginTrimmed,
               password: form.password,

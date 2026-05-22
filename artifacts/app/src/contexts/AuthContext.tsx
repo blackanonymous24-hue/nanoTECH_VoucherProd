@@ -282,7 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onRevoked = () => {
-      if (isNativeAppShell()) return;
+      if (isNativeAppShell() || !!localStorage.getItem(TOKEN_KEY)) return;
       void logout({ skipRevoke: true });
     };
     window.addEventListener(VOUCHERNET_SESSION_REVOKED_EVENT, onRevoked);

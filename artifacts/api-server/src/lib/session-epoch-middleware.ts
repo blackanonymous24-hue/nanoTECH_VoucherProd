@@ -5,8 +5,9 @@ import { verifyAdminTokenFull } from "./admin-auth.js";
 import { verifyToken as verifyManagerToken } from "./manager-auth.js";
 import { verifyToken as verifyVendorToken } from "./vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "./collaborateur-auth.js";
+import { isUserSessionActive, revokeUserSessionById } from "./user-session-store.js";
 
-/** Réponse 401 quand un autre appareil a révoqué la session (logout / idle). */
+/** Réponse 401 quand cette session appareil a été révoquée (logout / idle). */
 export const SESSION_REVOKED_CODE = "SESSION_REVOKED";
 
 function skipSessionEpochCheck(req: Request): boolean {
@@ -29,8 +30,33 @@ function skipSessionEpochCheck(req: Request): boolean {
   return false;
 }
 
+async function sessionRevoked(res: Response): Promise<void> {
+  res.status(401).json({ error: "Session expirée", code: SESSION_REVOKED_CODE });
+}
+
+async function validatePerDeviceSession(sessionId: string | undefined, res: Response): Promise<boolean> {
+  if (!sessionId) return true;
+  if (!(await isUserSessionActive(sessionId))) {
+    await sessionRevoked(res);
+    return false;
+  }
+  return true;
+}
+
+async function validateLegacyEpoch(
+  tokenEpoch: number,
+  dbEpoch: number,
+  res: Response,
+): Promise<boolean> {
+  if (tokenEpoch !== dbEpoch) {
+    await sessionRevoked(res);
+    return false;
+  }
+  return true;
+}
+
 /**
- * Vérifie que le jeton Bearer porte le même session_epoch que la ligne SQL.
+ * Valide le jeton Bearer : session par appareil (user_sessions) ou epoch global (anciens jetons).
  */
 export async function sessionEpochMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (skipSessionEpochCheck(req)) {
@@ -41,15 +67,14 @@ export async function sessionEpochMiddleware(req: Request, res: Response, next: 
 
   const admin = verifyAdminTokenFull(token);
   if (admin) {
-    const [row] = await db
-      .select({ sessionEpoch: adminSettingsTable.sessionEpoch })
-      .from(adminSettingsTable)
-      .where(eq(adminSettingsTable.id, admin.adminId))
-      .limit(1);
-    const dbEpoch = row?.sessionEpoch ?? 0;
-    if (admin.sessionEpoch !== dbEpoch) {
-      res.status(401).json({ error: "Session expirée", code: SESSION_REVOKED_CODE });
-      return;
+    if (!(await validatePerDeviceSession(admin.sessionId, res))) return;
+    if (!admin.sessionId) {
+      const [row] = await db
+        .select({ sessionEpoch: adminSettingsTable.sessionEpoch })
+        .from(adminSettingsTable)
+        .where(eq(adminSettingsTable.id, admin.adminId))
+        .limit(1);
+      if (!(await validateLegacyEpoch(admin.sessionEpoch, row?.sessionEpoch ?? 0, res))) return;
     }
     next();
     return;
@@ -57,15 +82,14 @@ export async function sessionEpochMiddleware(req: Request, res: Response, next: 
 
   const mgr = verifyManagerToken(token);
   if (mgr) {
-    const [row] = await db
-      .select({ sessionEpoch: managersTable.sessionEpoch })
-      .from(managersTable)
-      .where(eq(managersTable.id, mgr.managerId))
-      .limit(1);
-    const dbEpoch = row?.sessionEpoch ?? 0;
-    if (mgr.sessionEpoch !== dbEpoch) {
-      res.status(401).json({ error: "Session expirée", code: SESSION_REVOKED_CODE });
-      return;
+    if (!(await validatePerDeviceSession(mgr.sessionId, res))) return;
+    if (!mgr.sessionId) {
+      const [row] = await db
+        .select({ sessionEpoch: managersTable.sessionEpoch })
+        .from(managersTable)
+        .where(eq(managersTable.id, mgr.managerId))
+        .limit(1);
+      if (!(await validateLegacyEpoch(mgr.sessionEpoch, row?.sessionEpoch ?? 0, res))) return;
     }
     next();
     return;
@@ -73,15 +97,14 @@ export async function sessionEpochMiddleware(req: Request, res: Response, next: 
 
   const vnd = verifyVendorToken(token);
   if (vnd) {
-    const [row] = await db
-      .select({ sessionEpoch: vendorsTable.sessionEpoch })
-      .from(vendorsTable)
-      .where(eq(vendorsTable.id, vnd.vendorId))
-      .limit(1);
-    const dbEpoch = row?.sessionEpoch ?? 0;
-    if (vnd.sessionEpoch !== dbEpoch) {
-      res.status(401).json({ error: "Session expirée", code: SESSION_REVOKED_CODE });
-      return;
+    if (!(await validatePerDeviceSession(vnd.sessionId, res))) return;
+    if (!vnd.sessionId) {
+      const [row] = await db
+        .select({ sessionEpoch: vendorsTable.sessionEpoch })
+        .from(vendorsTable)
+        .where(eq(vendorsTable.id, vnd.vendorId))
+        .limit(1);
+      if (!(await validateLegacyEpoch(vnd.sessionEpoch, row?.sessionEpoch ?? 0, res))) return;
     }
     next();
     return;
@@ -89,15 +112,14 @@ export async function sessionEpochMiddleware(req: Request, res: Response, next: 
 
   const col = verifyCollaborateurToken(token);
   if (col) {
-    const [row] = await db
-      .select({ sessionEpoch: collaborateursTable.sessionEpoch })
-      .from(collaborateursTable)
-      .where(eq(collaborateursTable.id, col.collaborateurId))
-      .limit(1);
-    const dbEpoch = row?.sessionEpoch ?? 0;
-    if (col.sessionEpoch !== dbEpoch) {
-      res.status(401).json({ error: "Session expirée", code: SESSION_REVOKED_CODE });
-      return;
+    if (!(await validatePerDeviceSession(col.sessionId, res))) return;
+    if (!col.sessionId) {
+      const [row] = await db
+        .select({ sessionEpoch: collaborateursTable.sessionEpoch })
+        .from(collaborateursTable)
+        .where(eq(collaborateursTable.id, col.collaborateurId))
+        .limit(1);
+      if (!(await validateLegacyEpoch(col.sessionEpoch, row?.sessionEpoch ?? 0, res))) return;
     }
     next();
     return;
@@ -106,6 +128,32 @@ export async function sessionEpochMiddleware(req: Request, res: Response, next: 
   next();
 }
 
+/** Révoque uniquement la session de l'appareil courant (logout / idle). */
+export async function revokeSessionForToken(token: string): Promise<boolean> {
+  const admin = verifyAdminTokenFull(token);
+  if (admin) {
+    if (admin.sessionId) return revokeUserSessionById(admin.sessionId);
+    return incrementSessionEpochForToken(token);
+  }
+  const mgr = verifyManagerToken(token);
+  if (mgr) {
+    if (mgr.sessionId) return revokeUserSessionById(mgr.sessionId);
+    return incrementSessionEpochForToken(token);
+  }
+  const vnd = verifyVendorToken(token);
+  if (vnd) {
+    if (vnd.sessionId) return revokeUserSessionById(vnd.sessionId);
+    return incrementSessionEpochForToken(token);
+  }
+  const col = verifyCollaborateurToken(token);
+  if (col) {
+    if (col.sessionId) return revokeUserSessionById(col.sessionId);
+    return incrementSessionEpochForToken(token);
+  }
+  return false;
+}
+
+/** Invalidation globale — anciens jetons sans session_id par appareil. */
 export async function incrementSessionEpochForToken(token: string): Promise<boolean> {
   const admin = verifyAdminTokenFull(token);
   if (admin) {

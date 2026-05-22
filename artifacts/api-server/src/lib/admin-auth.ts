@@ -33,15 +33,23 @@ interface AdminTokenPayload {
   admin: true;
   exp: number;
   sid: number;
+  /** UUID session appareil (user_sessions). */
+  ssid?: string;
 }
 
-export function createAdminToken(adminId: number, isSuperAdmin: boolean, sessionEpoch: number): string {
+export function createAdminToken(
+  adminId: number,
+  isSuperAdmin: boolean,
+  sessionEpoch: number,
+  sessionId?: string,
+): string {
   const payload: AdminTokenPayload = {
     adminId,
     isSuperAdmin,
     admin: true,
     exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
     sid: sessionEpoch,
+    ...(sessionId ? { ssid: sessionId } : {}),
   };
   const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto.createHmac("sha256", SECRET).update(encoded).digest("base64url");
@@ -56,7 +64,12 @@ export function createAdminToken(adminId: number, isSuperAdmin: boolean, session
  * scoping or super-admin gating). For a simple yes/no check, see
  * `verifyAdminToken` which preserves the original boolean API.
  */
-export function verifyAdminTokenFull(token: string): { adminId: number; isSuperAdmin: boolean; sessionEpoch: number } | null {
+export function verifyAdminTokenFull(token: string): {
+  adminId: number;
+  isSuperAdmin: boolean;
+  sessionEpoch: number;
+  sessionId?: string;
+} | null {
   try {
     const dot = token.lastIndexOf(".");
     if (dot === -1) return null;
@@ -70,7 +83,8 @@ export function verifyAdminTokenFull(token: string): { adminId: number; isSuperA
     // release) won't carry it and are treated as invalid so users re-login.
     if (typeof data.adminId !== "number") return null;
     const sessionEpoch = typeof data.sid === "number" && Number.isFinite(data.sid) ? data.sid : 0;
-    return { adminId: data.adminId, isSuperAdmin: !!data.isSuperAdmin, sessionEpoch };
+    const sessionId = typeof data.ssid === "string" && data.ssid.length > 0 ? data.ssid : undefined;
+    return { adminId: data.adminId, isSuperAdmin: !!data.isSuperAdmin, sessionEpoch, sessionId };
   } catch {
     return null;
   }

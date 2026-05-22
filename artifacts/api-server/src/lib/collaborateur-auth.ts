@@ -23,15 +23,31 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   });
 }
 
-export function createToken(collaborateurId: number, routerIds: number[], sessionEpoch: number): string {
+export function createToken(
+  collaborateurId: number,
+  routerIds: number[],
+  sessionEpoch: number,
+  sessionId?: string,
+): string {
   const payload = Buffer.from(
-    JSON.stringify({ collaborateurId, routerIds, sid: sessionEpoch, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 })
+    JSON.stringify({
+      collaborateurId,
+      routerIds,
+      sid: sessionEpoch,
+      ...(sessionId ? { ssid: sessionId } : {}),
+      exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    })
   ).toString("base64url");
   const sig = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 
-export function verifyToken(token: string): { collaborateurId: number; routerIds: number[]; sessionEpoch: number } | null {
+export function verifyToken(token: string): {
+  collaborateurId: number;
+  routerIds: number[];
+  sessionEpoch: number;
+  sessionId?: string;
+} | null {
   try {
     const dot = token.lastIndexOf(".");
     if (dot === -1) return null;
@@ -43,11 +59,13 @@ export function verifyToken(token: string): { collaborateurId: number; routerIds
       collaborateurId: number;
       routerIds: number[];
       sid?: number;
+      ssid?: string;
       exp: number;
     };
     if (data.exp < Date.now()) return null;
     const sessionEpoch = typeof data.sid === "number" && Number.isFinite(data.sid) ? data.sid : 0;
-    return { collaborateurId: data.collaborateurId, routerIds: data.routerIds, sessionEpoch };
+    const sessionId = typeof data.ssid === "string" && data.ssid.length > 0 ? data.ssid : undefined;
+    return { collaborateurId: data.collaborateurId, routerIds: data.routerIds, sessionEpoch, sessionId };
   } catch {
     return null;
   }

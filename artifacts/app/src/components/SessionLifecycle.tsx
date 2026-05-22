@@ -57,9 +57,11 @@ function sharedLastActivityMs(localRef: number): number {
 }
 
 export function SessionLifecycle() {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, sessionPersisted } = useAuth();
   const apkNative = isNativeAppShell();
   const apkNoAutoLogout = isApkNoAutoLogout();
+  /** APK ou « Se souvenir de moi » : pas de déconnexion / révocation automatique. */
+  const skipAutoLogout = apkNoAutoLogout || sessionPersisted;
   const lastLocalPulse = useRef(0);
   const lastSharedRef = useRef(Date.now());
   const tabHidePauseTimerRef = useRef<number | null>(null);
@@ -113,7 +115,7 @@ export function SessionLifecycle() {
     };
 
     const applyRemoteLogout = (broadcastTs: number, opts?: { force?: boolean }) => {
-      if (!opts?.force && apkNoAutoLogout) return;
+      if (!opts?.force && skipAutoLogout) return;
       if (broadcastTs <= logoutBroadcastSeenRef.current) return;
       logoutBroadcastSeenRef.current = broadcastTs;
       performIdleLogout({ revoke: false, showToast: true });
@@ -129,7 +131,7 @@ export function SessionLifecycle() {
       if (!data || typeof data !== "object") return;
       if (data.type === "activity") bumpShared(data.t);
       if (data.type === "logout-all") {
-        if (apkNoAutoLogout) return;
+        if (skipAutoLogout) return;
         applyRemoteLogout(typeof data.t === "number" ? data.t : readSessionLogoutBroadcastTs());
       }
     };
@@ -143,7 +145,7 @@ export function SessionLifecycle() {
         return;
       }
       if (ev.key === AUTH_TOKEN_LS_KEY && ev.oldValue && !ev.newValue) {
-        if (apkNoAutoLogout) return;
+        if (skipAutoLogout) return;
         applyRemoteLogout(Date.now(), { force: true });
       }
     };
@@ -185,7 +187,7 @@ export function SessionLifecycle() {
         clearTabHidePauseTimer();
         setApiRequestPause(false);
         pulse("visible");
-        if (!apkNoAutoLogout) checkLogoutBroadcast();
+        if (!skipAutoLogout) checkLogoutBroadcast();
         const lsAct = readSharedLastActivityTs();
         if (lsAct > lastSharedRef.current) lastSharedRef.current = lsAct;
         if (apkNative) {
@@ -214,7 +216,7 @@ export function SessionLifecycle() {
     const idleLogoutMs = SESSION_IDLE_LOGOUT_MS;
 
     let intervalId: number | undefined;
-    if (!apkNoAutoLogout) {
+    if (!skipAutoLogout) {
       intervalId = window.setInterval(() => {
         checkLogoutBroadcast();
         const last = sharedLastActivityMs(lastSharedRef.current);
@@ -248,7 +250,7 @@ export function SessionLifecycle() {
       if (intervalId !== undefined) window.clearInterval(intervalId);
       setApiRequestPause(false);
     };
-  }, [isAuthenticated, logout, apkNative, apkNoAutoLogout]);
+  }, [isAuthenticated, logout, apkNative, apkNoAutoLogout, skipAutoLogout, sessionPersisted]);
 
   return null;
 }

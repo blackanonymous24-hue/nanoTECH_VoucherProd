@@ -17,6 +17,7 @@ import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
+import { getMikhmonCalendar } from "../lib/mikhmon-calendar.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -695,7 +696,16 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
     if (hit) { res.json(hit); return; }
   }
 
-  const online = await pingRouter({ host: r.host, port: r.port, username: r.username, password: r.password });
+  const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+  let online = await pingRouter(conn);
+  if (!online) {
+    try {
+      const apiTest = await testConnection(conn);
+      online = apiTest.success;
+    } catch {
+      online = false;
+    }
+  }
   const payload = { success: online };
   mSet(ck, MIK_TTL.ping, payload);
   res.json(payload);
@@ -2284,123 +2294,66 @@ const SALES_TTL = 5 * 60 * 1000; // 5 minutes
 
 const voucherRowMoney = sql`coalesce(nullif(regexp_replace(coalesce(${vouchersTable.salePrice}, ${vouchersTable.price}), '[^0-9.]', '', 'g'), '')::numeric, 0)`;
 
-/** Pas de double comptage : bon ignoré s'il existe déjà une vente script même user + même jour LOCAL (aligné MikHmon). */
-function voucherNotCoveredByScriptSameLocalDay(now: Date, tzOffsetMinutes = 0) {
-  const nowMikrotik = new Date(now.getTime() + tzOffsetMinutes * 60000);
-  const startOfDayMikrotik = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), nowMikrotik.getUTCDate()));
-  const endOfDayMikrotik = new Date(startOfDayMikrotik.getTime() + 86_400_000);
-  const startOfDay = new Date(startOfDayMikrotik.getTime() - tzOffsetMinutes * 60000);
-  const endOfDay = new Date(endOfDayMikrotik.getTime() - tzOffsetMinutes * 60000);
+/** Pas de double comptage rapport ventes : bon ignoré si script même user + même jour UTC. */
+function voucherNotCoveredByScriptSameUtcDay() {
   return notExists(
     db.select({ id: scriptSalesTable.id })
       .from(scriptSalesTable)
       .where(and(
         eq(scriptSalesTable.routerId, vouchersTable.routerId),
         sql`lower(${scriptSalesTable.username}) = lower(${vouchersTable.username})`,
-        sql`${scriptSalesTable.saleDate} >= ${startOfDay.toISOString()}`,
-        sql`${scriptSalesTable.saleDate} < ${endOfDay.toISOString()}`,
-        sql`${vouchersTable.usedAt} >= ${startOfDay.toISOString()}`,
-        sql`${vouchersTable.usedAt} < ${endOfDay.toISOString()}`,
+        sql`((${scriptSalesTable.saleDate} AT TIME ZONE 'UTC')::date) = ((${vouchersTable.usedAt} AT TIME ZONE 'UTC')::date)`,
       )),
   );
 }
 
 /**
- * Agrégats jour / mois pour le tableau de bord — **même périmètre** que
- * `GET /routers/:id/sales-report` : `mikrotik_script_sales` + bons vendus
- * **hors doublon** (pas de ligne script même login + même jour).
- *
- * Utilise les bornes de date calculées en JS (heure locale serveur) pour
- * garantir l'alignement exact avec MikHmon, indépendamment de la timezone
- * de la session PostgreSQL.
+ * Agrégats jour / mois — calendrier routeur (horloge MikroTik) comme MikHmon live-report.
  */
-async function readSalesQuickFromDb(routerId: number): Promise<{
+async function readSalesQuickFromDb(
+  routerId: number,
+  routerClockDate?: string | null,
+): Promise<{
   dailyCount: number;
   dailyAmount: number;
   monthlyCount: number;
   monthlyAmount: number;
 } | null> {
-  // Fetch router's timezone offset from DB
-  const [routerRow] = await db
-    .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
-    .from(routersTable)
-    .where(eq(routersTable.id, routerId))
-    .limit(1);
-
-  const tzOffset = routerRow?.timezoneOffsetMinutes ?? 0;
-  const now = new Date();
-
-  // Calculate day/month boundaries in MikroTik's local time, then convert to UTC
-  // MikroTik local midnight = UTC midnight - tzOffset
-  const nowUtc = Date.now();
-  const nowMikrotik = new Date(nowUtc + tzOffset * 60000);
-  const startOfDayMikrotik = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), nowMikrotik.getUTCDate()));
-  const endOfDayMikrotik = new Date(startOfDayMikrotik.getTime() + 86_400_000);
-  const startOfMonthMikrotik = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth(), 1));
-  const endOfMonthMikrotik = new Date(Date.UTC(nowMikrotik.getUTCFullYear(), nowMikrotik.getUTCMonth() + 1, 1));
-
-  // Convert back to UTC timestamps for DB comparison
-  const startOfDay = new Date(startOfDayMikrotik.getTime() - tzOffset * 60000);
-  const endOfDay = new Date(endOfDayMikrotik.getTime() - tzOffset * 60000);
-  const startOfMonth = new Date(startOfMonthMikrotik.getTime() - tzOffset * 60000);
-  const endOfMonth = new Date(endOfMonthMikrotik.getTime() - tzOffset * 60000);
-
+  const cal = getMikhmonCalendar(routerClockDate);
+  const { todayMidnight, tomorrowMidnight, startOfMonth } = cal;
+  const nextMonthStart = new Date(cal.y, cal.m, 1);
   try {
-    const [scriptRow, voucherRow] = await Promise.all([
-      db
-        .select({
-          dailyCount: sql<number>`cast(count(*) filter (where
-            ${scriptSalesTable.saleDate} >= ${startOfDay.toISOString()}
-            AND ${scriptSalesTable.saleDate} < ${endOfDay.toISOString()}
-          ) as int)`,
-          dailyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
-            ${scriptSalesTable.saleDate} >= ${startOfDay.toISOString()}
-            AND ${scriptSalesTable.saleDate} < ${endOfDay.toISOString()}
-          ), 0)`,
-          monthlyCount: sql<number>`cast(count(*) filter (where
-            ${scriptSalesTable.saleDate} >= ${startOfMonth.toISOString()}
-            AND ${scriptSalesTable.saleDate} < ${endOfMonth.toISOString()}
-          ) as int)`,
-          monthlyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
-            ${scriptSalesTable.saleDate} >= ${startOfMonth.toISOString()}
-            AND ${scriptSalesTable.saleDate} < ${endOfMonth.toISOString()}
-          ), 0)`,
-        })
-        .from(scriptSalesTable)
-        .where(eq(scriptSalesTable.routerId, routerId)),
-      db
-        .select({
-          dailyCount: sql<number>`cast(count(*) filter (where
-            ${vouchersTable.usedAt} >= ${startOfDay.toISOString()}
-            AND ${vouchersTable.usedAt} < ${endOfDay.toISOString()}
-          ) as int)`,
-          dailyAmount: sql<number>`coalesce(sum(${voucherRowMoney}) filter (where
-            ${vouchersTable.usedAt} >= ${startOfDay.toISOString()}
-            AND ${vouchersTable.usedAt} < ${endOfDay.toISOString()}
-          ), 0)`,
-          monthlyCount: sql<number>`cast(count(*) filter (where
-            ${vouchersTable.usedAt} >= ${startOfMonth.toISOString()}
-            AND ${vouchersTable.usedAt} < ${endOfMonth.toISOString()}
-          ) as int)`,
-          monthlyAmount: sql<number>`coalesce(sum(${voucherRowMoney}) filter (where
-            ${vouchersTable.usedAt} >= ${startOfMonth.toISOString()}
-            AND ${vouchersTable.usedAt} < ${endOfMonth.toISOString()}
-          ), 0)`,
-        })
-        .from(vouchersTable)
-        .where(and(
-          eq(vouchersTable.routerId, routerId),
-          isNotNull(vouchersTable.usedAt),
-          voucherNotCoveredByScriptSameLocalDay(now, tzOffset),
-        )),
-    ]);
-    const s = scriptRow[0];
-    const v = voucherRow[0];
+    // MikHmon dashboard = scripts `comment=mikhmon` uniquement (pas les bons SQL).
+    const [s] = await db
+      .select({
+        dailyCount: sql<number>`cast(count(*) filter (where
+          ${scriptSalesTable.saleDate} >= ${todayMidnight}
+          AND ${scriptSalesTable.saleDate} < ${tomorrowMidnight}
+        ) as int)`,
+        dailyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
+          ${scriptSalesTable.saleDate} >= ${todayMidnight}
+          AND ${scriptSalesTable.saleDate} < ${tomorrowMidnight}
+        ), 0)`,
+        monthlyCount: sql<number>`cast(count(*) filter (where
+          ${scriptSalesTable.saleDate} >= ${startOfMonth}
+          AND ${scriptSalesTable.saleDate} < ${nextMonthStart}
+        ) as int)`,
+        monthlyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
+          ${scriptSalesTable.saleDate} >= ${startOfMonth}
+          AND ${scriptSalesTable.saleDate} < ${nextMonthStart}
+        ), 0)`,
+      })
+      .from(scriptSalesTable)
+      .where(and(
+        eq(scriptSalesTable.routerId, routerId),
+        gte(scriptSalesTable.saleDate, startOfMonth),
+        lt(scriptSalesTable.saleDate, nextMonthStart),
+      ));
     return {
-      dailyCount:    Number(s?.dailyCount    ?? 0) + Number(v?.dailyCount    ?? 0),
-      dailyAmount:   Number(s?.dailyAmount   ?? 0) + Number(v?.dailyAmount   ?? 0),
-      monthlyCount:  Number(s?.monthlyCount  ?? 0) + Number(v?.monthlyCount  ?? 0),
-      monthlyAmount: Number(s?.monthlyAmount ?? 0) + Number(v?.monthlyAmount ?? 0),
+      dailyCount:    Number(s?.dailyCount    ?? 0),
+      dailyAmount:   Number(s?.dailyAmount   ?? 0),
+      monthlyCount:  Number(s?.monthlyCount  ?? 0),
+      monthlyAmount: Number(s?.monthlyAmount ?? 0),
     };
   } catch {
     return null;
@@ -2416,8 +2369,11 @@ async function triggerSalesRefresh(ownerAdminId: number | null, id: number, host
   salesRefreshing.add(id);
   try {
     const conn = { host, port, username, password };
+    const sc = routerCacheScope(ownerAdminId, id);
+    const infoHit = mGet(`info:${sc}`) ?? mGetStale(`info:${sc}`);
+    const clockDate = (infoHit as { clockDate?: string | null } | null)?.clockDate ?? null;
     // Use 90s timeout — background work, not tied to a short HTTP client deadline
-    const data = await fetchSalesFromScripts(conn, 90_000);
+    const data = await fetchSalesFromScripts(conn, 90_000, clockDate);
     const scope = routerCacheScope(ownerAdminId, id);
     salesCache.set(scope, { data, updatedAt: Date.now() });
   } catch { /* keep stale cache on error */ } finally {
@@ -2662,24 +2618,39 @@ async function buildDashboardPrioritySnapshot(id: number) {
     ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
     : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
 
-  // Jour / mois : agrégation DB (alignée rapport local). Autres périodes : cache RAM live si dispo.
+  // Ventes KPI : priorité cache live MikHmon (scripts routeur), sinon DB calendrier routeur.
   const salesCached = salesCache.get(sc);
+  const routerClockDate = info?.clockDate ?? null;
+  const LIVE_SALES_MAX_AGE_MS = 90_000;
+  const liveSalesFresh = salesCached && (now - salesCached.updatedAt) < LIVE_SALES_MAX_AGE_MS;
+  if (!liveSalesFresh && !salesRefreshing.has(id)) {
+    setImmediate(() => {
+      void triggerSalesRefresh(r.ownerAdminId, id, r.host, r.port, r.username, r.password);
+    });
+  }
   const [dbQuickSales, vendorRanking] = await Promise.all([
-    readSalesQuickFromDb(id),
+    readSalesQuickFromDb(id, routerClockDate),
     readVendorRankingQuickFromDb(id),
   ]);
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
   const d = String(new Date().getDate()).padStart(2, "0");
-  const dm = dbQuickSales
-    ?? (salesCached
-      ? {
-        dailyCount: salesCached.data.dailyCount,
-        dailyAmount: salesCached.data.dailyAmount,
-        monthlyCount: salesCached.data.monthlyCount,
-        monthlyAmount: salesCached.data.monthlyAmount,
-      }
-      : { dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0 });
+  const dm = liveSalesFresh && salesCached
+    ? {
+      dailyCount: salesCached.data.dailyCount,
+      dailyAmount: salesCached.data.dailyAmount,
+      monthlyCount: salesCached.data.monthlyCount,
+      monthlyAmount: salesCached.data.monthlyAmount,
+    }
+    : (dbQuickSales
+      ?? (salesCached
+        ? {
+          dailyCount: salesCached.data.dailyCount,
+          dailyAmount: salesCached.data.dailyAmount,
+          monthlyCount: salesCached.data.monthlyCount,
+          monthlyAmount: salesCached.data.monthlyAmount,
+        }
+        : { dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0 }));
   const sales: SalesReport & { _cachedAt: number | null } = {
     dailyCount: dm.dailyCount,
     dailyAmount: dm.dailyAmount,
@@ -2697,7 +2668,9 @@ async function buildDashboardPrioritySnapshot(id: number) {
     totalAmount: salesCached?.data.totalAmount ?? 0,
     dateLabel: `${y}-${mm}-${d}`,
     monthLabel: `${mm}${y}`,
-    _cachedAt: dbQuickSales != null ? Date.now() : (salesCached ? salesCached.updatedAt : null),
+    _cachedAt: liveSalesFresh
+      ? (salesCached?.updatedAt ?? Date.now())
+      : (dbQuickSales != null ? Date.now() : (salesCached ? salesCached.updatedAt : null)),
   };
 
   return {
@@ -2711,7 +2684,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
       // sessionsKnown : vrai si le cache plein OU le fast count (cold-start parallèle) ont des données
       sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
       usersKnown: !!usersCached,
-      salesKnown: dbQuickSales != null || !!salesCached,
+      salesKnown: liveSalesFresh || dbQuickSales != null || !!salesCached,
       vendorRankingKnown: vendorRanking != null,
       infoKnown: !!(infoFreshAfter || infoStaleAfter),
     },
@@ -3108,14 +3081,6 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   }
 
   try {
-    // Fetch router timezone offset for date boundary calculations
-    const [tzRouterRow] = await db
-      .select({ timezoneOffsetMinutes: routersTable.timezoneOffsetMinutes })
-      .from(routersTable)
-      .where(eq(routersTable.id, id))
-      .limit(1);
-    const routerTzOffset = tzRouterRow?.timezoneOffsetMinutes ?? 0;
-
     // Construction des bornes UTC sargables (utilise idx_script_sales_router_date)
     let rangeStart: Date | null = null;
     let rangeEnd: Date | null = null;
@@ -3211,7 +3176,7 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
             .where(and(
               eq(vouchersTable.routerId, id),
               isNotNull(vouchersTable.usedAt),
-              voucherNotCoveredByScriptSameLocalDay(new Date(), routerTzOffset),
+              voucherNotCoveredByScriptSameUtcDay(),
               gte(vouchersTable.usedAt, rangeStart),
               lt (vouchersTable.usedAt, rangeEnd),
             ))

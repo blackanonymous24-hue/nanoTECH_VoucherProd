@@ -1,103 +1,7 @@
 import { RouterOSAPI } from "node-routeros";
 import net from "net";
 import { toWin1252, fromWin1252, fixEncoding, decodeRouterText } from "./router-encoding.js";
-
-// ─── MikroTik timezone cache ────────────────────────────────────────────────
-/** Cache timezone offset (minutes from UTC) per router host:port. */
-const routerTimezoneOffset = new Map<string, number>();
-
-/**
- * Fetches the MikroTik's timezone offset in minutes from UTC.
- * Uses /system/clock/print to get the router's local time and compares it
- * with the actual UTC time to derive the offset.
- * Returns the offset in minutes (e.g., 0 for UTC, 60 for UTC+1).
- */
-async function detectRouterTimezoneOffset(api: RouterOSAPI): Promise<number> {
-  try {
-    const clockRows = await api.write("/system/clock/print").catch(() => [] as Record<string, unknown>[]);
-    if (clockRows.length === 0) return 0;
-
-    const clock = clockRows[0];
-    const mtDate = clock["date"] as string | undefined;
-    const mtTime = clock["time"] as string | undefined;
-
-    if (!mtDate || !mtTime) return 0;
-
-    // MikroTik date format: "may/22/2026" or "2026-05-22"
-    // MikroTik time format: "14:30:45"
-    const months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-    let year: number, month: number, day: number;
-
-    const isoMatch = mtDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (isoMatch) {
-      year = parseInt(isoMatch[1], 10);
-      month = parseInt(isoMatch[2], 10) - 1;
-      day = parseInt(isoMatch[3], 10);
-    } else {
-      const legMatch = mtDate.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
-      if (!legMatch) return 0;
-      year = parseInt(legMatch[3], 10);
-      month = months.indexOf(legMatch[1].toLowerCase());
-      day = parseInt(legMatch[2], 10);
-    }
-
-    const timeParts = mtTime.split(":").map(Number);
-    if (timeParts.length < 3) return 0;
-
-    // Create a Date assuming the MikroTik time is UTC (we'll compare below)
-    const mtAsUtc = Date.UTC(year, month, day, timeParts[0], timeParts[1], timeParts[2]);
-
-    // Get the actual UTC time right now
-    const nowUtc = Date.now();
-
-    // The difference tells us the offset
-    // If MikroTik is UTC+2, its clock shows a time 2 hours ahead of UTC
-    // So mtAsUtc will be 2 hours "ahead" when interpreted as UTC
-    // offset = mtAsUtc - nowUtc (in minutes)
-    const offsetMs = mtAsUtc - nowUtc;
-    const offsetMinutes = Math.round(offsetMs / 60000);
-
-    // Clamp to reasonable range (-12h to +14h)
-    return Math.max(-720, Math.min(840, offsetMinutes));
-  } catch {
-    return 0;
-  }
-}
-
-/** Get cached timezone offset for a router, or detect it. */
-export async function getRouterTimezoneOffset(conn: RouterConnection, api: RouterOSAPI): Promise<number> {
-  const key = `${conn.host}:${conn.port}`;
-  if (routerTimezoneOffset.has(key)) {
-    return routerTimezoneOffset.get(key)!;
-  }
-
-  const offset = await detectRouterTimezoneOffset(api);
-  routerTimezoneOffset.set(key, offset);
-  return offset;
-}
-
-/** Clear timezone cache for a router (e.g., on reconnection). */
-export function clearRouterTimezoneCache(host: string, port: number): void {
-  routerTimezoneOffset.delete(`${host}:${port}`);
-}
-
-/** Persist cached timezone offset to DB for a router. */
-export async function persistRouterTimezoneOffset(routerId: number, host: string, port: number, db: any): Promise<void> {
-  const key = `${host}:${port}`;
-  const offset = routerTimezoneOffset.get(key);
-  if (offset === undefined) return;
-
-  try {
-    const { eq, sql } = await import("drizzle-orm");
-    const { routersTable } = await import("@workspace/db");
-    await db
-      .update(routersTable)
-      .set({ timezoneOffsetMinutes: offset })
-      .where(eq(routersTable.id, routerId));
-  } catch {
-    // Non-critical — will be re-detected on next connection
-  }
-}
+import { getMikhmonCalendar } from "./mikhmon-calendar.js";
 
 /** Filtre scheduler par nom de profil (UTF-8 + forme Win1252 sur le fil). */
 async function printSchedulersByProfileName(
@@ -392,11 +296,6 @@ export async function withRouter<T>(
 
   try {
     await Promise.race([api.connect(), timeoutPromise]);
-    // Auto-detect timezone on first connection (cached per host:port)
-    if (!routerTimezoneOffset.has(key)) {
-      const tz = await detectRouterTimezoneOffset(api);
-      routerTimezoneOffset.set(key, tz);
-    }
     const result = await Promise.race([fn(api), timeoutPromise]);
     return result;
   } finally {
@@ -1492,21 +1391,16 @@ export interface SalesReport {
  *
  *  Price is always at index 3.
  */
-export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 60000): Promise<SalesReport> {
+export async function fetchSalesFromScripts(
+  conn: RouterConnection,
+  timeoutMs = 60000,
+  routerClockDate?: string | null,
+): Promise<SalesReport> {
   return withRouter(conn, async (api) => {
-    const now = new Date();
-    const mm  = String(now.getMonth() + 1).padStart(2, "0");
-    const y   = now.getFullYear();
-    const d   = String(now.getDate()).padStart(2, "0");
+    const cal = getMikhmonCalendar(routerClockDate);
+    const { y, m, d, isoDateLabel, legacyDateLabel, isoOwner, todayMidnight, tomorrowMidnight, startOfMonth } = cal;
 
-    const isoDateLabel    = `${y}-${mm}-${d}`;
-    const legacyDateLabel = `${MIKHMON_MONTH_ABBR[now.getMonth()]}/${d}/${y}`;
-    const isoOwner        = `${mm}${y}`;
-
-    // ── Period boundaries (local dates, time-zeroed) ──────────────────────
-    const todayMidnight    = new Date(y, now.getMonth(), now.getDate());
     const yestMidnight     = new Date(todayMidnight.getTime() - 86400_000);
-    const tomorrowMidnight = new Date(todayMidnight.getTime() + 86400_000);
 
     // Week: Mon–Sun
     const dayOfWeek        = (todayMidnight.getDay() + 6) % 7; // 0=Mon..6=Sun
@@ -1514,8 +1408,7 @@ export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 
     const startOfLastWeek  = new Date(startOfWeek.getTime()  - 7 * 86400_000);
     const endOfLastWeek    = startOfWeek;
 
-    const startOfMonth     = new Date(y, now.getMonth(), 1);
-    const startOfLastMonth = new Date(y, now.getMonth() - 1, 1);
+    const startOfLastMonth = new Date(y, m - 2, 1);
     const endOfLastMonth   = startOfMonth;
 
     // ── Fetch ALL mikhmon sales scripts in one call ───────────────────────
@@ -1529,7 +1422,7 @@ export async function fetchSalesFromScripts(conn: RouterConnection, timeoutMs = 
     if (allScripts.length === 0) {
       const ownerSet = new Set<string>();
       for (let i = 0; i <= 12; i++) {
-        const dt  = new Date(y, now.getMonth() - i, 1);
+        const dt  = new Date(y, m - 1 - i, 1);
         const mm2 = String(dt.getMonth() + 1).padStart(2, "0");
         const y2  = dt.getFullYear();
         ownerSet.add(`${mm2}${y2}`);                                    // ISO: "022026"
@@ -1740,36 +1633,25 @@ export interface SaleEntry {
   validity: string;
   label: string;
   batch: string;
-  /** Internal UTC timestamp (set by fetchScriptSales with timezone offset). */
-  _ts?: number;
 }
 
 // ─── MikHMon date helpers (shared by fetchScriptSales & fetchSaleDetails) ────
 
 const MIKHMON_MONTH_ABBR = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
-/** Parse both ISO ("2026-02-02") and legacy ("nov/04/2025") date parts into a Date.
- *  The timezoneOffsetMinutes parameter adjusts the parsed time to UTC.
- *  MikroTik stores dates in its local time; we need to convert to UTC for DB storage.
- */
-function parseMikhmonDate(datePart: string, timePart?: string, timezoneOffsetMinutes = 0): Date | null {
+/** Parse both ISO ("2026-02-02") and legacy ("nov/04/2025") date parts into a Date. */
+function parseMikhmonDate(datePart: string, timePart?: string): Date | null {
   const time = timePart && /^\d{1,2}:\d{2}:\d{2}$/.test(timePart) ? timePart : "00:00:00";
   if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
-    const [hh = 0, mm = 0, ss = 0] = time.split(":").map(Number);
-    // Parse as UTC first, then subtract the MikroTik timezone offset to get true UTC
-    const d = new Date(`${datePart}T${time}Z`);
-    if (isNaN(d.getTime())) return null;
-    // Subtract offset: if MikroTik is UTC+2, the local time is 2h ahead, so UTC = local - 2h
-    return new Date(d.getTime() - timezoneOffsetMinutes * 60000);
+    const d = new Date(`${datePart}T${time}`);
+    return isNaN(d.getTime()) ? null : d;
   }
   const leg = datePart.match(/^([a-z]{3})\/(\d{1,2})\/(\d{4})$/i);
   if (leg) {
     const mIdx = MIKHMON_MONTH_ABBR.indexOf(leg[1].toLowerCase());
     if (mIdx < 0) return null;
     const [hh = 0, mm = 0, ss = 0] = time.split(":").map(Number);
-    // Create as UTC, then adjust for timezone offset
-    const utc = Date.UTC(Number(leg[3]), mIdx, Number(leg[2]), hh, mm, ss);
-    return new Date(utc - timezoneOffsetMinutes * 60000);
+    return new Date(Number(leg[3]), mIdx, Number(leg[2]), hh, mm, ss);
   }
   return null;
 }
@@ -1847,9 +1729,6 @@ export async function fetchScriptSales(
       }
     }
 
-    // Detect MikroTik timezone offset once per connection
-    const tzOffset = await getRouterTimezoneOffset(conn, api);
-
     // Day filtering in JS
     const dayFilter = filter.type === "day" ? filter.day : null;
 
@@ -1872,7 +1751,7 @@ export async function fetchScriptSales(
         if (!rawDate.endsWith(`-${dd}`) && !rawDate.match(new RegExp(`^[a-z]{3}\\/${dd}\\/`, "i"))) continue;
       }
 
-      const parsed = parseMikhmonDate(rawDate, rawTime, tzOffset);
+      const parsed = parseMikhmonDate(rawDate, rawTime);
       if (!parsed) continue;
 
       entries.push({

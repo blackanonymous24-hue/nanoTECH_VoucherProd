@@ -27,7 +27,7 @@ export const adminSettingsTable = pgTable("admin_settings", {
   printScaleMobile: integer("print_scale_mobile"),
   passwordPlain: text("password_plain"),
   verificationCode: text("verification_code"),
-  /** Incrémenté à la révocation (logout / idle) — le JWT embarque la valeur au login. */
+  /** Invalidation globale (anciens jetons sans session par appareil). */
   sessionEpoch: integer("session_epoch").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

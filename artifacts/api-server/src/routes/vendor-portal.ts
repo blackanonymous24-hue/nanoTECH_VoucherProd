@@ -2,6 +2,12 @@ import { Router } from "express";
 import { eq, desc, ne, count, sql, and, gte, lt, isNotNull, isNull } from "drizzle-orm";
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
+import {
+  deviceLabelFromRequest,
+  isSessionPersistentRequest,
+  newSessionId,
+  registerUserSession,
+} from "../lib/user-session-store.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { carryOverByVendorBeforeWeek } from "../lib/vendor-carryover.js";
@@ -243,7 +249,15 @@ router.post("/vendor-portal/login", async (req, res): Promise<void> => {
     return;
   }
 
-  const token = createToken(vendor.id, vendor.sessionEpoch ?? 0);
+  const vendorSessionId = newSessionId();
+  await registerUserSession({
+    sessionId: vendorSessionId,
+    userType: "vendor",
+    userId: vendor.id,
+    deviceLabel: deviceLabelFromRequest(req),
+    persistent: isSessionPersistentRequest(req),
+  });
+  const token = createToken(vendor.id, vendor.sessionEpoch ?? 0, vendorSessionId);
 
   // Préchauffer le cache dashboard en arrière-plan dès le login.
   // Quand le client fera son premier GET /vendor-portal/me quelques ms plus

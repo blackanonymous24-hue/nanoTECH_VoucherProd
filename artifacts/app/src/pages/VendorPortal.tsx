@@ -373,6 +373,7 @@ function LoginPage({ onLogin }: { onLogin: (token: string, vendor: VendorInfo) =
     try {
       const res = await api("/vendor-portal/login", {
         method: "POST",
+        headers: isNativeAppShell() ? { "X-Session-Persistent": "1" } : undefined,
         body: JSON.stringify({ username, password }),
       });
       const data = await res.json();

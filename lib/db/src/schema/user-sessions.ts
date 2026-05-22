@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, uuid, boolean } from "drizzle-orm/pg-core";
 import { adminSettingsTable } from "./admin-settings.js";
 import { vendorsTable } from "./vendors.js";
 import { managersTable } from "./managers.js";
@@ -22,6 +22,8 @@ export const userSessionsTable = pgTable("user_sessions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Dernière activité (mise à jour à chaque requête API). */
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Session longue durée (« Se souvenir de moi » / APK) — pas de révocation idle. */
+  persistent: boolean("persistent").notNull().default(false),
 });
 
 export type UserSession = typeof userSessionsTable.$inferSelect;
