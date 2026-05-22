@@ -1,17 +1,17 @@
-import { sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, adminSettingsTable } from "@workspace/db";
 import { verifyPassword } from "./admin-auth.js";
 
-/** Tous les comptes admin avec cet identifiant (insensible à la casse). */
+/** Compte(s) admin avec cet identifiant exact (sensible à la casse). */
 export async function findAdminsByLogin(
   loginTrimmed: string,
 ): Promise<Array<typeof adminSettingsTable.$inferSelect>> {
-  const key = loginTrimmed.trim().toLowerCase();
+  const key = loginTrimmed.trim();
   if (!key) return [];
   return db
     .select()
     .from(adminSettingsTable)
-    .where(sql`lower(${adminSettingsTable.login}) = ${key}`);
+    .where(eq(adminSettingsTable.login, key));
 }
 
 /**

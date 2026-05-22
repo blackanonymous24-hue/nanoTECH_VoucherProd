@@ -22,7 +22,7 @@ export async function getOriginalSuperAdminId(): Promise<number | null> {
 }
 
 export function loginMatchesOriginalSuperAdmin(loginTrimmed: string, originalLogin: string): boolean {
-  return loginTrimmed.trim().toLowerCase() === originalLogin.trim().toLowerCase();
+  return loginTrimmed.trim() === originalLogin.trim();
 }
 
 /**
