@@ -2,7 +2,7 @@ import "source-map-support/register.js";
 import "./load-env.js";
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
-import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensureTicketTemplatePresetColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureManagerRoutersTable, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensureVendorSettlementModeColumn, ensurePrintScaleColumns, ensureUserSessionsTable, ensureSessionEpochColumns, normalizeStoredRouterHosts } from "./lib/ensure-router-currency-column.js";
+import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureRouterTimezoneOffsetColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensureTicketTemplatePresetColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureManagerRoutersTable, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensureVendorSettlementModeColumn, ensurePrintScaleColumns, ensureUserSessionsTable, ensureSessionEpochColumns, normalizeStoredRouterHosts, repairVpnGatewayRouterPorts } from "./lib/ensure-router-currency-column.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
 import { warmProfileSnapshots } from "./lib/warm-profiles.js";
 import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
@@ -37,6 +37,7 @@ async function start() {
   // before missing columns exist (race) or fail permanently on older DBs.
   await ensureRouterCurrencyColumn();
   await ensureRouterAutoDeleteSalesScriptsColumn();
+  await ensureRouterTimezoneOffsetColumn();
   await ensureDropAdminSettingsVoucherPrintColumns();
   await ensureTicketTemplateColumn();
   await ensureTicketTemplatePresetColumn();
@@ -52,6 +53,7 @@ async function start() {
   await ensureUserSessionsTable();
   await ensureSessionEpochColumns();
   await normalizeStoredRouterHosts();
+  await repairVpnGatewayRouterPorts();
   await ensureSuperAdminPasswordPlainBackfill();
 
   await new Promise<void>((resolve) => {
