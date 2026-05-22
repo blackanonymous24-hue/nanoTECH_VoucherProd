@@ -134,8 +134,9 @@ export async function resetAllSalesCacheGlobal(): Promise<{
     .select({ n: sql<number>`count(*)::int` })
     .from(scriptSalesMonthSyncTable);
 
-  await db.execute(sql`TRUNCATE TABLE mikrotik_script_sales RESTART IDENTITY`);
-  await db.execute(sql`TRUNCATE TABLE mikrotik_script_sales_month_sync RESTART IDENTITY`);
+  // DELETE (pas TRUNCATE) : l'utilisateur app n'est pas toujours owner des séquences.
+  await db.delete(scriptSalesTable).where(sql`true`);
+  await db.delete(scriptSalesMonthSyncTable).where(sql`true`);
 
   clearAllScriptCacheMemory();
 

@@ -18,15 +18,13 @@ c = paramiko.SSHClient()
 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 c.connect(env["VPS_HOST"], port=int(env.get("VPS_PORT", "22")), username=env["VPS_USER"], password=env["VPS_SSH_PASSWORD"], timeout=30)
 
-sql = """
-TRUNCATE TABLE mikrotik_script_sales_month_sync RESTART IDENTITY;
-TRUNCATE TABLE mikrotik_script_sales RESTART IDENTITY;
-"""
+sql = (
+    "TRUNCATE TABLE mikrotik_script_sales_month_sync, mikrotik_script_sales RESTART IDENTITY;"
+)
 cmd = (
     "bash -lc 'cd /var/www/vouchernet && "
-    "export $(grep -E ^DATABASE_URL= .env | xargs) && "
-    f"psql \"$DATABASE_URL\" -c \"{sql}\" && "
-    "pm2 restart vouchernet-api --update-env'"
+    f"sudo -u postgres psql -d vouchernet -c \"{sql}\" && "
+    "systemctl restart vouchernet && sleep 2 && systemctl is-active vouchernet'"
 )
 print("Purge globale ventes (TRUNCATE) + restart API pour vider les caches RAM.")
 _, o, e = c.exec_command(cmd, timeout=180)

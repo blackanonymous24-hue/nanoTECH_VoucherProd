@@ -778,6 +778,7 @@ router.post("/admin/reset-all-sales-cache", async (req, res): Promise<void> => {
   const resync = req.body?.resync !== false;
   const concurrency = Math.min(8, Math.max(1, Number(req.body?.concurrency) || 4));
 
+  try {
   const cleared = await resetAllSalesCacheGlobal();
   purgeAllSalesRamCaches();
 
@@ -833,6 +834,11 @@ router.post("/admin/reset-all-sales-cache", async (req, res): Promise<void> => {
     routers: routers.length,
     results,
   });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "reset-all-sales-cache failed");
+    res.status(500).json({ error: msg });
+  }
 });
 
 router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<void> => {
