@@ -12,6 +12,7 @@ import {
   saleInMikhmonPeriod,
   type MikhmonVendorPeriod,
 } from "./mikhmon-calendar.js";
+import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
 
 /** Ligne synthétique ventes sans suffixe reconnu (pas de fiche vendeur). */
 export const UNATTRIBUTED_VENDOR_ID = 0;
@@ -317,6 +318,8 @@ export async function aggregateVendorPeriodSales(
         username: scriptSalesTable.username,
         saleDate: scriptSalesTable.saleDate,
         price: scriptSalesTable.price,
+        ip: scriptSalesTable.ip,
+        mac: scriptSalesTable.mac,
       })
       .from(scriptSalesTable)
       .where(
@@ -327,6 +330,7 @@ export async function aggregateVendorPeriodSales(
         ),
       );
 
+    const countedKeys = new Set<string>();
     for (const row of scriptRows) {
       const vendorId = resolveVendorIdFromSale(vendors, {
         batch: decodeRouterText(row.batch),
@@ -334,6 +338,15 @@ export async function aggregateVendorPeriodSales(
       });
       const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
       if (Number.isNaN(saleDate.getTime())) continue;
+      const dedupKey = scriptSaleLogicalKey(
+        decodeRouterText(row.username),
+        saleDate,
+        row.price,
+        row.ip,
+        row.mac,
+      );
+      if (countedKeys.has(dedupKey)) continue;
+      countedKeys.add(dedupKey);
       const daily = saleInMikhmonPeriod(saleDate, "today", cal);
       const monthly = saleInMikhmonPeriod(saleDate, "month", cal);
       const amount = parsePriceNum(row.price);

@@ -1,5 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
-import { db, routersTable, scriptSalesTable } from "@workspace/db";
+import { db, routersTable } from "@workspace/db";
 import { logger } from "./logger.js";
 import { isRouterLocked, withRouterLock } from "./router-lock.js";
 import { purgePhantomVouchers } from "./vendor-sync.js";
@@ -69,7 +68,6 @@ async function runMonthlyScriptPurgeForRouter(
   router: { id: number; host: string; name: string | null; port: number; username: string; password: string },
   cutoffYear: number,
   cutoffMonth: number,
-  cutoffDate: Date,
 ): Promise<void> {
   if (isRouterLocked(router.id)) {
     logger.info({ routerId: router.id, host: router.host }, "maintenance: routeur verrouillé — purge scripts ignorée");
@@ -89,20 +87,11 @@ async function runMonthlyScriptPurgeForRouter(
         const remainingAfter = Math.max(0, purgeRes.scanned - purgeRes.removed);
         const done = remainingAfter === 0 && purgeRes.failed === 0;
 
-        let cacheDeleted = 0;
         if (done) {
-          const rows = await db
-            .delete(scriptSalesTable)
-            .where(and(
-              eq(scriptSalesTable.routerId, router.id),
-              sql`${scriptSalesTable.saleDate} < ${cutoffDate.toISOString()}`,
-            ))
-            .returning({ id: scriptSalesTable.id });
-          cacheDeleted = rows.length;
           clearRouterScriptCache(router.id);
         }
 
-        return { isDone: done, remaining: remainingAfter, removed: purgeRes.removed, failed: purgeRes.failed, cacheRowsDeleted: cacheDeleted };
+        return { isDone: done, remaining: remainingAfter, removed: purgeRes.removed, failed: purgeRes.failed, cacheRowsDeleted: 0 };
       });
 
       totalRemoved += removed;
@@ -149,7 +138,6 @@ async function runMonthlyScriptPurgeIfDue(): Promise<void> {
   // Cutoff = first day of previous month. Anything strictly before is removed.
   const cutoffYear  = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
   const cutoffMonth = now.getMonth() === 0 ? 12 : now.getMonth(); // 1-12, = previous month
-  const cutoffDate  = new Date(cutoffYear, cutoffMonth - 1, 1, 0, 0, 0);
 
   let routers: Awaited<ReturnType<typeof listAllRouters>>;
   try {
@@ -165,7 +153,7 @@ async function runMonthlyScriptPurgeIfDue(): Promise<void> {
   );
 
   for (const r of routers) {
-    await runMonthlyScriptPurgeForRouter(r, cutoffYear, cutoffMonth, cutoffDate);
+    await runMonthlyScriptPurgeForRouter(r, cutoffYear, cutoffMonth);
   }
 }
 

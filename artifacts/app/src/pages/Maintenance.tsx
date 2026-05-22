@@ -405,8 +405,8 @@ export default function Maintenance() {
             <span className="text-green-400 font-medium">Conservés :</span> mois en cours
             et mois précédent.
             <br />
-            Les entrées correspondantes du cache local sont également purgées en fin
-            d'opération.
+            La base PostgreSQL locale n'est pas modifiée : seuls les scripts sur le
+            routeur sont supprimés.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0 space-y-4">

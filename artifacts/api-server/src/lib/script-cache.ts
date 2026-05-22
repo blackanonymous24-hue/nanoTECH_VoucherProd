@@ -18,9 +18,11 @@
  *   3. Tâche de fond périodique : tous les 1 h, on resync le mois en cours
  *      pour rattraper d'éventuels scripts insérés tardivement.
  */
-import { eq, and, sql, inArray, desc } from "drizzle-orm";
+import { eq, and, sql, inArray, desc, asc, gte, lt } from "drizzle-orm";
 import { db, scriptSalesTable, routersTable } from "@workspace/db";
 import { fetchScriptSales, removeMikhmonScriptsByRawNames, type RouterConnection, type SaleEntry } from "./mikrotik.js";
+import { getMikhmonCalendar, mikhmonMonthRange } from "./mikhmon-calendar.js";
+import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
 import { logger } from "./logger.js";
 
 /** Shape returned by getCachedSaleDetails — mirrors mikrotik.ts SaleDetail */
@@ -116,6 +118,74 @@ async function persistRows(rows: ScriptSalesRow[]): Promise<number> {
     inserted += result.length;
   }
   return inserted;
+}
+
+/**
+ * Supprime uniquement les doublons techniques (même vente insérée 2× avec rawName
+ * différent). Ne supprime jamais une vente parce que le script n'est plus sur le routeur.
+ */
+async function dedupeScriptSalesInRange(
+  routerId: number,
+  monthStart: Date,
+  monthEnd: Date,
+): Promise<number> {
+  const rows = await db
+    .select({
+      id: scriptSalesTable.id,
+      username: scriptSalesTable.username,
+      saleDate: scriptSalesTable.saleDate,
+      price: scriptSalesTable.price,
+      ip: scriptSalesTable.ip,
+      mac: scriptSalesTable.mac,
+    })
+    .from(scriptSalesTable)
+    .where(and(
+      eq(scriptSalesTable.routerId, routerId),
+      gte(scriptSalesTable.saleDate, monthStart),
+      lt(scriptSalesTable.saleDate, monthEnd),
+    ))
+    .orderBy(asc(scriptSalesTable.id));
+
+  const keepIdByKey = new Map<string, number>();
+  const duplicateIds: number[] = [];
+
+  for (const row of rows) {
+    const saleDate = row.saleDate instanceof Date ? row.saleDate : new Date(row.saleDate);
+    const key = scriptSaleLogicalKey(row.username, saleDate, row.price, row.ip, row.mac);
+    const existingId = keepIdByKey.get(key);
+    if (existingId == null) {
+      keepIdByKey.set(key, row.id);
+    } else {
+      duplicateIds.push(row.id);
+    }
+  }
+
+  if (duplicateIds.length === 0) return 0;
+
+  const CHUNK = 500;
+  for (let i = 0; i < duplicateIds.length; i += CHUNK) {
+    await db
+      .delete(scriptSalesTable)
+      .where(inArray(scriptSalesTable.id, duplicateIds.slice(i, i + CHUNK)));
+  }
+
+  logger.info(
+    { routerId, duplicatesRemoved: duplicateIds.length, monthStart: monthStart.toISOString() },
+    "script cache: doublons techniques supprimés (historique conservé)",
+  );
+  return duplicateIds.length;
+}
+
+/** Insère les scripts manquants + dédoublonne — sans effacer l'historique purgé sur MikroTik. */
+async function appendMonthScriptSales(
+  routerId: number,
+  rows: ScriptSalesRow[],
+  monthStart: Date,
+  monthEnd: Date,
+): Promise<{ inserted: number; deduped: number }> {
+  const inserted = await persistRows(rows);
+  const deduped = await dedupeScriptSalesInRange(routerId, monthStart, monthEnd);
+  return { inserted, deduped };
 }
 
 /**
@@ -279,10 +349,11 @@ export async function syncScriptCache(
 
   const promise = (async () => {
     try {
-      const now = new Date();
-      const thisYear  = now.getFullYear();
-      const thisMonth = now.getMonth() + 1;
-      const thisDay   = now.getDate();
+      const cal = getMikhmonCalendar(null);
+      const thisYear  = cal.y;
+      const thisMonth = cal.m;
+      const thisDay   = cal.d;
+      const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
       const thisMonthKey = monthKey(routerId, thisYear, thisMonth);
 
       // ── A. La DB a-t-elle des données pour ce routeur ? ─────────────────
@@ -368,14 +439,20 @@ export async function syncScriptCache(
         }
       }
 
-      if (entries.length === 0) return 0;
+      if (entries.length === 0 && mode !== "first-month" && mode !== "current-month") return 0;
 
       const rows = entriesToRows(routerId, entries);
-      const inserted = await persistRows(rows);
+      let inserted: number;
+      if (mode === "first-month" || mode === "current-month") {
+        const rec = await appendMonthScriptSales(routerId, rows, monthStart, monthEnd);
+        inserted = rec.inserted;
+      } else {
+        inserted = await persistRows(rows);
+      }
 
       await autoCleanMikrotikIfEnabled(routerId, conn, rows);
 
-      if (inserted > 0) {
+      if (inserted > 0 || mode === "current-month" || mode === "first-month") {
         logger.info(
           { routerId, mode, total: entries.length, inserted },
           "script cache: sync complete",

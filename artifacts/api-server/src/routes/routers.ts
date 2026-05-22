@@ -10,6 +10,7 @@ import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 import { runUsageSync } from "../lib/usage-sync.js";
 import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
+import { aggregateScriptSalesDeduped } from "../lib/script-sales-dedup.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
@@ -17,7 +18,7 @@ import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
-import { getMikhmonCalendar } from "../lib/mikhmon-calendar.js";
+import { getMikhmonCalendar, mikhmonMonthRange } from "../lib/mikhmon-calendar.js";
 import { normalizeRouterConnection, mergeMikhmonHostPort, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
 
 const router = Router();
@@ -2336,41 +2337,23 @@ async function readSalesQuickFromDb(
   monthlyAmount: number;
 } | null> {
   const cal = getMikhmonCalendar(routerClockDate);
-  const { todayMidnight, tomorrowMidnight, startOfMonth } = cal;
-  const nextMonthStart = new Date(cal.y, cal.m, 1);
+  const { start: monthStart, end: monthEnd } = mikhmonMonthRange(cal);
   try {
-    // MikHmon dashboard = scripts `comment=mikhmon` uniquement (pas les bons SQL).
-    const [s] = await db
+    const rows = await db
       .select({
-        dailyCount: sql<number>`cast(count(*) filter (where
-          ${scriptSalesTable.saleDate} >= ${todayMidnight}
-          AND ${scriptSalesTable.saleDate} < ${tomorrowMidnight}
-        ) as int)`,
-        dailyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
-          ${scriptSalesTable.saleDate} >= ${todayMidnight}
-          AND ${scriptSalesTable.saleDate} < ${tomorrowMidnight}
-        ), 0)`,
-        monthlyCount: sql<number>`cast(count(*) filter (where
-          ${scriptSalesTable.saleDate} >= ${startOfMonth}
-          AND ${scriptSalesTable.saleDate} < ${nextMonthStart}
-        ) as int)`,
-        monthlyAmount: sql<number>`coalesce(sum(cast(${scriptSalesTable.price} as double precision)) filter (where
-          ${scriptSalesTable.saleDate} >= ${startOfMonth}
-          AND ${scriptSalesTable.saleDate} < ${nextMonthStart}
-        ), 0)`,
+        username: scriptSalesTable.username,
+        saleDate: scriptSalesTable.saleDate,
+        price: scriptSalesTable.price,
+        ip: scriptSalesTable.ip,
+        mac: scriptSalesTable.mac,
       })
       .from(scriptSalesTable)
       .where(and(
         eq(scriptSalesTable.routerId, routerId),
-        gte(scriptSalesTable.saleDate, startOfMonth),
-        lt(scriptSalesTable.saleDate, nextMonthStart),
+        gte(scriptSalesTable.saleDate, monthStart),
+        lt(scriptSalesTable.saleDate, monthEnd),
       ));
-    return {
-      dailyCount:    Number(s?.dailyCount    ?? 0),
-      dailyAmount:   Number(s?.dailyAmount   ?? 0),
-      monthlyCount:  Number(s?.monthlyCount  ?? 0),
-      monthlyAmount: Number(s?.monthlyAmount ?? 0),
-    };
+    return aggregateScriptSalesDeduped(rows, cal);
   } catch {
     return null;
   }
@@ -2652,22 +2635,21 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const mm = String(new Date().getMonth() + 1).padStart(2, "0");
   const y = new Date().getFullYear();
   const d = String(new Date().getDate()).padStart(2, "0");
-  const dm = liveSalesFresh && salesCached
+  const salesFromCache = salesCached
     ? {
       dailyCount: salesCached.data.dailyCount,
       dailyAmount: salesCached.data.dailyAmount,
       monthlyCount: salesCached.data.monthlyCount,
       monthlyAmount: salesCached.data.monthlyAmount,
     }
-    : (dbQuickSales
-      ?? (salesCached
-        ? {
-          dailyCount: salesCached.data.dailyCount,
-          dailyAmount: salesCached.data.dailyAmount,
-          monthlyCount: salesCached.data.monthlyCount,
-          monthlyAmount: salesCached.data.monthlyAmount,
-        }
-        : { dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0 }));
+    : null;
+  const refreshingSales = salesRefreshing.has(id);
+  // KPI tableau de bord = live MikroTik (comme MikHmon). La DB garde l’historique même si
+  // scripts purgés sur le routeur ; on ne l’affiche qu’en secours (dédoublonnée).
+  const dm = salesFromCache
+    ?? (!refreshingSales && dbQuickSales
+      ? dbQuickSales
+      : { dailyCount: 0, dailyAmount: 0, monthlyCount: 0, monthlyAmount: 0 });
   const sales: SalesReport & { _cachedAt: number | null } = {
     dailyCount: dm.dailyCount,
     dailyAmount: dm.dailyAmount,
@@ -2685,9 +2667,9 @@ async function buildDashboardPrioritySnapshot(id: number) {
     totalAmount: salesCached?.data.totalAmount ?? 0,
     dateLabel: `${y}-${mm}-${d}`,
     monthLabel: `${mm}${y}`,
-    _cachedAt: liveSalesFresh
-      ? (salesCached?.updatedAt ?? Date.now())
-      : (dbQuickSales != null ? Date.now() : (salesCached ? salesCached.updatedAt : null)),
+    _cachedAt: salesCached
+      ? salesCached.updatedAt
+      : (dbQuickSales != null && !refreshingSales ? Date.now() : null),
   };
 
   return {
@@ -2701,7 +2683,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
       // sessionsKnown : vrai si le cache plein OU le fast count (cold-start parallèle) ont des données
       sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
       usersKnown: !!usersCached,
-      salesKnown: liveSalesFresh || dbQuickSales != null || !!salesCached,
+      salesKnown: liveSalesFresh || !!salesCached || (dbQuickSales != null && !refreshingSales),
       vendorRankingKnown: vendorRanking != null,
       infoKnown: !!(infoFreshAfter || infoStaleAfter),
     },

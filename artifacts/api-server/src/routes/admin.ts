@@ -5,7 +5,7 @@ import {
   getOriginalSuperAdminRow,
   isValidSuperSecurityCode,
 } from "../lib/original-super-admin.js";
-import { db, adminSettingsTable, vendorsTable, managersTable, managerRoutersTable, routersTable, collaborateursTable, collaborateurRoutersTable, scriptSalesTable } from "@workspace/db";
+import { db, adminSettingsTable, vendorsTable, managersTable, managerRoutersTable, routersTable, collaborateursTable, collaborateurRoutersTable } from "@workspace/db";
 import { hashPassword, verifyPassword, createAdminToken, verifyAdminToken, verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyPassword as verifyVendorPassword, createToken as createVendorToken, verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
@@ -759,9 +759,8 @@ router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<voi
  * returns `scanned` (= total candidates remaining at the start of this call).
  * The client repeats until `scanned === 0` (or no progress made).
  *
- * On the *final* batch (no more candidates left after this one), the local
- * script-sales cache rows are also purged and the in-memory script cache is
- * cleared so the next sync rebuilds cleanly.
+ * La base PostgreSQL (mikrotik_script_sales) n'est pas modifiée : l'historique
+ * local reste intact ; la réconciliation au prochain refresh aligne les totaux.
  *
  * Body:
  *   { routerId: number, batchSize?: number }   // batchSize default 50
@@ -785,8 +784,6 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
   const now = new Date();
   const cutoffYear  = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
   const cutoffMonth = now.getMonth() === 0 ? 12 : now.getMonth(); // 1-12, = previous month
-  const cutoffDate  = new Date(cutoffYear, cutoffMonth - 1, 1, 0, 0, 0);
-
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
   if (!r) {
     res.status(404).json({ error: "Routeur introuvable" });
@@ -806,25 +803,12 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
       const remainingAfter = Math.max(0, purgeRes.scanned - purgeRes.removed);
       const isDone = remainingAfter === 0 && purgeRes.failed === 0;
 
-      let cacheDeleted = 0;
       if (isDone) {
-        // Last batch and clean: purge corresponding rows from the local cache
-        // so the next sync does not re-attempt to use them.
-        const rows = await db
-          .delete(scriptSalesTable)
-          .where(and(
-            eq(scriptSalesTable.routerId, r.id),
-            sql`${scriptSalesTable.saleDate} < ${cutoffDate.toISOString()}`,
-          ))
-          .returning({ id: scriptSalesTable.id });
-        cacheDeleted = rows.length;
-
-        // Force the next syncScriptCache call to do a full reload so its
-        // internal "fully populated" flag aligns with the new state.
+        // Invalide uniquement les flags mémoire de sync (pas la table script_sales).
         clearRouterScriptCache(r.id);
       }
 
-      return { purge: purgeRes, cacheRowsDeleted: cacheDeleted, done: isDone };
+      return { purge: purgeRes, cacheRowsDeleted: 0, done: isDone };
     });
 
     // remaining = candidates still on the router after this batch (failures
