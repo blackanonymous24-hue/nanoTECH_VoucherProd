@@ -3,7 +3,8 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { pingRouterTcpApi, testRouterConnectionApi, ROUTER_OFFLINE_LABEL } from "@/lib/router-connection-test";
+import { pingRouterTcpApi, ROUTER_OFFLINE_LABEL } from "@/lib/router-connection-test";
+import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
 
 /**
  * Ping TCP (`/ping?force=1`) avant connexion (3 tentatives courtes), toujours un test réel sans cache.
@@ -58,6 +59,9 @@ export function useSelectRouterWithPing() {
       setSelectedRouterId(id);
       /** Pastille du sélecteur : reflète tout de suite le ping TCP (avant dashboard / SSE). */
       setRouterOnline(success);
+      if (success) {
+        void prefetchRouterDashboardPriority(id);
+      }
 
       if (!success) {
         setIsPingFailed(true);

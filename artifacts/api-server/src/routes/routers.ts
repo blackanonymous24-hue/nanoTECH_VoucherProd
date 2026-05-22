@@ -2571,35 +2571,46 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const needUsersCold    = !usersCachedBefore && !_usersRefreshing.has(id);
 
   if (needSessionsCold || needInfoCold || needUsersCold) {
-    // Cold start — lancer chaque fetch en arrière-plan (non-bloquant).
-    // La réponse est renvoyée immédiatement avec les valeurs vides/null ;
-    // le frontend affiche des skeletons puis se rafraîchit dès que les caches sont chauds.
+    // Cold start — attendre les KPI critiques (max 5 s) pour éviter sessions/users à 0
+    // sur la première réponse après changement de routeur ou redémarrage API.
+    const COLD_KPI_MS = 5_000;
+    const coldTasks: Promise<void>[] = [];
     if (needSessionsCold) {
       _sessionsFastRefreshing.add(id);
-      setImmediate(async () => {
-        try { _sessionsFastCount.set(sc, { count: await countSessionsFast(conn), cachedAt: Date.now() }); }
-        catch { /* keep 0 */ }
+      coldTasks.push((async () => {
+        try {
+          const [count, list] = await Promise.all([
+            countSessionsFast(conn),
+            listSessions(conn),
+          ]);
+          _sessionsFastCount.set(sc, { count, cachedAt: Date.now() });
+          mSet(sessionsKey, MIK_TTL.sessions, list);
+        } catch { /* keep 0 */ }
         finally { _sessionsFastRefreshing.delete(id); }
-      });
+      })());
     }
     if (needInfoCold) {
       _infoRefreshing.add(id);
-      setImmediate(async () => {
+      coldTasks.push((async () => {
         try { mSet(infoKey, MIK_TTL.info, await getRouterInfo(conn)); }
         catch { /* keep null */ }
         finally { _infoRefreshing.delete(id); }
-      });
+      })());
     }
     if (needUsersCold) {
       _usersRefreshing.add(id);
-      setImmediate(async () => {
+      coldTasks.push((async () => {
         try {
           const list = await listHotspotUsersFast(conn);
           _usersCountCache.set(sc, await computeUsersCount(id, conn, list));
         } catch { /* keep zeros */ }
         finally { _usersRefreshing.delete(id); }
-      });
+      })());
     }
+    await Promise.race([
+      Promise.all(coldTasks),
+      new Promise<void>((resolve) => { setTimeout(resolve, COLD_KPI_MS); }),
+    ]);
   } else {
     // Cache chaud — refresh stale en arrière-plan (non-bloquant)
     if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
@@ -2668,7 +2679,13 @@ async function buildDashboardPrioritySnapshot(id: number) {
       }),
     ]).catch(() => 0);
 
-  await runSync(false);
+  let syncCompleted = false;
+  try {
+    await runSync(false);
+    syncCompleted = true;
+  } catch {
+    syncCompleted = false;
+  }
 
   if (!salesRefreshing.has(id)) {
     setImmediate(() => {
@@ -2725,7 +2742,20 @@ async function buildDashboardPrioritySnapshot(id: number) {
     monthlyCount: salesCached?.data.monthlyCount ?? 0,
     monthlyAmount: salesCached?.data.monthlyAmount ?? 0,
   };
-  const salesKnown = dbQuickSales != null;
+  // Ne pas marquer les ventes « connues » tant que la sync n'a pas tourné et qu'il n'y a
+  // ni cache RAM ni agrégat non nul — évite d'afficher 0 FCFA à tort au premier paint.
+  const salesKnown =
+    dbQuickSales != null &&
+    (salesCached != null ||
+      syncCompleted ||
+      dbQuickSales.dailyCount > 0 ||
+      dbQuickSales.monthlyCount > 0);
+  if (dbQuickSales && !salesKnown) {
+    logger.info(
+      { routerId: id, syncCompleted, hasSalesCache: !!salesCached, daily: dbQuickSales.dailyCount, monthly: dbQuickSales.monthlyCount },
+      "dashboard-priority: ventes pas encore prêtes (skeleton côté client)",
+    );
+  }
   const sales: SalesReport & { _cachedAt: number | null } = {
     dailyCount: dm.dailyCount,
     dailyAmount: dm.dailyAmount,
@@ -2745,6 +2775,11 @@ async function buildDashboardPrioritySnapshot(id: number) {
     monthLabel: `${mm}${y}`,
     _cachedAt: salesKnown ? Date.now() : (salesCached?.updatedAt ?? null),
   };
+  const salesKnownFinal =
+    salesKnown || sales.dailyCount > 0 || sales.monthlyCount > 0;
+  if (salesKnownFinal && sales._cachedAt == null) {
+    sales._cachedAt = Date.now();
+  }
 
   return {
     serverTs: now,
@@ -2757,7 +2792,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
       // sessionsKnown : vrai si le cache plein OU le fast count (cold-start parallèle) ont des données
       sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
       usersKnown: !!usersCached,
-      salesKnown,
+      salesKnown: salesKnownFinal,
       vendorRankingKnown: vendorRanking != null,
       infoKnown: !!(infoFreshAfter || infoStaleAfter),
     },

@@ -3,6 +3,7 @@ import { useListRouters, getListRoutersQueryKey } from "@workspace/api-client-re
 import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
+import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
 
 export type BorrowedRouter = { id: number; name: string; ownerAdminId: number; hotspotName?: string | null; contact?: string | null };
 
@@ -171,6 +172,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
         ?? (borrowedRouterRef.current?.id === id ? borrowedRouterRef.current : null);
       setRouterIdentity(dbRouter?.name ?? null);
       setPingTrigger((n) => n + 1);
+      void prefetchRouterDashboardPriority(id);
     }
   }, [isRouterLocked, allRouters]);
 

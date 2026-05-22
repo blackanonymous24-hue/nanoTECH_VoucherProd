@@ -138,6 +138,9 @@ function AppRoutes() {
         // ignore — dashboard will still fetch normally
       }
     })();
+    void import("@/lib/prefetch-router-dashboard-priority").then(({ prefetchRouterDashboardPriority }) =>
+      prefetchRouterDashboardPriority(routerId),
+    );
   }, [isAuthenticated, location, qc]);
 
   if (location === "/vendor-portal" || location.startsWith("/vendor-portal/")) {

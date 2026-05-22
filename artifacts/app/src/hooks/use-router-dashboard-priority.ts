@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
+  isPriorityCacheDisplayable,
   mergePrioritySnapshots,
   readPriorityCache,
   writePriorityCache,
@@ -13,7 +14,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 /**
  * Même flux temps réel que la carte « Vendu aujourd'hui » du tableau de bord :
- * SSE dashboard-priority + repli HTTP.
+ * SSE dashboard-priority + repli HTTP + cache localStorage par routeur (style MikHmon).
  */
 export function useRouterDashboardPriority(routerId: number | null) {
   const { token: authToken } = useAuth();
@@ -21,11 +22,21 @@ export function useRouterDashboardPriority(routerId: number | null) {
   const [ssePriority, setSsePriority] = useState<PrioritySnapshot | null>(null);
   const [sseConnected, setSseConnected] = useState(false);
 
+  // Affichage instantané au changement de routeur : dernières valeurs connues.
+  useEffect(() => {
+    const seed = readPriorityCache(routerId);
+    setSsePriority(isPriorityCacheDisplayable(seed) ? seed : null);
+    setSseConnected(false);
+  }, [routerId]);
+
   const {
     data: httpPriority,
     isFetching: priorityQueryFetching,
     isLoading: priorityLoading,
     dataUpdatedAt: priorityUpdatedAt,
+    refetch: refetchPriority,
+    isError: priorityIsError,
+    errorUpdatedAt: priorityErrorUpdatedAt,
   } = useQuery<PrioritySnapshot>({
     queryKey: ["router-dashboard-priority", routerId],
     queryFn: async ({ signal }) => {
@@ -39,11 +50,10 @@ export function useRouterDashboardPriority(routerId: number | null) {
     staleTime: 10_000,
     retry: false,
     throwOnError: false,
+    placeholderData: () => readPriorityCache(routerId) ?? undefined,
     initialData: () => readPriorityCache(routerId) ?? undefined,
-    initialDataUpdatedAt: () => {
-      const c = readPriorityCache(routerId);
-      return c?.serverTs;
-    },
+    initialDataUpdatedAt: () => readPriorityCache(routerId)?.serverTs,
+    refetchOnMount: "always",
   });
 
   useEffect(() => {
@@ -72,7 +82,7 @@ export function useRouterDashboardPriority(routerId: number | null) {
     };
   }, [routerId, authToken, isVisible]);
 
-  const livePriority = mergePrioritySnapshots(httpPriority, ssePriority, sseConnected);
+  const livePriority = mergePrioritySnapshots(httpPriority, ssePriority, sseConnected, routerId);
 
   useEffect(() => {
     if (!routerId || !livePriority) return;
@@ -104,6 +114,10 @@ export function useRouterDashboardPriority(routerId: number | null) {
     sseConnected,
     priorityLoading,
     priorityUpdatedAt,
+    priorityQueryFetching,
     liveSnapshotAgeMs,
+    refetchPriority,
+    priorityIsError,
+    priorityErrorUpdatedAt,
   };
 }

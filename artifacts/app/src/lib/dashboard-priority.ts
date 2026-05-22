@@ -35,6 +35,8 @@ export interface PrioritySnapshot {
 }
 
 const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
+/** Âge max du cache local pour affichage instantané au changement de routeur. */
+export const PRIORITY_CACHE_MAX_AGE_MS = 30 * 60_000;
 
 export function readPriorityCache(routerId: number | null): PrioritySnapshot | null {
   if (!routerId) return null;
@@ -43,6 +45,7 @@ export function readPriorityCache(routerId: number | null): PrioritySnapshot | n
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PrioritySnapshot;
     if (!parsed || typeof parsed.serverTs !== "number") return null;
+    if (Date.now() - parsed.serverTs > PRIORITY_CACHE_MAX_AGE_MS) return null;
     return parsed;
   } catch {
     return null;
@@ -58,15 +61,71 @@ export function writePriorityCache(routerId: number | null, snapshot: PrioritySn
   }
 }
 
+/** Cache local utilisable pour affichage immédiat (au moins sessions ou utilisateurs connus). */
+export function isPriorityCacheDisplayable(snapshot: PrioritySnapshot | null | undefined): boolean {
+  if (!snapshot) return false;
+  const a = snapshot.availability;
+  if (!a) return true;
+  return !!(a.sessionsKnown || a.usersKnown || a.salesKnown);
+}
+
+function newerSnapshot(a: PrioritySnapshot, b: PrioritySnapshot): PrioritySnapshot {
+  const aTs = typeof a.serverTs === "number" ? a.serverTs : 0;
+  const bTs = typeof b.serverTs === "number" ? b.serverTs : 0;
+  return aTs >= bTs ? a : b;
+}
+
+/** Fusionne deux snapshots en conservant les métriques « connues » du plus complet. */
+export function mergeKnownPriorityFields(base: PrioritySnapshot, incoming: PrioritySnapshot): PrioritySnapshot {
+  const ba = base.availability ?? {};
+  const ia = incoming.availability ?? {};
+  const mergedAvail = {
+    sessionsKnown: !!(ba.sessionsKnown || ia.sessionsKnown),
+    usersKnown: !!(ba.usersKnown || ia.usersKnown),
+    salesKnown: !!(ba.salesKnown || ia.salesKnown),
+    infoKnown: !!(ba.infoKnown || ia.infoKnown),
+    vendorRankingKnown: !!(ba.vendorRankingKnown || ia.vendorRankingKnown),
+  };
+
+  const newer = newerSnapshot(base, incoming);
+  const pickNum = (knownIn: boolean | undefined, knownBa: boolean | undefined, vIn: number, vBa: number, fallback: number) =>
+    knownIn ? vIn : knownBa ? vBa : fallback;
+
+  return {
+    ...newer,
+    sessionsCount: pickNum(ia.sessionsKnown, ba.sessionsKnown, incoming.sessionsCount, base.sessionsCount, newer.sessionsCount),
+    users: ia.usersKnown ? incoming.users : ba.usersKnown ? base.users : newer.users,
+    sales: ia.salesKnown ? incoming.sales : ba.salesKnown ? base.sales : newer.sales,
+    info: ia.infoKnown ? incoming.info : ba.infoKnown ? base.info : newer.info,
+    vendorRanking: ia.vendorRankingKnown
+      ? (incoming.vendorRanking ?? null)
+      : ba.vendorRankingKnown
+        ? (base.vendorRanking ?? null)
+        : (newer.vendorRanking ?? null),
+    availability: mergedAvail,
+  };
+}
+
 export function mergePrioritySnapshots(
   http: PrioritySnapshot | undefined,
   sse: PrioritySnapshot | null,
   sseConnected: boolean,
+  routerId?: number | null,
 ): PrioritySnapshot | null {
-  if (!sse) return http ?? null;
-  if (!http) return sse;
-  if (!sseConnected) return http;
-  const sseTs = typeof sse.serverTs === "number" ? sse.serverTs : 0;
-  const httpTs = typeof http.serverTs === "number" ? http.serverTs : 0;
-  return httpTs >= sseTs ? http : sse;
+  const cached = routerId != null ? readPriorityCache(routerId) : null;
+
+  let live: PrioritySnapshot | null = null;
+  if (!sse) live = http ?? null;
+  else if (!http) live = sse;
+  else if (!sseConnected) live = http;
+  else {
+    const sseTs = typeof sse.serverTs === "number" ? sse.serverTs : 0;
+    const httpTs = typeof http.serverTs === "number" ? http.serverTs : 0;
+    live = httpTs >= sseTs ? http : sse;
+  }
+
+  if (!live && cached && isPriorityCacheDisplayable(cached)) return cached;
+  if (!live) return null;
+  if (!cached || !isPriorityCacheDisplayable(cached)) return live;
+  return mergeKnownPriorityFields(cached, live);
 }

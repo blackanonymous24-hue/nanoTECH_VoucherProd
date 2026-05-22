@@ -7,6 +7,7 @@ import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRou
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
+import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -73,52 +74,6 @@ interface RouterInfo {
   freeMemory: string | null;
   uptime: string | null;
   architecture: string | null;
-}
-
-interface SalesLite {
-  dailyCount: number;
-  dailyAmount: number;
-  monthlyCount: number;
-  monthlyAmount: number;
-  _cachedAt: number | null;
-}
-
-interface PrioritySnapshot {
-  serverTs: number;
-  sessionsCount: number;
-  users: { total: number; available: number; used: number; disabled: number; cachedAt: number | null };
-  sales: SalesLite;
-  info: RouterInfo | null;
-  availability?: {
-    sessionsKnown?: boolean;
-    usersKnown?: boolean;
-    salesKnown?: boolean;
-    infoKnown?: boolean;
-  };
-}
-
-const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
-
-function readPriorityCache(routerId: number | null): PrioritySnapshot | null {
-  if (!routerId) return null;
-  try {
-    const raw = localStorage.getItem(`${PRIORITY_CACHE_KEY}:${routerId}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as PrioritySnapshot;
-    if (!parsed || typeof parsed.serverTs !== "number") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writePriorityCache(routerId: number | null, snapshot: PrioritySnapshot | null) {
-  if (!routerId || !snapshot) return;
-  try {
-    localStorage.setItem(`${PRIORITY_CACHE_KEY}:${routerId}`, JSON.stringify(snapshot));
-  } catch {
-    // Ignore storage errors (private mode/quota)
-  }
 }
 
 function formatCpuLoad(raw: string | null | undefined): string | null {
@@ -552,13 +507,10 @@ export default function Dashboard() {
   // Display data: fresh from React Query OR last cached value — never undefined after first load
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any = isPingFailed ? undefined : (_freshData ?? _dashboardCache.data);
-  const { token: authToken } = useAuth();
   const [pingRedirectSecondsLeft, setPingRedirectSecondsLeft] = useState(
     Math.ceil(PING_FAIL_REDIRECT_MS / 1000),
   );
   const [enableSecondaries, setEnableSecondaries] = useState(false);
-  const [ssePriority, setSsePriority] = useState<PrioritySnapshot | null>(null);
-  const [sseConnected, setSseConnected] = useState(false);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
@@ -570,36 +522,19 @@ export default function Dashboard() {
   const mikLastSuccessTsRef = useRef(0);
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // Priority snapshot — architecture SSE-first :
-  // Le vrai temps-réel vient du SSE (mikrotik-poller côté serveur, 1 appel MikroTik/5s partagé).
-  // Ce useQuery ne sert qu'au chargement initial et comme filet de secours si le SSE est coupé.
-  // refetchInterval allongé à 60s (au lieu de 15s) pour ne pas doubler les appels MikroTik.
   const {
-    data: priority,
-    isFetching: priorityQueryFetching,
-    isLoading: priorityLoading,
-    isError: priorityIsError,
-    errorUpdatedAt: priorityErrorUpdatedAt,
-    refetch: refetchPriority,
-    dataUpdatedAt: priorityUpdatedAt,
-  } = useQuery<PrioritySnapshot>({
-    queryKey: ["router-dashboard-priority", selectedRouterId],
-    queryFn: async ({ signal }) => {
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority`, { signal });
-      if (!res.ok) throw new Error("dashboard priority unavailable");
-      return res.json() as Promise<PrioritySnapshot>;
-    },
-    // Gated sur visibilité + token : aucune requête MikroTik si onglet caché ou déconnecté.
-    enabled: isVisible && !!selectedRouterId && !isPingFailed,
-    // Fallback poll — désactivé si SSE actif OU onglet caché (le SSE suffit quand visible).
-    refetchInterval: (sseConnected || !isVisible) ? false : 20_000,
-    refetchIntervalInBackground: false,
-    staleTime: 10_000,
-    retry: false,
-    throwOnError: false,
-    // Pas d’initialData localStorage : un snapshot avec montants à 0 masquait le skeleton avant le vrai refetch.
-    refetchOnMount: "always",
-  });
+    livePriority,
+    sales,
+    salesKpiReady,
+    sseConnected,
+    priorityLoading,
+    priorityUpdatedAt,
+    priorityQueryFetching,
+    priorityIsError,
+    priorityErrorUpdatedAt,
+    refetchPriority,
+    liveSnapshotAgeMs,
+  } = useRouterDashboardPriority(isPingFailed ? null : selectedRouterId);
 
   // Stable callback — uses refs to avoid stale closures
   const handleMikrotikFailure = useCallback(() => {
@@ -682,58 +617,14 @@ export default function Dashboard() {
   }, [showErrorPage, isPingFailed, navigate]);
 
   useEffect(() => {
-    // Fermer le SSE si : pas de routeur sélectionné, utilisateur déconnecté, ou onglet caché.
-    // Quand isVisible repasse à true, l'effet se réexécute et rouvre la connexion.
-    if (!selectedRouterId || !authToken || !isVisible || isPingFailed) {
-      setSseConnected(false);
-      // On garde ssePriority en cache pour que les cartes restent affichées en caché.
-      return;
-    }
-    const tokenParam = `?token=${encodeURIComponent(authToken)}`;
-    const es = new EventSource(`${BASE}/api/routers/${selectedRouterId}/dashboard-priority/stream${tokenParam}`);
-    es.onopen = () => setSseConnected(true);
-    const onPriority = (ev: MessageEvent) => {
-      try {
-        const payload = JSON.parse(ev.data) as PrioritySnapshot;
-        setSsePriority(payload);
-        writePriorityCache(selectedRouterId, payload);
-        setRouterOnline(true);
-        handleMikrotikRecovery();
-      } catch {
-        // fallback polling still active
-      }
-    };
-    const onSseError = (_ev: MessageEvent) => {
-      // Server-sent "event: error" = MikroTik unreachable
-      handleMikrotikFailure();
-    };
-    es.addEventListener("priority", onPriority as EventListener);
-    es.addEventListener("error", onSseError as EventListener);
-    es.onerror = () => setSseConnected(false);
-    return () => {
-      es.removeEventListener("priority", onPriority as EventListener);
-      es.removeEventListener("error", onSseError as EventListener);
-      es.close();
-      setSseConnected(false);
-    };
-  }, [selectedRouterId, authToken, isVisible, isPingFailed, setRouterOnline, handleMikrotikFailure, handleMikrotikRecovery]);
-
-  const livePriority = (() => {
-    if (!ssePriority) return priority;
-    if (!priority) return ssePriority;
-    if (!sseConnected) return priority;
-    const sseTs = typeof ssePriority.serverTs === "number" ? ssePriority.serverTs : 0;
-    const httpTs = typeof priority.serverTs === "number" ? priority.serverTs : 0;
-    return httpTs >= sseTs ? priority : ssePriority;
-  })();
-  useEffect(() => {
     if (!selectedRouterId || !livePriority) return;
-    writePriorityCache(selectedRouterId, livePriority);
-  }, [selectedRouterId, livePriority]);
+    setRouterOnline(true);
+    handleMikrotikRecovery();
+  }, [selectedRouterId, livePriority, setRouterOnline, handleMikrotikRecovery]);
+
   const activeSessions = livePriority?.sessionsCount;
   const usersStats = livePriority?.users;
   const hotspotUserCount = usersStats?.total ?? usersStats?.available;
-  const sales = livePriority?.sales;
   const dbSales = {
     dailyCount: Number(data?.dailySalesCount ?? 0),
     dailyAmount: Number(data?.dailySalesAmount ?? 0),
@@ -754,11 +645,6 @@ export default function Dashboard() {
     !!selectedRouterId &&
     !!livePriority &&
     (avail?.usersKnown === true || avail == null);
-  const salesKpiReady =
-    !!selectedRouterId &&
-    !!sales &&
-    sales._cachedAt != null &&
-    (avail?.salesKnown === true || avail == null);
   const cardSales = selectedRouterId
     ? (salesKpiReady && sales
       ? {
@@ -771,10 +657,9 @@ export default function Dashboard() {
     : dbSales;
   const infoKpiReady =
     !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
-  const routerInfo = livePriority?.info ?? null;
+  const routerInfo = (livePriority?.info ?? null) as RouterInfo | null;
   const cpuLoadLabel = formatCpuLoad(routerInfo?.cpuLoad ?? null);
   const infoLoading = !!selectedRouterId && !infoKpiReady && (priorityLoading || !livePriority);
-  const liveSnapshotAgeMs = livePriority?.serverTs ? Date.now() - livePriority.serverTs : null;
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
   const sessionsFetching = (!sseConnected || isLiveSnapshotStale) && priorityQueryFetching;
   const usersFetching = (!sseConnected || isLiveSnapshotStale) && priorityQueryFetching;
@@ -844,12 +729,6 @@ export default function Dashboard() {
     setRouterOnline(true);
   }, [priorityUpdatedAt, selectedRouterId, setRouterOnline]);
 
-  useEffect(() => {
-    if (!selectedRouterId || !ssePriority) return;
-    lastSuccessRef.current = Math.max(lastSuccessRef.current, ssePriority.serverTs || Date.now());
-    setRouterOnline(true);
-  }, [ssePriority, selectedRouterId, setRouterOnline]);
-
   // Logs success → green
   useEffect(() => {
     if (!selectedRouterId) return;
@@ -898,8 +777,6 @@ export default function Dashboard() {
     mikLastFailTsRef.current = 0;
     mikLastSuccessTsRef.current = 0;
     setShowErrorPage(false);
-    setSsePriority(null);
-    setSseConnected(false);
     setEnableSecondaries(false);
     toast.dismiss("mikrotik-status");
   }, [selectedRouterId]);
