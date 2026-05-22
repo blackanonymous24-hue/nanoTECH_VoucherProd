@@ -12,13 +12,25 @@ export async function hashPassword(password: string): Promise<string> {
   });
 }
 
+/** Comparaison sensible à la casse (octets exacts du mot de passe saisi). */
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const [salt, storedKey] = hash.split(":");
     if (!salt || !storedKey) { resolve(false); return; }
     crypto.pbkdf2(password, salt, 100_000, 64, "sha512", (err, key) => {
       if (err) reject(err);
-      else resolve(key.toString("hex") === storedKey);
+      else {
+        try {
+          const derived = Buffer.from(key.toString("hex"), "hex");
+          const expected = Buffer.from(storedKey, "hex");
+          resolve(
+            derived.length === expected.length &&
+            crypto.timingSafeEqual(derived, expected),
+          );
+        } catch {
+          resolve(false);
+        }
+      }
     });
   });
 }

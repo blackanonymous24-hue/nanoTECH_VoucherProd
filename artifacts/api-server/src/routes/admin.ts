@@ -26,7 +26,7 @@ import {
 import {
   adminLoginPasswordCollisionMessage,
   findAdminLoginPasswordHashCollision,
-  findAdminsByLogin,
+  authenticateAdminByCredentials,
 } from "../lib/admin-login-unique.js";
 
 const router = Router();
@@ -113,18 +113,12 @@ async function postLogin(req: Request, res: Response): Promise<void> {
     return;
   }
   const loginTrimmed = login.trim();
+  // Mot de passe : octets exacts (sensible à la casse, pas de trim ni lower).
 
   // Make sure the super-admin seed exists before the lookup.
   await getOrInitSuperAdmin();
 
-  const adminRows = await findAdminsByLogin(loginTrimmed);
-  let adminRow: (typeof adminRows)[0] | undefined;
-  for (const row of adminRows) {
-    if (await verifyPassword(password, row.passwordHash)) {
-      adminRow = row;
-      break;
-    }
-  }
+  const adminRow = await authenticateAdminByCredentials(loginTrimmed, password);
 
   if (adminRow) {
       const original = await getOriginalSuperAdminRow();

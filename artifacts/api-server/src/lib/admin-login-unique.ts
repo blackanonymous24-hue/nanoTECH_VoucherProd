@@ -15,6 +15,28 @@ export async function findAdminsByLogin(
 }
 
 /**
+ * Authentification admin : identifiant et mot de passe sensibles à la casse.
+ * Le mot de passe n'est ni trimé ni normalisé (espaces / majuscules conservés).
+ */
+export async function authenticateAdminByCredentials(
+  loginRaw: string,
+  password: string,
+): Promise<typeof adminSettingsTable.$inferSelect | null> {
+  if (typeof password !== "string" || password.length === 0) return null;
+  const loginExact = loginRaw.trim();
+  if (!loginExact) return null;
+
+  const rows = await findAdminsByLogin(loginExact);
+  if (rows.length === 0) return null;
+
+  const admin = rows[0];
+  if (admin.login !== loginExact) return null;
+
+  const ok = await verifyPassword(password, admin.passwordHash);
+  return ok ? admin : null;
+}
+
+/**
  * Autre compte (hors excludeAdminId) avec le même identifiant ET le même mot de passe.
  * Même identifiant + mot de passe différent → autorisé.
  */

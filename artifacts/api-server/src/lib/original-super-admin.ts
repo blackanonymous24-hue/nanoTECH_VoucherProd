@@ -1,7 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { db, adminSettingsTable } from "@workspace/db";
-import { verifyPassword } from "./admin-auth.js";
-import { findAdminsByLogin } from "./admin-login-unique.js";
+import { authenticateAdminByCredentials } from "./admin-login-unique.js";
 
 export const DEFAULT_SUPER_SECURITY_CODE = "4155";
 
@@ -37,13 +36,8 @@ export async function credentialsMatchOriginalSuperAdmin(
   if (!loginTrimmed.trim() || !password) return false;
   const original = await getOriginalSuperAdminRow();
   if (!original) return false;
-  const adminRows = await findAdminsByLogin(loginTrimmed);
-  for (const row of adminRows) {
-    if (await verifyPassword(password, row.passwordHash)) {
-      return row.id === original.id;
-    }
-  }
-  return false;
+  const admin = await authenticateAdminByCredentials(loginTrimmed, password);
+  return admin?.id === original.id;
 }
 
 export function isValidSuperSecurityCode(
