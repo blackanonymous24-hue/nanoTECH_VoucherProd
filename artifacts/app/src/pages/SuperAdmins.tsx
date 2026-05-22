@@ -978,11 +978,11 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <Label>Nom du wifi</Label>
+                    <Label>Hotspot name</Label>
                     <Input className="mt-1" value={form.hotspotName} onChange={(e) => setForm({ ...form, hotspotName: e.target.value })} />
                   </div>
                   <div>
-                    <Label>Contact</Label>
+                    <Label>DNS name</Label>
                     <Input className="mt-1" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
                   </div>
                 </div>
@@ -995,16 +995,16 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                   />
                 </div>
                 <div>
-                  <Label>IP / Host <span className="text-red-500">*</span></Label>
+                  <Label>IP <span className="text-red-500">*</span></Label>
                   <Input
                     className="mt-1 font-mono"
                     value={form.host}
                     onChange={(e) => setForm({ ...form, host: e.target.value })}
-                    placeholder="192.168.88.1"
+                    placeholder="192.168.88.1 ou vpn.nanotechvpn.com:60006"
                     required
                   />
                   <p className="text-xs text-gray-400 mt-0.5">
-                    API RouterOS port {DEFAULT_ROUTER_API_PORT} par défaut. NAT : <span className="font-mono">ip:port</span>.
+                    Mikhmon iphost — port {DEFAULT_ROUTER_API_PORT} par défaut, sinon <span className="font-mono">hôte:port</span>.
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">

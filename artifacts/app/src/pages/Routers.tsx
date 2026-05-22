@@ -625,24 +625,24 @@ export default function Routers() {
                 />
               </div>
               <div>
-                <Label>Nom du wifi</Label>
+                <Label>Hotspot name</Label>
                 <Input
                   className="mt-1"
                   placeholder="ex : HotspotVille"
                   value={form.hotspotName}
                   onChange={(e) => setForm({ ...form, hotspotName: e.target.value })}
                 />
-                <p className="text-xs text-gray-400 mt-0.5">Affiché comme titre dans les impressions de rapports (facultatif)</p>
+                <p className="text-xs text-gray-400 mt-0.5">Mikhmon — nom du wifi / hotspot (tickets et rapports)</p>
               </div>
               <div>
-                <Label>Contact</Label>
+                <Label>DNS name</Label>
                 <Input
                   className="mt-1"
-                  placeholder="Tel : +225 XX XXX XXXX"
+                  placeholder="wifi.example.com"
                   value={form.contact}
                   onChange={(e) => setForm({ ...form, contact: e.target.value })}
                 />
-                <p className="text-xs text-gray-400 mt-0.5">Affiché en bas de chaque ticket imprimé (facultatif)</p>
+                <p className="text-xs text-gray-400 mt-0.5">Mikhmon — dns name (bas de ticket, variable $dnsname)</p>
               </div>
               <div>
                 <Label>Devise</Label>
@@ -657,18 +657,17 @@ export default function Routers() {
                 <p className="text-xs text-gray-400 mt-0.5">Saisie en majuscules automatique (tickets, rapports), max. 24 caractères</p>
               </div>
               <div>
-                <Label>IP / Host</Label>
+                <Label>IP</Label>
                 <Input
                   className="mt-1 font-mono"
-                  placeholder="10.88.88.1 ou 192.168.1.1:8728"
+                  placeholder="192.168.88.1 ou vpn.nanotechvpn.com:60006"
                   value={form.host}
                   onChange={(e) => setForm({ ...form, host: e.target.value })}
                   required
                 />
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Adresse <span className="font-mono">iphost</span> Mikhmon (session routeur), pas l’URL du panel VPN.
-                  Port {DEFAULT_ROUTER_API_PORT} par défaut ; NAT / tunnel : <span className="font-mono">ip:port</span> (ex.{" "}
-                  <span className="font-mono">10.0.0.1:8728</span>).
+                  Mikhmon — <span className="font-mono">iphost</span> : adresse + port API (défaut {DEFAULT_ROUTER_API_PORT}, comme Mikhmon).
+                  Ex. <span className="font-mono">192.168.1.1</span> ou <span className="font-mono">vpn.nanotechvpn.com:60006</span>.
                 </p>
               </div>
               <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">

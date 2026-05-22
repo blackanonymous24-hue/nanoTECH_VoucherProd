@@ -172,9 +172,6 @@ export async function ensurePrintScaleColumns(): Promise<void> {
   }
 }
 
-/** Port API RouterOS exposé par les gateways VPN Mikhmon (TCP joignable depuis le VPS). */
-export const MIKHMON_VPN_GATEWAY_API_PORT = 2520;
-
 /**
  * Sans cette colonne, tout SELECT Drizzle sur `routers` échoue en production.
  * Aligné sur lib/db/scripts/add-router-timezone-offset.sql
@@ -191,30 +188,6 @@ export async function ensureRouterTimezoneOffsetColumn(): Promise<void> {
       { err },
       "DB compat: impossible d'ajouter routers.timezone_offset_minutes — exécutez lib/db/scripts/add-router-timezone-offset.sql",
     );
-  }
-}
-
-/**
- * Corrige les routeurs VPN enregistrés avec le port par défaut 8728 alors que le gateway
- * expose l'API sur 2520 (confirmé par test TCP depuis le VPS).
- */
-export async function repairVpnGatewayRouterPorts(): Promise<void> {
-  try {
-    const result = await db.execute(sql`
-      UPDATE routers
-      SET port = ${MIKHMON_VPN_GATEWAY_API_PORT}
-      WHERE port = 8728
-        AND (
-          host LIKE '%.mikroot.com'
-          OR host IN ('vpn.nanotechvpn.com', 'vpn.wifi225.com')
-        )
-    `);
-    const count = (result as unknown as { rowCount?: number }).rowCount ?? 0;
-    if (count > 0) {
-      logger.info({ count, port: MIKHMON_VPN_GATEWAY_API_PORT }, "DB compat: ports gateway VPN corrigés (8728 → 2520)");
-    }
-  } catch (err) {
-    logger.error({ err }, "DB compat: correction ports gateway VPN échouée");
   }
 }
 

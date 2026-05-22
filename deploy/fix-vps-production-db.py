@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Répare la base production VPS : timezone_offset_minutes + ports VPN 2520. Ne touche pas aux comptes."""
+"""Répare la base production VPS : colonne timezone_offset_minutes. Ne touche pas aux comptes."""
 from __future__ import annotations
 
 import re
@@ -17,13 +17,6 @@ SQL = r"""
 ALTER TABLE routers
   ADD COLUMN IF NOT EXISTS timezone_offset_minutes integer NOT NULL DEFAULT 0;
 
-UPDATE routers
-SET port = 2520
-WHERE port = 8728
-  AND (
-    host LIKE '%.mikroot.com'
-    OR host IN ('vpn.nanotechvpn.com', 'vpn.wifi225.com')
-  );
 """
 
 
@@ -69,10 +62,9 @@ def main() -> None:
         )
         print(stdout.read().decode(errors="replace"))
 
-        print("==> Migration SQL (timezone + ports VPN)")
+        print("==> Migration SQL (timezone)")
         for stmt in (
             "ALTER TABLE routers ADD COLUMN IF NOT EXISTS timezone_offset_minutes integer NOT NULL DEFAULT 0",
-            "UPDATE routers SET port = 2520 WHERE port = 8728 AND (host LIKE '%.mikroot.com' OR host IN ('vpn.nanotechvpn.com', 'vpn.wifi225.com'))",
         ):
             _, stdout, stderr = client.exec_command(
                 f"sudo -u postgres psql -d vouchernet -v ON_ERROR_STOP=1 -c {stmt!r}",

@@ -35,7 +35,7 @@ export function parseMikhmonIpHost(iphost: string): { host: string; port: number
 /**
  * Fusion host + port corps JSON (création / édition).
  * Si `iphost` contient `:port`, ce port prime (champ unique Mikhmon).
- * Sinon on garde le port SQL / corps (ex. `v1.mikroot.com` + colonne 2520).
+ * Sinon on garde le port SQL / corps (ex. host nu + colonne 60006).
  */
 export function mergeMikhmonHostPort(
   hostInput: string,
@@ -53,8 +53,8 @@ export function mergeMikhmonHostPort(
 
 /**
  * Corrige host/port DB.
- * - `v1.mikroot.com:2520` dans host → host + port extraits du suffixe.
- * - `v1.mikroot.com` + port 2520 en colonne → on garde le port SQL (ne pas forcer 8728).
+ * - `vpn.nanotechvpn.com:60006` dans host → host + port extraits du suffixe.
+ * - `vpn.nanotechvpn.com` + port en colonne → on garde le port SQL (défaut 8728 seulement si absent).
  */
 export function normalizeRouterHostPort(host: string, port: number): { host: string; port: number } {
   const s = host.trim();
