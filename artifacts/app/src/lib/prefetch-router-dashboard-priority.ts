@@ -5,6 +5,7 @@ import {
   writePriorityCache,
   type PrioritySnapshot,
 } from "@/lib/dashboard-priority";
+import { prefetchVendorsSalesSummary } from "@/lib/prefetch-vendors-sales-summary";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -45,6 +46,9 @@ export async function prefetchRouterDashboardPriority(routerId: number): Promise
       const merged = prev ? mergeKnownPriorityFields(prev, full) : full;
       queryClient.setQueryData(qk, merged);
       writePriorityCache(routerId, merged);
+      if (merged.vendorRanking?.length) {
+        prefetchVendorsSalesSummary(routerId, merged.vendorRanking);
+      }
     })
     .catch(() => { /* polling / SSE */ });
 

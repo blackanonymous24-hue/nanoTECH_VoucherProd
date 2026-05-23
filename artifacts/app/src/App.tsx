@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { RouterProvider } from "@/contexts/RouterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
+import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
 import Layout from "@/components/Layout";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { SessionLifecycle } from "@/components/SessionLifecycle";
@@ -138,9 +139,7 @@ function AppRoutes() {
         // ignore — dashboard will still fetch normally
       }
     })();
-    void import("@/lib/prefetch-router-dashboard-priority").then(({ prefetchRouterDashboardPriority }) =>
-      prefetchRouterDashboardPriority(routerId),
-    );
+    void prefetchRouterDashboardPriority(routerId);
   }, [isAuthenticated, location, qc]);
 
   if (location === "/vendor-portal" || location.startsWith("/vendor-portal/")) {

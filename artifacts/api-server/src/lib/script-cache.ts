@@ -29,6 +29,7 @@ import {
   type SaleEntry,
 } from "./mikrotik.js";
 import { getMikhmonCalendar, mikhmonMonthRange, mikhmonMonthRangeFor } from "./mikhmon-calendar.js";
+import { invalidateVendorPeriodAggCache } from "./vendor-period-agg-cache.js";
 import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
 import {
   closePreviousMonthIfNeeded,
@@ -534,6 +535,7 @@ export async function syncScriptCache(
       await autoCleanMikrotikIfEnabled(routerId, conn, rows);
 
       if (inserted > 0 || mode === "current-month" || mode === "first-month") {
+        invalidateVendorPeriodAggCache(routerId);
         logger.info(
           { routerId, mode, total: entries.length, inserted },
           "script cache: sync complete",

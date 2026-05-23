@@ -8,7 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
 import { printReport } from "@/lib/print";
+import {
+  prefetchVendorPeriodReports,
+  prefetchVendorsSalesSummary,
+  vendorRankingToSummary,
+  type VendorSummaryRow,
+} from "@/lib/prefetch-vendors-sales-summary";
 const SUMMARY_STALE_MS = 60_000;
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -18,17 +25,7 @@ const MONTHS = [
   "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
 ];
 
-interface VendorSummary {
-  vendor: { id: number; name: string; phone: string | null; isActive: boolean };
-  salesStats: {
-    todaySold: number;
-    thisMonthSold: number;
-    todayAmount: number;
-    thisMonthAmount: number;
-  };
-  totalVouchers: number;
-  totalPrinted: number;
-}
+type VendorSummary = VendorSummaryRow;
 
 interface Voucher {
   id: number;
@@ -86,7 +83,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
       return res.json();
     },
     enabled: !isUnattributed || routerId != null,
-    staleTime: SUMMARY_STALE_MS,
+    staleTime: 60_000,
     refetchInterval: false,
     placeholderData: (previousData) => previousData,
   });
@@ -339,6 +336,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
   const isVisible = usePageVisibility();
   const [selectedVendor, setSelectedVendor] = useState<{ id: number; name: string } | null>(null);
   const queryClient = useQueryClient();
+  const { livePriority, rankingReady } = useRouterDashboardPriority(selectedRouterId);
 
   useEffect(() => { setSelectedVendor(null); }, [selectedRouterId]);
 
@@ -347,6 +345,16 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
   const subtitle = isDaily ? "Classement du jour" : "Classement du mois en cours";
   const otherPeriod = isDaily ? "monthly" : "daily";
   const otherLabel = isDaily ? "Voir mensuel" : "Voir journalier";
+
+  const instantFromRanking = useMemo(
+    () => (livePriority?.vendorRanking?.length ? vendorRankingToSummary(livePriority.vendorRanking) : undefined),
+    [livePriority?.vendorRanking],
+  );
+
+  useEffect(() => {
+    if (!selectedRouterId || !instantFromRanking?.length) return;
+    prefetchVendorsSalesSummary(selectedRouterId, livePriority?.vendorRanking ?? null);
+  }, [selectedRouterId, instantFromRanking, livePriority?.vendorRanking]);
 
   const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery<VendorSummary[]>({
     queryKey: ["vendors-summary", selectedRouterId],
@@ -361,51 +369,30 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
     enabled: isVisible && !!selectedRouterId,
     staleTime: SUMMARY_STALE_MS,
     refetchInterval: false,
+    placeholderData: (prev) => prev ?? instantFromRanking,
+    initialData: () => queryClient.getQueryData<VendorSummary[]>(["vendors-summary", selectedRouterId]) ?? instantFromRanking,
   });
 
-  // Prefetch limité aux 5 premiers vendeurs du classement (par CA décroissant)
-  // pour ne pas saturer le serveur de N requêtes parallèles si beaucoup de
-  // vendeurs ont vendu. Les autres se chargent à la demande (clic).
+  const sortedForPrefetch = useMemo(() => (
+    (data ?? instantFromRanking ?? [])
+      .map((d) => ({
+        vendor: d.vendor,
+        count: isDaily ? d.salesStats.todaySold : d.salesStats.thisMonthSold,
+        amount: Math.round(isDaily ? d.salesStats.todayAmount : d.salesStats.thisMonthAmount),
+      }))
+      .filter((e) => e.count > 0)
+      .sort((a, b) => b.amount - a.amount || b.count - a.count)
+  ), [data, instantFromRanking, isDaily]);
+
   useEffect(() => {
+    if (!selectedRouterId || sortedForPrefetch.length === 0) return;
     const reportPeriod = isDaily ? "today" : "month";
-    const rows = (data ?? [])
-      .filter((d) => (isDaily ? d.salesStats.todaySold : d.salesStats.thisMonthSold) > 0)
-      .sort((a, b) => {
-        const aAmt = isDaily ? a.salesStats.todayAmount : a.salesStats.thisMonthAmount;
-        const bAmt = isDaily ? b.salesStats.todayAmount : b.salesStats.thisMonthAmount;
-        return bAmt - aAmt;
-      })
-      .slice(0, 5);
-    if (rows.length === 0) return;
-    for (const row of rows) {
-      const vendorId = row.vendor.id;
-      if (vendorId === UNATTRIBUTED_VENDOR_ID) {
-        if (!selectedRouterId) continue;
-        queryClient.prefetchQuery({
-          queryKey: ["unattributed-period-sales", selectedRouterId, reportPeriod],
-          queryFn: async ({ signal }) => {
-            const res = await fetch(
-              `${BASE}/api/routers/${selectedRouterId}/unattributed-period-sales?period=${reportPeriod}`,
-              { signal },
-            );
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json() as Promise<PeriodSalesData>;
-          },
-          staleTime: SUMMARY_STALE_MS,
-        });
-        continue;
-      }
-      queryClient.prefetchQuery({
-        queryKey: ["vendor-period-sales", vendorId, reportPeriod],
-        queryFn: async ({ signal }) => {
-          const res = await fetch(`${BASE}/api/vendors/${vendorId}/period-sales?period=${reportPeriod}`, { signal });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json() as Promise<PeriodSalesData>;
-        },
-        staleTime: SUMMARY_STALE_MS,
-      });
-    }
-  }, [data, isDaily, queryClient, selectedRouterId]);
+    prefetchVendorPeriodReports(
+      selectedRouterId,
+      sortedForPrefetch.map((r) => ({ id: r.vendor.id, name: r.vendor.name })),
+      reportPeriod,
+    );
+  }, [selectedRouterId, sortedForPrefetch, isDaily]);
 
   type RankRow = { vendor: { id: number; name: string }; count: number; amount: number };
 
@@ -427,7 +414,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
     ? new Date(dataUpdatedAt).toLocaleTimeString("fr-FR")
     : null;
 
-  const listLoading = !!selectedRouterId && isLoading;
+  const listLoading = !!selectedRouterId && isLoading && !rankingReady && !instantFromRanking?.length;
   const rankingPrintTitle = "Rapport de ventes";
 
   if (selectedVendor) {

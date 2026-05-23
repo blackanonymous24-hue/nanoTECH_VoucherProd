@@ -13,6 +13,8 @@ export interface VendorRankingRow {
   name: string;
   dailySold: number;
   monthlySold: number;
+  dailyAmount?: number;
+  monthlyAmount?: number;
 }
 
 /** Classement : ventes sans identifiant vendeur (`vendorId === 0`). */

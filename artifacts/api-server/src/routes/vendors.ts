@@ -3,7 +3,8 @@ import { eq, desc, and, ne, count, sql, isNotNull, isNull, ilike, inArray, gte, 
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { hashPassword } from "../lib/vendor-auth.js";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
-import { enableDisableHotspotUsersByComment, getRouterInfo, type RouterConnection } from "../lib/mikrotik.js";
+import { enableDisableHotspotUsersByComment, type RouterConnection } from "../lib/mikrotik.js";
+import { getRouterClockDateCached } from "../lib/router-clock-cache.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache, resolveCallerScope, type CallerScope } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -653,16 +654,12 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
       if (clock === undefined) {
         const row = routerRows.find((r) => r.id === rid);
         if (row) {
-          try {
-            clock = (await getRouterInfo({
-              host: row.host,
-              port: row.port,
-              username: row.username,
-              password: row.password,
-            })).clockDate ?? null;
-          } catch {
-            clock = null;
-          }
+          clock = await getRouterClockDateCached(rid, {
+            host: row.host,
+            port: row.port,
+            username: row.username,
+            password: row.password,
+          });
         } else {
           clock = null;
         }
@@ -716,16 +713,12 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
     const row = routerRows.find((r) => r.id === routerId);
     let clock: string | null = null;
     if (row) {
-      try {
-        clock = (await getRouterInfo({
-          host: row.host,
-          port: row.port,
-          username: row.username,
-          password: row.password,
-        })).clockDate ?? null;
-      } catch {
-        clock = null;
-      }
+      clock = await getRouterClockDateCached(routerId, {
+        host: row.host,
+        port: row.port,
+        username: row.username,
+        password: row.password,
+      });
     }
     const aggRows = await aggregateVendorPeriodSales(routerId, clock);
     const unattr = aggRows?.find((r) => r.vendorId === UNATTRIBUTED_VENDOR_ID);
@@ -917,22 +910,17 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
   const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, vendor.routerId));
   let routerClock: string | null = null;
   if (routerRow) {
-    try {
-      routerClock = (await getRouterInfo({
-        host: routerRow.host,
-        port: routerRow.port,
-        username: routerRow.username,
-        password: routerRow.password,
-      })).clockDate ?? null;
-    } catch {
-      routerClock = null;
-    }
+    routerClock = await getRouterClockDateCached(vendor.routerId, {
+      host: routerRow.host,
+      port: routerRow.port,
+      username: routerRow.username,
+      password: routerRow.password,
+    });
   }
 
   const agg = await fetchVendorPeriodSales(id, vendor.routerId, period as VendorPeriod, routerClock);
   if (!agg) {
-    res.status(500).json({ error: "Impossible de charger les ventes" });
-    return;
+    logger.warn({ vendorId: id, routerId: vendor.routerId, period }, "period-sales: résultat vide, renvoi 0");
   }
 
   let priceMap = new Map<string, string>();
@@ -941,7 +929,7 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     priceMap = getCachedProfilePricesSync(vendor.routerId, conn);
   }
 
-  const enrichedVouchers = agg.vouchers.map((v) => ({
+  const enrichedVouchers = (agg?.vouchers ?? []).map((v) => ({
     id: v.id,
     username: v.username,
     password: v.password,
@@ -957,19 +945,29 @@ router.get("/vendors/:id/period-sales", async (req, res): Promise<void> => {
     source: v.source,
   }));
 
-  const byProfile = agg.byProfile.map((row) => ({
+  const byProfile = (agg?.byProfile ?? []).map((row) => ({
     ...row,
     price: priceMap.get(row.profileName) ?? "",
   }));
 
+  const base = agg ?? {
+    vendorName: vendor.name,
+    period: period as VendorPeriod,
+    label: period === "today" ? "Aujourd'hui" : period === "month" ? "Mois en cours" : period ?? "",
+    total: 0,
+    revenue: 0,
+    byProfile: [] as { profileName: string; count: number; revenue: number }[],
+    vouchers: [] as typeof enrichedVouchers,
+  };
+
   const result = {
-    vendorName: agg.vendorName,
-    period: agg.period,
-    label: agg.label,
-    total: agg.total,
-    revenue: agg.revenue,
-    byProfile,
-    vouchers: enrichedVouchers,
+    vendorName: base.vendorName,
+    period: base.period,
+    label: base.label,
+    total: base.total,
+    revenue: base.revenue,
+    byProfile: agg ? byProfile : base.byProfile,
+    vouchers: agg ? enrichedVouchers : [],
   };
   apscSet(cacheKey, result);
   res.json(result);

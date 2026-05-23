@@ -31,6 +31,7 @@ import {
 } from "../lib/script-sales-query.js";
 import { deleteSalesCache, getSalesCache, setSalesCache } from "../lib/sales-ram-cache.js";
 import { normalizeRouterConnection, mergeMikhmonHostPort, DEFAULT_ROUTER_API_PORT } from "../lib/router-host.js";
+import { getRouterClockDateCached, seedRouterClockDate } from "../lib/router-clock-cache.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -2805,6 +2806,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
   const sc = routerCacheScope(r.ownerAdminId, id);
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   const routerClockDate = (fast.info as { clockDate?: string | null } | null)?.clockDate ?? null;
+  seedRouterClockDate(id, routerClockDate);
 
   if (!dashboardSalesSyncInFlight.has(id)) {
     dashboardSalesSyncInFlight.add(id);
@@ -2978,20 +2980,27 @@ router.get("/routers/:id/unattributed-period-sales", async (req, res): Promise<v
   const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   let routerClock: string | null = null;
   if (routerRow) {
-    try {
-      routerClock = (await getRouterInfo({
-        host: routerRow.host,
-        port: routerRow.port,
-        username: routerRow.username,
-        password: routerRow.password,
-      })).clockDate ?? null;
-    } catch {
-      routerClock = null;
-    }
+    routerClock = await getRouterClockDateCached(id, {
+      host: routerRow.host,
+      port: routerRow.port,
+      username: routerRow.username,
+      password: routerRow.password,
+    });
   }
 
   const result = await fetchUnattributedPeriodSales(id, period, routerClock);
-  if (!result) { res.status(500).json({ error: "Impossible de charger les ventes non attribuées" }); return; }
+  if (!result) {
+    res.json({
+      vendorName: "Vente sans identifiant",
+      period,
+      label: period === "today" ? "Aujourd'hui" : "Mois en cours",
+      total: 0,
+      revenue: 0,
+      byProfile: [],
+      vouchers: [],
+    });
+    return;
+  }
 
   let priceMap = new Map<string, string>();
   if (routerRow) {
