@@ -219,21 +219,40 @@ function escapeHtmlPrint(s: string): string {
 
 type PortalArrearPrintLine = { label: string; amount: number };
 
-/**
- * Reliquat de la semaine en cours pour un vendeur en règlement HEBDO.
- *
- * Le endpoint /me/daily-arrears renvoie `days: []` pour les vendeurs weekly
- * (pas de ventilation journalière), donc la dette de la semaine en cours
- * n'apparaît PAS dans `arrearsData.days`. Pour qu'elle figure dans
- * "Mes versements non effectués", on lit `versData.weeks[0].remaining`
- * uniquement quand le vendeur est en mode weekly.
- */
-function currentWeekRemainingWeekly(versData: VersementData | null): number {
+/** Total arriérés (journalier ou hebdo) — même source `/me/daily-arrears` + carry. */
+function portalArrearTotalDue(arrearsData: DailyArrearsData, versData: VersementData | null): number {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const cwStart = mondayOfDateUtc(todayIso);
+  const daysPos = arrearsData.days.filter((d) => d.remaining > 0);
+  const hasPrevDays = daysPos.some((d) => d.date < cwStart);
+  const carry = hasPrevDays ? 0 : (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0);
+  return carry + daysPos.reduce((s, d) => s + d.remaining, 0);
+}
+
+/** Afficher la section tant qu'il reste quelque chose à verser (tous modes). */
+function portalShouldShowUnpaid(
+  arrearsData: DailyArrearsData | null,
+  versData: VersementData | null,
+): boolean {
+  if (arrearsData && portalArrearTotalDue(arrearsData, versData) > 0) return true;
+  const w = versData?.weeks?.[0];
+  return (w?.remaining ?? 0) > 0 || (w?.carryOverFromPriorWeeks ?? 0) > 0;
+}
+
+/** Reliquat affichable quand `/daily-arrears` est vide (cache / chargement). */
+function portalVersFallbackRemaining(versData: VersementData | null): number {
   const w = versData?.weeks?.[0];
   if (!w) return 0;
-  const mode = (w as { settlementMode?: string }).settlementMode;
-  if (mode !== "weekly") return 0;
-  return Math.max(0, w.remaining ?? 0);
+  return Math.max(0, (w.remaining ?? 0) + (w.carryOverFromPriorWeeks ?? 0));
+}
+
+function portalDisplayTotalDue(
+  arrearsData: DailyArrearsData | null,
+  versData: VersementData | null,
+): number {
+  const fromArrears = portalArrearTotalDue(arrearsData ?? { days: [] }, versData);
+  if (fromArrears > 0) return fromArrears;
+  return portalVersFallbackRemaining(versData);
 }
 
 /** Lignes arriérés pour l’impression (même regroupement que l’écran). */
@@ -294,27 +313,19 @@ function buildPortalArrearPrintLines(
     }
   }
 
-  // Vendeur HEBDO : ajouter le reliquat de la semaine en cours
-  const weeklyCurrent = currentWeekRemainingWeekly(versData);
-  if (weeklyCurrent > 0) {
-    const w = versData!.weeks[0];
-    const sunIso = addDaysIso(w.weekStart, 6);
-    lines.push({
-      label: `Semaine en cours (${fmtDayMonthYear(w.weekStart)} – ${fmtDayMonthYear(sunIso)})`,
-      amount: weeklyCurrent,
-    });
+  if (lines.length === 0) {
+    const fallback = portalVersFallbackRemaining(versData);
+    if (fallback > 0 && versData?.weeks?.[0]) {
+      const w = versData.weeks[0];
+      const sunIso = addDaysIso(w.weekStart, 6);
+      lines.push({
+        label: `Semaine en cours (${fmtDayMonthYear(w.weekStart)} – ${fmtDayMonthYear(sunIso)})`,
+        amount: fallback,
+      });
+    }
   }
 
   return lines;
-}
-
-function portalArrearTotalDue(arrearsData: DailyArrearsData, versData: VersementData | null): number {
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const cwStart = mondayOfDateUtc(todayIso);
-  const daysPos = arrearsData.days.filter((d) => d.remaining > 0);
-  const hasPrevDays = daysPos.some((d) => d.date < cwStart);
-  const carry = hasPrevDays ? 0 : (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0);
-  return carry + daysPos.reduce((s, d) => s + d.remaining, 0) + currentWeekRemainingWeekly(versData);
 }
 
 function openPortalArrearsPrint(
@@ -323,7 +334,7 @@ function openPortalArrearsPrint(
   versData: VersementData | null,
 ) {
   const arrearLines = buildPortalArrearPrintLines(arrearsData, versData);
-  const totalDu = portalArrearTotalDue(arrearsData, versData);
+  const totalDu = portalDisplayTotalDue(arrearsData, versData);
   const dateFr = fmtDateFr(new Date().toISOString().slice(0, 10));
 
   const bodyRows: string[] = [];
@@ -1430,11 +1441,8 @@ function Dashboard({ token, vendor, onLogout }: {
               </Card>
             </div>
 
-            {/* ── Arriérés journaliers ──────────────────────────────── */}
-            {arrearsData &&
-              (arrearsData.days.length > 0
-                || (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0) > 0
-                || currentWeekRemainingWeekly(versData) > 0) && (
+            {/* ── Arriérés (journalier ou hebdo) ─────────────────────── */}
+            {portalShouldShowUnpaid(arrearsData, versData) && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
@@ -1446,7 +1454,7 @@ function Dashboard({ token, vendor, onLogout }: {
                     size="sm"
                     variant="outline"
                     className="h-7 gap-1 text-xs flex-shrink-0"
-                    onClick={() => openPortalArrearsPrint(vendor, arrearsData, versData)}
+                    onClick={() => openPortalArrearsPrint(vendor, arrearsData ?? { days: [] }, versData)}
                   >
                     <Printer className="h-3.5 w-3.5" />
                     Imprimer
@@ -1456,13 +1464,14 @@ function Dashboard({ token, vendor, onLogout }: {
                   <CardContent className="p-0">
                     <div className="divide-y divide-orange-100">
                       {(() => {
+                        const ad = arrearsData ?? { days: [] };
                         const weekCarry = versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0;
                         const weekStart = versData?.weeks?.[0]?.weekStart;
                         const weekLbl = weekCarry > 0 ? arrearsWeekLabelPortal(weekStart) : null;
 
                         const todayIso = new Date().toISOString().slice(0, 10);
                         const currentWeekStart = mondayOfDateUtc(todayIso);
-                        const daysPositive = arrearsData.days.filter((d) => d.remaining > 0);
+                        const daysPositive = ad.days.filter((d) => d.remaining > 0);
                         const prevDays = daysPositive.filter((d) => d.date < currentWeekStart);
                         const currentDays = daysPositive.filter((d) => d.date >= currentWeekStart);
 
@@ -1593,36 +1602,25 @@ function Dashboard({ token, vendor, onLogout }: {
                           );
                         }
 
-                        // Vendeur HEBDO : reliquat de la semaine en cours
-                        // (les `arrearsData.days` sont vides pour les weekly,
-                        //  on récupère le montant via versData.weeks[0].remaining).
-                        const weeklyCurrent = currentWeekRemainingWeekly(versData);
-                        if (weeklyCurrent > 0 && versData?.weeks?.[0]) {
-                          const w = versData.weeks[0];
-                          const sunIso = addDaysIso(w.weekStart, 6);
-                          const navDateObj = new Date(todayIso + "T00:00:00Z");
-                          rows.push(
-                            <button
-                              key="cur-week-weekly"
-                              type="button"
-                              onClick={() => setReportView({
-                                day: String(navDateObj.getUTCDate()),
-                                month: String(navDateObj.getUTCMonth() + 1),
-                                year: String(navDateObj.getUTCFullYear()),
-                              })}
-                              className="w-full text-left flex items-center justify-between gap-2 px-4 py-2.5 overflow-hidden hover:bg-orange-50 active:bg-orange-100 transition-colors cursor-pointer"
-                            >
-                              <span className="text-[11px] font-semibold text-orange-700 flex-1 min-w-0 flex items-start gap-1.5 leading-tight">
-                                <span className="break-words">
+                        if (rows.length === 0) {
+                          const fallback = portalVersFallbackRemaining(versData);
+                          if (fallback > 0 && versData?.weeks?.[0]) {
+                            const w = versData.weeks[0];
+                            const sunIso = addDaysIso(w.weekStart, 6);
+                            rows.push(
+                              <div
+                                key="vers-fallback"
+                                className="w-full flex items-center justify-between gap-2 px-4 py-2.5 bg-orange-50/40"
+                              >
+                                <span className="text-[11px] font-semibold text-orange-700 leading-tight flex-1 min-w-0">
                                   {`Semaine en cours (${fmtDayMonthYear(w.weekStart)} – ${fmtDayMonthYear(sunIso)})`}
                                 </span>
-                                <ChevronRight className="h-3 w-3 opacity-50 flex-shrink-0 mt-0.5" />
-                              </span>
-                              <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0 whitespace-nowrap pl-2">
-                                {fmtFcfa(weeklyCurrent)} FCFA
-                              </span>
-                            </button>,
-                          );
+                                <span className="text-[11px] font-bold text-orange-700 tabular-nums flex-shrink-0">
+                                  {fmtFcfa(fallback)} FCFA
+                                </span>
+                              </div>,
+                            );
+                          }
                         }
 
                         return rows;
@@ -1631,18 +1629,7 @@ function Dashboard({ token, vendor, onLogout }: {
                     <div className="border-t border-orange-200 bg-orange-50 flex items-center justify-between px-4 py-2 rounded-b-lg">
                       <span className="text-xs font-semibold text-orange-700">Total à verser</span>
                       <span className="text-sm font-bold text-orange-700 tabular-nums">
-                        {fmtFcfa(
-                          (() => {
-                            const todayIso = new Date().toISOString().slice(0, 10);
-                            const cwStart = mondayOfDateUtc(todayIso);
-                            const daysPos = arrearsData.days.filter((d) => d.remaining > 0);
-                            const hasPrevDays = daysPos.some((d) => d.date < cwStart);
-                            const carry = hasPrevDays ? 0 : (versData?.weeks?.[0]?.carryOverFromPriorWeeks ?? 0);
-                            return carry
-                              + daysPos.reduce((s, d) => s + d.remaining, 0)
-                              + currentWeekRemainingWeekly(versData);
-                          })()
-                        )}{" "}
+                        {fmtFcfa(portalDisplayTotalDue(arrearsData, versData))}{" "}
                         FCFA
                       </span>
                     </div>

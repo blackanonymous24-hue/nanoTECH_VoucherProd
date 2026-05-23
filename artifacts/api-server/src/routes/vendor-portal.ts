@@ -684,9 +684,6 @@ router.get("/vendor-portal/me/daily-arrears", async (req, res): Promise<void> =>
   if (!vendor || !vendor.isActive || !vendor.routerId) {
     res.json({ days: [] }); return;
   }
-  if ((vendor.settlementMode ?? "daily") === "weekly") {
-    res.json({ days: [] }); return;
-  }
 
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
