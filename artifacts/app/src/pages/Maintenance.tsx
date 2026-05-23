@@ -273,7 +273,7 @@ export default function Maintenance() {
           </CardTitle>
           <CardDescription className="text-gray-400 text-sm">
             Supprime sur le <span className="text-white font-medium">routeur sélectionné</span>{" "}
-            les scripts MikHmon antérieurs au mois précédent (comme Activer/Désactiver un lot).{" "}
+            les scripts MikHmon de ventes les plus anciens, en commençant par les plus vieux.{" "}
             <span className="text-green-400 font-medium">Conservés :</span> mois en cours
             et mois précédent.
             <br />

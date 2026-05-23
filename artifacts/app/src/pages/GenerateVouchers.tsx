@@ -572,16 +572,6 @@ export default function GenerateVouchers() {
       lockAcquired = true;
 
       while (done < total) {
-        if (effectiveComment) {
-          try {
-            done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
-            setProgress({ done, total });
-          } catch {
-            /* routeur lent — on continue avec done actuel */
-          }
-          if (done >= total) break;
-        }
-
         let batchOk = false;
         // Compteur d'échecs consécutifs "routeur inaccessible" :
         // on tolère 1 erreur passagère sans afficher le message ni bloquer.
@@ -613,11 +603,9 @@ export default function GenerateVouchers() {
               } as any,
             });
             allVouchers.push(...generated);
-            if (effectiveComment) {
-              done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
-            } else {
-              done = Math.min(allVouchers.length, total);
-            }
+            // Chemin nominal : progression par réponse HTTP (rapide).
+            // Le serveur plafonne via lotTarget ; réconciliation routeur seulement en cas d'erreur.
+            done = Math.min(done + generated.length, total);
             setProgress({ done, total });
             batchOk = true;
             unreachableStreak = 0;
