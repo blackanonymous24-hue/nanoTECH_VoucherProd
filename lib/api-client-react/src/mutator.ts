@@ -17,8 +17,6 @@ function rewriteApiUrl(url: string | undefined): string | undefined {
 
 const apiClient = axios.create({
   baseURL: "",
-  /** Génération / gros lots MikroTik : le défaut axios (infini) fige l'UI à 0 %. */
-  timeout: 130_000,
 });
 
 function voucherNetApiPauseAllowsResolvedUrl(resolvedUrl: string): boolean {

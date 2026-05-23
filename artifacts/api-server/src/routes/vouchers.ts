@@ -329,7 +329,7 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     const responseRows = await withRouterLock(routerId, async () => {
       const parsedLotTarget =
         lotTarget != null && Number.isFinite(Number(lotTarget)) ? Math.round(Number(lotTarget)) : undefined;
-      const genResult = await generateVouchers(
+      const generated = await generateVouchers(
         conn,
         {
           qty,
@@ -347,14 +347,6 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
           ...(parsedLotTarget != null && parsedLotTarget > 0 ? { lotTarget: parsedLotTarget } : {}),
         },
       );
-      const generated = genResult.vouchers;
-      if (generated.length === 0 && qty > 0 && genResult.lotTargetReached) {
-        const err = new Error("LOT_TARGET_REACHED") as Error & { code?: string; onRouter?: number; lotTarget?: number };
-        err.code = "LOT_TARGET_REACHED";
-        err.onRouter = genResult.onRouterCount;
-        err.lotTarget = parsedLotTarget;
-        throw err;
-      }
       const insertedIds = await db
         .insert(vouchersTable)
         .values(
@@ -413,16 +405,6 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     // Background: auto-attribute vouchers without vendorId to the matching vendor by comment suffix
     void autoAttributeInserted(responseRows.map((v) => v.id));
   } catch (err) {
-    const coded = err as Error & { code?: string; onRouter?: number; lotTarget?: number };
-    if (coded?.code === "LOT_TARGET_REACHED") {
-      res.status(409).json({
-        code: "LOT_TARGET_REACHED",
-        error: "Le lot est déjà complet sur le routeur (lotTarget atteint).",
-        onRouter: coded.onRouter ?? null,
-        lotTarget: coded.lotTarget ?? null,
-      });
-      return;
-    }
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
 });

@@ -174,13 +174,9 @@ function isRouterUnreachable(err: unknown): boolean {
   const e = err as Record<string, unknown>;
   // Interruption intentionnelle du fetch (logout, AbortController) — pas une panne réseau.
   if (e.name === "AbortError") return false;
-  if (isAxiosError(err)) {
-    const st = err.response?.status;
-    if (st === 502 || st === 504 || st === 408) return true;
-    if (err.code === "ECONNABORTED" || err.code === "ERR_NETWORK") return true;
-  }
   const response = e.response as Record<string, unknown> | undefined;
   if (response?.status === 502 || response?.status === 504) return true;
+  if (isAxiosError(err) && err.code === "ERR_NETWORK") return true;
   const msg = String(e.message ?? "").toLowerCase();
   return (
     msg.includes("502") ||
@@ -194,19 +190,8 @@ function isRouterUnreachable(err: unknown): boolean {
   );
 }
 
-function isLotTargetReachedError(err: unknown): boolean {
-  if (isAxiosError(err) && err.response?.status === 409) {
-    const data = err.response.data as { code?: string } | undefined;
-    return data?.code === "LOT_TARGET_REACHED";
-  }
-  return false;
-}
-
 function formatGenerateError(err: unknown): string {
   if (isApiPauseError(err)) return "";
-  if (isLotTargetReachedError(err)) {
-    return "Ce lot est déjà complet sur le routeur. Changez l'identifiant de lot ou supprimez le lot existant.";
-  }
   if (isAxiosError(err)) {
     const data = err.response?.data as { error?: string } | undefined;
     if (data?.error) return data.error;
@@ -613,9 +598,6 @@ export default function GenerateVouchers() {
       effectiveComment,
     };
     let lockAcquired = false;
-    let emptyBatchStreak = 0;
-    const generationStartedAt = Date.now();
-    const GENERATION_MAX_MS = 35 * 60_000;
     try {
       // Verrouille le routeur pour toute la session : la sync background
       // (vendor + usage) saute automatiquement les routeurs verrouillés.
@@ -627,9 +609,6 @@ export default function GenerateVouchers() {
       lockAcquired = true;
 
       while (done < total) {
-        if (Date.now() - generationStartedAt > GENERATION_MAX_MS) {
-          throw new Error("Délai de génération dépassé. Réessayez ou vérifiez la connexion au routeur.");
-        }
         let batchOk = false;
         // Compteur d'échecs consécutifs "routeur inaccessible" :
         // on tolère 1 erreur passagère sans afficher le message ni bloquer.
@@ -661,7 +640,6 @@ export default function GenerateVouchers() {
               } as any,
             });
             if (generated.length === 0 && qtyBatch > 0) {
-              emptyBatchStreak++;
               if (effectiveComment) {
                 try {
                   done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
@@ -671,18 +649,13 @@ export default function GenerateVouchers() {
                     break;
                   }
                 } catch {
-                  /* réessayer ou échouer ci-dessous */
+                  /* noop */
                 }
               }
-              if (emptyBatchStreak >= 2) {
-                throw new Error(
-                  "Aucun voucher n'a été créé sur le routeur. Vérifiez le profil hotspot ou changez l'identifiant de lot.",
-                );
-              }
-              await new Promise<void>((r) => setTimeout(r, 1500));
-              continue;
+              throw new Error(
+                "Aucun voucher créé sur ce lot. Changez l'identifiant de lot ou vérifiez le profil hotspot.",
+              );
             }
-            emptyBatchStreak = 0;
             allVouchers.push(...generated);
             // Chemin nominal : progression par réponse HTTP (rapide).
             // Le serveur plafonne via lotTarget ; réconciliation routeur seulement en cas d'erreur.
@@ -692,23 +665,6 @@ export default function GenerateVouchers() {
             unreachableStreak = 0;
             if (done >= total) break;
           } catch (err) {
-            if (isLotTargetReachedError(err)) {
-              if (effectiveComment) {
-                try {
-                  done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
-                  setProgress({ done, total });
-                } catch {
-                  /* noop */
-                }
-              }
-              if (done >= total) {
-                batchOk = true;
-                break;
-              }
-              throw new Error(
-                "Ce lot est déjà complet sur le routeur. Changez l'identifiant de lot ou supprimez le lot existant.",
-              );
-            }
             if (isRouterUnreachable(err)) {
               unreachableStreak++;
               generateMutation.reset();

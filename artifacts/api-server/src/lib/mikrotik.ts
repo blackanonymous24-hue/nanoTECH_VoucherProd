@@ -2113,10 +2113,16 @@ export async function countHotspotUsersByComment(
 ): Promise<number> {
   const trimmed = comment.trim();
   if (!trimmed) return 0;
-  const proplist = "=.proplist=.id";
+  const proplist = "=.proplist=.id,comment";
   for (const variant of [trimmed, toWin1252(trimmed)]) {
     const rows = await api.write("/ip/hotspot/user/print", [`?comment=${variant}`, proplist]);
-    if (rows.length > 0) return rows.length;
+    if (rows.length === 0) continue;
+    // RouterOS peut faire un match partiel sur ?comment= — ne compter que le lot exact.
+    let n = 0;
+    for (const u of rows) {
+      if (hotspotUserCommentMatches(u["comment"] as string | undefined, trimmed)) n++;
+    }
+    return n;
   }
   return 0;
 }
@@ -3124,13 +3130,6 @@ export interface GeneratedVoucher {
   comment: string;
 }
 
-export type GenerateVouchersResult = {
-  vouchers: GeneratedVoucher[];
-  /** true si lotTarget atteint sur MikroTik avant ce batch (aucun user à créer). */
-  lotTargetReached: boolean;
-  onRouterCount: number;
-};
-
 export async function generateVouchers(
   conn: RouterConnection,
   opts: {
@@ -3149,7 +3148,7 @@ export async function generateVouchers(
     /** Taille cible du lot (tous batches confondus) — ne jamais dépasser sur le routeur. */
     lotTarget?: number;
   },
-): Promise<GenerateVouchersResult> {
+): Promise<GeneratedVoucher[]> {
   return withRouter(conn, async (api) => {
     const length = Math.min(Math.max(opts.userLength ?? (opts.prefix ? 5 : 8), 3), 8);
     const charType: CharType = opts.charType ?? "mix";
@@ -3161,19 +3160,12 @@ export async function generateVouchers(
     const encodedProfile = toWin1252(opts.profile);
 
     let qtyToCreate = opts.qty;
-    let onRouterCount = 0;
     const lotComment = (opts.comment ?? "").trim();
     if (lotComment && opts.lotTarget != null && opts.lotTarget > 0) {
-      onRouterCount = await countHotspotUsersByComment(api, lotComment);
-      qtyToCreate = Math.min(opts.qty, Math.max(0, opts.lotTarget - onRouterCount));
+      const onRouter = await countHotspotUsersByComment(api, lotComment);
+      qtyToCreate = Math.min(opts.qty, Math.max(0, opts.lotTarget - onRouter));
     }
-    if (qtyToCreate <= 0) {
-      return {
-        vouchers: [],
-        lotTargetReached: opts.qty > 0 && opts.lotTarget != null && opts.lotTarget > 0,
-        onRouterCount,
-      };
-    }
+    if (qtyToCreate <= 0) return [];
 
     // Step 1 – Generate all username/password pairs locally (pure JS, instant).
     // Ensure uniqueness within this batch by tracking already-generated codes.
@@ -3209,7 +3201,7 @@ export async function generateVouchers(
     });
     await Promise.all(workers);
 
-    const mapped = vouchers.map(({ username, password }) => ({
+    return vouchers.map(({ username, password }) => ({
       username,
       password,
       profile: opts.profile,
@@ -3217,7 +3209,6 @@ export async function generateVouchers(
       validity: opts.validity,
       comment: opts.comment ?? "",
     }));
-    return { vouchers: mapped, lotTargetReached: false, onRouterCount };
   }, 120_000, "high");
 }
 
