@@ -46,16 +46,16 @@
  *    the accumulated data array, close cleanly). Other replies untouched.
  *  - Receiver.sendTagData: silently drop late data for unregistered tags
  *    instead of throwing. Always run cleanUp() so the sentencePipe pump
- *    keeps draining.
+ *    keeps draining. Receiver is reached via RouterOSAPI.prototype.connect
+ *    (one-shot Receiver class capture from the first live connection)
+ *    because esbuild bundles node-routeros and createRequire/dynamic-imports
+ *    of its internal CommonJS files do not resolve at runtime.
  *
  * Both patches preserve happy-path behaviour byte-for-byte; they only
  * change the throw-and-poison branches.
  */
-import { Channel } from "node-routeros";
-import { createRequire } from "module";
+import { Channel, RouterOSAPI } from "node-routeros";
 import { logger } from "./logger.js";
-
-const req = createRequire(import.meta.url);
 
 interface ChannelInternals {
   data: unknown[];
@@ -71,12 +71,30 @@ interface PatchedProcessPacket {
   __vouchernetEmptyPatched?: boolean;
 }
 
+interface ReceiverInternals {
+  tags: Map<string, { name: string; callback: (packet: string[]) => void }>;
+  currentPacket: string[];
+  currentTag: string | null;
+  currentReply: string | null;
+}
+
+interface PatchedSendTagData {
+  (this: ReceiverInternals, currentTag: string): void;
+  __vouchernetUnregisteredTagPatched?: boolean;
+}
+
 let patched = false;
+let receiverPrototypePatched = false;
 
 export function patchNodeRouterosEmptyReply(): void {
   if (patched) return;
   patched = true;
 
+  patchChannelProcessPacket();
+  installReceiverPatchHook();
+}
+
+function patchChannelProcessPacket(): void {
   try {
     const proto = (Channel as unknown as { prototype: Record<string, unknown> }).prototype;
     const original = proto.processPacket as PatchedProcessPacket | undefined;
@@ -119,58 +137,85 @@ export function patchNodeRouterosEmptyReply(): void {
   } catch (err) {
     logger.warn({ err }, "[mikrotik-patch] failed to patch Channel.processPacket");
   }
-
-  patchReceiverUnregisteredTag();
 }
 
-interface ReceiverInternals {
-  tags: Map<string, { name: string; callback: (packet: string[]) => void }>;
-  currentPacket: string[];
-  currentTag: string | null;
-  currentReply: string | null;
-}
-
-interface PatchedSendTagData {
-  (this: ReceiverInternals, currentTag: string): void;
-  __vouchernetUnregisteredTagPatched?: boolean;
-}
-
-function patchReceiverUnregisteredTag(): void {
+/**
+ * `Receiver` is not exported by node-routeros and `createRequire` can't reach
+ * it (esbuild bundle). Instead we hook `RouterOSAPI.prototype.connect`: when
+ * the first real connection completes, we grab the live Receiver instance's
+ * constructor and patch its prototype once for all subsequent connections.
+ */
+function installReceiverPatchHook(): void {
   try {
-    const mod = req("node-routeros/dist/connector/Receiver.js") as {
-      Receiver: { prototype: Record<string, unknown> };
+    const ApiCtor = RouterOSAPI as unknown as {
+      prototype: Record<string, unknown> & {
+        connect: (...args: unknown[]) => Promise<unknown>;
+      };
     };
-    const proto = mod.Receiver.prototype;
-    const original = proto.sendTagData as PatchedSendTagData | undefined;
-    if (typeof original !== "function") {
-      logger.warn("[mikrotik-patch] Receiver.sendTagData not found — skip");
+    const proto = ApiCtor.prototype;
+    const originalConnect = proto.connect;
+    if (typeof originalConnect !== "function") {
+      logger.warn("[mikrotik-patch] RouterOSAPI.connect not found — skip");
       return;
     }
-    if (original.__vouchernetUnregisteredTagPatched) return;
-
-    const replacement: PatchedSendTagData = function (
-      this: ReceiverInternals,
-      currentTag: string,
-    ): void {
-      const tag = this.tags.get(currentTag);
-      if (tag) {
-        try {
-          tag.callback(this.currentPacket);
-        } catch (cbErr) {
-          logger.warn({ err: cbErr, tag: currentTag }, "[mikrotik-patch] tag callback threw");
+    if ((originalConnect as { __vouchernetReceiverHookInstalled?: boolean }).__vouchernetReceiverHookInstalled) {
+      return;
+    }
+    const wrapped = async function (
+      this: { connector?: { receiver?: object } },
+      ...args: unknown[]
+    ): Promise<unknown> {
+      const result = await originalConnect.apply(this, args);
+      try {
+        if (!receiverPrototypePatched) {
+          const receiver = this.connector?.receiver;
+          if (receiver) {
+            const receiverProto = Object.getPrototypeOf(receiver) as Record<string, unknown>;
+            patchReceiverSendTagData(receiverProto);
+            receiverPrototypePatched = true;
+          }
         }
+      } catch (err) {
+        logger.warn({ err }, "[mikrotik-patch] failed to install Receiver patch on connect");
       }
-      // else: late reply for a closed channel — silently drop instead of
-      // throwing. Throwing here used to poison Receiver.processSentence's
-      // `processingSentencePipe` flag, freezing the entire connection.
-      this.currentPacket = [];
-      this.currentTag = null;
-      this.currentReply = null;
+      return result;
     };
-    replacement.__vouchernetUnregisteredTagPatched = true;
-    proto.sendTagData = replacement;
-    logger.info("[mikrotik-patch] Receiver.sendTagData patched to drop late data for unregistered tags");
+    (wrapped as { __vouchernetReceiverHookInstalled?: boolean }).__vouchernetReceiverHookInstalled = true;
+    proto.connect = wrapped;
+    logger.info("[mikrotik-patch] RouterOSAPI.connect wrapped — Receiver will be patched on first connection");
   } catch (err) {
-    logger.warn({ err }, "[mikrotik-patch] failed to patch Receiver.sendTagData");
+    logger.warn({ err }, "[mikrotik-patch] failed to install Receiver hook");
   }
+}
+
+function patchReceiverSendTagData(proto: Record<string, unknown>): void {
+  const original = proto.sendTagData as PatchedSendTagData | undefined;
+  if (typeof original !== "function") {
+    logger.warn("[mikrotik-patch] Receiver.sendTagData not found on prototype — skip");
+    return;
+  }
+  if (original.__vouchernetUnregisteredTagPatched) return;
+
+  const replacement: PatchedSendTagData = function (
+    this: ReceiverInternals,
+    currentTag: string,
+  ): void {
+    const tag = this.tags.get(currentTag);
+    if (tag) {
+      try {
+        tag.callback(this.currentPacket);
+      } catch (cbErr) {
+        logger.warn({ err: cbErr, tag: currentTag }, "[mikrotik-patch] tag callback threw");
+      }
+    }
+    // else: late reply for a closed channel — silently drop instead of
+    // throwing. Throwing here used to poison Receiver.processSentence's
+    // `processingSentencePipe` flag, freezing the entire connection.
+    this.currentPacket = [];
+    this.currentTag = null;
+    this.currentReply = null;
+  };
+  replacement.__vouchernetUnregisteredTagPatched = true;
+  proto.sendTagData = replacement;
+  logger.info("[mikrotik-patch] Receiver.sendTagData patched to drop late data for unregistered tags");
 }
