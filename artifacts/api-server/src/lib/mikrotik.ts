@@ -2113,16 +2113,10 @@ export async function countHotspotUsersByComment(
 ): Promise<number> {
   const trimmed = comment.trim();
   if (!trimmed) return 0;
-  const proplist = "=.proplist=.id,comment";
+  const proplist = "=.proplist=.id";
   for (const variant of [trimmed, toWin1252(trimmed)]) {
     const rows = await api.write("/ip/hotspot/user/print", [`?comment=${variant}`, proplist]);
-    if (rows.length === 0) continue;
-    // RouterOS peut faire un match partiel sur ?comment= — ne compter que le lot exact.
-    let n = 0;
-    for (const u of rows) {
-      if (hotspotUserCommentMatches(u["comment"] as string | undefined, trimmed)) n++;
-    }
-    return n;
+    if (rows.length > 0) return rows.length;
   }
   return 0;
 }

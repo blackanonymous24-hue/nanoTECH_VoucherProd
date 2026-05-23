@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { isAxiosError } from "axios";
+import { useState, useEffect, useMemo } from "react";
 import {
   useGenerateVouchers,
   getListVouchersQueryKey,
@@ -175,32 +174,16 @@ function isRouterUnreachable(err: unknown): boolean {
   // Interruption intentionnelle du fetch (logout, AbortController) — pas une panne réseau.
   if (e.name === "AbortError") return false;
   const response = e.response as Record<string, unknown> | undefined;
-  if (response?.status === 502 || response?.status === 504) return true;
-  if (isAxiosError(err) && err.code === "ERR_NETWORK") return true;
+  if (response?.status === 502) return true;
   const msg = String(e.message ?? "").toLowerCase();
   return (
     msg.includes("502") ||
-    msg.includes("504") ||
-    msg.includes("timeout") ||
     msg.includes("contacter") ||
     msg.includes("unreachable") ||
     msg.includes("network error") ||
     msg.includes("failed to fetch") ||   // Chrome / Firefox hors-ligne
     msg.includes("load failed")           // Safari hors-ligne
   );
-}
-
-function formatGenerateError(err: unknown): string {
-  if (isApiPauseError(err)) return "";
-  if (isAxiosError(err)) {
-    const data = err.response?.data as { error?: string } | undefined;
-    if (data?.error) return data.error;
-    if (err.response?.status === 502) return "Impossible de contacter le routeur.";
-  }
-  if (err instanceof Error && err.message && err.message !== "LOT_TARGET_REACHED") {
-    return err.message;
-  }
-  return "Impossible de contacter le routeur. Vérifiez les paramètres de connexion.";
 }
 
 /** Attend que le routeur soit à nouveau accessible (ping toutes les 4s).
@@ -321,11 +304,10 @@ async function loadMostRecentLotFromRouter(
     return null;
   }
   if (!lotsRes.ok) return null;
-  const body = (await lotsRes.json()) as {
-    lots?: Array<{ name: string; count: number; profile: string | null }>;
+  const { lots: apiLots } = (await lotsRes.json()) as {
+    lots: Array<{ name: string; count: number; profile: string | null }>;
   };
-  const apiLots = body.lots;
-  if (!Array.isArray(apiLots) || apiLots.length === 0) return null;
+  if (!apiLots.length) return null;
 
   for (const apiLot of apiLots) {
     let usersRes: Response;
@@ -468,28 +450,11 @@ export default function GenerateVouchers() {
   } = useSharedRouterProfiles();
 
   const generateMutation = useGenerateVouchers();
-  const progressRef = useRef(progress);
-  progressRef.current = progress;
-
-  // Relâcher une pause API orpheline (toggle / onglet) à l'ouverture de la page — sans toucher une génération en cours.
-  useEffect(() => {
-    if (!progressRef.current) setApiRequestPause(false);
-    return () => {
-      if (!progressRef.current) setApiRequestPause(false);
-    };
-  }, []);
 
   useEffect(() => {
     setProfile("");
     setProfilePopoverOpen(false);
   }, [selectedRouterId]);
-
-  // Si les profils ne chargent pas (pause API, routeur lent), ne pas bloquer toute la colonne « dernier lot ».
-  useEffect(() => {
-    if (!selectedRouterId || profilesForRouterId === selectedRouterId) return;
-    const timer = window.setTimeout(() => setLoadingLastLot(false), 20_000);
-    return () => window.clearTimeout(timer);
-  }, [selectedRouterId, profilesForRouterId]);
 
   // Dernier lot = le plus récent sur MikroTik (y compris lots créés hors app).
   useEffect(() => {
@@ -567,8 +532,6 @@ export default function GenerateVouchers() {
         /\/api\/vouchers\/generate(?:$|[/?#])/,
         /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
         /\/api\/routers\/\d+\/users(?:$|[/?#])/,
-        /\/api\/routers\/\d+\/lot-print(?:$|[/?#])/,
-        /\/api\/admin\/ticket-template(?:$|[/?#])/,
         // Sinon waitForRouter() est bloqué par installAuthFetch et la reprise
         // automatique ne peut jamais détecter que le routeur est de nouveau en ligne.
         /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
@@ -639,23 +602,6 @@ export default function GenerateVouchers() {
                 profileValidity,
               } as any,
             });
-            if (generated.length === 0 && qtyBatch > 0) {
-              if (effectiveComment) {
-                try {
-                  done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
-                  setProgress({ done, total });
-                  if (done >= total) {
-                    batchOk = true;
-                    break;
-                  }
-                } catch {
-                  /* noop */
-                }
-              }
-              throw new Error(
-                "Aucun voucher créé sur ce lot. Changez l'identifiant de lot ou vérifiez le profil hotspot.",
-              );
-            }
             allVouchers.push(...generated);
             // Chemin nominal : progression par réponse HTTP (rapide).
             // Le serveur plafonne via lotTarget ; réconciliation routeur seulement en cas d'erreur.
@@ -731,17 +677,6 @@ export default function GenerateVouchers() {
       setVendorId("");
       setProfile("");
 
-    } catch (err) {
-      if (!isApiPauseError(err)) {
-        const description = formatGenerateError(err);
-        if (description) {
-          toast({
-            title: "Génération échouée",
-            description,
-            variant: "destructive",
-          });
-        }
-      }
     } finally {
       setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
@@ -943,11 +878,7 @@ export default function GenerateVouchers() {
                   <RouterIcon className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-blue-900 truncate">{selectedRouter.name}</p>
-                    {selectedRouter.host && (
-                      <p className="text-[10px] text-blue-500">
-                        {formatRouterAddressDisplay(selectedRouter.host, selectedRouter.port)}
-                      </p>
-                    )}
+                    <p className="text-[10px] text-blue-500">{formatRouterAddressDisplay(selectedRouter.host, selectedRouter.port)}</p>
                   </div>
                 </div>
               ) : (
@@ -1119,7 +1050,7 @@ export default function GenerateVouchers() {
                   >
                     {CHAR_TYPE_ORDER.map((type) => {
                       const len = parseInt(userLength, 10);
-                      const p = CHAR_TYPE_PREVIEW[type] ?? CHAR_TYPE_PREVIEW[DEFAULT_GEN_CHAR_TYPE];
+                      const p = CHAR_TYPE_PREVIEW[type];
                       const ex = p.repeat(Math.ceil(len / p.length)).slice(0, len);
                       return (
                         <option key={type} value={type}>
@@ -1332,15 +1263,11 @@ export default function GenerateVouchers() {
 
               {generateMutation.isError &&
                 !genPaused &&
-                !isApiPauseError(generateMutation.error) && (() => {
-                  const msg = formatGenerateError(generateMutation.error);
-                  if (!msg) return null;
-                  return (
+                !isApiPauseError(generateMutation.error) && (
                 <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded p-2">
-                  Erreur : {msg}
+                  Erreur : Impossible de contacter le routeur. Vérifiez les paramètres de connexion.
                 </div>
-                  );
-                })()}
+              )}
             </form>
           </CardContent>
         </Card>
