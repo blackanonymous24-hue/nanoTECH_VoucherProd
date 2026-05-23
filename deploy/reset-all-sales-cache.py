@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Purge globale ventes + resync mois (tous routeurs) via POST /api/admin/reset-all-sales-cache."""
+"""Réinitialise le cache ventes (tous routeurs) via l'API admin locale sur le VPS."""
 from __future__ import annotations
 import json, re, sys
 from pathlib import Path
@@ -32,7 +32,6 @@ const opts = {{
   method: 'POST',
   headers: {{ Authorization: 'Bearer {token}', 'Content-Type': 'application/json' }},
 }};
-const body = JSON.stringify({{ resync: true, concurrency: 4 }});
 const req = http.request(opts, (res) => {{
   let b = '';
   res.on('data', (c) => b += c);
@@ -43,7 +42,6 @@ const req = http.request(opts, (res) => {{
   }});
 }});
 req.on('error', (e) => console.error(e.message));
-req.write(body);
 req.end();
 """
 

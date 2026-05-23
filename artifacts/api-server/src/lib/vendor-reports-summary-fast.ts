@@ -11,6 +11,7 @@ import {
   UNATTRIBUTED_VENDOR_ID,
   UNATTRIBUTED_VENDOR_NAME,
 } from "./vendor-period-sales-aggregate.js";
+import { buildRouterVendorPeriodCounts } from "./sales-stats.js";
 
 type VendorRow = typeof vendorsTable.$inferSelect;
 
@@ -80,18 +81,41 @@ export async function buildRouterReportsSummaryFast(
   if (conn) {
     clock = await getRouterClockDateCached(routerId, conn);
   }
-  const aggRows = await aggregateVendorPeriodSales(routerId, clock);
+  const [aggRows, sqlByVendor] = await Promise.all([
+    aggregateVendorPeriodSales(routerId, clock),
+    buildRouterVendorPeriodCounts(routerId, vendorIds),
+  ]);
   const aggByVendor = new Map((aggRows ?? []).map((r) => [r.vendorId, r]));
 
   const summaries = reporting.map((vendor) => {
     const t = totalsByVendor.get(vendor.id) ?? { total: 0, printed: 0, used: 0 };
     const agg = aggByVendor.get(vendor.id);
+    const sqlPeriods = sqlByVendor.get(vendor.id);
     const salesStats = emptySalesStats();
+    // today / thisMonth: prefer MikHmon-script aggregate (aligned with vendor portal),
+    // fall back to SQL grouping when no script row.
     if (agg) {
       salesStats.todaySold = agg.dailySold;
       salesStats.todayAmount = agg.dailyAmount;
       salesStats.thisMonthSold = agg.monthlySold;
       salesStats.thisMonthAmount = agg.monthlyAmount;
+    } else if (sqlPeriods) {
+      salesStats.todaySold = sqlPeriods.todaySold;
+      salesStats.todayAmount = sqlPeriods.todayAmount;
+      salesStats.thisMonthSold = sqlPeriods.thisMonthSold;
+      salesStats.thisMonthAmount = sqlPeriods.thisMonthAmount;
+    }
+    // yesterday / this week / last week / last month: only from SQL (script agg
+    // doesn't expose these periods — historical zero values were a display bug).
+    if (sqlPeriods) {
+      salesStats.yesterdaySold = sqlPeriods.yesterdaySold;
+      salesStats.yesterdayAmount = sqlPeriods.yesterdayAmount;
+      salesStats.weekSold = sqlPeriods.weekSold;
+      salesStats.weekAmount = sqlPeriods.weekAmount;
+      salesStats.lastWeekSold = sqlPeriods.lastWeekSold;
+      salesStats.lastWeekAmount = sqlPeriods.lastWeekAmount;
+      salesStats.lastMonthSold = sqlPeriods.lastMonthSold;
+      salesStats.lastMonthAmount = sqlPeriods.lastMonthAmount;
     }
     return {
       vendor: safeVendor(vendor),

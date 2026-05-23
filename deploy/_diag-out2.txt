@@ -1,0 +1,32 @@
+﻿
+=== Routeurs ILIKE %CITY% ===
+ id |     name     |        host        
+----+--------------+--------------------
+ 44 | CITY CONNECT | wg.nanotechvpn.com
+(1 row)
+
+
+=== Routeurs ILIKE %DIOUF% ===
+ id |      name       |      host       
+----+-----------------+-----------------
+ 11 | DIOUF CONNEXION | v12.mikroot.com
+ 14 | DIOUF TIASSALE  | v17.mikroot.com
+ 15 | DIOUF WIFI 3    | v17.mikroot.com
+(3 rows)
+
+
+=== Stats mois + aujourd'hui (sale_date) %CITY% ===
+     name     | scripts_mois | sum_mois | scripts_aujour_utc | scripts_aujour_raw_iso | scripts_aujour_raw_legacy 
+--------------+--------------+----------+--------------------+------------------------+---------------------------
+ CITY CONNECT |           30 |    15406 |                 30 |                     30 |                         0
+(1 row)
+
+
+=== Stats mois + aujourd'hui (sale_date) %DIOUF% ===
+      name       | scripts_mois | sum_mois | scripts_aujour_utc | scripts_aujour_raw_iso | scripts_aujour_raw_legacy 
+-----------------+--------------+----------+--------------------+------------------------+---------------------------
+ DIOUF CONNEXION |            0 |        0 |                  0 |                      0 |                         0
+ DIOUF TIASSALE  |            0 |        0 |                  0 |                      0 |                         0
+ DIOUF WIFI 3    |            0 |        0 |                  0 |                      0 |                         0
+(3 rows)
+

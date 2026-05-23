@@ -1,4 +1,4 @@
-import { and, eq, gte, isNotNull, lt, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lt, ne, sql } from "drizzle-orm";
 import { db, vouchersTable } from "@workspace/db";
 
 /** Bornes UTC : [startOfDay, end) — sargable, exploite l'index (router_id, used_at). */
@@ -65,6 +65,88 @@ export function buildProfilePeriodCounts(vendorId: number, routerId?: number | n
 }
 
 export type ProfilePeriodRow = Awaited<ReturnType<typeof buildProfilePeriodCounts>>[number];
+
+export type VendorPeriodSqlRow = {
+  vendorId: number;
+  todaySold: number;       todayAmount: number;
+  yesterdaySold: number;   yesterdayAmount: number;
+  weekSold: number;        weekAmount: number;
+  lastWeekSold: number;    lastWeekAmount: number;
+  thisMonthSold: number;   thisMonthAmount: number;
+  lastMonthSold: number;   lastMonthAmount: number;
+};
+
+/**
+ * Per-vendor totals across the 6 dashboard periods, derived from
+ * `vouchers.used_at` in ONE grouped query (sargable indexes).
+ *
+ * Used by the fast `/reports/summary` path to fill periods that the
+ * MikHmon-script aggregate doesn't expose (yesterday, this/last week, last month).
+ * Amounts use `coalesce(salePrice, price)` cast to numeric.
+ */
+export async function buildRouterVendorPeriodCounts(
+  routerId: number,
+  vendorIds: number[],
+): Promise<Map<number, VendorPeriodSqlRow>> {
+  if (vendorIds.length === 0) return new Map();
+
+  const effectivePrice = sql<number>`coalesce(nullif(${vouchersTable.salePrice}, ''), nullif(${vouchersTable.price}, ''))::numeric`;
+
+  const now = new Date();
+  const dayB = utcDayBounds(now);
+  const yesterdayB = utcDayBounds(new Date(dayB.start.getTime() - 86_400_000));
+
+  const utcToday     = sql`${vouchersTable.usedAt} >= ${dayB.start}       AND ${vouchersTable.usedAt} < ${dayB.end}`;
+  const utcYesterday = sql`${vouchersTable.usedAt} >= ${yesterdayB.start} AND ${vouchersTable.usedAt} < ${yesterdayB.end}`;
+  const thisWeek     = sql`${vouchersTable.usedAt} >= date_trunc('week', current_date) and ${vouchersTable.usedAt} < current_date + interval '1 day'`;
+  const lastWeek     = sql`${vouchersTable.usedAt} >= date_trunc('week', current_date - interval '1 week') and ${vouchersTable.usedAt} < date_trunc('week', current_date)`;
+  const thisMonth    = sql`${vouchersTable.usedAt} >= date_trunc('month', current_date) and ${vouchersTable.usedAt} < date_trunc('month', current_date + interval '1 month')`;
+  const lastMonth    = sql`${vouchersTable.usedAt} >= date_trunc('month', current_date - interval '1 month') and ${vouchersTable.usedAt} < date_trunc('month', current_date)`;
+
+  const rows = await db
+    .select({
+      vendorId: vouchersTable.vendorId,
+      todaySold:       sql<number>`count(*) filter (where ${utcToday})`,
+      todayAmount:     sql<number>`coalesce(sum(${effectivePrice}) filter (where ${utcToday}), 0)`,
+      yesterdaySold:   sql<number>`count(*) filter (where ${utcYesterday})`,
+      yesterdayAmount: sql<number>`coalesce(sum(${effectivePrice}) filter (where ${utcYesterday}), 0)`,
+      weekSold:        sql<number>`count(*) filter (where ${thisWeek})`,
+      weekAmount:      sql<number>`coalesce(sum(${effectivePrice}) filter (where ${thisWeek}), 0)`,
+      lastWeekSold:    sql<number>`count(*) filter (where ${lastWeek})`,
+      lastWeekAmount:  sql<number>`coalesce(sum(${effectivePrice}) filter (where ${lastWeek}), 0)`,
+      thisMonthSold:   sql<number>`count(*) filter (where ${thisMonth})`,
+      thisMonthAmount: sql<number>`coalesce(sum(${effectivePrice}) filter (where ${thisMonth}), 0)`,
+      lastMonthSold:   sql<number>`count(*) filter (where ${lastMonth})`,
+      lastMonthAmount: sql<number>`coalesce(sum(${effectivePrice}) filter (where ${lastMonth}), 0)`,
+    })
+    .from(vouchersTable)
+    .where(and(
+      eq(vouchersTable.routerId, routerId),
+      inArray(vouchersTable.vendorId, vendorIds),
+    ))
+    .groupBy(vouchersTable.vendorId);
+
+  const map = new Map<number, VendorPeriodSqlRow>();
+  for (const r of rows) {
+    if (r.vendorId == null) continue;
+    map.set(r.vendorId, {
+      vendorId: r.vendorId,
+      todaySold:       Number(r.todaySold),
+      todayAmount:     Number(r.todayAmount),
+      yesterdaySold:   Number(r.yesterdaySold),
+      yesterdayAmount: Number(r.yesterdayAmount),
+      weekSold:        Number(r.weekSold),
+      weekAmount:      Number(r.weekAmount),
+      lastWeekSold:    Number(r.lastWeekSold),
+      lastWeekAmount:  Number(r.lastWeekAmount),
+      thisMonthSold:   Number(r.thisMonthSold),
+      thisMonthAmount: Number(r.thisMonthAmount),
+      lastMonthSold:   Number(r.lastMonthSold),
+      lastMonthAmount: Number(r.lastMonthAmount),
+    });
+  }
+  return map;
+}
 
 /**
  * Aggregates period stats across all profiles.

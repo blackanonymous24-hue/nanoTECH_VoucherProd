@@ -6,6 +6,7 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) if [ \"$CI\" = \"true\" ]; then echo \"Non-pnpm install detected in CI; continuing for deployment compatibility.\" >&2; else echo \"Use pnpm instead\" >&2; exit 1; fi ;; esac'",
     "db:sync-neon-local": "node scripts/sync-neon-to-local.mjs",
+    "db:sync-vps-local": "python deploy/sync-vps-to-local.py",
     "dev": "pnpm exec concurrently -k -n api,web,tunnel -c blue,green,magenta \"pnpm --filter @workspace/api-server run dev\" \"pnpm --filter @workspace/app run dev\" \"node scripts/dev-tunnel.mjs\"",
     "dev:no-tunnel": "pnpm exec concurrently -k -n api,web -c blue,green \"pnpm --filter @workspace/api-server run dev\" \"pnpm --filter @workspace/app run dev\"",
     "dev:full": "pnpm run db:sync-neon-local && pnpm exec concurrently -k -n api,web -c blue,green \"pnpm --filter @workspace/api-server run dev\" \"pnpm --filter @workspace/app run dev\"",

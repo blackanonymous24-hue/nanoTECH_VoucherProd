@@ -51,7 +51,14 @@ Thumbs.db
 
 # Déploiement VPS (mot de passe / clé SSH) — jamais committer
 deploy/vps.local.env
+deploy/vps.target.local.env
+deploy/vps.old.local.env
 deploy/*.local.env
+
+# Sauvegardes base (sync VPS → local)
+backups/*.dump
+backups/*.sql
+backups/*.env
 
 # Legacy / cache
 .cache/
