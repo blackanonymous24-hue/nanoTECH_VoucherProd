@@ -9,6 +9,7 @@ import { RouterProvider } from "@/contexts/RouterContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
+import { prefetchReportsSummary } from "@/lib/prefetch-reports-summary";
 import Layout from "@/components/Layout";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { SessionLifecycle } from "@/components/SessionLifecycle";
@@ -140,6 +141,9 @@ function AppRoutes() {
       }
     })();
     void prefetchRouterDashboardPriority(routerId);
+    if (normalized.startsWith("/reports") || normalized.startsWith("/sales")) {
+      prefetchReportsSummary(routerId);
+    }
   }, [isAuthenticated, location, qc]);
 
   if (location === "/vendor-portal" || location.startsWith("/vendor-portal/")) {

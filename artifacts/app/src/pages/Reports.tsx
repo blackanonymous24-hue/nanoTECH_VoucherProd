@@ -1,14 +1,19 @@
 import { useState, useMemo, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
-  useGetVendorReportsSummary,
   useGetVendorReport,
   useSyncVoucherUsage,
   getGetVendorReportQueryKey,
-  getGetVendorReportsSummaryQueryKey,
 } from "@workspace/api-client-react";
 import type { VendorSummary } from "@workspace/api-client-react";
+import {
+  prefetchReportsSummary,
+  readReportsSummaryCache,
+  reportsSummaryQueryKey,
+  writeReportsSummaryCache,
+} from "@/lib/prefetch-reports-summary";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +27,9 @@ import {
   RefreshCw, CheckCircle2, ArrowDownUp, XCircle, Printer,
 } from "lucide-react";
 import { printReport } from "@/lib/print";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const SUMMARY_STALE_MS = 60_000;
 
 /* ─── 2-segment bar: vendu (green) | non vendu (gray) ─────────── */
 function SaleBar({ used, total }: { used: number; total: number }) {
@@ -114,9 +122,16 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
   const isVisible = usePageVisibility();
-  const { data, isLoading } = useGetVendorReport(vendorId, { query: { queryKey: getGetVendorReportQueryKey(vendorId), refetchInterval: isVisible ? 60_000 : false } });
+  const { data, isLoading } = useGetVendorReport(vendorId, {
+    query: {
+      queryKey: getGetVendorReportQueryKey(vendorId),
+      refetchInterval: isVisible ? 60_000 : false,
+      staleTime: SUMMARY_STALE_MS,
+      placeholderData: (prev) => prev,
+    },
+  });
 
-  if (isLoading || !data) {
+  if (isLoading && !data) {
     return (
       <Card>
         <CardContent className="py-6 space-y-3">
@@ -544,9 +559,50 @@ function sortSummaries(summaries: VendorSummary[], mode: SortMode): VendorSummar
 export default function Reports() {
   const isVisible = usePageVisibility();
   const { selectedRouterId: routerId } = useRouterContext();
-  const { data: summaries = [], isLoading } = useGetVendorReportsSummary({ query: { queryKey: getGetVendorReportsSummaryQueryKey(), refetchInterval: isVisible ? 60_000 : false } });
+  const queryClient = useQueryClient();
+  const cachedInstant = routerId ? readReportsSummaryCache(routerId) : null;
+
+  useEffect(() => {
+    if (!routerId) return;
+    prefetchReportsSummary(routerId);
+  }, [routerId]);
+
+  const { data: summaries = [], isLoading } = useQuery<VendorSummary[]>({
+    queryKey: reportsSummaryQueryKey(routerId ?? 0),
+    queryFn: async ({ signal }) => {
+      if (!routerId) return [];
+      const res = await fetch(`${BASE}/api/vendors/reports/summary?routerId=${routerId}`, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<VendorSummary[]>;
+    },
+    enabled: isVisible && !!routerId,
+    staleTime: SUMMARY_STALE_MS,
+    refetchInterval: isVisible ? 60_000 : false,
+    placeholderData: (prev) => prev ?? cachedInstant ?? undefined,
+    initialData: () =>
+      (routerId ? queryClient.getQueryData<VendorSummary[]>(reportsSummaryQueryKey(routerId)) : undefined)
+      ?? cachedInstant
+      ?? undefined,
+  });
+
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("vendu-desc");
+
+  useEffect(() => {
+    if (!routerId || summaries.length === 0) return;
+    for (const s of summaries.slice(0, 12)) {
+      const id = s.vendor.id;
+      queryClient.prefetchQuery({
+        queryKey: getGetVendorReportQueryKey(id),
+        queryFn: async ({ signal }) => {
+          const res = await fetch(`${BASE}/api/vendors/${id}/report`, { signal });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        },
+        staleTime: SUMMARY_STALE_MS,
+      });
+    }
+  }, [routerId, summaries, queryClient]);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("vouchernet_report_vendor_id");
@@ -561,11 +617,13 @@ export default function Reports() {
     setSelectedVendorId(null);
   }, [routerId]);
 
-  // Filter to only vendors of the active router
-  const filtered = useMemo(
-    () => routerId ? summaries.filter((s) => s.vendor.routerId === routerId) : summaries,
-    [summaries, routerId],
-  );
+  useEffect(() => {
+    if (routerId && summaries.length) {
+      writeReportsSummaryCache(routerId, summaries);
+    }
+  }, [routerId, summaries]);
+
+  const filtered = summaries;
 
   const sorted = useMemo(() => sortSummaries(filtered, sortMode), [filtered, sortMode]);
 
@@ -624,7 +682,7 @@ export default function Reports() {
         </div>
       )}
 
-      {isLoading ? (
+      {isLoading && summaries.length === 0 && !cachedInstant?.length ? (
         <Card>
           <CardContent className="py-6 space-y-3">
             <Skeleton className="h-5 w-44 mx-auto" />

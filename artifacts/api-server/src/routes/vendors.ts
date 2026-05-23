@@ -5,6 +5,7 @@ import { hashPassword } from "../lib/vendor-auth.js";
 import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { enableDisableHotspotUsersByComment, type RouterConnection } from "../lib/mikrotik.js";
 import { getRouterClockDateCached } from "../lib/router-clock-cache.js";
+import { buildRouterReportsSummaryFast } from "../lib/vendor-reports-summary-fast.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache, resolveCallerScope, type CallerScope } from "./routers.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -627,6 +628,25 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
       tenantCond,
     ))
     .orderBy(vendorsTable.name);
+
+  if (routerId && !Number.isNaN(routerId)) {
+    try {
+      const [routerRow] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
+      const conn: RouterConnection | null = routerRow
+        ? {
+            host: routerRow.host,
+            port: routerRow.port,
+            username: routerRow.username,
+            password: routerRow.password,
+          }
+        : null;
+      const fast = await buildRouterReportsSummaryFast(routerId, vendors, conn);
+      res.json(fast);
+      return;
+    } catch (err) {
+      logger.warn({ err, routerId }, "reports/summary fast path failed — repli lent");
+    }
+  }
 
   // Fetch profile prices for all unique routers — sync (non-blocking): returns
   // in-memory cached value immediately and triggers a background MikroTik refresh.

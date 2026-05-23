@@ -18,7 +18,8 @@ import {
   isDailySettlementVendor,
   vendorDateAmountMaps,
 } from "../lib/vendor-settlement.js";
-import { getRouterInfo, type RouterConnection } from "../lib/mikrotik.js";
+import { type RouterConnection } from "../lib/mikrotik.js";
+import { getRouterClockDateCached } from "../lib/router-clock-cache.js";
 import { aggregateVendorPeriodSales, fetchVendorPeriodSales, type VendorPeriod } from "../lib/vendor-period-sales-aggregate.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 
@@ -47,7 +48,7 @@ const PSC_TTL: Record<string, number> = {
 const DASH_TTL     = 5_000;    // /vendor-portal/me  — réduit pour ventes temps réel
 const PAYMENTS_TTL = 30_000;   // /vendor-portal/me/payments
 const ARREARS_TTL  = 45_000;   // /vendor-portal/me/daily-arrears
-const DASH_MAX_STALE_MS = 10_000; // max stale: 10s pour rester quasi temps réel
+const DASH_MAX_STALE_MS = 30 * 60_000; // stale-while-revalidate : affichage instantané au retour
 
 function buildTotals(vendorId: number) {
   return db.select({
@@ -158,17 +159,13 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
 
   if (vendor.routerId) {
     let routerClock: string | null = null;
-    if (routerRow) {
-      try {
-        routerClock = (await getRouterInfo({
-          host: routerRow.host,
-          port: routerRow.port,
-          username: routerRow.username,
-          password: routerRow.password,
-        })).clockDate ?? null;
-      } catch {
-        routerClock = null;
-      }
+    if (routerRow && vendor.routerId) {
+      routerClock = await getRouterClockDateCached(vendor.routerId, {
+        host: routerRow.host,
+        port: routerRow.port,
+        username: routerRow.username,
+        password: routerRow.password,
+      });
     }
     if (vendor.isDemo) {
       const [todayAgg, monthAgg] = await Promise.all([
@@ -312,7 +309,7 @@ router.get("/vendor-portal/me", async (req, res): Promise<void> => {
   if (dashFresh) { res.json(dashFresh); return; }
 
   const dashStaleEntry = cGetStaleEntry(dashKey);
-  if (dashStaleEntry && (Date.now() - dashStaleEntry.setAt) <= DASH_MAX_STALE_MS) {
+  if (dashStaleEntry) {
     res.json(dashStaleEntry.data);
     // Recompute in background so the very next request is fresh.
     setImmediate(async () => {
@@ -415,21 +412,31 @@ router.get("/vendor-portal/me/period-sales", async (req, res): Promise<void> => 
 
   let routerClock: string | null = null;
   if (routerRow) {
-    try {
-      routerClock = (await getRouterInfo({
-        host: routerRow.host,
-        port: routerRow.port,
-        username: routerRow.username,
-        password: routerRow.password,
-      })).clockDate ?? null;
-    } catch {
-      routerClock = null;
-    }
+    routerClock = await getRouterClockDateCached(vendor.routerId, {
+      host: routerRow.host,
+      port: routerRow.port,
+      username: routerRow.username,
+      password: routerRow.password,
+    });
   }
 
   const agg = await fetchVendorPeriodSales(vendor.id, vendor.routerId, period as VendorPeriod, routerClock);
   if (!agg) {
-    res.status(500).json({ error: "Impossible de charger les ventes" });
+    const labels: Record<string, string> = {
+      today: "Aujourd'hui",
+      yesterday: "Hier",
+      week: "Semaine dernière",
+      month: "Mois en cours",
+    };
+    res.json({
+      vendorName: vendor.name,
+      period,
+      label: labels[period] ?? period,
+      total: 0,
+      revenue: 0,
+      byProfile: [],
+      vouchers: [],
+    });
     return;
   }
 

@@ -41,12 +41,29 @@ const TOKEN_KEY = "vouchernet_vendor_token";
    Survives React re-renders and component unmount/remount within the same
    browser tab. Enables instant display (no spinner) when the user returns
    to the portal or the component re-mounts with the same token.          */
+import {
+  readVendorPortalCache,
+  writeVendorPortalCache,
+  warmVendorPortalDashboard,
+} from "@/lib/vendor-portal-cache";
+
 const _dc: {
   token: string | null;
   data: PortalData | null;
   versData: VersementData | null;
   arrearsData: DailyArrearsData | null;
 } = { token: null, data: null, versData: null, arrearsData: null };
+
+function hydrateVendorDashFromStorage(token: string, vendorId: number): boolean {
+  if (_dc.token === token && _dc.data) return true;
+  const ls = readVendorPortalCache(token, vendorId);
+  if (!ls?.data) return false;
+  _dc.token = token;
+  _dc.data = ls.data as PortalData;
+  _dc.versData = (ls.versData as VersementData | null) ?? null;
+  _dc.arrearsData = (ls.arrearsData as DailyArrearsData | null) ?? null;
+  return true;
+}
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type VendorInfo = { id: number; name: string; email: string | null; username: string | null };
@@ -1039,9 +1056,10 @@ function Dashboard({ token, vendor, onLogout }: {
   vendor: VendorInfo;
   onLogout: () => void;
 }) {
-  // ── Use module-level cache for instant display on mount ─────────────────
-  // hadCacheRef stays stable so fetchData dependency array never changes.
-  const hadCacheRef = useRef(_dc.token === token && _dc.data !== null);
+  // ── Cache mémoire + localStorage pour affichage instantané ───────────────
+  const hadCacheRef = useRef(
+    hydrateVendorDashFromStorage(token, vendor.id) || (_dc.token === token && _dc.data !== null),
+  );
   const [data, setData] = useState<PortalData | null>(hadCacheRef.current ? _dc.data : null);
   const [versData, setVersData] = useState<VersementData | null>(hadCacheRef.current ? _dc.versData : null);
   const [arrearsData, setArrearsData] = useState<DailyArrearsData | null>(hadCacheRef.current ? _dc.arrearsData : null);
@@ -1123,7 +1141,11 @@ function Dashboard({ token, vendor, onLogout }: {
         setData(d);
         _dc.token = token;
         _dc.data  = d;
-        // Dès que le coeur du dashboard arrive, on cache la skeleton
+        writeVendorPortalCache(token, vendor.id, {
+          data: d,
+          versData: _dc.versData,
+          arrearsData: _dc.arrearsData,
+        });
         setLoading(false);
       })
       .catch(() => {
@@ -1136,6 +1158,13 @@ function Dashboard({ token, vendor, onLogout }: {
         const v = await res.json() as VersementData;
         setVersData(v);
         _dc.versData = v;
+        if (_dc.data) {
+          writeVendorPortalCache(token, vendor.id, {
+            data: _dc.data,
+            versData: v,
+            arrearsData: _dc.arrearsData,
+          });
+        }
       })
       .catch(() => { /* non-bloquant */ });
 
@@ -1145,6 +1174,13 @@ function Dashboard({ token, vendor, onLogout }: {
         const a = await res.json() as DailyArrearsData;
         setArrearsData(a);
         _dc.arrearsData = a;
+        if (_dc.data) {
+          writeVendorPortalCache(token, vendor.id, {
+            data: _dc.data,
+            versData: _dc.versData,
+            arrearsData: a,
+          });
+        }
       })
       .catch(() => { /* non-bloquant */ });
 
@@ -1169,7 +1205,8 @@ function Dashboard({ token, vendor, onLogout }: {
   }, [token]);
 
   useEffect(() => {
-    fetchData(true).then(() => { prefetchPeriods(); });
+    void warmVendorPortalDashboard(token);
+    fetchData(false).then(() => { prefetchPeriods(); });
     // Refresh discret toutes les 5 s pour afficher les nouvelles ventes en temps réel.
     // Côté serveur, le cache TTL=5 s garantit des données fraîches à chaque cycle.
     const id = setInterval(() => { fetchData(false); }, 5_000);

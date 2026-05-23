@@ -5,6 +5,7 @@ import { clearAllSavedPrintLots } from "@/lib/voucher-print-lot-persist";
 import { getListRoutersQueryKey, VOUCHERNET_SESSION_REVOKED_EVENT } from "@workspace/api-client-react";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { isNativeAppShell } from "@/lib/native-app-shell";
+import { warmVendorPortalDashboard } from "@/lib/vendor-portal-cache";
 
 const TOKEN_KEY           = "vouchernet_admin_token";
 const ROLE_KEY            = "vouchernet_role";
@@ -225,6 +226,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(t);
     setRole(r);
     setVendorInfo(vi ?? null);
+    if (r === "vendor") {
+      void warmVendorPortalDashboard(t);
+    }
     setManagerRouterIds(r === "manager" ? mgrIds : []);
     setCollaborateurRouterIds(r === "collaborateur" && collabRouterIds ? collabRouterIds : []);
     setIsSuperAdmin(effectiveSuper);
