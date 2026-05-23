@@ -180,10 +180,12 @@ export function PersonForm({
           </p>
           <div className="space-y-2">
             <div>
-              <Label htmlFor="pf-username">
+              <Label htmlFor="pf-username" className="inline-flex flex-wrap items-baseline gap-x-1">
                 {usernameLabel}
                 {!forManager && (
-                  <span className="text-gray-400 text-xs ml-1">(vide = utilise le téléphone)</span>
+                  <span className="text-gray-400 text-xs font-normal whitespace-nowrap">
+                    (si non renseigné, le téléphone est utilisé comme login)
+                  </span>
                 )}
               </Label>
               <Input

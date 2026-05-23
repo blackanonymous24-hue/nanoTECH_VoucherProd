@@ -1,10 +1,10 @@
 /**
- * Quand l'adresse ou les identifiants API changent, le cache ventes peut pointer vers
- * un autre MikroTik. On purge sauf si le numéro de série routeurboard est identique.
+ * Quand l'adresse (host/port) du routeur change, le cache ventes peut pointer vers
+ * un autre MikroTik. On purge systématiquement, sans vérification du numéro de série.
  */
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db, routersTable } from "@workspace/db";
-import { getRouterInfo, type RouterConnection } from "./mikrotik.js";
+import { type RouterConnection } from "./mikrotik.js";
 import { logger } from "./logger.js";
 import {
   DEFAULT_ROUTER_API_PORT,
@@ -47,7 +47,7 @@ function normEndpoint(host: string, port: number): { host: string; port: number 
   return normalizeRouterHostPort(host.trim(), port > 0 ? port : DEFAULT_ROUTER_API_PORT);
 }
 
-/** true si host/port/username/password effectifs changent. */
+/** true si host ou port effectifs changent. Username/password ignorés (n'invalident pas les ventes). */
 export function routerConnectionPatchChanged(
   before: RouterConnSnapshot,
   patch: RouterConnPatch,
@@ -55,10 +55,7 @@ export function routerConnectionPatchChanged(
   const merged = mergedConnectionFromPatch(before, patch);
   const b = normEndpoint(before.host, before.port);
   const a = normEndpoint(merged.host, merged.port);
-  if (b.host !== a.host || b.port !== a.port) return true;
-  if (merged.username !== before.username) return true;
-  if (patch.password !== undefined && patch.password !== "") return true;
-  return false;
+  return b.host !== a.host || b.port !== a.port;
 }
 
 export function mergedConnectionFromPatch(
@@ -93,16 +90,16 @@ export type ReconnectSalesResetResult = {
 };
 
 /**
- * Après changement IP/API : lit le n° de série MikroTik et purge le cache ventes
- * si l'équipement semble différent (ou si la série n'est pas vérifiable).
+ * Après changement d'IP/host : purge inconditionnellement le cache ventes local.
+ * Plus de vérification de numéro de série — on suppose qu'un autre endpoint =
+ * potentiellement un autre MikroTik, donc on remet à zéro pour éviter les
+ * ventes fantômes liées à un ancien équipement.
  */
 export async function reconcileSalesCacheAfterConnectionChange(
   routerId: number,
   before: RouterConnSnapshot,
   patch: RouterConnPatch,
 ): Promise<ReconnectSalesResetResult> {
-  await ensureRouterMikrotikSerialColumn();
-
   if (!routerConnectionPatchChanged(before, patch)) {
     return {
       salesCacheCleared: false,
@@ -111,41 +108,16 @@ export async function reconcileSalesCacheAfterConnectionChange(
     };
   }
 
-  const conn = mergedConnectionFromPatch(before, patch);
-  let newSerial: string | null = null;
-  try {
-    const info = await getRouterInfo(conn);
-    newSerial = info.serialNumber?.trim() || null;
-  } catch (err) {
-    logger.warn({ routerId, err }, "reconnect: lecture n° série impossible");
-  }
-
-  const prevSerial = before.mikrotikSerial?.trim() || null;
-  let shouldClear = true;
-  let reason = "connection_changed";
-
-  if (newSerial && prevSerial && newSerial === prevSerial) {
-    shouldClear = false;
-    reason = "same_serial";
-  } else if (!newSerial || !prevSerial) {
-    shouldClear = true;
-    reason = newSerial ? "serial_new_device" : "serial_unavailable";
-  } else {
-    shouldClear = true;
-    reason = "serial_mismatch";
-  }
-
-  if (shouldClear) {
-    const cleared = await resetRouterSalesCache(routerId);
-    logger.info(
-      { routerId, reason, deletedSales: cleared.deletedSales, newSerial, prevSerial },
-      "reconnect: cache ventes purgé (autre MikroTik ou IP non vérifiable)",
-    );
-    return { salesCacheCleared: true, mikrotikSerial: newSerial, reason };
-  }
-
-  logger.info({ routerId, newSerial }, "reconnect: même MikroTik (n° série), ventes conservées");
-  return { salesCacheCleared: false, mikrotikSerial: newSerial ?? prevSerial, reason };
+  const cleared = await resetRouterSalesCache(routerId);
+  logger.info(
+    { routerId, deletedSales: cleared.deletedSales, reason: "host_or_port_changed" },
+    "reconnect: cache ventes purgé (IP/host modifié)",
+  );
+  return {
+    salesCacheCleared: true,
+    mikrotikSerial: null,
+    reason: "host_or_port_changed",
+  };
 }
 
 /** Enregistre le n° de série au premier contact réussi (dashboard / ping). */
