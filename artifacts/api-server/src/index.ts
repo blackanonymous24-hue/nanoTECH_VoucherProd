@@ -1,5 +1,7 @@
 import "source-map-support/register.js";
 import "./load-env.js";
+import { patchNodeRouterosEmptyReply } from "./lib/mikrotik-patch.js";
+patchNodeRouterosEmptyReply();
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
 import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureRouterTimezoneOffsetColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensureTicketTemplatePresetColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureManagerRoutersTable, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensureVendorSettlementModeColumn, ensurePrintScaleColumns, ensureUserSessionsTable, ensureSessionEpochColumns, normalizeStoredRouterHosts } from "./lib/ensure-router-currency-column.js";
