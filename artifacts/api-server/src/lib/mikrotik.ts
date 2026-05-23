@@ -2106,6 +2106,21 @@ export async function enableDisableHotspotLot(
  * Cas typique : désactivation d’un **lot** sur le routeur — pas d’`/ip/hotspot/active/*` ni
  * `/ip/hotspot/cookie/*` (même logique que {@link enableDisableHotspotLot}).
  */
+/** Nombre d'utilisateurs hotspot portant exactement ce commentaire de lot (variantes encodage). */
+export async function countHotspotUsersByComment(
+  api: { write: (path: string, args?: string[]) => Promise<Record<string, unknown>[]> },
+  comment: string,
+): Promise<number> {
+  const trimmed = comment.trim();
+  if (!trimmed) return 0;
+  const proplist = "=.proplist=.id";
+  for (const variant of [trimmed, toWin1252(trimmed)]) {
+    const rows = await api.write("/ip/hotspot/user/print", [`?comment=${variant}`, proplist]);
+    if (rows.length > 0) return rows.length;
+  }
+  return 0;
+}
+
 export async function enableDisableHotspotUsersByComment(
   conn: RouterConnection,
   comment: string,
@@ -2646,6 +2661,69 @@ export async function purgeOldMikhmonScripts(
   }, 240_000);
 }
 
+/** Mois calendaires strictement avant le 1er jour du mois « cutoff » (borne de conservation). */
+function* monthsBeforeCutoff(cutoffYear: number, cutoffMonth: number, maxMonths = 84): Generator<{ year: number; month: number }> {
+  let y = cutoffYear;
+  let m = cutoffMonth - 1;
+  if (m < 1) {
+    m = 12;
+    y -= 1;
+  }
+  for (let i = 0; i < maxMonths; i++) {
+    if (y < 2018) break;
+    yield { year: y, month: m };
+    m -= 1;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+  }
+}
+
+/**
+ * Purge rapide (style lot-disable) : un scan ciblé par mois via `?owner=`,
+ * sans rescanner tous les scripts à chaque lot HTTP.
+ */
+export async function purgeOldMikhmonScriptsFast(
+  conn: RouterConnection,
+  cutoffYear: number,
+  cutoffMonth: number,
+): Promise<{
+  removed: number;
+  failed: number;
+  scanned: number;
+  byMonth: Array<{ yearMonth: string; count: number }>;
+}> {
+  let removed = 0;
+  let failed = 0;
+  let scanned = 0;
+  const byMonthMap = new Map<string, number>();
+  let emptyStreak = 0;
+
+  for (const { year, month } of monthsBeforeCutoff(cutoffYear, cutoffMonth)) {
+    const res = await purgeMikhmonScriptsForMonth(conn, year, month);
+    removed += res.removed;
+    failed += res.failed;
+    scanned += res.scanned;
+    const ym = `${year}-${String(month).padStart(2, "0")}`;
+    if (res.removed > 0) {
+      byMonthMap.set(ym, (byMonthMap.get(ym) ?? 0) + res.removed);
+    }
+    if (res.scanned === 0 && res.removed === 0) {
+      emptyStreak += 1;
+      if (emptyStreak >= 8) break;
+    } else {
+      emptyStreak = 0;
+    }
+  }
+
+  const byMonth = Array.from(byMonthMap.entries())
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([yearMonth, count]) => ({ yearMonth, count }));
+
+  return { removed, failed, scanned, byMonth };
+}
+
 /**
  * Delete MikHmon sales scripts for an exact month (year + month).
  *
@@ -2740,8 +2818,7 @@ export async function purgeMikhmonScriptsForMonth(
 
     let removed = 0;
     let failed = 0;
-    // Moderate parallelism: large batches caused silent failures on some routers.
-    const CHUNK = 20;
+    const CHUNK = 40;
     for (let i = 0; i < targetIds.length; i += CHUNK) {
       const part = targetIds.slice(i, i + CHUNK);
       const settled = await Promise.allSettled(
@@ -2894,6 +2971,8 @@ export async function generateVouchers(
     userLength?: number;
     timelimit?: string;
     datalimit?: number;
+    /** Taille cible du lot (tous batches confondus) — ne jamais dépasser sur le routeur. */
+    lotTarget?: number;
   },
 ): Promise<GeneratedVoucher[]> {
   return withRouter(conn, async (api) => {
@@ -2906,11 +2985,19 @@ export async function generateVouchers(
     const encodedComment = opts.comment ? toWin1252(opts.comment) : opts.comment;
     const encodedProfile = toWin1252(opts.profile);
 
+    let qtyToCreate = opts.qty;
+    const lotComment = (opts.comment ?? "").trim();
+    if (lotComment && opts.lotTarget != null && opts.lotTarget > 0) {
+      const onRouter = await countHotspotUsersByComment(api, lotComment);
+      qtyToCreate = Math.min(opts.qty, Math.max(0, opts.lotTarget - onRouter));
+    }
+    if (qtyToCreate <= 0) return [];
+
     // Step 1 – Generate all username/password pairs locally (pure JS, instant).
     // Ensure uniqueness within this batch by tracking already-generated codes.
     const seen = new Set<string>();
     const vouchers: Array<{ username: string; password: string; addParams: string[] }> = [];
-    while (vouchers.length < opts.qty) {
+    while (vouchers.length < qtyToCreate) {
       const { username, password } = generateCode(length, encodedPrefix, opts.passwordMode ?? "same", charType);
       if (seen.has(username)) continue;
       seen.add(username);

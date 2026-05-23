@@ -1,72 +1,17 @@
 import { useState } from "react";
-import { Ghost, Trash2, CheckCircle, AlertTriangle, Loader2, ShieldCheck, Router, History } from "lucide-react";
+import { Ghost, Trash2, CheckCircle, AlertTriangle, Loader2, ShieldCheck, Router, History, WifiOff } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
+import {
+  runScriptPurgeWithAutoResume,
+  type ScriptPurgeProgressState,
+} from "@/lib/script-purge-batches";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-// Larger batches → fewer round-trips → less risk of network "load failed".
-// Backend caps this at 500.
-const SCRIPT_PURGE_BATCH_SIZE = 200;
-// Per-request timeout (ms): must exceed backend `withRouter` for purge (large
-// `?comment=mikhmon` print + many removes). A short client timeout caused
-// `AbortError` / "signal is aborted without reason" while the server was still working.
-const SCRIPT_PURGE_REQUEST_TIMEOUT = 200_000;
-// Number of retries for a single batch on transient network failures.
-const SCRIPT_PURGE_MAX_RETRIES = 3;
-
-/**
- * Returns true for the few error shapes the browser uses for transient
- * network failures: AbortError (our timeout fired), or TypeError thrown by
- * `fetch()` itself when the network layer fails ("Failed to fetch" on
- * Chromium/Firefox, "Load failed" on Safari/WebKit, NetworkError on others).
- * Any other thrown error is treated as non-transient and not retried.
- */
-function isTransientFetchError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  if (err.name === "AbortError") return true;
-  if (err instanceof TypeError) return true; // fetch network failure
-  return false;
-}
-
-/**
- * Fetch with timeout + retry for transient network errors only.
- * "load failed" / "Failed to fetch" / aborts → retry with small backoff.
- * HTTP errors (non-2xx) are returned as-is so the caller can decide.
- * Non-transient thrown errors are re-thrown immediately.
- */
-async function fetchScriptPurgeBatch(url: string, init: RequestInit): Promise<Response> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= SCRIPT_PURGE_MAX_RETRIES; attempt++) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => {
-      ctrl.abort(new DOMException(
-        "Délai dépassé pendant la purge (MikroTik lent ou beaucoup de scripts). Réessayez ou réduisez le lot.",
-        "AbortError",
-      ));
-    }, SCRIPT_PURGE_REQUEST_TIMEOUT);
-    try {
-      const res = await fetch(url, { ...init, signal: ctrl.signal });
-      clearTimeout(timer);
-      return res;
-    } catch (err) {
-      clearTimeout(timer);
-      lastErr = err;
-      // Only retry on real transient network errors. Re-throw everything else
-      // (programming errors, etc.) immediately so we don't mask bugs.
-      if (!isTransientFetchError(err)) throw err;
-      if (attempt < SCRIPT_PURGE_MAX_RETRIES) {
-        // Exponential-ish backoff: 400ms, 900ms, 1600ms
-        await new Promise((r) => setTimeout(r, 400 + attempt * 500));
-        continue;
-      }
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("Échec réseau (load failed)");
-}
 
 type PurgeResult = {
   routerId: number;
@@ -84,20 +29,6 @@ type PurgeResponse = {
   totalDeleted: number;
 };
 
-type ScriptPurgeBatchResponse = {
-  cutoff: string;
-  keptMonths: string;
-  router: { routerId: number; routerName: string; routerHost: string };
-  batchSize: number;
-  done: boolean;
-  removed: number;
-  failed: number;
-  scanned: number;       // total candidates remaining at start of this batch
-  remaining: number;     // candidates still to process after this batch
-  byMonth: Array<{ yearMonth: string; count: number }>;
-  cacheRowsDeleted: number;
-};
-
 type ScriptPurgeSummary = {
   routerName: string;
   routerHost: string;
@@ -105,8 +36,6 @@ type ScriptPurgeSummary = {
   totalFailed: number;
   cacheRowsDeleted: number;
   byMonth: Array<{ yearMonth: string; count: number }>;
-  /** "clean": all candidates removed, cache purged.
-   *  "partial": stopped with failures or no-progress; cache NOT purged. */
   status: "clean" | "partial";
   remaining: number;
 };
@@ -125,12 +54,12 @@ export default function Maintenance() {
   const [data, setData] = useState<PurgeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Old sales scripts purge — batched with progress
-  const [scriptRunning,  setScriptRunning]  = useState(false);
-  const [scriptProgress, setScriptProgress] = useState<{ done: number; total: number } | null>(null);
-  const [scriptSummary,  setScriptSummary]  = useState<ScriptPurgeSummary | null>(null);
-  const [scriptError,    setScriptError]    = useState<string | null>(null);
-  const [confirmScript,  setConfirmScript]  = useState(false);
+  const [scriptRunning, setScriptRunning] = useState(false);
+  const [scriptPaused, setScriptPaused] = useState(false);
+  const [scriptProgress, setScriptProgress] = useState<ScriptPurgeProgressState | null>(null);
+  const [scriptSummary, setScriptSummary] = useState<ScriptPurgeSummary | null>(null);
+  const [scriptError, setScriptError] = useState<string | null>(null);
+  const [confirmScript, setConfirmScript] = useState(false);
 
   if (role !== "admin") {
     return (
@@ -170,92 +99,40 @@ export default function Maintenance() {
     }
   }
 
+  /** Purge par mois avec pause + reprise auto si le routeur est injoignable (comme lot-disable). */
   async function runScriptPurge() {
-    if (!selectedRouterId) {
+    if (!selectedRouterId || !token) {
       setScriptError("Aucun routeur sélectionné");
       return;
     }
     setScriptRunning(true);
+    setScriptPaused(false);
     setScriptSummary(null);
     setScriptError(null);
-    setScriptProgress(null);
-
-    let totalRemoved = 0;
-    let totalFailed = 0;
-    let cacheRowsDeleted = 0;
-    let total = 0;
-    let lastRemaining = 0;
-    let cleanFinish = false;
-    let routerName = selectedRouter?.name ?? "";
-    let routerHost = selectedRouter?.host ?? "";
-    const byMonthMap = new Map<string, number>();
+    setScriptProgress({ done: 0, total: 1 });
 
     try {
-      // Loop until backend reports done. Each call deletes at most BATCH scripts.
-      // Defensive cap to avoid an infinite loop if something is wrong.
-      for (let i = 0; i < 10_000; i++) {
-        const res = await fetchScriptPurgeBatch(`${BASE}/api/admin/purge-old-sales-scripts`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            routerId: selectedRouterId,
-            batchSize: SCRIPT_PURGE_BATCH_SIZE,
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? `Erreur ${res.status}`);
-        }
-        const batch: ScriptPurgeBatchResponse = await res.json();
-
-        // First successful response sets the total target (= scanned of batch 1)
-        if (i === 0) total = batch.scanned;
-        routerName = batch.router.routerName;
-        routerHost = batch.router.routerHost;
-
-        totalRemoved    += batch.removed;
-        totalFailed     += batch.failed;
-        cacheRowsDeleted = batch.cacheRowsDeleted; // only set on final clean batch
-        lastRemaining    = batch.remaining;
-        for (const m of batch.byMonth) byMonthMap.set(m.yearMonth, (byMonthMap.get(m.yearMonth) ?? 0) + m.count);
-
-        // Progress bar = removed-only (real progress); cap at total.
-        setScriptProgress({
-          done:  Math.min(totalRemoved, Math.max(total, totalRemoved)),
-          total: Math.max(total, totalRemoved),
-        });
-
-        if (batch.done) {
-          cleanFinish = true;
-          break;
-        }
-        // Safety: if no script was actually removed in this batch, stop —
-        // either failures are blocking deletion, or there is nothing left
-        // to remove. Either way, looping further would not make progress.
-        if (batch.removed === 0) break;
-      }
-
-      const byMonth = Array.from(byMonthMap.entries())
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([yearMonth, count]) => ({ yearMonth, count }));
+      const result = await runScriptPurgeWithAutoResume(BASE, token, selectedRouterId, {
+        onProgress: setScriptProgress,
+        onPaused: setScriptPaused,
+      });
 
       setScriptSummary({
-        routerName,
-        routerHost,
-        totalRemoved,
-        totalFailed,
-        cacheRowsDeleted,
-        byMonth,
-        status: cleanFinish ? "clean" : "partial",
-        remaining: lastRemaining,
+        routerName: result.router.routerName,
+        routerHost: result.router.routerHost,
+        totalRemoved: result.totalRemoved,
+        totalFailed: result.totalFailed,
+        cacheRowsDeleted: result.cacheRowsDeleted,
+        byMonth: result.byMonth,
+        status: result.status,
+        remaining: result.remaining,
       });
     } catch (err: unknown) {
       setScriptError(err instanceof Error ? err.message : "Erreur inconnue");
     } finally {
       setScriptRunning(false);
+      setScriptPaused(false);
+      setScriptProgress(null);
     }
   }
 
@@ -274,7 +151,6 @@ export default function Maintenance() {
         </p>
       </div>
 
-      {/* ── Purge fantômes ─────────────────────────────────────── */}
       <Card className="bg-[#141414] border-white/[0.06]">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-white text-base">
@@ -328,7 +204,6 @@ export default function Maintenance() {
 
           {hasResults && (
             <div className="space-y-3">
-              {/* Summary banner */}
               <div
                 className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border ${
                   totalDeleted > 0
@@ -346,7 +221,6 @@ export default function Maintenance() {
                   : "Aucun voucher fantôme trouvé — base propre"}
               </div>
 
-              {/* Per-router breakdown */}
               <div className="space-y-2">
                 {data?.results.map((r) => (
                   <div
@@ -391,7 +265,6 @@ export default function Maintenance() {
         </CardContent>
       </Card>
 
-      {/* ── Purge des anciens scripts de ventes ─────────────────────── */}
       <Card className="bg-[#141414] border-white/[0.06]">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-white text-base">
@@ -400,12 +273,14 @@ export default function Maintenance() {
           </CardTitle>
           <CardDescription className="text-gray-400 text-sm">
             Supprime sur le <span className="text-white font-medium">routeur sélectionné</span>{" "}
-            les scripts MikHmon de ventes les plus anciens, par lots de{" "}
-            {SCRIPT_PURGE_BATCH_SIZE}, en commençant par les plus vieux.{" "}
+            les scripts MikHmon antérieurs au mois précédent (comme Activer/Désactiver un lot).{" "}
             <span className="text-green-400 font-medium">Conservés :</span> mois en cours
             et mois précédent.
             <br />
-            La base PostgreSQL locale n'est pas modifiée : seuls les scripts sur le
+            En cas de perte de connexion routeur, l&apos;opération se met en pause et reprend
+            automatiquement dès que le routeur répond à nouveau.
+            <br />
+            La base PostgreSQL locale n&apos;est pas modifiée : seuls les scripts sur le
             routeur sont supprimés.
           </CardDescription>
         </CardHeader>
@@ -444,37 +319,44 @@ export default function Maintenance() {
             </div>
           )}
 
-          {scriptProgress && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-400">
-                  {scriptRunning ? "Suppression en cours…" : "Terminé"}
-                </span>
-                <span className="text-gray-300 font-mono">
-                  {scriptProgress.done} / {scriptProgress.total}
-                  {scriptProgress.total > 0 && (
-                    <span className="text-gray-500 ml-2">
-                      ({Math.round((scriptProgress.done / scriptProgress.total) * 100)}%)
+          {scriptProgress && scriptRunning && (() => {
+            const pct = Math.round(
+              (scriptProgress.done / Math.max(1, scriptProgress.total)) * 100,
+            );
+            return (
+            <div className="space-y-2 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2.5">
+              <div className="flex items-center justify-between text-xs gap-2">
+                {scriptPaused ? (
+                  <span className="flex items-center gap-1.5 text-amber-400 font-medium min-w-0">
+                    <WifiOff className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">Routeur inaccessible — reprise automatique…</span>
+                  </span>
+                ) : (
+                  <span className="text-gray-400 flex items-center gap-1.5 min-w-0">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-purple-400" />
+                    <span className="truncate">
+                      {scriptProgress.currentYearMonth
+                        ? `Mois ${fmtYearMonth(scriptProgress.currentYearMonth)}…`
+                        : "Suppression en cours…"}
                     </span>
-                  )}
+                  </span>
+                )}
+                <span className="text-gray-300 font-mono shrink-0 tabular-nums">
+                  {scriptProgress.done} / {scriptProgress.total}
+                  <span className="text-gray-500 ml-1">({pct}%)</span>
                 </span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.06]">
                 <div
                   className={`h-full transition-all duration-300 ${
-                    scriptRunning ? "bg-purple-500" : "bg-green-500"
+                    scriptPaused ? "bg-amber-500" : "bg-purple-500"
                   }`}
-                  style={{
-                    width: `${
-                      scriptProgress.total > 0
-                        ? Math.min(100, Math.round((scriptProgress.done / scriptProgress.total) * 100))
-                        : 0
-                    }%`,
-                  }}
+                  style={{ width: `${Math.min(100, pct)}%` }}
                 />
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {scriptSummary && !scriptRunning && (() => {
             const partial = scriptSummary.status === "partial";
@@ -497,7 +379,7 @@ export default function Maintenance() {
                   <div>
                     {scriptSummary.totalRemoved > 0
                       ? `${scriptSummary.totalRemoved} script${scriptSummary.totalRemoved > 1 ? "s" : ""} supprimé${scriptSummary.totalRemoved > 1 ? "s" : ""}`
-                      : "Aucun script supprimé"}
+                      : "Aucun ancien script à supprimer"}
                     {scriptSummary.totalFailed > 0 && (
                       <span className="ml-2">
                         — {scriptSummary.totalFailed} échec{scriptSummary.totalFailed > 1 ? "s" : ""}
@@ -506,11 +388,8 @@ export default function Maintenance() {
                   </div>
                   {partial && (
                     <div className="text-xs font-normal mt-1 text-yellow-200/80">
-                      Suppression incomplète : {scriptSummary.remaining} script
-                      {scriptSummary.remaining > 1 ? "s" : ""} restant
-                      {scriptSummary.remaining > 1 ? "s" : ""} sur le routeur. Le cache local
-                      n'a pas été purgé. Réessayez après vérification (router accessible,
-                      droits, etc.).
+                      Suppression incomplète ({scriptSummary.remaining} échec
+                      {scriptSummary.remaining > 1 ? "s" : ""}). Réessayez ou vérifiez l'accès routeur.
                     </div>
                   )}
                 </div>
@@ -550,7 +429,7 @@ export default function Maintenance() {
         open={confirmScript}
         onOpenChange={setConfirmScript}
         title="Supprimer les anciens scripts ?"
-        description="Cette action supprime définitivement les scripts de ventes MikHmon antérieurs au mois précédent sur chaque routeur, ainsi que les entrées du cache local. Les scripts du mois en cours et du mois précédent sont conservés."
+        description="Cette action supprime définitivement les scripts de ventes MikHmon antérieurs au mois précédent sur le routeur sélectionné, ainsi que les entrées du cache local. Les scripts du mois en cours et du mois précédent sont conservés."
         onConfirm={() => { setConfirmScript(false); runScriptPurge(); }}
         confirmLabel="Confirmer la suppression"
       />

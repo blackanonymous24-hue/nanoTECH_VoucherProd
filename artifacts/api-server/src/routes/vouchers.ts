@@ -259,7 +259,7 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
 });
 
 router.post("/vouchers/generate", async (req, res): Promise<void> => {
-  const { routerId, profile, qty, prefix, comment, server, vendorId, passwordMode, charType, userLength, timelimit, datalimit, profilePrice, profileValidity } = req.body as {
+  const { routerId, profile, qty, prefix, comment, server, vendorId, passwordMode, charType, userLength, timelimit, datalimit, profilePrice, profileValidity, lotTarget } = req.body as {
     routerId?: number;
     profile?: string;
     qty?: number;
@@ -274,6 +274,8 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     datalimit?: number;
     profilePrice?: string;
     profileValidity?: string;
+    /** Taille totale visée du lot (empêche les doublons après timeout / reprise). */
+    lotTarget?: number;
   };
 
   if (!routerId || !profile || !qty) {
@@ -325,9 +327,25 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     // Lock this router for the duration of generation so background syncs
     // don't open concurrent MikroTik connections and saturate the API limit.
     const responseRows = await withRouterLock(routerId, async () => {
+      const parsedLotTarget =
+        lotTarget != null && Number.isFinite(Number(lotTarget)) ? Math.round(Number(lotTarget)) : undefined;
       const generated = await generateVouchers(
         conn,
-        { qty, profile, prefix, comment, server, price, validity, passwordMode: passwordMode ?? "same", charType, userLength, timelimit: timelimit || undefined, datalimit: datalimit || undefined },
+        {
+          qty,
+          profile,
+          prefix,
+          comment,
+          server,
+          price,
+          validity,
+          passwordMode: passwordMode ?? "same",
+          charType,
+          userLength,
+          timelimit: timelimit || undefined,
+          datalimit: datalimit || undefined,
+          ...(parsedLotTarget != null && parsedLotTarget > 0 ? { lotTarget: parsedLotTarget } : {}),
+        },
       );
       const insertedIds = await db
         .insert(vouchersTable)

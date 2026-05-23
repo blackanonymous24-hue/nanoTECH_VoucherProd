@@ -11,7 +11,7 @@ import { verifyPassword as verifyVendorPassword, createToken as createVendorToke
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyPassword as verifyCollabPassword, createToken as createCollabToken, verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
-import { purgeOldMikhmonScripts } from "../lib/mikrotik.js";
+import { purgeMikhmonScriptsForMonth, purgeOldMikhmonScriptsFast } from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { clearRouterScriptCache, resetRouterSalesCache, syncScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
@@ -824,21 +824,51 @@ router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<voi
   }
 });
 
+function scriptPurgeRouterMeta(r: { id: number; name: string | null; host: string }) {
+  return {
+    routerId: r.id,
+    routerName: r.name ?? r.host,
+    routerHost: r.host,
+  };
+}
+
+function scriptPurgeCutoffMeta() {
+  const now = new Date();
+  const cutoffYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+  const cutoffMonth = now.getMonth() === 0 ? 12 : now.getMonth();
+  return {
+    cutoffYear,
+    cutoffMonth,
+    cutoff: `${cutoffYear}-${String(cutoffMonth).padStart(2, "0")}-01`,
+    keptMonths: "Mois courant + mois précédent",
+  };
+}
+
+function isScriptPurgeRouterError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes("timeout") ||
+    msg.includes("timed out") ||
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound") ||
+    msg.includes("enetunreach") ||
+    msg.includes("socket") ||
+    msg.includes("connect") ||
+    msg.includes("routeur") ||
+    msg.includes("mikrotik") ||
+    msg.includes("impossible de contacter")
+  );
+}
+
 /**
  * POST /api/admin/purge-old-sales-scripts
  *
- * Deletes (in batches) MikHmon sales scripts on a single router whose date is
- * older than the previous calendar month (keeps current + previous month).
- *
- * Batched: each call processes at most `batchSize` scripts (oldest first) and
- * returns `scanned` (= total candidates remaining at the start of this call).
- * The client repeats until `scanned === 0` (or no progress made).
- *
- * La base PostgreSQL (mikrotik_script_sales) n'est pas modifiée : l'historique
- * local reste intact ; la réconciliation au prochain refresh aligne les totaux.
+ * Purge des scripts MikHmon antérieurs au mois précédent (conserve mois courant + précédent).
  *
  * Body:
- *   { routerId: number, batchSize?: number }   // batchSize default 50
+ *   { routerId } — purge complète (cron / compat)
+ *   { routerId, year, month } — un mois (UI avec reprise auto)
+ *   { routerId, finalize: true } — vide le cache local après purge UI réussie
  */
 router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -847,68 +877,106 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
     return;
   }
 
-  const body = (req.body ?? {}) as { routerId?: number; batchSize?: number };
+  const body = (req.body ?? {}) as {
+    routerId?: number;
+    year?: number;
+    month?: number;
+    finalize?: boolean;
+  };
   const routerId = Number(body.routerId);
   if (!routerId || Number.isNaN(routerId)) {
     res.status(400).json({ error: "routerId requis" });
     return;
   }
-  const batchSize = Math.max(1, Math.min(500, Number(body.batchSize) || 50));
 
-  // Cutoff = first day of previous month. Anything strictly before is removed.
-  const now = new Date();
-  const cutoffYear  = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-  const cutoffMonth = now.getMonth() === 0 ? 12 : now.getMonth(); // 1-12, = previous month
+  const { cutoffYear, cutoffMonth, cutoff, keptMonths } = scriptPurgeCutoffMeta();
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
   if (!r) {
     res.status(404).json({ error: "Routeur introuvable" });
     return;
   }
 
+  const router = scriptPurgeRouterMeta(r);
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
-    const { purge, cacheRowsDeleted, done } = await withRouterLock(r.id, async () => {
-      const purgeRes = await purgeOldMikhmonScripts(conn, cutoffYear, cutoffMonth, { limit: batchSize });
+    if (body.finalize === true) {
+      await withRouterLock(r.id, async () => {
+        clearRouterScriptCache(r.id);
+      });
+      res.json({
+        cutoff,
+        keptMonths,
+        router,
+        batchSize: 0,
+        done: true,
+        removed: 0,
+        failed: 0,
+        scanned: 0,
+        remaining: 0,
+        byMonth: [],
+        cacheRowsDeleted: 0,
+      });
+      return;
+    }
 
-      // Strict completion: nothing left to delete AND no failures in this batch.
-      // We deliberately do NOT count `failed` as "processed", because the
-      // failed scripts are still on the router and would be re-fetched on the
-      // next sync. Cache cleanup must only happen on a truly clean finish.
-      const remainingAfter = Math.max(0, purgeRes.scanned - purgeRes.removed);
-      const isDone = remainingAfter === 0 && purgeRes.failed === 0;
+    const year = Number(body.year);
+    const month = Number(body.month);
+    if (year > 0 && month >= 1 && month <= 12) {
+      const purgeRes = await withRouterLock(r.id, async () =>
+        purgeMikhmonScriptsForMonth(conn, year, month),
+      );
+      const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
+      const remaining = purgeRes.failed > 0 ? purgeRes.failed : 0;
+      res.json({
+        cutoff,
+        keptMonths,
+        router,
+        yearMonth,
+        batchSize: 0,
+        done: purgeRes.failed === 0,
+        removed: purgeRes.removed,
+        failed: purgeRes.failed,
+        scanned: purgeRes.scanned,
+        remaining,
+        byMonth:
+          purgeRes.removed > 0 ? [{ yearMonth, count: purgeRes.removed }] : [],
+        cacheRowsDeleted: 0,
+      });
+      return;
+    }
+
+    const { purge, cacheRowsDeleted, done } = await withRouterLock(r.id, async () => {
+      const purgeRes = await purgeOldMikhmonScriptsFast(conn, cutoffYear, cutoffMonth);
+      const isDone = purgeRes.failed === 0;
 
       if (isDone) {
-        // Invalide uniquement les flags mémoire de sync (pas la table script_sales).
         clearRouterScriptCache(r.id);
       }
 
       return { purge: purgeRes, cacheRowsDeleted: 0, done: isDone };
     });
 
-    // remaining = candidates still on the router after this batch (failures
-    // are still candidates because they were not removed).
-    const remaining = Math.max(0, purge.scanned - purge.removed);
+    const remaining = purge.failed > 0 ? purge.failed : 0;
 
     res.json({
-      cutoff: `${cutoffYear}-${String(cutoffMonth).padStart(2, "0")}-01`,
-      keptMonths: "Mois courant + mois précédent",
-      router: {
-        routerId: r.id,
-        routerName: r.name ?? r.host,
-        routerHost: r.host,
-      },
-      batchSize,
+      cutoff,
+      keptMonths,
+      router,
+      batchSize: 0,
       done,
       removed: purge.removed,
       failed: purge.failed,
-      scanned: purge.scanned,        // total candidates at start of this batch
-      remaining,                     // candidates still pending after this batch
-      byMonth: purge.byMonth,        // breakdown of what was removed in this batch
+      scanned: purge.scanned,
+      remaining,
+      byMonth: purge.byMonth,
       cacheRowsDeleted,
     });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Erreur routeur" });
+    const status = isScriptPurgeRouterError(err) ? 502 : 500;
+    res.status(status).json({
+      error: err instanceof Error ? err.message : "Erreur routeur",
+    });
   }
 });
 

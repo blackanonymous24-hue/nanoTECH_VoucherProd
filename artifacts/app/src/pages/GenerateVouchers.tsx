@@ -238,6 +238,52 @@ async function fetchLotUsers(
   }
 }
 
+type LotReconcileCtx = {
+  routerId: number;
+  vendorId: string;
+  profilePrice: string;
+  profileValidity: string;
+  effectiveComment: string;
+};
+
+/**
+ * Aligne la progression sur le routeur (source de vérité) pour éviter les doublons
+ * quand un batch a abouti sur MikroTik sans réponse HTTP (timeout / coupure).
+ */
+async function reconcileLotProgressFromRouter(
+  base: string,
+  total: number,
+  allVouchers: Voucher[],
+  ctx: LotReconcileCtx,
+): Promise<number> {
+  if (!ctx.effectiveComment.trim()) {
+    return Math.min(allVouchers.length, total);
+  }
+  const onRouter = await fetchLotUsers(ctx.routerId, ctx.effectiveComment, base);
+  const knownNames = new Set(allVouchers.map((v) => v.username));
+  for (const u of onRouter) {
+    if (knownNames.size >= total) break;
+    if (knownNames.has(u.username)) continue;
+    knownNames.add(u.username);
+    allVouchers.push({
+      id: 0,
+      routerId: ctx.routerId,
+      vendorId: ctx.vendorId ? parseInt(ctx.vendorId, 10) : null,
+      username: u.username,
+      password: u.password,
+      profileName: u.profile,
+      price: ctx.profilePrice,
+      validity: ctx.profileValidity,
+      comment: u.comment ?? ctx.effectiveComment,
+      createdAt: new Date().toISOString(),
+      printedAt: null,
+      usedAt: null,
+      soldAt: null,
+    } as unknown as Voucher);
+  }
+  return Math.min(onRouter.length, total);
+}
+
 type ProfileForLot = { name: string; price?: string | null; validity?: string | null };
 
 /**
@@ -507,6 +553,13 @@ export default function GenerateVouchers() {
     const BATCH_SIZE = 200;
     const allVouchers: Voucher[] = [];
     let done = 0;
+    const reconcileCtx: LotReconcileCtx = {
+      routerId: selectedRouterId,
+      vendorId,
+      profilePrice,
+      profileValidity,
+      effectiveComment,
+    };
     let lockAcquired = false;
     try {
       // Verrouille le routeur pour toute la session : la sync background
@@ -519,24 +572,34 @@ export default function GenerateVouchers() {
       lockAcquired = true;
 
       while (done < total) {
+        if (effectiveComment) {
+          try {
+            done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
+            setProgress({ done, total });
+          } catch {
+            /* routeur lent — on continue avec done actuel */
+          }
+          if (done >= total) break;
+        }
+
         let batchOk = false;
         // Compteur d'échecs consécutifs "routeur inaccessible" :
         // on tolère 1 erreur passagère sans afficher le message ni bloquer.
         let unreachableStreak = 0;
         while (!batchOk) {
-          // Recalculer qtyBatch à chaque tentative (y compris après une
-          // récupération qui a mis à jour `done`) pour ne jamais dépasser `total`.
+          // Recalculer qtyBatch à chaque tentative (y compris après réconciliation).
           const qtyBatch = Math.min(BATCH_SIZE, total - done);
           if (qtyBatch <= 0) { batchOk = true; break; }
           try {
             const generated = await generateMutation.mutateAsync({
               // Cast to any — the server accepts extra fields (charType, userLength,
-              // timelimit, datalimit) not yet reflected in the generated OpenAPI types.
+              // timelimit, datalimit, lotTarget) not yet reflected in the generated OpenAPI types.
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               data: {
                 routerId: selectedRouterId,
                 profile,
                 qty: qtyBatch,
+                lotTarget: total,
                 prefix: prefix || null,
                 comment: effectiveComment || null,
                 vendorId: vendorId ? parseInt(vendorId, 10) : null,
@@ -550,16 +613,33 @@ export default function GenerateVouchers() {
               } as any,
             });
             allVouchers.push(...generated);
-            done = Math.min(allVouchers.length, total); // jamais dépasser total
+            if (effectiveComment) {
+              done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
+            } else {
+              done = Math.min(allVouchers.length, total);
+            }
             setProgress({ done, total });
             batchOk = true;
             unreachableStreak = 0;
+            if (done >= total) break;
           } catch (err) {
             if (isRouterUnreachable(err)) {
               unreachableStreak++;
               generateMutation.reset();
+              if (effectiveComment) {
+                try {
+                  done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
+                  setProgress({ done, total });
+                  if (done >= total) {
+                    batchOk = true;
+                    break;
+                  }
+                } catch {
+                  /* réessayer après pause routeur */
+                }
+              }
               if (unreachableStreak === 1) {
-                // 1er échec passager : retry silencieux après 3 s, sans afficher le message.
+                // 1er échec passager : retry silencieux après 3 s (après réconciliation).
                 await new Promise<void>((r) => setTimeout(r, 3000));
                 continue;
               }
@@ -567,37 +647,14 @@ export default function GenerateVouchers() {
               setGenPaused(true);
               await waitForRouter(selectedRouterId, BASE);
               unreachableStreak = 0;
-              try {
-                if (effectiveComment) {
-                  const onRouter = await fetchLotUsers(selectedRouterId, effectiveComment, BASE);
-                  if (onRouter.length > done) {
-                    const knownNames = new Set(allVouchers.map((v) => v.username));
-                    const missing = onRouter
-                      .filter((u) => !knownNames.has(u.username))
-                      .map<Voucher>((u) => ({
-                        id: 0,
-                        routerId: selectedRouterId,
-                        vendorId: vendorId ? parseInt(vendorId, 10) : null,
-                        username: u.username,
-                        password: u.password,
-                        profileName: u.profile,
-                        price: profilePrice,
-                        validity: profileValidity,
-                        comment: u.comment ?? effectiveComment,
-                        createdAt: new Date().toISOString(),
-                        printedAt: null,
-                        usedAt: null,
-                        soldAt: null,
-                      } as unknown as Voucher));
-                    allVouchers.push(...missing);
-                    done = Math.min(allVouchers.length, total);
-                    setProgress({ done, total });
-                  }
+              if (effectiveComment) {
+                try {
+                  done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
+                  setProgress({ done, total });
+                } catch {
+                  /* keep retrying current batch */
                 }
-              } catch {
-                // keep retrying current batch
               }
-              // Si la récupération nous a amenés à `total`, pas besoin de générer plus.
               if (done >= total) batchOk = true;
               setGenPaused(false);
             } else {
@@ -608,7 +665,7 @@ export default function GenerateVouchers() {
       }
 
       const lot: LastLot = {
-        vouchers: allVouchers,
+        vouchers: allVouchers.slice(0, total),
         comment: effectiveComment,
         routerName: selectedRouter?.name ?? "",
         routerId: selectedRouterId,
@@ -621,7 +678,7 @@ export default function GenerateVouchers() {
       setLastLot(lot);
       saveLastLot(lot);
       queryClient.invalidateQueries({ queryKey: getListVouchersQueryKey() });
-      toast({ title: `${allVouchers.length} voucher(s) généré(s) avec succès !` });
+      toast({ title: `${Math.min(allVouchers.length, total)} voucher(s) généré(s) avec succès !` });
 
       // Réinitialiser les paramètres de génération pour le prochain lot
       setComment(makeBatchId(passwordMode === "random" ? "up" : "vc"));
