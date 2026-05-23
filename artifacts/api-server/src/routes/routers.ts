@@ -135,6 +135,13 @@ function isRealUser(u: { username: string; profile: string }): boolean {
 
 async function fetchProfilesWithCache(ownerAdminId: number | null, routerId: number, conn: RouterConnection) {
   const scope = routerCacheScope(ownerAdminId, routerId);
+  // Fresh cache hit (within TTL) → return synchronously, never touch the router.
+  // This avoids saturating the per-router semaphore on lot-print where users
+  // and profiles are fetched in parallel: if the cache is warm, we only spend
+  // one slot (for users) instead of two.
+  const fresh = getFreshProfileCache(scope);
+  if (fresh) return fresh;
+
   const inFlight = profileListInFlight.get(scope);
   if (inFlight) return inFlight;
 
@@ -1137,6 +1144,19 @@ interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expir
 const userCache = new Map<string, UserCache>();
 const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expires first
 
+/**
+ * Dedicated cache for the `/lot-print` endpoint, keyed by `scope:comment`.
+ * Targeted ?comment= queries return a small subset (a single lot of 100-500
+ * users) very fast even on slow VPN tunnels, but we must NOT store them in the
+ * main userCache because other code paths (counts, lots index, full list) rely
+ * on userCache containing ALL hotspot users. A separate per-lot cache lets us
+ * answer subsequent print attempts of the same lot instantly while keeping the
+ * main cache layer untouched.
+ */
+interface LotPrintCache { users: Awaited<ReturnType<typeof listHotspotUsersByComment>>; expiresAt: number; }
+const lotPrintCache = new Map<string, LotPrintCache>();
+const LOT_PRINT_CACHE_TTL = 120_000; // 2 min — long enough to absorb retries
+
 async function getCachedUsers(
   router: { id: number; ownerAdminId: number | null },
   conn: Parameters<typeof listHotspotUsers>[0],
@@ -1150,6 +1170,14 @@ async function getCachedUsers(
   return users;
 }
 
+/** Drop every lot-print cache entry for a given router scope. */
+function invalidateLotPrintCacheByScope(scope: string): void {
+  const prefix = `${scope}:`;
+  for (const key of lotPrintCache.keys()) {
+    if (key.startsWith(prefix)) lotPrintCache.delete(key);
+  }
+}
+
 /** Call this after any action that modifies hotspot users (disable/enable/reset/delete/rename). */
 export async function invalidateUserCache(routerId: number): Promise<void> {
   const [row] = await db
@@ -1160,6 +1188,7 @@ export async function invalidateUserCache(routerId: number): Promise<void> {
   const scope = routerCacheScope(row.o, routerId);
   userCache.delete(scope);
   _usersCountCache.delete(scope);
+  invalidateLotPrintCacheByScope(scope);
 }
 
 /**
@@ -1474,25 +1503,32 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
     const sc = routerCacheScope(r.ownerAdminId, id);
-    const hit = userCache.get(sc);
+    const lotCacheKey = `${sc}:${commentVal}`;
 
-    // Cache miss path: only fetch the lot's users (?comment=…) instead of the
-    // full hotspot/user/print (can be 3000-5000 rows). On slow VPN tunnels the
-    // full print exceeds the 15 s wrapper timeout and the print UI shows
-    // "RouterOS operation timed out". The targeted query returns 100-500 rows
-    // and usually completes well under 2 s.
+    // Resolve users from the cheapest source first to minimise router round-trips:
+    //   1. lotPrintCache (this lot was printed in the last 2 min) — instant.
+    //   2. userCache full snapshot (someone hit /users recently) — instant.
+    //   3. Targeted `?comment=` print on RouterOS — fast even on slow VPN
+    //      (100-500 rows instead of 3000-5000). Result is memoised in
+    //      lotPrintCache so re-prints of the same lot don't re-hit the router.
     let usersPromise: Promise<Awaited<ReturnType<typeof listHotspotUsers>>>;
-    let needsFullCacheWarm = false;
+    let saveToLotCache = false;
     if (force) {
+      lotPrintCache.delete(lotCacheKey);
       usersPromise = getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: true });
-    } else if (hit) {
-      usersPromise = Promise.resolve(hit.users);
-      if (Date.now() >= hit.expiresAt) {
-        scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, true);
-      }
     } else {
-      usersPromise = listHotspotUsersByComment(conn, commentVal, 30_000);
-      needsFullCacheWarm = true;
+      const lotHit = lotPrintCache.get(lotCacheKey);
+      if (lotHit && Date.now() < lotHit.expiresAt) {
+        usersPromise = Promise.resolve(lotHit.users);
+      } else {
+        const fullHit = userCache.get(sc);
+        if (fullHit && Date.now() < fullHit.expiresAt) {
+          usersPromise = Promise.resolve(fullHit.users);
+        } else {
+          usersPromise = listHotspotUsersByComment(conn, commentVal, 30_000);
+          saveToLotCache = true;
+        }
+      }
     }
 
     const [usersRaw, profiles, dbRows] = await Promise.all([
@@ -1508,8 +1544,11 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
         .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal))),
     ]);
 
-    if (needsFullCacheWarm) {
-      scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, true);
+    if (saveToLotCache) {
+      lotPrintCache.set(lotCacheKey, {
+        users: usersRaw,
+        expiresAt: Date.now() + LOT_PRINT_CACHE_TTL,
+      });
     }
 
     const profByName = new Map(profiles.map((p) => [p.name, p]));
