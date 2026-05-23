@@ -1230,6 +1230,52 @@ export async function listHotspotUsers(conn: RouterConnection, timeout = 15000):
   );
 }
 
+/**
+ * Variante ciblée de {@link listHotspotUsers} : ne retourne que les utilisateurs
+ * dont le `comment` correspond exactement à `comment` (filtré côté RouterOS via
+ * `?comment=variant`). Indispensable pour l'impression d'un lot précis sur les
+ * routeurs avec >2000 users sur tunnel VPN lent : on transfère ~100-500 lignes
+ * au lieu de plusieurs milliers, ce qui passe en <1 s là où le print complet
+ * dépasse les 15 s. Essaie d'abord l'UTF-8 brut puis le repli win1252 pour les
+ * commentaires accentués (même stratégie que {@link countHotspotUsersByComment}).
+ */
+export async function listHotspotUsersByComment(
+  conn: RouterConnection,
+  comment: string,
+  timeout = 15000,
+): Promise<HotspotUser[]> {
+  const trimmed = comment.trim();
+  if (!trimmed) return [];
+  return withRouter(
+    conn,
+    async (api) => {
+      let rows: Record<string, unknown>[] = [];
+      for (const variant of [trimmed, toWin1252(trimmed)]) {
+        rows = await api.write("/ip/hotspot/user/print", [
+          `?comment=${variant}`,
+          `=.proplist=${HOTSPOT_USER_LIST_PROPLIST}`,
+        ]);
+        if (rows.length > 0) break;
+      }
+      return rows.map((u) => ({
+        username: decodeRouterText((u["name"] as string) ?? ""),
+        password: (u["password"] as string) ?? "",
+        profile: decodeRouterText((u["profile"] as string) ?? ""),
+        comment: decodeRouterText((u["comment"] as string) ?? "") || null,
+        limitUptime: (u["limit-uptime"] as string) || null,
+        limitBytesTotal: (u["limit-bytes-total"] as string) || null,
+        macAddress: (u["mac-address"] as string) || null,
+        uptime: (u["uptime"] as string) || null,
+        ...hotspotTrafficBytesFromRouter(u["bytes-in"], u["bytes-out"]),
+        server: (u["server"] as string) || null,
+        disabled: (u["disabled"] as string) === "true",
+      }));
+    },
+    timeout,
+    "high",
+  );
+}
+
 export interface AddHotspotUserOpts {
   name: string;
   password: string;

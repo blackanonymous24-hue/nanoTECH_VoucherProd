@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, parseMikhmonDate, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, listHotspotProfileSchedulers, removeSystemScheduler, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, listHotspotUsersByComment, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, parseMikhmonDate, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, listHotspotProfileSchedulers, removeSystemScheduler, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 import { runUsageSync } from "../lib/usage-sync.js";
@@ -1476,7 +1476,13 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
     const sc = routerCacheScope(r.ownerAdminId, id);
     const hit = userCache.get(sc);
 
+    // Cache miss path: only fetch the lot's users (?comment=…) instead of the
+    // full hotspot/user/print (can be 3000-5000 rows). On slow VPN tunnels the
+    // full print exceeds the 15 s wrapper timeout and the print UI shows
+    // "RouterOS operation timed out". The targeted query returns 100-500 rows
+    // and usually completes well under 2 s.
     let usersPromise: Promise<Awaited<ReturnType<typeof listHotspotUsers>>>;
+    let needsFullCacheWarm = false;
     if (force) {
       usersPromise = getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn, { force: true });
     } else if (hit) {
@@ -1485,7 +1491,8 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
         scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, true);
       }
     } else {
-      usersPromise = getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
+      usersPromise = listHotspotUsersByComment(conn, commentVal, 30_000);
+      needsFullCacheWarm = true;
     }
 
     const [usersRaw, profiles, dbRows] = await Promise.all([
@@ -1500,6 +1507,10 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
         .from(vouchersTable)
         .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal))),
     ]);
+
+    if (needsFullCacheWarm) {
+      scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, true);
+    }
 
     const profByName = new Map(profiles.map((p) => [p.name, p]));
     const storedByUser = new Map(dbRows.map((row) => [row.username, row]));
