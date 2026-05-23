@@ -17,6 +17,8 @@ function rewriteApiUrl(url: string | undefined): string | undefined {
 
 const apiClient = axios.create({
   baseURL: "",
+  /** Génération / gros lots MikroTik : le défaut axios (infini) fige l'UI à 0 %. */
+  timeout: 130_000,
 });
 
 function voucherNetApiPauseAllowsResolvedUrl(resolvedUrl: string): boolean {
@@ -50,6 +52,14 @@ apiClient.interceptors.request.use((config) => {
     config.headers = config.headers ?? {};
     if (!("Authorization" in config.headers) && !("authorization" in config.headers)) {
       (config.headers as Record<string, string>).Authorization = `Bearer ${token}`;
+    }
+  }
+  const impersonateId = (window as { __vouchernetImpersonateAdminId?: number | null }).__vouchernetImpersonateAdminId;
+  if (impersonateId != null && Number.isFinite(impersonateId)) {
+    config.headers = config.headers ?? {};
+    const h = config.headers as Record<string, string>;
+    if (!h["X-Impersonate-Admin"] && !h["x-impersonate-admin"]) {
+      h["X-Impersonate-Admin"] = String(impersonateId);
     }
   }
   return config;

@@ -50,9 +50,12 @@ export class PageErrorBoundary extends Component<Props, State> {
 
     if (isChunkError(error)) {
       return (
-        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-gray-400">
+        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-gray-400 p-6 text-center">
           <RefreshCw className="h-7 w-7 animate-spin" />
-          <p className="text-sm font-medium">Rechargement de la page…</p>
+          <p className="text-sm font-medium">Mise à jour de l&apos;application…</p>
+          <p className="text-xs text-gray-500 max-w-sm">
+            Si l&apos;écran reste vide, faites <strong className="text-gray-600">Ctrl+F5</strong> (ou videz le cache du navigateur).
+          </p>
         </div>
       );
     }

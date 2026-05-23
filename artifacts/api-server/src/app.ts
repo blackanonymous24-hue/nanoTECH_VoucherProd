@@ -67,6 +67,11 @@ if (fs.existsSync(frontendDist)) {
       etag: false,
     }),
   );
+  // Chunk Vite absent (cache navigateur obsolète) → 404 texte, pas index.html
+  // (sinon l'import dynamique échoue silencieusement et la page « Générer » reste vide).
+  app.use("/assets", (_req, res) => {
+    res.status(404).type("text/plain").send("Asset not found");
+  });
   // Everything else (index.html, favicon, etc.) — always revalidate
   app.use(
     express.static(frontendDist, {

@@ -8,7 +8,16 @@ import {
   prefetchRouterDashboardPriority,
 } from "@/lib/prefetch-router-dashboard-priority";
 
-export type BorrowedRouter = { id: number; name: string; ownerAdminId: number; hotspotName?: string | null; contact?: string | null };
+export type BorrowedRouter = {
+  id: number;
+  name: string;
+  ownerAdminId: number;
+  host?: string;
+  port?: number;
+  hotspotName?: string | null;
+  contact?: string | null;
+  currency?: string | null;
+};
 
 interface RouterContextValue {
   selectedRouterId: number | null;
@@ -49,6 +58,7 @@ const RouterContext = createContext<RouterContextValue>({
 
 const STORAGE_KEY = "vouchernet_router_id";
 const BORROWED_ROUTER_KEY = "vouchernet_borrowed_router";
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export function RouterProvider({ children }: { children: ReactNode }) {
   const { managerRouterIds, role, collaborateurRouterIds, isAuthenticated } = useAuth();
@@ -112,6 +122,46 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       }
     } catch { /* noop */ }
   }, [borrowedRouter]);
+
+  // Sessions empruntées avant l'ajout de host/port au cache local : compléter via l'API.
+  useEffect(() => {
+    if (!borrowedRouter?.id || borrowedRouter.host?.trim()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/routers/${borrowedRouter.id}`);
+        if (!res.ok || cancelled) return;
+        const row = (await res.json()) as {
+          host?: string;
+          port?: number;
+          name?: string;
+          hotspotName?: string | null;
+          contact?: string | null;
+          currency?: string | null;
+          ownerAdminId?: number | null;
+        };
+        if (cancelled || !row.host?.trim()) return;
+        setBorrowedRouter((prev) => {
+          if (!prev || prev.id !== borrowedRouter.id) return prev;
+          return {
+            ...prev,
+            host: row.host,
+            port: row.port ?? prev.port,
+            name: row.name ?? prev.name,
+            hotspotName: row.hotspotName ?? prev.hotspotName,
+            contact: row.contact ?? prev.contact,
+            currency: row.currency ?? prev.currency,
+            ownerAdminId: row.ownerAdminId ?? prev.ownerAdminId,
+          };
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [borrowedRouter?.id, borrowedRouter?.host]);
 
   // Quand la liste des routeurs autorisés est connue : aligner la sélection.
   // - liste vide → effacer l'ID SAUF si c'est un routeur emprunté

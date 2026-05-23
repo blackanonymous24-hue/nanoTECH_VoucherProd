@@ -3124,6 +3124,13 @@ export interface GeneratedVoucher {
   comment: string;
 }
 
+export type GenerateVouchersResult = {
+  vouchers: GeneratedVoucher[];
+  /** true si lotTarget atteint sur MikroTik avant ce batch (aucun user à créer). */
+  lotTargetReached: boolean;
+  onRouterCount: number;
+};
+
 export async function generateVouchers(
   conn: RouterConnection,
   opts: {
@@ -3142,7 +3149,7 @@ export async function generateVouchers(
     /** Taille cible du lot (tous batches confondus) — ne jamais dépasser sur le routeur. */
     lotTarget?: number;
   },
-): Promise<GeneratedVoucher[]> {
+): Promise<GenerateVouchersResult> {
   return withRouter(conn, async (api) => {
     const length = Math.min(Math.max(opts.userLength ?? (opts.prefix ? 5 : 8), 3), 8);
     const charType: CharType = opts.charType ?? "mix";
@@ -3154,12 +3161,19 @@ export async function generateVouchers(
     const encodedProfile = toWin1252(opts.profile);
 
     let qtyToCreate = opts.qty;
+    let onRouterCount = 0;
     const lotComment = (opts.comment ?? "").trim();
     if (lotComment && opts.lotTarget != null && opts.lotTarget > 0) {
-      const onRouter = await countHotspotUsersByComment(api, lotComment);
-      qtyToCreate = Math.min(opts.qty, Math.max(0, opts.lotTarget - onRouter));
+      onRouterCount = await countHotspotUsersByComment(api, lotComment);
+      qtyToCreate = Math.min(opts.qty, Math.max(0, opts.lotTarget - onRouterCount));
     }
-    if (qtyToCreate <= 0) return [];
+    if (qtyToCreate <= 0) {
+      return {
+        vouchers: [],
+        lotTargetReached: opts.qty > 0 && opts.lotTarget != null && opts.lotTarget > 0,
+        onRouterCount,
+      };
+    }
 
     // Step 1 – Generate all username/password pairs locally (pure JS, instant).
     // Ensure uniqueness within this batch by tracking already-generated codes.
@@ -3195,7 +3209,7 @@ export async function generateVouchers(
     });
     await Promise.all(workers);
 
-    return vouchers.map(({ username, password }) => ({
+    const mapped = vouchers.map(({ username, password }) => ({
       username,
       password,
       profile: opts.profile,
@@ -3203,6 +3217,7 @@ export async function generateVouchers(
       validity: opts.validity,
       comment: opts.comment ?? "",
     }));
+    return { vouchers: mapped, lotTargetReached: false, onRouterCount };
   }, 120_000, "high");
 }
 

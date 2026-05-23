@@ -37,10 +37,10 @@ export function parseMikhmonIpHost(iphost: string): { host: string; port: number
  * Valeur affichée dans le formulaire : IP seule si port 8728,
  * sinon `ip:port` (NAT / port forward personnalisé).
  */
-export function formatMikhmonIpHostForForm(host: string, port: number): string {
-  const h = host.trim();
+export function formatMikhmonIpHostForForm(host?: string | null, port?: number | null): string {
+  const h = (host ?? "").trim();
   if (!h) return "";
-  const p = port > 0 ? port : DEFAULT_ROUTER_API_PORT;
+  const p = port != null && port > 0 ? port : DEFAULT_ROUTER_API_PORT;
   if (p === DEFAULT_ROUTER_API_PORT) return h;
   return `${h}:${p}`;
 }

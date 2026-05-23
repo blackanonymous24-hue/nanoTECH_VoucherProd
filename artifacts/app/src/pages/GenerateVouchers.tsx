@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { isAxiosError } from "axios";
 import {
   useGenerateVouchers,
   getListVouchersQueryKey,
@@ -173,17 +174,48 @@ function isRouterUnreachable(err: unknown): boolean {
   const e = err as Record<string, unknown>;
   // Interruption intentionnelle du fetch (logout, AbortController) — pas une panne réseau.
   if (e.name === "AbortError") return false;
+  if (isAxiosError(err)) {
+    const st = err.response?.status;
+    if (st === 502 || st === 504 || st === 408) return true;
+    if (err.code === "ECONNABORTED" || err.code === "ERR_NETWORK") return true;
+  }
   const response = e.response as Record<string, unknown> | undefined;
-  if (response?.status === 502) return true;
+  if (response?.status === 502 || response?.status === 504) return true;
   const msg = String(e.message ?? "").toLowerCase();
   return (
     msg.includes("502") ||
+    msg.includes("504") ||
+    msg.includes("timeout") ||
     msg.includes("contacter") ||
     msg.includes("unreachable") ||
     msg.includes("network error") ||
     msg.includes("failed to fetch") ||   // Chrome / Firefox hors-ligne
     msg.includes("load failed")           // Safari hors-ligne
   );
+}
+
+function isLotTargetReachedError(err: unknown): boolean {
+  if (isAxiosError(err) && err.response?.status === 409) {
+    const data = err.response.data as { code?: string } | undefined;
+    return data?.code === "LOT_TARGET_REACHED";
+  }
+  return false;
+}
+
+function formatGenerateError(err: unknown): string {
+  if (isApiPauseError(err)) return "";
+  if (isLotTargetReachedError(err)) {
+    return "Ce lot est déjà complet sur le routeur. Changez l'identifiant de lot ou supprimez le lot existant.";
+  }
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { error?: string } | undefined;
+    if (data?.error) return data.error;
+    if (err.response?.status === 502) return "Impossible de contacter le routeur.";
+  }
+  if (err instanceof Error && err.message && err.message !== "LOT_TARGET_REACHED") {
+    return err.message;
+  }
+  return "Impossible de contacter le routeur. Vérifiez les paramètres de connexion.";
 }
 
 /** Attend que le routeur soit à nouveau accessible (ping toutes les 4s).
@@ -304,10 +336,11 @@ async function loadMostRecentLotFromRouter(
     return null;
   }
   if (!lotsRes.ok) return null;
-  const { lots: apiLots } = (await lotsRes.json()) as {
-    lots: Array<{ name: string; count: number; profile: string | null }>;
+  const body = (await lotsRes.json()) as {
+    lots?: Array<{ name: string; count: number; profile: string | null }>;
   };
-  if (!apiLots.length) return null;
+  const apiLots = body.lots;
+  if (!Array.isArray(apiLots) || apiLots.length === 0) return null;
 
   for (const apiLot of apiLots) {
     let usersRes: Response;
@@ -450,11 +483,28 @@ export default function GenerateVouchers() {
   } = useSharedRouterProfiles();
 
   const generateMutation = useGenerateVouchers();
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
+
+  // Relâcher une pause API orpheline (toggle / onglet) à l'ouverture de la page — sans toucher une génération en cours.
+  useEffect(() => {
+    if (!progressRef.current) setApiRequestPause(false);
+    return () => {
+      if (!progressRef.current) setApiRequestPause(false);
+    };
+  }, []);
 
   useEffect(() => {
     setProfile("");
     setProfilePopoverOpen(false);
   }, [selectedRouterId]);
+
+  // Si les profils ne chargent pas (pause API, routeur lent), ne pas bloquer toute la colonne « dernier lot ».
+  useEffect(() => {
+    if (!selectedRouterId || profilesForRouterId === selectedRouterId) return;
+    const timer = window.setTimeout(() => setLoadingLastLot(false), 20_000);
+    return () => window.clearTimeout(timer);
+  }, [selectedRouterId, profilesForRouterId]);
 
   // Dernier lot = le plus récent sur MikroTik (y compris lots créés hors app).
   useEffect(() => {
@@ -532,6 +582,8 @@ export default function GenerateVouchers() {
         /\/api\/vouchers\/generate(?:$|[/?#])/,
         /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
         /\/api\/routers\/\d+\/users(?:$|[/?#])/,
+        /\/api\/routers\/\d+\/lot-print(?:$|[/?#])/,
+        /\/api\/admin\/ticket-template(?:$|[/?#])/,
         // Sinon waitForRouter() est bloqué par installAuthFetch et la reprise
         // automatique ne peut jamais détecter que le routeur est de nouveau en ligne.
         /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
@@ -561,6 +613,9 @@ export default function GenerateVouchers() {
       effectiveComment,
     };
     let lockAcquired = false;
+    let emptyBatchStreak = 0;
+    const generationStartedAt = Date.now();
+    const GENERATION_MAX_MS = 35 * 60_000;
     try {
       // Verrouille le routeur pour toute la session : la sync background
       // (vendor + usage) saute automatiquement les routeurs verrouillés.
@@ -572,6 +627,9 @@ export default function GenerateVouchers() {
       lockAcquired = true;
 
       while (done < total) {
+        if (Date.now() - generationStartedAt > GENERATION_MAX_MS) {
+          throw new Error("Délai de génération dépassé. Réessayez ou vérifiez la connexion au routeur.");
+        }
         let batchOk = false;
         // Compteur d'échecs consécutifs "routeur inaccessible" :
         // on tolère 1 erreur passagère sans afficher le message ni bloquer.
@@ -602,6 +660,29 @@ export default function GenerateVouchers() {
                 profileValidity,
               } as any,
             });
+            if (generated.length === 0 && qtyBatch > 0) {
+              emptyBatchStreak++;
+              if (effectiveComment) {
+                try {
+                  done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
+                  setProgress({ done, total });
+                  if (done >= total) {
+                    batchOk = true;
+                    break;
+                  }
+                } catch {
+                  /* réessayer ou échouer ci-dessous */
+                }
+              }
+              if (emptyBatchStreak >= 2) {
+                throw new Error(
+                  "Aucun voucher n'a été créé sur le routeur. Vérifiez le profil hotspot ou changez l'identifiant de lot.",
+                );
+              }
+              await new Promise<void>((r) => setTimeout(r, 1500));
+              continue;
+            }
+            emptyBatchStreak = 0;
             allVouchers.push(...generated);
             // Chemin nominal : progression par réponse HTTP (rapide).
             // Le serveur plafonne via lotTarget ; réconciliation routeur seulement en cas d'erreur.
@@ -611,6 +692,23 @@ export default function GenerateVouchers() {
             unreachableStreak = 0;
             if (done >= total) break;
           } catch (err) {
+            if (isLotTargetReachedError(err)) {
+              if (effectiveComment) {
+                try {
+                  done = await reconcileLotProgressFromRouter(BASE, total, allVouchers, reconcileCtx);
+                  setProgress({ done, total });
+                } catch {
+                  /* noop */
+                }
+              }
+              if (done >= total) {
+                batchOk = true;
+                break;
+              }
+              throw new Error(
+                "Ce lot est déjà complet sur le routeur. Changez l'identifiant de lot ou supprimez le lot existant.",
+              );
+            }
             if (isRouterUnreachable(err)) {
               unreachableStreak++;
               generateMutation.reset();
@@ -677,6 +775,17 @@ export default function GenerateVouchers() {
       setVendorId("");
       setProfile("");
 
+    } catch (err) {
+      if (!isApiPauseError(err)) {
+        const description = formatGenerateError(err);
+        if (description) {
+          toast({
+            title: "Génération échouée",
+            description,
+            variant: "destructive",
+          });
+        }
+      }
     } finally {
       setApiRequestPause(false);
       // Toujours relâcher le verrou — même en cas d'erreur.
@@ -878,7 +987,11 @@ export default function GenerateVouchers() {
                   <RouterIcon className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-blue-900 truncate">{selectedRouter.name}</p>
-                    <p className="text-[10px] text-blue-500">{formatRouterAddressDisplay(selectedRouter.host, selectedRouter.port)}</p>
+                    {selectedRouter.host && (
+                      <p className="text-[10px] text-blue-500">
+                        {formatRouterAddressDisplay(selectedRouter.host, selectedRouter.port)}
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -1050,7 +1163,7 @@ export default function GenerateVouchers() {
                   >
                     {CHAR_TYPE_ORDER.map((type) => {
                       const len = parseInt(userLength, 10);
-                      const p = CHAR_TYPE_PREVIEW[type];
+                      const p = CHAR_TYPE_PREVIEW[type] ?? CHAR_TYPE_PREVIEW[DEFAULT_GEN_CHAR_TYPE];
                       const ex = p.repeat(Math.ceil(len / p.length)).slice(0, len);
                       return (
                         <option key={type} value={type}>
@@ -1263,11 +1376,15 @@ export default function GenerateVouchers() {
 
               {generateMutation.isError &&
                 !genPaused &&
-                !isApiPauseError(generateMutation.error) && (
+                !isApiPauseError(generateMutation.error) && (() => {
+                  const msg = formatGenerateError(generateMutation.error);
+                  if (!msg) return null;
+                  return (
                 <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded p-2">
-                  Erreur : Impossible de contacter le routeur. Vérifiez les paramètres de connexion.
+                  Erreur : {msg}
                 </div>
-              )}
+                  );
+                })()}
             </form>
           </CardContent>
         </Card>

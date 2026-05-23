@@ -1094,8 +1094,11 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                             id: r.id,
                             name: r.name,
                             ownerAdminId: ownerId,
+                            host: r.host,
+                            port: r.port,
                             hotspotName: r.hotspotName ?? null,
                             contact: r.contact ?? null,
+                            currency: r.currency ?? null,
                           },
                         })
                       }

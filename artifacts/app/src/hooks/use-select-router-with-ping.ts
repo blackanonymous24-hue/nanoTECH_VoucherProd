@@ -57,18 +57,19 @@ export function useSelectRouterWithPing() {
 
       activeRef.current = false;
       setPingingId(null);
+
+      // Routeur emprunté AVANT selectedRouterId : évite que l'effet d'alignement
+      // du RouterContext réinitialise la sélection (borrowedRouter encore null).
+      if (opts?.routerData !== undefined) {
+        setBorrowedRouter(opts.routerData);
+      }
+
       setSelectedRouterId(id);
       /** Pastille du sélecteur : reflète tout de suite le ping TCP (avant dashboard / SSE). */
       setRouterOnline(success);
 
       if (!success) {
         setIsPingFailed(true);
-      }
-
-      // Stocker le routeur comme "emprunté" uniquement si des données sont
-      // fournies (cas super-admin → routeur d'un autre tenant).
-      if (opts?.routerData !== undefined) {
-        setBorrowedRouter(opts.routerData);
       }
 
       const dest = opts?.navigateTo;
