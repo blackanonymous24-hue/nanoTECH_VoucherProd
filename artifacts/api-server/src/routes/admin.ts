@@ -973,6 +973,7 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
         byMonth: purgeRes.byMonth,
         nextCursor: purgeRes.nextCursor,
         purgeComplete: purgeRes.purgeComplete,
+        totalCandidates: purgeRes.totalCandidates,
         cacheRowsDeleted: 0,
       });
       return;

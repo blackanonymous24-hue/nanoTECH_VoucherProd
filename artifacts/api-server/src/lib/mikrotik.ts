@@ -2702,7 +2702,7 @@ export async function purgeOldMikhmonScriptsFast(
 
   return withRouter(conn, async (api) => {
     for (const { year, month } of monthsBeforeCutoff(cutoffYear, cutoffMonth)) {
-      const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month);
+      const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month, { ownerOnlyDiscovery: true });
       removed += res.removed;
       failed += res.failed;
       scanned += res.scanned;
@@ -2742,7 +2742,12 @@ async function purgeMikhmonScriptsForMonthOnApi(
   api: RouterOSAPI,
   year: number,
   month: number,
-  options: { preferredRawNames?: string[]; maxRemove?: number } = {},
+  options: {
+    preferredRawNames?: string[];
+    maxRemove?: number;
+    /** true = jamais de print global `?comment=mikhmon` (évite les timeouts sur gros routeurs). */
+    ownerOnlyDiscovery?: boolean;
+  } = {},
 ): Promise<{
   removed: number;
   failed: number;
@@ -2799,7 +2804,7 @@ async function purgeMikhmonScriptsForMonthOnApi(
   addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${isoOwner}`]).catch(() => []));
   addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${legacyOwner}`]).catch(() => []));
   let allRows = [...byId.values()];
-  if (allRows.length === 0) {
+  if (allRows.length === 0 && options.ownerOnlyDiscovery !== true) {
     allRows = await api.write("/system/script/print", [SCRIPT_PROPLIST, "?comment=mikhmon"]).catch(() => []);
   }
 
@@ -2853,28 +2858,44 @@ export async function purgeMikhmonScriptsForMonth(
   }, 240_000);
 }
 
-/** Estimation rapide (requêtes `?owner=` par mois, une connexion). */
+async function countOldMikhmonScriptsOnApi(
+  api: RouterOSAPI,
+  cutoffYear: number,
+  cutoffMonth: number,
+): Promise<number> {
+  const ID_ONLY = "=.proplist=.id";
+  let total = 0;
+  let emptyStreak = 0;
+  for (const { year, month } of monthsBeforeCutoff(cutoffYear, cutoffMonth)) {
+    const mm = String(month).padStart(2, "0");
+    const isoOwner = `${mm}${year}`;
+    const legacyOwner = `${MIKHMON_MONTH_ABBR[month - 1]}${year}`;
+    const ids = new Set<string>();
+    for (const owner of [isoOwner, legacyOwner]) {
+      const rows = await api.write("/system/script/print", [ID_ONLY, `?owner=${owner}`]).catch(() => []);
+      for (const r of rows) {
+        const id = String(r[".id"] ?? "");
+        if (id) ids.add(id);
+      }
+    }
+    total += ids.size;
+    if (ids.size === 0) {
+      emptyStreak += 1;
+      if (emptyStreak >= 8) break;
+    } else {
+      emptyStreak = 0;
+    }
+  }
+  return total;
+}
+
+/** Compte les scripts éligibles via `?owner=` uniquement (`.id` — pas de scan global). */
 export async function countOldMikhmonScriptsBeforeCutoff(
   conn: RouterConnection,
   cutoffYear: number,
   cutoffMonth: number,
 ): Promise<number> {
-  return withRouter(conn, async (api) => {
-    let total = 0;
-    let emptyStreak = 0;
-    for (const { year, month } of monthsBeforeCutoff(cutoffYear, cutoffMonth)) {
-      const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month, { maxRemove: 0 });
-      const n = res.scanned;
-      total += n;
-      if (n === 0) {
-        emptyStreak += 1;
-        if (emptyStreak >= 8) break;
-      } else {
-        emptyStreak = 0;
-      }
-    }
-    return total;
-  }, 180_000);
+  return withRouter(conn, async (api) => countOldMikhmonScriptsOnApi(api, cutoffYear, cutoffMonth), 300_000, "high");
 }
 
 /**
@@ -2894,6 +2915,7 @@ export async function purgeOldMikhmonScriptsBatch(
   byMonth: Array<{ yearMonth: string; count: number }>;
   nextCursor: ScriptPurgeBatchCursor | null;
   purgeComplete: boolean;
+  totalCandidates?: number;
 }> {
   const limit = Math.max(1, options.limit);
   return withRouter(conn, async (api) => {
@@ -2921,7 +2943,10 @@ export async function purgeOldMikhmonScriptsBatch(
       }
 
       const ym = `${year}-${String(month).padStart(2, "0")}`;
-      const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month, { maxRemove: budget });
+      const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month, {
+        maxRemove: budget,
+        ownerOnlyDiscovery: true,
+      });
       removed += res.removed;
       failed += res.failed;
       scanned += res.scanned;
@@ -2964,8 +2989,17 @@ export async function purgeOldMikhmonScriptsBatch(
 
     const remaining = Math.max(0, scanned - removed);
 
-    return { removed, failed, scanned, remaining, byMonth, nextCursor, purgeComplete };
-  }, 240_000, "high");
+    return {
+      removed,
+      failed,
+      scanned,
+      remaining,
+      byMonth,
+      nextCursor,
+      purgeComplete,
+      totalCandidates,
+    };
+  }, 600_000, "high");
 }
 
 /**

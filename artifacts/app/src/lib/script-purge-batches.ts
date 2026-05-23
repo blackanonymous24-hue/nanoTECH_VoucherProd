@@ -1,6 +1,6 @@
 /**
- * Purge scripts MikHmon par lots de 200 (progression scripts supprimés / total),
- * reprise auto si le routeur est injoignable.
+ * Purge scripts MikHmon par lots de 200 (progression supprimés / total),
+ * reprise auto si le routeur est injoignable ou si la requête expire.
  */
 import {
   isRouterUnreachableToggle,
@@ -15,7 +15,8 @@ export const SCRIPT_PURGE_ALLOW_PATH_PATTERNS: RegExp[] = [
   /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
 ];
 
-const SCRIPT_PURGE_REQUEST_TIMEOUT_MS = 200_000;
+/** 10 min — gros routeurs + lots de 200 suppressions. */
+const SCRIPT_PURGE_REQUEST_TIMEOUT_MS = 600_000;
 const SCRIPT_PURGE_MAX_RETRIES = 3;
 
 export type ScriptPurgeProgressState = {
@@ -57,6 +58,13 @@ export type RunScriptPurgeOptions = {
   onPaused?: (paused: boolean) => void;
 };
 
+function isScriptPurgeRetriable(err: unknown): boolean {
+  if (isRouterUnreachableToggle(err)) return true;
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  const msg = String((err as Error)?.message ?? "").toLowerCase();
+  return msg.includes("délai dépassé") || msg.includes("timeout") || msg.includes("aborted");
+}
+
 async function fetchScriptPurge(
   base: string,
   token: string,
@@ -66,7 +74,7 @@ async function fetchScriptPurge(
   for (let attempt = 0; attempt <= SCRIPT_PURGE_MAX_RETRIES; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
-      ctrl.abort(new DOMException("Délai dépassé", "AbortError"));
+      ctrl.abort(new DOMException("Délai dépassé — le routeur traite peut‑être encore les scripts", "AbortError"));
     }, SCRIPT_PURGE_REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(`${base}/api/admin/purge-old-sales-scripts`, {
@@ -88,7 +96,7 @@ async function fetchScriptPurge(
       return data;
     } catch (e) {
       lastErr = e;
-      if (attempt < SCRIPT_PURGE_MAX_RETRIES && isRouterUnreachableToggle(e)) {
+      if (attempt < SCRIPT_PURGE_MAX_RETRIES && isScriptPurgeRetriable(e)) {
         await new Promise<void>((r) => setTimeout(r, 400 + attempt * 500));
         continue;
       }
@@ -101,7 +109,7 @@ async function fetchScriptPurge(
 }
 
 /**
- * Lots de {@link SCRIPT_PURGE_BATCH_SIZE} scripts — barre `supprimés / total`, rapide côté routeur.
+ * Lots de 200 — pas de phase « estimation » séparée (évite timeout) ; total affiché mis à jour en cours de route.
  */
 export async function runScriptPurgeWithAutoResume(
   base: string,
@@ -128,15 +136,16 @@ export async function runScriptPurgeWithAutoResume(
   let lastRemaining = 0;
   let cleanFinish = false;
 
+  const pushProgress = () => {
+    const displayTotal = Math.max(total, totalRemoved, 1);
+    onProgress?.({
+      done: Math.min(totalRemoved, displayTotal),
+      total: displayTotal,
+    });
+  };
+
   try {
-    const estimate = await fetchScriptPurge(base, token, { routerId, estimate: true });
-    meta = {
-      router: estimate.router,
-      cutoff: estimate.cutoff,
-      keptMonths: estimate.keptMonths,
-    };
-    total = Math.max(0, estimate.totalCandidates ?? estimate.remaining ?? estimate.scanned ?? 0);
-    onProgress?.({ done: 0, total: Math.max(total, 1) });
+    pushProgress();
 
     for (;;) {
       let batch: ScriptPurgeBatchResponse | null = null;
@@ -149,9 +158,16 @@ export async function runScriptPurgeWithAutoResume(
             batchSize: SCRIPT_PURGE_BATCH_SIZE,
             ...(cursor != null ? { cursor } : {}),
           });
+          if (!meta) {
+            meta = {
+              router: batch.router,
+              cutoff: batch.cutoff,
+              keptMonths: batch.keptMonths,
+            };
+          }
           unreachableStreak = 0;
         } catch (e: unknown) {
-          if (isRouterUnreachableToggle(e)) {
+          if (isScriptPurgeRetriable(e)) {
             unreachableStreak++;
             if (unreachableStreak === 1) {
               await new Promise<void>((r) => setTimeout(r, 3000));
@@ -170,21 +186,31 @@ export async function runScriptPurgeWithAutoResume(
       totalRemoved += batch.removed;
       totalFailed += batch.failed;
       lastRemaining = batch.remaining;
+
+      if (batch.totalCandidates != null && batch.totalCandidates > 0) {
+        total = batch.totalCandidates;
+      } else {
+        total = Math.max(
+          total,
+          totalRemoved + (batch.purgeComplete ? 0 : SCRIPT_PURGE_BATCH_SIZE),
+        );
+      }
+
       for (const m of batch.byMonth) {
         byMonthMap.set(m.yearMonth, (byMonthMap.get(m.yearMonth) ?? 0) + m.count);
       }
 
-      total = Math.max(total, totalRemoved + lastRemaining, totalRemoved);
-      onProgress?.({
-        done: Math.min(totalRemoved, total),
-        total: Math.max(total, totalRemoved, 1),
-      });
+      pushProgress();
 
       if (batch.done) {
         cleanFinish = true;
+        total = Math.max(total, totalRemoved);
         break;
       }
-      if (batch.purgeComplete) break;
+      if (batch.purgeComplete) {
+        total = Math.max(total, totalRemoved);
+        break;
+      }
       if (batch.removed === 0 && !batch.nextCursor) break;
 
       cursor = batch.nextCursor ?? null;
@@ -194,7 +220,7 @@ export async function runScriptPurgeWithAutoResume(
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([yearMonth, count]) => ({ yearMonth, count }));
 
-    onProgress?.({ done: totalRemoved, total: Math.max(total, totalRemoved, 1) });
+    pushProgress();
 
     if (!meta) throw new Error("Aucune réponse routeur");
 
