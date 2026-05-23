@@ -2,7 +2,7 @@ import { db, routersTable } from "@workspace/db";
 import { logger } from "./logger.js";
 import { isRouterLocked, withRouterLock } from "./router-lock.js";
 import { purgePhantomVouchers } from "./vendor-sync.js";
-import { purgeOldMikhmonScriptsFast } from "./mikrotik.js";
+import { purgeOldMikhmonScripts } from "./mikrotik.js";
 import { clearRouterScriptCache } from "./script-cache.js";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -76,28 +76,55 @@ async function runMonthlyScriptPurgeForRouter(
 
   const conn = { host: router.host, port: router.port, username: router.username, password: router.password };
 
-  try {
-    const { removed, failed, cacheRowsDeleted } = await withRouterLock(router.id, async () => {
-      const purgeRes = await purgeOldMikhmonScriptsFast(conn, cutoffYear, cutoffMonth);
-      if (purgeRes.failed === 0) {
-        clearRouterScriptCache(router.id);
-      }
-      return {
-        removed: purgeRes.removed,
-        failed: purgeRes.failed,
-        cacheRowsDeleted: 0,
-      };
-    });
+  let totalRemoved = 0;
+  let totalFailed = 0;
+  let lastRemaining = Number.POSITIVE_INFINITY;
 
-    logger.info(
-      { routerId: router.id, host: router.host, removed, failed, cacheRowsDeleted },
-      failed > 0
-        ? "maintenance: purge anciens scripts partielle (auto, mensuelle)"
-        : "maintenance: purge anciens scripts terminée (auto, mensuelle)",
-    );
-  } catch (err) {
-    logger.warn({ routerId: router.id, host: router.host, err }, "maintenance: purge anciens scripts a échoué");
+  for (let batch = 0; batch < SCRIPT_PURGE_MAX_BATCHES_PER_ROUTER; batch++) {
+    try {
+      const { isDone, remaining, removed, failed, cacheRowsDeleted } = await withRouterLock(router.id, async () => {
+        const purgeRes = await purgeOldMikhmonScripts(conn, cutoffYear, cutoffMonth, { limit: SCRIPT_PURGE_BATCH_SIZE });
+        const remainingAfter = Math.max(0, purgeRes.scanned - purgeRes.removed);
+        const done = remainingAfter === 0 && purgeRes.failed === 0;
+
+        if (done) {
+          clearRouterScriptCache(router.id);
+        }
+
+        return { isDone: done, remaining: remainingAfter, removed: purgeRes.removed, failed: purgeRes.failed, cacheRowsDeleted: 0 };
+      });
+
+      totalRemoved += removed;
+      totalFailed += failed;
+
+      if (isDone) {
+        logger.info(
+          { routerId: router.id, host: router.host, totalRemoved, totalFailed, batches: batch + 1, cacheRowsDeleted },
+          "maintenance: purge anciens scripts terminée (auto, mensuelle)",
+        );
+        return;
+      }
+
+      // No-progress guard: if a batch removed nothing AND remaining didn't drop,
+      // stop to avoid spinning on persistent failures.
+      if (removed === 0 || remaining >= lastRemaining) {
+        logger.warn(
+          { routerId: router.id, host: router.host, totalRemoved, totalFailed, remaining, batches: batch + 1 },
+          "maintenance: purge anciens scripts arrêtée (pas de progrès)",
+        );
+        return;
+      }
+      lastRemaining = remaining;
+    } catch (err) {
+      logger.warn({ routerId: router.id, host: router.host, err }, "maintenance: purge anciens scripts a échoué");
+      return;
+    }
   }
+
+  logger.warn(
+    { routerId: router.id, host: router.host, totalRemoved, totalFailed, maxBatches: SCRIPT_PURGE_MAX_BATCHES_PER_ROUTER },
+    "maintenance: purge anciens scripts arrêtée (limite de batches atteinte)",
+  );
 }
 
 async function runMonthlyScriptPurgeIfDue(): Promise<void> {
