@@ -11,7 +11,12 @@ import { verifyPassword as verifyVendorPassword, createToken as createVendorToke
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyPassword as verifyCollabPassword, createToken as createCollabToken, verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
-import { purgeMikhmonScriptsForMonth, purgeOldMikhmonScriptsFast } from "../lib/mikrotik.js";
+import {
+  countOldMikhmonScriptsBeforeCutoff,
+  purgeOldMikhmonScriptsBatch,
+  purgeOldMikhmonScriptsFast,
+  type ScriptPurgeBatchCursor,
+} from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { clearRouterScriptCache, resetRouterSalesCache, syncScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
@@ -866,8 +871,9 @@ function isScriptPurgeRouterError(err: unknown): boolean {
  * Purge des scripts MikHmon antérieurs au mois précédent (conserve mois courant + précédent).
  *
  * Body:
- *   { routerId } — purge complète (cron / compat)
- *   { routerId, year, month } — un mois (UI avec reprise auto)
+ *   { routerId, estimate: true } — compte les scripts éligibles (barre de progression)
+ *   { routerId, batchSize?: number, cursor?: { year, month } } — lot UI (défaut 200)
+ *   { routerId } — purge complète (cron)
  *   { routerId, finalize: true } — vide le cache local après purge UI réussie
  */
 router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> => {
@@ -879,8 +885,9 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
 
   const body = (req.body ?? {}) as {
     routerId?: number;
-    year?: number;
-    month?: number;
+    batchSize?: number;
+    cursor?: ScriptPurgeBatchCursor | null;
+    estimate?: boolean;
     finalize?: boolean;
   };
   const routerId = Number(body.routerId);
@@ -920,27 +927,52 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
       return;
     }
 
-    const year = Number(body.year);
-    const month = Number(body.month);
-    if (year > 0 && month >= 1 && month <= 12) {
-      const purgeRes = await withRouterLock(r.id, async () =>
-        purgeMikhmonScriptsForMonth(conn, year, month),
+    if (body.estimate === true) {
+      const totalCandidates = await withRouterLock(r.id, async () =>
+        countOldMikhmonScriptsBeforeCutoff(conn, cutoffYear, cutoffMonth),
       );
-      const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
-      const remaining = purgeRes.failed > 0 ? purgeRes.failed : 0;
       res.json({
         cutoff,
         keptMonths,
         router,
-        yearMonth,
         batchSize: 0,
-        done: purgeRes.failed === 0,
+        done: false,
+        removed: 0,
+        failed: 0,
+        scanned: totalCandidates,
+        remaining: totalCandidates,
+        totalCandidates,
+        byMonth: [],
+        cacheRowsDeleted: 0,
+      });
+      return;
+    }
+
+    const batchSize = Math.max(1, Math.min(500, Number(body.batchSize) || 200));
+    if (body.batchSize != null || body.cursor != null) {
+      const cursor = body.cursor ?? null;
+      const purgeRes = await withRouterLock(r.id, async () =>
+        purgeOldMikhmonScriptsBatch(conn, cutoffYear, cutoffMonth, { limit: batchSize, cursor }),
+      );
+      const isDone = purgeRes.purgeComplete && purgeRes.failed === 0;
+      if (isDone) {
+        await withRouterLock(r.id, async () => {
+          clearRouterScriptCache(r.id);
+        });
+      }
+      res.json({
+        cutoff,
+        keptMonths,
+        router,
+        batchSize,
+        done: isDone,
         removed: purgeRes.removed,
         failed: purgeRes.failed,
         scanned: purgeRes.scanned,
-        remaining,
-        byMonth:
-          purgeRes.removed > 0 ? [{ yearMonth, count: purgeRes.removed }] : [],
+        remaining: purgeRes.remaining,
+        byMonth: purgeRes.byMonth,
+        nextCursor: purgeRes.nextCursor,
+        purgeComplete: purgeRes.purgeComplete,
         cacheRowsDeleted: 0,
       });
       return;

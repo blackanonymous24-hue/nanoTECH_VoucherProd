@@ -2700,28 +2700,30 @@ export async function purgeOldMikhmonScriptsFast(
   const byMonthMap = new Map<string, number>();
   let emptyStreak = 0;
 
-  for (const { year, month } of monthsBeforeCutoff(cutoffYear, cutoffMonth)) {
-    const res = await purgeMikhmonScriptsForMonth(conn, year, month);
-    removed += res.removed;
-    failed += res.failed;
-    scanned += res.scanned;
-    const ym = `${year}-${String(month).padStart(2, "0")}`;
-    if (res.removed > 0) {
-      byMonthMap.set(ym, (byMonthMap.get(ym) ?? 0) + res.removed);
+  return withRouter(conn, async (api) => {
+    for (const { year, month } of monthsBeforeCutoff(cutoffYear, cutoffMonth)) {
+      const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month);
+      removed += res.removed;
+      failed += res.failed;
+      scanned += res.scanned;
+      const ym = `${year}-${String(month).padStart(2, "0")}`;
+      if (res.removed > 0) {
+        byMonthMap.set(ym, (byMonthMap.get(ym) ?? 0) + res.removed);
+      }
+      if (res.scanned === 0 && res.removed === 0) {
+        emptyStreak += 1;
+        if (emptyStreak >= 8) break;
+      } else {
+        emptyStreak = 0;
+      }
     }
-    if (res.scanned === 0 && res.removed === 0) {
-      emptyStreak += 1;
-      if (emptyStreak >= 8) break;
-    } else {
-      emptyStreak = 0;
-    }
-  }
 
-  const byMonth = Array.from(byMonthMap.entries())
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([yearMonth, count]) => ({ yearMonth, count }));
+    const byMonth = Array.from(byMonthMap.entries())
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([yearMonth, count]) => ({ yearMonth, count }));
 
-  return { removed, failed, scanned, byMonth };
+    return { removed, failed, scanned, byMonth };
+  }, 300_000, "high");
 }
 
 /**
@@ -2734,104 +2736,236 @@ export async function purgeOldMikhmonScriptsFast(
  *   - optional DB `rawName` hints + encoding variants,
  *   - parallel `/system/script/remove` chunks (faster than PHP write/read per row).
  */
+export type ScriptPurgeBatchCursor = { year: number; month: number };
+
+async function purgeMikhmonScriptsForMonthOnApi(
+  api: RouterOSAPI,
+  year: number,
+  month: number,
+  options: { preferredRawNames?: string[]; maxRemove?: number } = {},
+): Promise<{
+  removed: number;
+  failed: number;
+  scanned: number;
+  pending: number;
+}> {
+  const mm = String(month).padStart(2, "0");
+  const isoOwner = `${mm}${year}`;
+  const legacyOwner = `${MIKHMON_MONTH_ABBR[month - 1]}${year}`;
+
+  const SCRIPT_PROPLIST = "=.proplist=.id,name";
+
+  const nameKeySet = (name: string): Set<string> => {
+    const t = (name ?? "").trim();
+    const s = new Set<string>();
+    if (!t) return s;
+    s.add(t);
+    s.add(decodeRouterText(t));
+    s.add(fixEncoding(t));
+    s.add(decodeRouterText(fixEncoding(t)));
+    return s;
+  };
+
+  const preferredUnion = new Set<string>();
+  for (const raw of options.preferredRawNames ?? []) {
+    for (const k of nameKeySet(raw)) preferredUnion.add(k);
+  }
+
+  const scriptMatchesPreferred = (sname: string): boolean => {
+    if (preferredUnion.size === 0) return false;
+    const keys = nameKeySet(sname);
+    for (const k of keys) {
+      if (preferredUnion.has(k)) return true;
+    }
+    return false;
+  };
+
+  const inSelectedMonth = (sname: string): boolean => {
+    const parts = sname.split("-|-");
+    if (parts.length < 3) return false;
+    const dt = parseMikhmonDate(parts[0], parts[1]);
+    if (!dt) return false;
+    return dt.getFullYear() === year && dt.getMonth() + 1 === month;
+  };
+
+  // Rapide : `?owner=` par mois (évite un print global mikhmon à chaque lot HTTP).
+  const byId = new Map<string, Record<string, unknown>>();
+  const addRows = (rows: Record<string, unknown>[]) => {
+    for (const r of rows) {
+      const id = String(r[".id"] ?? "");
+      if (id) byId.set(id, r);
+    }
+  };
+  addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${isoOwner}`]).catch(() => []));
+  addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${legacyOwner}`]).catch(() => []));
+  let allRows = [...byId.values()];
+  if (allRows.length === 0) {
+    allRows = await api.write("/system/script/print", [SCRIPT_PROPLIST, "?comment=mikhmon"]).catch(() => []);
+  }
+
+  const targetIdSet = new Set<string>();
+  for (const s of allRows) {
+    const sid = (s[".id"] as string | undefined) ?? "";
+    if (!sid) continue;
+    const sname = (s["name"] as string) ?? "";
+    if (scriptMatchesPreferred(sname) || inSelectedMonth(sname)) {
+      targetIdSet.add(sid);
+    }
+  }
+  const targetIds = [...targetIdSet];
+  const maxRemove =
+    options.maxRemove != null && options.maxRemove >= 0
+      ? Math.min(options.maxRemove, targetIds.length)
+      : targetIds.length;
+  const idsToRemove = maxRemove === 0 ? [] : targetIds.slice(0, maxRemove);
+
+  let removed = 0;
+  let failed = 0;
+  const CHUNK = 40;
+  for (let i = 0; i < idsToRemove.length; i += CHUNK) {
+    const part = idsToRemove.slice(i, i + CHUNK);
+    const settled = await Promise.allSettled(
+      part.map((id) => api.write("/system/script/remove", [`=.id=${id}`])),
+    );
+    for (const r of settled) {
+      if (r.status === "fulfilled") removed++;
+      else failed++;
+    }
+  }
+
+  const pending = Math.max(0, targetIds.length - removed - failed);
+  return { removed, failed, scanned: targetIds.length, pending };
+}
+
 export async function purgeMikhmonScriptsForMonth(
   conn: RouterConnection,
   year: number,
-  month: number, // 1-12
-  options: { preferredRawNames?: string[] } = {},
+  month: number,
+  options: { preferredRawNames?: string[]; maxRemove?: number } = {},
 ): Promise<{
   removed: number;
   failed: number;
   scanned: number;
 }> {
   return withRouter(conn, async (api) => {
-    const mm = String(month).padStart(2, "0");
-    const isoOwner = `${mm}${year}`;
-    const legacyOwner = `${MIKHMON_MONTH_ABBR[month - 1]}${year}`;
+    const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month, options);
+    return { removed: res.removed, failed: res.failed, scanned: res.scanned };
+  }, 240_000);
+}
 
-    const SCRIPT_PROPLIST = "=.proplist=.id,name";
-
-    /** Same bytes represented different ways (DB vs live API) must still match. */
-    const nameKeySet = (name: string): Set<string> => {
-      const t = (name ?? "").trim();
-      const s = new Set<string>();
-      if (!t) return s;
-      s.add(t);
-      s.add(decodeRouterText(t));
-      s.add(fixEncoding(t));
-      s.add(decodeRouterText(fixEncoding(t)));
-      return s;
-    };
-
-    const preferredUnion = new Set<string>();
-    for (const raw of options.preferredRawNames ?? []) {
-      for (const k of nameKeySet(raw)) preferredUnion.add(k);
-    }
-
-    const scriptMatchesPreferred = (sname: string): boolean => {
-      if (preferredUnion.size === 0) return false;
-      const keys = nameKeySet(sname);
-      for (const k of keys) {
-        if (preferredUnion.has(k)) return true;
-      }
-      return false;
-    };
-
-    const inSelectedMonth = (sname: string): boolean => {
-      const parts = sname.split("-|-");
-      if (parts.length < 3) return false;
-      const dt = parseMikhmonDate(parts[0], parts[1]);
-      if (!dt) return false;
-      return dt.getFullYear() === year && dt.getMonth() + 1 === month;
-    };
-
-    // MikHmon: one `?comment=mikhmon` print — fastest consistent discovery path.
-    let allRows = await api.write("/system/script/print", [SCRIPT_PROPLIST, "?comment=mikhmon"]).catch(() => []);
-
-    // Older RouterOS: no comment tag → same fallback as fetchScriptSales (owner scan).
-    if (allRows.length === 0) {
-      const byId = new Map<string, Record<string, unknown>>();
-      const addRows = (rows: Record<string, unknown>[]) => {
-        for (const r of rows) {
-          const id = String(r[".id"] ?? "");
-          if (id) byId.set(id, r);
-        }
-      };
-      addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${isoOwner}`]).catch(() => []));
-      addRows(await api.write("/system/script/print", [SCRIPT_PROPLIST, `?owner=${legacyOwner}`]).catch(() => []));
-      allRows = [...byId.values()];
-    }
-    const all = allRows;
-
-    // Targets = union(DB name match, calendar month match). Never skip date match
-    // just because preferred matched something unrelated (old bug).
-    const targetIdSet = new Set<string>();
-    for (const s of all) {
-      const sid = (s[".id"] as string | undefined) ?? "";
-      if (!sid) continue;
-      const sname = (s["name"] as string) ?? "";
-      if (scriptMatchesPreferred(sname) || inSelectedMonth(sname)) {
-        targetIdSet.add(sid);
+/** Estimation rapide (requêtes `?owner=` par mois, une connexion). */
+export async function countOldMikhmonScriptsBeforeCutoff(
+  conn: RouterConnection,
+  cutoffYear: number,
+  cutoffMonth: number,
+): Promise<number> {
+  return withRouter(conn, async (api) => {
+    let total = 0;
+    let emptyStreak = 0;
+    for (const { year, month } of monthsBeforeCutoff(cutoffYear, cutoffMonth)) {
+      const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month, { maxRemove: 0 });
+      const n = res.scanned;
+      total += n;
+      if (n === 0) {
+        emptyStreak += 1;
+        if (emptyStreak >= 8) break;
+      } else {
+        emptyStreak = 0;
       }
     }
-    const targetIds = [...targetIdSet];
+    return total;
+  }, 180_000);
+}
 
+/**
+ * Purge par lots de `limit` scripts (connexion routeur unique par appel HTTP).
+ * `cursor` reprend au mois en cours si le lot précédent l'a épuisé partiellement.
+ */
+export async function purgeOldMikhmonScriptsBatch(
+  conn: RouterConnection,
+  cutoffYear: number,
+  cutoffMonth: number,
+  options: { limit: number; cursor?: ScriptPurgeBatchCursor | null },
+): Promise<{
+  removed: number;
+  failed: number;
+  scanned: number;
+  remaining: number;
+  byMonth: Array<{ yearMonth: string; count: number }>;
+  nextCursor: ScriptPurgeBatchCursor | null;
+  purgeComplete: boolean;
+}> {
+  const limit = Math.max(1, options.limit);
+  return withRouter(conn, async (api) => {
+    let budget = limit;
     let removed = 0;
     let failed = 0;
-    const CHUNK = 40;
-    for (let i = 0; i < targetIds.length; i += CHUNK) {
-      const part = targetIds.slice(i, i + CHUNK);
-      const settled = await Promise.allSettled(
-        part.map((id) => api.write("/system/script/remove", [`=.id=${id}`])),
-      );
-      for (const r of settled) {
-        if (r.status === "fulfilled") removed++;
-        else failed++;
+    let scanned = 0;
+    const byMonthMap = new Map<string, number>();
+    let emptyStreak = 0;
+    let started = options.cursor == null;
+    let nextCursor: ScriptPurgeBatchCursor | null = null;
+    let purgeComplete = false;
+
+    for (const { year, month } of monthsBeforeCutoff(cutoffYear, cutoffMonth)) {
+      if (!started) {
+        if (year === options.cursor!.year && month === options.cursor!.month) {
+          started = true;
+        } else {
+          continue;
+        }
+      }
+      if (emptyStreak >= 8 && budget === limit) {
+        purgeComplete = true;
+        break;
+      }
+
+      const ym = `${year}-${String(month).padStart(2, "0")}`;
+      const res = await purgeMikhmonScriptsForMonthOnApi(api, year, month, { maxRemove: budget });
+      removed += res.removed;
+      failed += res.failed;
+      scanned += res.scanned;
+      if (res.removed > 0) {
+        byMonthMap.set(ym, (byMonthMap.get(ym) ?? 0) + res.removed);
+      }
+
+      if (res.scanned === 0 && res.removed === 0) {
+        emptyStreak += 1;
+      } else {
+        emptyStreak = 0;
+      }
+
+      budget -= res.removed;
+
+      if (budget <= 0) {
+        if (res.pending > 0) {
+          nextCursor = { year, month };
+        } else {
+          const months = [...monthsBeforeCutoff(cutoffYear, cutoffMonth)];
+          const idx = months.findIndex((m) => m.year === year && m.month === month);
+          if (idx >= 0 && idx + 1 < months.length) {
+            nextCursor = months[idx + 1]!;
+          } else {
+            nextCursor = null;
+            purgeComplete = emptyStreak >= 8 || idx + 1 >= months.length;
+          }
+        }
+        break;
       }
     }
 
-    return { removed, failed, scanned: targetIds.length };
-  }, 240_000);
+    if (budget > 0 && !nextCursor) {
+      purgeComplete = true;
+    }
+
+    const byMonth = Array.from(byMonthMap.entries())
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([yearMonth, count]) => ({ yearMonth, count }));
+
+    const remaining = Math.max(0, scanned - removed);
+
+    return { removed, failed, scanned, remaining, byMonth, nextCursor, purgeComplete };
+  }, 240_000, "high");
 }
 
 /**

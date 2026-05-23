@@ -109,7 +109,7 @@ export default function Maintenance() {
     setScriptPaused(false);
     setScriptSummary(null);
     setScriptError(null);
-    setScriptProgress({ done: 0, total: 1 });
+    setScriptProgress({ done: 0, total: 0 });
 
     try {
       const result = await runScriptPurgeWithAutoResume(BASE, token, selectedRouterId, {
@@ -334,11 +334,7 @@ export default function Maintenance() {
                 ) : (
                   <span className="text-gray-400 flex items-center gap-1.5 min-w-0">
                     <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-purple-400" />
-                    <span className="truncate">
-                      {scriptProgress.currentYearMonth
-                        ? `Mois ${fmtYearMonth(scriptProgress.currentYearMonth)}…`
-                        : "Suppression en cours…"}
-                    </span>
+                    <span className="truncate">Suppression en cours…</span>
                   </span>
                 )}
                 <span className="text-gray-300 font-mono shrink-0 tabular-nums">
