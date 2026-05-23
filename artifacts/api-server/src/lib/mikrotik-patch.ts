@@ -1,36 +1,61 @@
 /**
- * Runtime monkey-patch for node-routeros@1.6.9 to handle `!empty` replies.
+ * Runtime monkey-patches for node-routeros@1.6.9 — two distinct bugs that
+ * conspire to hang voucher generation under real-world VPN conditions.
  *
- * Problem
- * -------
+ * Bug #1 — `!empty` reply (Channel.processPacket)
+ * -----------------------------------------------
  * RouterOS v7+ replies with `!empty` (not `!done`) when a print query matches
- * zero rows. The bundled node-routeros Channel.processPacket only knows
- * `!re` / `!done` and routes everything else through the `unknown` event,
- * whose default listener THROWS:
+ * zero rows. Channel.processPacket only knows `!re` / `!done` and routes
+ * everything else through the `unknown` event whose default listener
+ * THROWS synchronously:
  *
  *   throw new RosException("UNKNOWNREPLY", { reply })
  *
- * Because the surrounding `read()` callback is invoked from the socket data
- * loop (not inside the Promise constructor), the throw bubbles up as an
- * uncaughtException and the `await api.write(...)` Promise NEVER resolves
- * or rejects — the call hangs forever, blocking any operation that does a
- * filtered print (e.g. countHotspotUsersByComment on a brand-new lot ID).
+ * Because the throw fires inside a socket-data callback (not inside the
+ * Promise constructor), the surrounding `await api.write(...)` Promise
+ * NEVER resolves or rejects — the call hangs forever, blocking the very
+ * first MikroTik call of voucher generation (countHotspotUsersByComment
+ * on a brand-new lot ID always matches zero rows).
  *
- * Concrete user-visible symptom
- * -----------------------------
- * Voucher generation gets stuck on "Préparation du routeur" 0% for admins
- * whose routers run a recent RouterOS, while super-admin / older-RouterOS
- * tenants succeed.
+ * Bug #2 — UNREGISTEREDTAG (Receiver.sendTagData)
+ * -----------------------------------------------
+ * When a Channel closes (after `!done`/`!empty`/timeout), it unregisters its
+ * tag in the shared Receiver. If the router then sends a late reply for that
+ * same tag (slow VPN, retry, second `!re` after we already saw `!done`),
+ * `sendTagData` finds no tag and THROWS:
+ *
+ *   throw new RosException("UNREGISTEREDTAG")
+ *
+ * Worse: the throw happens *inside* `processSentence`'s recursive `process()`
+ * function, which BAILS without resetting `processingSentencePipe = false`.
+ * Result: the Receiver permanently locks its `sentencePipe` queue. ALL other
+ * channels on that TCP connection (including the in-flight high-priority
+ * voucher writes) stop receiving data — every subsequent api.write() hangs
+ * until the 4-second wrapper timeout fires, by which point the entire
+ * batch is dead.
+ *
+ * User-visible symptom: voucher generation gets stuck on "Préparation du
+ * routeur" 0% for admins whose routers exhibit either condition (recent
+ * RouterOS / slow VPN tunnel), exactly what happened to Mik@, SOUM, Doum
+ * starting May 22 once we added the `countHotspotUsersByComment` reconcile
+ * at the start of every generate batch (commit 4a0d859).
  *
  * Fix
  * ---
- * Override `Channel.prototype.processPacket` so `!empty` is treated like
- * `!done` (emit 'done' with the accumulated data — empty array — and close
- * the channel cleanly). Behaviour for `!re` / `!done` / `!trap` is preserved
- * byte-for-byte from the upstream source.
+ *  - Channel.processPacket: treat `!empty` like `!done` (emit 'done' with
+ *    the accumulated data array, close cleanly). Other replies untouched.
+ *  - Receiver.sendTagData: silently drop late data for unregistered tags
+ *    instead of throwing. Always run cleanUp() so the sentencePipe pump
+ *    keeps draining.
+ *
+ * Both patches preserve happy-path behaviour byte-for-byte; they only
+ * change the throw-and-poison branches.
  */
 import { Channel } from "node-routeros";
+import { createRequire } from "module";
 import { logger } from "./logger.js";
+
+const req = createRequire(import.meta.url);
 
 interface ChannelInternals {
   data: unknown[];
@@ -93,5 +118,59 @@ export function patchNodeRouterosEmptyReply(): void {
     logger.info("[mikrotik-patch] Channel.processPacket patched to handle '!empty' replies");
   } catch (err) {
     logger.warn({ err }, "[mikrotik-patch] failed to patch Channel.processPacket");
+  }
+
+  patchReceiverUnregisteredTag();
+}
+
+interface ReceiverInternals {
+  tags: Map<string, { name: string; callback: (packet: string[]) => void }>;
+  currentPacket: string[];
+  currentTag: string | null;
+  currentReply: string | null;
+}
+
+interface PatchedSendTagData {
+  (this: ReceiverInternals, currentTag: string): void;
+  __vouchernetUnregisteredTagPatched?: boolean;
+}
+
+function patchReceiverUnregisteredTag(): void {
+  try {
+    const mod = req("node-routeros/dist/connector/Receiver.js") as {
+      Receiver: { prototype: Record<string, unknown> };
+    };
+    const proto = mod.Receiver.prototype;
+    const original = proto.sendTagData as PatchedSendTagData | undefined;
+    if (typeof original !== "function") {
+      logger.warn("[mikrotik-patch] Receiver.sendTagData not found — skip");
+      return;
+    }
+    if (original.__vouchernetUnregisteredTagPatched) return;
+
+    const replacement: PatchedSendTagData = function (
+      this: ReceiverInternals,
+      currentTag: string,
+    ): void {
+      const tag = this.tags.get(currentTag);
+      if (tag) {
+        try {
+          tag.callback(this.currentPacket);
+        } catch (cbErr) {
+          logger.warn({ err: cbErr, tag: currentTag }, "[mikrotik-patch] tag callback threw");
+        }
+      }
+      // else: late reply for a closed channel — silently drop instead of
+      // throwing. Throwing here used to poison Receiver.processSentence's
+      // `processingSentencePipe` flag, freezing the entire connection.
+      this.currentPacket = [];
+      this.currentTag = null;
+      this.currentReply = null;
+    };
+    replacement.__vouchernetUnregisteredTagPatched = true;
+    proto.sendTagData = replacement;
+    logger.info("[mikrotik-patch] Receiver.sendTagData patched to drop late data for unregistered tags");
+  } catch (err) {
+    logger.warn({ err }, "[mikrotik-patch] failed to patch Receiver.sendTagData");
   }
 }
