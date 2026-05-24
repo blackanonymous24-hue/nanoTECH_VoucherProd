@@ -8,11 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-// Per-request timeout (ms) : doit couvrir l'exécution complète côté serveur
-// (1 connexion MikroTik, scans `?owner=` mois par mois + suppressions). Le
-// backend utilise un timeout interne de 5 min, on aligne le client un peu en
-// dessous pour laisser le serveur finir avant qu'on n'abandonne.
-const SCRIPT_PURGE_REQUEST_TIMEOUT = 320_000;
+const SCRIPT_PURGE_BATCH_SIZE = 200;
+// Timeout par lot (chaque appel ne supprime qu'un batch de scripts).
+const SCRIPT_PURGE_REQUEST_TIMEOUT = 180_000;
 // Number of retries for a single batch on transient network failures.
 const SCRIPT_PURGE_MAX_RETRIES = 3;
 
@@ -90,12 +88,13 @@ type ScriptPurgeBatchResponse = {
   done: boolean;
   removed: number;
   failed: number;
-  scanned: number;       // total candidates remaining at start of this batch
-  remaining: number;     // candidates still to process after this batch
+  scanned: number;
+  remaining: number;
   byMonth: Array<{ yearMonth: string; count: number }>;
-  /** Toujours 0 — le cache local n'est plus jamais purgé. */
+  /** Total scripts éligibles (premier appel uniquement). */
+  totalCandidates?: number;
+  nextCursor?: { year: number; month: number } | null;
   cacheRowsDeleted?: number;
-  /** Indique que le cache local PostgreSQL est conservé intact. */
   cacheKept?: boolean;
 };
 
@@ -177,38 +176,78 @@ export default function Maintenance() {
     setScriptRunning(true);
     setScriptSummary(null);
     setScriptError(null);
-    setScriptProgress(null);
+    // Afficher la barre immédiatement (mode indéterminé jusqu'au 1er lot).
+    setScriptProgress({ done: 0, total: 0 });
+
+    let totalRemoved = 0;
+    let totalFailed = 0;
+    let total = 0;
+    let lastRemaining = 0;
+    let cleanFinish = false;
+    let routerName = selectedRouter?.name ?? "";
+    let routerHost = selectedRouter?.host ?? "";
+    const byMonthMap = new Map<string, number>();
+    let cursor: { year: number; month: number } | null = null;
 
     try {
-      // Le backend traite désormais tous les mois en UN SEUL aller-retour
-      // (une seule connexion MikroTik, scans ciblés `?owner=` par mois,
-      // arrêt anticipé après plusieurs mois vides). Pas de pagination côté
-      // client : une requête, un résultat.
-      const res = await fetchScriptPurgeBatch(`${BASE}/api/admin/purge-old-sales-scripts`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ routerId: selectedRouterId }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Erreur ${res.status}`);
-      }
-      const batch: ScriptPurgeBatchResponse = await res.json();
+      for (let i = 0; i < 10_000; i++) {
+        const res = await fetchScriptPurgeBatch(`${BASE}/api/admin/purge-old-sales-scripts`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            routerId: selectedRouterId,
+            batchSize: SCRIPT_PURGE_BATCH_SIZE,
+            cursor,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `Erreur ${res.status}`);
+        }
+        const batch: ScriptPurgeBatchResponse = await res.json();
 
-      const total = Math.max(batch.scanned, batch.removed);
-      setScriptProgress({ done: batch.removed, total });
+        if (batch.totalCandidates != null) total = batch.totalCandidates;
+        routerName = batch.router.routerName;
+        routerHost = batch.router.routerHost;
+
+        totalRemoved += batch.removed;
+        totalFailed += batch.failed;
+        lastRemaining = total > 0
+          ? Math.max(0, total - totalRemoved)
+          : batch.remaining;
+        for (const m of batch.byMonth) {
+          byMonthMap.set(m.yearMonth, (byMonthMap.get(m.yearMonth) ?? 0) + m.count);
+        }
+
+        setScriptProgress({
+          done: totalRemoved,
+          total: total > 0 ? total : Math.max(totalRemoved, 1),
+        });
+
+        if (batch.done) {
+          cleanFinish = true;
+          break;
+        }
+        if (batch.removed === 0) break;
+        cursor = batch.nextCursor ?? null;
+        if (cursor == null) break;
+      }
+
+      const byMonth = Array.from(byMonthMap.entries())
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([yearMonth, count]) => ({ yearMonth, count }));
 
       setScriptSummary({
-        routerName: batch.router.routerName,
-        routerHost: batch.router.routerHost,
-        totalRemoved: batch.removed,
-        totalFailed: batch.failed,
-        byMonth: batch.byMonth ?? [],
-        status: batch.remaining === 0 && batch.failed === 0 ? "clean" : "partial",
-        remaining: batch.remaining,
+        routerName,
+        routerHost,
+        totalRemoved,
+        totalFailed,
+        byMonth,
+        status: cleanFinish ? "clean" : "partial",
+        remaining: lastRemaining,
       });
     } catch (err: unknown) {
       setScriptError(err instanceof Error ? err.message : "Erreur inconnue");
@@ -402,17 +441,21 @@ export default function Maintenance() {
             </div>
           )}
 
-          {scriptProgress && (
+          {(scriptRunning || scriptProgress) && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-400">
-                  {scriptRunning ? "Suppression en cours…" : "Terminé"}
+                  {scriptRunning
+                    ? ((scriptProgress?.total ?? 0) === 0 ? "Préparation…" : "Suppression en cours…")
+                    : "Terminé"}
                 </span>
                 <span className="text-gray-300 font-mono">
-                  {scriptProgress.done} / {scriptProgress.total}
-                  {scriptProgress.total > 0 && (
+                  {(scriptRunning && (scriptProgress?.total ?? 0) === 0)
+                    ? "…"
+                    : `${scriptProgress?.done ?? 0} / ${scriptProgress?.total ?? 0}`}
+                  {(scriptProgress?.total ?? 0) > 0 && (
                     <span className="text-gray-500 ml-2">
-                      ({Math.round((scriptProgress.done / scriptProgress.total) * 100)}%)
+                      ({Math.round(((scriptProgress?.done ?? 0) / (scriptProgress?.total ?? 1)) * 100)}%)
                     </span>
                   )}
                 </span>
@@ -420,15 +463,23 @@ export default function Maintenance() {
               <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.06]">
                 <div
                   className={`h-full transition-all duration-300 ${
-                    scriptRunning ? "bg-purple-500" : "bg-green-500"
+                    scriptRunning
+                      ? (scriptProgress?.total ?? 0) === 0
+                        ? "bg-purple-500/70 animate-pulse w-2/5"
+                        : "bg-purple-500"
+                      : "bg-green-500"
                   }`}
-                  style={{
-                    width: `${
-                      scriptProgress.total > 0
-                        ? Math.min(100, Math.round((scriptProgress.done / scriptProgress.total) * 100))
-                        : 0
-                    }%`,
-                  }}
+                  style={
+                    scriptRunning && (scriptProgress?.total ?? 0) === 0
+                      ? undefined
+                      : {
+                          width: `${
+                            (scriptProgress?.total ?? 0) > 0
+                              ? Math.min(100, Math.round(((scriptProgress?.done ?? 0) / (scriptProgress?.total ?? 1)) * 100))
+                              : 0
+                          }%`,
+                        }
+                  }
                 />
               </div>
             </div>

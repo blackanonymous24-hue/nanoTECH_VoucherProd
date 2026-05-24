@@ -11,7 +11,11 @@ import { verifyPassword as verifyVendorPassword, createToken as createVendorToke
 import { verifyPassword as verifyManagerPassword, createToken as createManagerToken, verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyPassword as verifyCollabPassword, createToken as createCollabToken, verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
 import { purgePhantomVouchers, forceRouterFullSync } from "../lib/vendor-sync.js";
-import { purgeOldMikhmonScriptsFast } from "../lib/mikrotik.js";
+import {
+  countOldMikhmonScriptsBeforeCutoff,
+  purgeOldMikhmonScriptsBatch,
+  type ScriptPurgeBatchCursor,
+} from "../lib/mikrotik.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { resetRouterSalesCache, syncScriptCache } from "../lib/script-cache.js";
 import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
@@ -833,23 +837,16 @@ router.post("/admin/routers/:routerId/force-sync", async (req, res): Promise<voi
 /**
  * POST /api/admin/purge-old-sales-scripts
  *
- * Suppression rapide des scripts MikHmon antérieurs au mois précédent
+ * Suppression des scripts MikHmon antérieurs au mois précédent
  * (conserve mois courant + mois précédent) sur un routeur donné.
  *
- * Variante « rapide » :
- *  - ouvre UNE seule connexion MikroTik (pas de pagination HTTP côté client),
- *  - liste par mois via `?owner=MMYYYY` / `?owner=monYYYY` (pas de scan global
- *    `?comment=mikhmon` qui peut être très lent sur les gros routeurs),
- *  - arrêt anticipé après plusieurs mois consécutifs vides.
+ * Mode batch (UI) : scans ciblés `?owner=MMYYYY` par mois, lots de `batchSize`
+ * scripts, curseur `cursor` pour reprendre. Premier appel renvoie aussi
+ * `totalCandidates` (comptage rapide owner-only) pour la barre de progression.
  *
- * La base PostgreSQL locale (`mikrotik_script_sales`) n'est JAMAIS touchée :
- *   - aucune ligne supprimée,
- *   - les marqueurs de sync mémoire/DB ne sont pas invalidés (pas de resync
- *     superflue),
- *   - même si les scripts disparaissent du MikroTik, l'historique reste
- *     intégralement disponible côté UI (dashboard, rapports, vendeurs…).
+ * La base PostgreSQL locale (`mikrotik_script_sales`) n'est JAMAIS touchée.
  *
- * Body : { routerId: number }
+ * Body : { routerId: number, batchSize?: number, cursor?: { year, month } | null }
  */
 router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> => {
   const auth = req.headers.authorization;
@@ -858,12 +855,18 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
     return;
   }
 
-  const body = (req.body ?? {}) as { routerId?: number };
+  const body = (req.body ?? {}) as {
+    routerId?: number;
+    batchSize?: number;
+    cursor?: ScriptPurgeBatchCursor | null;
+  };
   const routerId = Number(body.routerId);
   if (!routerId || Number.isNaN(routerId)) {
     res.status(400).json({ error: "routerId requis" });
     return;
   }
+  const batchSize = Math.max(1, Math.min(500, Number(body.batchSize) || 200));
+  const cursor = body.cursor ?? null;
 
   // Cutoff = 1er jour du mois précédent. Tout ce qui est strictement avant est purgé.
   const now = new Date();
@@ -878,9 +881,19 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
-    const purge = await withRouterLock(r.id, () =>
-      purgeOldMikhmonScriptsFast(conn, cutoffYear, cutoffMonth),
-    );
+    const { purge, totalCandidates } = await withRouterLock(r.id, async () => {
+      let totalCandidates: number | undefined;
+      if (cursor == null) {
+        totalCandidates = await countOldMikhmonScriptsBeforeCutoff(conn, cutoffYear, cutoffMonth);
+      }
+      const purgeRes = await purgeOldMikhmonScriptsBatch(conn, cutoffYear, cutoffMonth, {
+        limit: batchSize,
+        cursor,
+      });
+      return { purge: purgeRes, totalCandidates };
+    });
+
+    const done = purge.purgeComplete && purge.failed === 0;
 
     res.json({
       cutoff: `${cutoffYear}-${String(cutoffMonth).padStart(2, "0")}-01`,
@@ -890,17 +903,15 @@ router.post("/admin/purge-old-sales-scripts", async (req, res): Promise<void> =>
         routerName: r.name ?? r.host,
         routerHost: r.host,
       },
-      // Compat ascendante avec le client (boucle de batches) : un seul appel
-      // suffit désormais, on renvoie done:true et remaining:0 pour stopper la
-      // boucle après le premier tour.
-      batchSize: purge.scanned,
-      done: true,
+      batchSize,
+      done,
       removed: purge.removed,
       failed: purge.failed,
       scanned: purge.scanned,
-      remaining: Math.max(0, purge.scanned - purge.removed),
+      remaining: purge.remaining,
+      totalCandidates,
+      nextCursor: purge.nextCursor,
       byMonth: purge.byMonth,
-      // Le cache local n'est jamais purgé — historique conservé en DB.
       cacheRowsDeleted: 0,
       cacheKept: true,
     });

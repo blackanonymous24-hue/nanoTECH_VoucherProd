@@ -3043,7 +3043,6 @@ export async function purgeOldMikhmonScriptsBatch(
       byMonth,
       nextCursor,
       purgeComplete,
-      totalCandidates,
     };
   }, 600_000, "high");
 }
