@@ -18,12 +18,18 @@ export { isNativeAppShell } from "@/lib/native-app-shell";
 /**
  * Cycle de vie session — périmètre :
  *
- * • Web : déconnexion idle après {@link SESSION_IDLE_LOGOUT_MS} ; pause API après
- *   {@link TAB_HIDE_API_PAUSE_GRACE_MS} si l’onglet est masqué ou l’app réduite (visibility hidden).
+ * • Web (tous rôles : admin / manager / collaborateur / vendeur) :
+ *   déconnexion automatique après {@link SESSION_IDLE_LOGOUT_MS} d'inactivité,
+ *   **indépendamment** de « Se souvenir de moi » (cette option n'agit que sur la persistance
+ *   du jeton entre fermetures de navigateur). Pause API web après {@link TAB_HIDE_API_PAUSE_GRACE_MS}
+ *   si l'onglet est masqué (`visibilityState !== "visible"`).
  *
- * • APK (WebView) : aucune déconnexion automatique (idle / broadcast) ; pause API en arrière-plan.
+ * • APK (WebView) :
+ *   - « Se souvenir de moi » coché → aucune déconnexion automatique (session persistante).
+ *   - « Se souvenir de moi » décoché → même règle d'inactivité que le web.
+ *   Pause API toujours active en arrière-plan, peu importe l'option.
  */
-/** Déconnexion auto après inactivité (web uniquement ; jamais sur APK). */
+/** Déconnexion auto après inactivité (web ; APK uniquement quand « Se souvenir de moi » est décoché). */
 export const SESSION_IDLE_LOGOUT_MS = 30 * 60 * 1000;
 /** Alias historique — même délai que {@link SESSION_IDLE_LOGOUT_MS}. */
 export const SESSION_IDLE_LOGOUT_REMEMBER_MS = SESSION_IDLE_LOGOUT_MS;
@@ -35,11 +41,6 @@ export const TAB_HIDE_API_PAUSE_GRACE_MS = 2 * 60 * 1000;
 export const APK_APP_STATE_EVENT = "vouchernet-apk-app-state";
 
 const BC_NAME = "vouchernet-auth-session-v1";
-
-/** APK : jamais de déconnexion auto (idle, onglet web, broadcast). */
-function isApkNoAutoLogout(): boolean {
-  return isNativeAppShell();
-}
 
 type BcMsg = { type: "activity"; t: number } | { type: "logout-all"; reason: string; t: number };
 
@@ -57,11 +58,14 @@ function sharedLastActivityMs(localRef: number): number {
 }
 
 export function SessionLifecycle() {
-  const { isAuthenticated, logout, sessionPersisted } = useAuth();
+  const { isAuthenticated, logout, rememberMe } = useAuth();
   const apkNative = isNativeAppShell();
-  const apkNoAutoLogout = isApkNoAutoLogout();
-  /** APK ou « Se souvenir de moi » : pas de déconnexion / révocation automatique. */
-  const skipAutoLogout = apkNoAutoLogout || sessionPersisted;
+  /**
+   * Seul cas où la déconnexion automatique est désactivée :
+   * APK *et* utilisateur a coché « Se souvenir de moi ». Sinon (web tout court,
+   * ou APK sans remember-me), la session expire après {@link SESSION_IDLE_LOGOUT_MS}.
+   */
+  const skipAutoLogout = apkNative && rememberMe;
   const lastLocalPulse = useRef(0);
   const lastSharedRef = useRef(Date.now());
   const tabHidePauseTimerRef = useRef<number | null>(null);
@@ -85,8 +89,12 @@ export function SessionLifecycle() {
       return;
     }
 
+    // On respecte le timestamp d'activité partagé s'il existe (recharge de l'onglet ou
+    // autre onglet déjà ouvert). Un nouveau login le réinitialise via `AuthContext.login()`,
+    // donc on n'a pas besoin de l'overrider à `Date.now()` ici — sinon chaque rechargement
+    // de la page remettrait à zéro le compteur d'inactivité.
     const lsActivity = readSharedLastActivityTs();
-    lastSharedRef.current = Math.max(Date.now(), lsActivity);
+    lastSharedRef.current = lsActivity > 0 ? lsActivity : Date.now();
     logoutBroadcastSeenRef.current = readSessionLogoutBroadcastTs();
 
     let bc: BroadcastChannel | null = null;
@@ -151,20 +159,50 @@ export function SessionLifecycle() {
     };
     window.addEventListener("storage", onStorage);
 
-    const pulse = (source: "input" | "visible") => {
+    /**
+     * Bumpe le timestamp d'activité partagé (cross-tab + ref local).
+     * N'est appelé QUE sur de vraies interactions utilisateur (input/keydown/touchstart),
+     * *pas* sur les changements de visibilité — sinon le compteur d'inactivité serait
+     * remis à zéro à chaque fois qu'on revient sur l'onglet, et le seuil de 30 min
+     * ne serait jamais atteint en pratique.
+     */
+    const bumpActivity = () => {
       const now = Date.now();
       bumpShared(now);
-      if (source === "input" && now - lastLocalPulse.current < 2000) return;
+      if (now - lastLocalPulse.current < 2000) return;
       lastLocalPulse.current = now;
       postActivity(bc, now);
     };
 
-    const onActivity = () => pulse("input");
+    const onActivity = () => bumpActivity();
     const opts = { capture: true, passive: true } as const;
     window.addEventListener("pointerdown", onActivity, opts);
     window.addEventListener("keydown", onActivity, opts);
     window.addEventListener("wheel", onActivity, opts);
     window.addEventListener("touchstart", onActivity, opts);
+
+    /**
+     * À la reprise (onglet redevient visible, app APK revient en avant-plan), on vérifie
+     * immédiatement si le seuil d'inactivité a été franchi pendant l'arrière-plan.
+     * Le setInterval peut être suspendu par le navigateur/WebView en arrière-plan ; ce
+     * check explicite garantit que l'utilisateur tombe sur l'écran de connexion sans
+     * délai supplémentaire au retour.
+     */
+    const checkIdleAfterResume = () => {
+      if (skipAutoLogout || loggingOutRef.current) return;
+      const lsAct = readSharedLastActivityTs();
+      if (lsAct > lastSharedRef.current) lastSharedRef.current = lsAct;
+      const last = lastSharedRef.current;
+      if (Date.now() - last < SESSION_IDLE_LOGOUT_MS) return;
+
+      const ts = Date.now();
+      try {
+        bc?.postMessage({ type: "logout-all", reason: "idle", t: ts } satisfies BcMsg);
+      } catch {
+        /* noop */
+      }
+      performIdleLogout({ revoke: true, showToast: true });
+    };
 
     const recomputeAwayAndPauseApi = () => {
       const awayWeb = document.visibilityState !== "visible";
@@ -186,8 +224,14 @@ export function SessionLifecycle() {
       } else {
         clearTabHidePauseTimer();
         setApiRequestPause(false);
-        pulse("visible");
-        if (!skipAutoLogout) checkLogoutBroadcast();
+        // IMPORTANT : ne PAS bumper l'activité au retour — sinon le compteur d'inactivité
+        // est remis à zéro à chaque fois qu'on revient sur l'onglet et l'auto-logout ne se
+        // déclenche jamais. On contrôle d'abord si le seuil a été franchi en arrière-plan,
+        // puis on synchronise le timestamp partagé sans le faire avancer.
+        if (!skipAutoLogout) {
+          checkLogoutBroadcast();
+          checkIdleAfterResume();
+        }
         const lsAct = readSharedLastActivityTs();
         if (lsAct > lastSharedRef.current) lastSharedRef.current = lsAct;
         if (apkNative) {
@@ -250,7 +294,7 @@ export function SessionLifecycle() {
       if (intervalId !== undefined) window.clearInterval(intervalId);
       setApiRequestPause(false);
     };
-  }, [isAuthenticated, logout, apkNative, apkNoAutoLogout, skipAutoLogout, sessionPersisted]);
+  }, [isAuthenticated, logout, apkNative, skipAutoLogout, rememberMe]);
 
   return null;
 }

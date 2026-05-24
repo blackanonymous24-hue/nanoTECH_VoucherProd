@@ -6,6 +6,10 @@ import { getListRoutersQueryKey, VOUCHERNET_SESSION_REVOKED_EVENT } from "@works
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { isNativeAppShell } from "@/lib/native-app-shell";
 import { warmVendorPortalDashboard } from "@/lib/vendor-portal-cache";
+import {
+  SESSION_LAST_ACTIVITY_LS_KEY,
+  writeSharedLastActivityTs,
+} from "@/lib/session-cross-tab";
 
 const TOKEN_KEY           = "vouchernet_admin_token";
 const ROLE_KEY            = "vouchernet_role";
@@ -17,6 +21,16 @@ const COLLAB_ROUTER_IDS   = "vouchernet_collab_router_ids";
 const SUPER_ADMIN_KEY     = "vouchernet_is_super_admin";
 const CONNECTED_NAME_KEY  = "vouchernet_connected_name";
 const CONNECTED_USER_KEY  = "vouchernet_connected_username";
+/**
+ * Choix explicite du « Se souvenir de moi » à la dernière connexion.
+ * - "1"  → l'utilisateur a coché la case (jeton en localStorage, et sur APK : pas d'auto-logout)
+ * - "0"  → l'utilisateur a décoché (jeton en sessionStorage, auto-logout y compris sur APK)
+ * - absent → session legacy (avant cette release) ; on déduit depuis la présence du jeton en localStorage
+ *
+ * Le stockage est toujours `localStorage` pour cette clé : c'est juste un flag de préférence,
+ * pas un secret. Elle est nettoyée au logout.
+ */
+const REMEMBER_ME_KEY     = "vouchernet_remember_me";
 
 function readKey(key: string): string | null {
   return localStorage.getItem(key) ?? sessionStorage.getItem(key);
@@ -70,6 +84,12 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   /** Jeton en localStorage si « Se souvenir de moi » était coché à la connexion. */
   sessionPersisted: boolean;
+  /**
+   * Vrai si l'utilisateur a explicitement coché « Se souvenir de moi » à la dernière connexion.
+   * Distinct de {@link sessionPersisted} (qui constate juste où est le jeton) : utilisé
+   * pour décider si l'APK doit appliquer la déconnexion automatique.
+   */
+  rememberMe: boolean;
   connectedName: string | null;
   connectedUsername: string | null;
   login: (
@@ -97,12 +117,45 @@ const AuthContext = createContext<AuthContextValue>({
   isSuperAdmin: false,
   isAuthenticated: false,
   sessionPersisted: false,
+  rememberMe: false,
   connectedName: null,
   connectedUsername: null,
   login: () => {},
   logout: () => {},
   updateConnectedInfo: () => {},
 });
+
+/**
+ * Lit la préférence « Se souvenir de moi » de manière rétro-compatible :
+ * - si la nouvelle clé existe → l'utilise (« 1 » / « 0 »)
+ * - sinon → on déduit depuis l'emplacement du jeton (legacy : remember = jeton en localStorage)
+ */
+function readRememberMePreference(): boolean {
+  try {
+    const explicit = localStorage.getItem(REMEMBER_ME_KEY);
+    if (explicit === "1") return true;
+    if (explicit === "0") return false;
+    return !!localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return false;
+  }
+}
+
+function writeRememberMePreference(remember: boolean): void {
+  try {
+    localStorage.setItem(REMEMBER_ME_KEY, remember ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearRememberMePreference(): void {
+  try {
+    localStorage.removeItem(REMEMBER_ME_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useAppNavigate();
@@ -120,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isSuperAdmin,    setIsSuperAdmin]    = useState<boolean>(() => readKey(SUPER_ADMIN_KEY) === "1");
   const [connectedName,   setConnectedName]   = useState<string | null>(() => readKey(CONNECTED_NAME_KEY));
   const [connectedUsername, setConnectedUsername] = useState<string | null>(() => readKey(CONNECTED_USER_KEY));
+  const [rememberMe,      setRememberMe]      = useState<boolean>(() => readRememberMePreference());
 
   const managerRouterId = managerRouterIds[0] ?? null;
 
@@ -191,6 +245,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     username?: string | null,
   ) => {
     const persist = remember;
+    writeRememberMePreference(remember);
+    setRememberMe(remember);
+    // Réinitialise le compteur d'inactivité partagé : une nouvelle session a toujours
+    // droit au délai complet ({@link SESSION_IDLE_LOGOUT_MS}) avant la déconnexion auto.
+    writeSharedLastActivityTs(Date.now());
     writeKey(TOKEN_KEY, t, persist);
     writeKey(ROLE_KEY, r, persist);
     if (vi) writeKey(VENDOR_KEY, JSON.stringify(vi), persist);
@@ -268,6 +327,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     removeKey(SUPER_ADMIN_KEY);
     removeKey(CONNECTED_NAME_KEY);
     removeKey(CONNECTED_USER_KEY);
+    clearRememberMePreference();
+    try {
+      localStorage.removeItem(SESSION_LAST_ACTIVITY_LS_KEY);
+    } catch {
+      /* ignore */
+    }
     setToken(null);
     setRole(null);
     setVendorInfo(null);
@@ -276,6 +341,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsSuperAdmin(false);
     setConnectedName(null);
     setConnectedUsername(null);
+    setRememberMe(false);
 
     if (previousRole === "vendor") {
       navigate("/vendeur");
@@ -317,7 +383,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       token, role, vendorInfo, managerRouterId, managerRouterIds, collaborateurRouterIds,
-      isSuperAdmin, isAuthenticated: !!token, sessionPersisted, login, logout,
+      isSuperAdmin, isAuthenticated: !!token, sessionPersisted, rememberMe, login, logout,
       connectedName, connectedUsername, updateConnectedInfo,
     }}>
       {children}

@@ -9,7 +9,6 @@ import { useAuth, type UserRole } from "@/contexts/AuthContext";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { AUTH_SECURITY_REQUIRED_PATH, AUTH_SIGN_IN_PATH } from "@/lib/auth-api-paths";
 import { describeFetchFailure, fetchJsonWithTimeout } from "@/lib/api-fetch";
-import { isNativeAppShell } from "@/lib/native-app-shell";
 
 async function fetchSecurityRequired(login: string, password: string): Promise<boolean | null> {
   try {
@@ -139,7 +138,11 @@ export default function LoginPage({ mode }: LoginPageProps) {
     try {
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
-          const persistSession = isNativeAppShell() || remember;
+          // « Se souvenir de moi » contrôle :
+          //   - la persistance du jeton (localStorage vs sessionStorage), web ET APK
+          //   - sur APK : la désactivation de la déconnexion auto par inactivité
+          // On ne force plus l'APK à persister : si l'utilisateur décoche, c'est respecté.
+          const persistSession = remember;
           const { res, data } = await fetchJsonWithTimeout<Record<string, unknown>>(AUTH_SIGN_IN_PATH, {
             method: "POST",
             headers: {
@@ -207,7 +210,7 @@ export default function LoginPage({ mode }: LoginPageProps) {
                 ? [manager.routerId]
                 : undefined,
             collaborateur?.routerIds ?? undefined,
-            isNativeAppShell() || remember,
+            remember,
             data.isSuperAdmin === true,
             connectedName,
             connectedUsername,
