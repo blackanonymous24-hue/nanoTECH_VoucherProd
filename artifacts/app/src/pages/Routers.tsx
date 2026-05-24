@@ -632,7 +632,7 @@ export default function Routers() {
                 />
               </div>
               <div>
-                <Label>Hotspot name</Label>
+                <Label>Nom du Wifi</Label>
                 <Input
                   className="mt-1"
                   placeholder="ex : HotspotVille"
@@ -642,7 +642,7 @@ export default function Routers() {
                 <p className="text-xs text-gray-400 mt-0.5">Mikhmon — nom du wifi / hotspot (tickets et rapports)</p>
               </div>
               <div>
-                <Label>DNS name</Label>
+                <Label>Contact</Label>
                 <Input
                   className="mt-1"
                   placeholder="wifi.example.com"

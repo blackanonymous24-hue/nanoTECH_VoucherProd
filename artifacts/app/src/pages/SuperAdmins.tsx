@@ -978,11 +978,11 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <Label>Hotspot name</Label>
+                    <Label>Nom du Wifi</Label>
                     <Input className="mt-1" value={form.hotspotName} onChange={(e) => setForm({ ...form, hotspotName: e.target.value })} />
                   </div>
                   <div>
-                    <Label>DNS name</Label>
+                    <Label>Contact</Label>
                     <Input className="mt-1" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
                   </div>
                 </div>
