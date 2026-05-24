@@ -316,10 +316,15 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
 
   const authHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : [];
 
+  const prevCanFetchBaseRef = useRef(false);
+
   // Fetch interface list when router changes — gated on tab visibility
-  // NOTE: on accepte un petit retry quand la requête est annulée par la pause API
-  // (retour d'arrière-plan APK), sinon la liste reste vide jusqu'au prochain mount.
-  const { data: ifaceList, refetch: refetchIfaces } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
+  const {
+    data: ifaceList,
+    refetch: refetchIfaces,
+    isError: ifacesError,
+    isFetching: ifacesFetching,
+  } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
     queryKey: ["interfaces", routerId],
     queryFn: async ({ signal }) => {
       const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`, { signal, headers: authHeaders });
@@ -347,22 +352,33 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     ? `${BASE}/api/routers/${routerId}/traffic?live=1${selectedIface ? `&iface=${encodeURIComponent(selectedIface)}` : ""}`
     : "";
 
-  const { data, isError, refetch: refetchTraffic } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
+  const trafficEnabled = isVisible && !!routerId && enabled && !!selectedIface;
+
+  const {
+    data,
+    isError,
+    isFetching,
+    isPending,
+    refetch: refetchTraffic,
+  } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
     queryKey: ["traffic", routerId, selectedIface],
     queryFn: async ({ signal }) => {
       const res = await fetch(trafficUrl, { signal, headers: authHeaders });
       if (!res.ok) throw new Error("traffic unavailable");
       return res.json();
     },
-    // Gated sur la visibilité : pause quand onglet caché / navigateur minimisé.
-    enabled: isVisible && !!routerId && enabled,
-    refetchInterval: isVisible ? 3_000 : false,
+    enabled: trafficEnabled,
+    // Ne pas enchaîner les polls tant que le 1er point n'est pas reçu — évite
+    // d'empiler des requêtes MikroTik lentes qui se annulent mutuellement.
+    refetchInterval: (query) => (isVisible && query.state.data != null ? 3_000 : false),
     refetchIntervalInBackground: false,
-    staleTime: 1_500,
-    // Quelques retries quand la requête est annulée par la pause API (retour APK)
-    // sinon la carte reste bloquée sur "Connexion au routeur…" jusqu'au prochain tick.
-    retry: (failureCount, err) => isApiPauseError(err) && failureCount < 3,
+    staleTime: 2_000,
+    retry: (failureCount, err) => {
+      if (isApiPauseError(err)) return failureCount < 6;
+      return failureCount < 2;
+    },
     throwOnError: false,
+    placeholderData: (prev) => prev,
   });
 
   useEffect(() => {
@@ -391,15 +407,20 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     lastResetKeyRef.current = key;
   }, [routerId, selectedIface]);
 
-  // Forcer un refetch immédiat quand l'onglet redevient visible / le router se ré-active
-  // (retour d'arrière-plan APK ou onglet caché). Évite d'attendre jusqu'à 3 s pour la
-  // prochaine itération du refetchInterval.
-  const canFetch = isVisible && !!routerId && enabled;
+  // Reprise après arrière-plan : refetch une seule fois quand le routeur redevient actif.
+  const canFetchBase = isVisible && !!routerId && enabled;
   useEffect(() => {
-    if (!canFetch) return;
-    void refetchTraffic();
-    if (!ifaceList?.length) void refetchIfaces();
-  }, [canFetch, selectedIface, refetchTraffic, refetchIfaces, ifaceList?.length]);
+    const was = prevCanFetchBaseRef.current;
+    prevCanFetchBaseRef.current = canFetchBase;
+    if (!canFetchBase || was) return;
+    if (selectedIface) void refetchTraffic({ cancelRefetch: false });
+    else void refetchIfaces({ cancelRefetch: false });
+  }, [canFetchBase, selectedIface, refetchTraffic, refetchIfaces]);
+
+  const trafficLoading =
+    trafficEnabled && history.length === 0 && !isError && (isPending || isFetching);
+  const waitingIfaces = canFetchBase && !selectedIface && !ifacesError;
+  const noIfaces = Array.isArray(ifaceList) && ifaceList.length === 0;
 
   const maxVal = Math.max(...history.flatMap(p => [p.rx, p.tx]), 1);
   const yTop = maxVal * 1.5;
@@ -509,17 +530,21 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
               </ResponsiveContainer>
             </div>
           </div>
-        ) : isError ? (
+        ) : isError || ifacesError || noIfaces ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2">
             <Activity className="h-8 w-8 text-red-200" />
             <p className="text-xs text-red-400">Indisponible</p>
           </div>
-        ) : (
+        ) : waitingIfaces || trafficLoading || !enabled ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2">
             <RefreshCw className="h-8 w-8 text-gray-300 animate-spin" />
-            <p className="text-xs text-gray-400">Connexion au routeur…</p>
+            <p className="text-xs text-gray-400">
+              {waitingIfaces && (ifacesFetching || !ifaceList)
+                ? "Chargement des interfaces…"
+                : "Connexion au routeur…"}
+            </p>
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -1057,7 +1082,7 @@ export default function Dashboard() {
         </Link>
         {/* ── Trafic : desktop cols 1-2 row 3, mobile pleine largeur ── */}
         <div className="col-span-2 order-6 lg:col-start-1 lg:row-start-3 flex flex-col lg:h-[300px]">
-          <TrafficMonitorCard routerId={selectedRouterId} enabled={enableSecondaries} />
+          <TrafficMonitorCard routerId={selectedRouterId} enabled={!!selectedRouterId && !isPingFailed} />
         </div>
         {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}
         <div className="col-span-2 order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col lg:h-[384px]">

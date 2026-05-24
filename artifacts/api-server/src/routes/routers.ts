@@ -3561,16 +3561,14 @@ router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const sc = routerCacheScope(r.ownerAdminId, id);
   const ck = `traffic:${sc}:${ifaceName}`;
-  if (!live) {
-    const fresh = mGet(ck);
-    if (fresh) { res.json(fresh); return; }
-  }
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
     const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
-    if (!live) mSet(ck, MIK_TTL.traffic, traffic);
+    mSet(ck, MIK_TTL.traffic, traffic);
     res.json(traffic);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });

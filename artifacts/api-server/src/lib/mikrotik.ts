@@ -1405,7 +1405,7 @@ export async function fetchInterfaceTraffic(conn: RouterConnection, ifaceName?: 
       txBps: parseInt((traffic?.["tx-bits-per-second"] as string) || "0", 10),
       name:  targetIface || null,
     };
-  }, 8000);
+  }, 8000, "high");
 }
 
 export interface SalesReport {
