@@ -8,13 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-// Larger batches → fewer round-trips → less risk of network "load failed".
-// Backend caps this at 500.
-const SCRIPT_PURGE_BATCH_SIZE = 200;
-// Per-request timeout (ms): must exceed backend `withRouter` for purge (large
-// `?comment=mikhmon` print + many removes). A short client timeout caused
-// `AbortError` / "signal is aborted without reason" while the server was still working.
-const SCRIPT_PURGE_REQUEST_TIMEOUT = 200_000;
+// Per-request timeout (ms) : doit couvrir l'exécution complète côté serveur
+// (1 connexion MikroTik, scans `?owner=` mois par mois + suppressions). Le
+// backend utilise un timeout interne de 5 min, on aligne le client un peu en
+// dessous pour laisser le serveur finir avant qu'on n'abandonne.
+const SCRIPT_PURGE_REQUEST_TIMEOUT = 320_000;
 // Number of retries for a single batch on transient network failures.
 const SCRIPT_PURGE_MAX_RETRIES = 3;
 
@@ -95,7 +93,10 @@ type ScriptPurgeBatchResponse = {
   scanned: number;       // total candidates remaining at start of this batch
   remaining: number;     // candidates still to process after this batch
   byMonth: Array<{ yearMonth: string; count: number }>;
-  cacheRowsDeleted: number;
+  /** Toujours 0 — le cache local n'est plus jamais purgé. */
+  cacheRowsDeleted?: number;
+  /** Indique que le cache local PostgreSQL est conservé intact. */
+  cacheKept?: boolean;
 };
 
 type ScriptPurgeSummary = {
@@ -103,10 +104,8 @@ type ScriptPurgeSummary = {
   routerHost: string;
   totalRemoved: number;
   totalFailed: number;
-  cacheRowsDeleted: number;
   byMonth: Array<{ yearMonth: string; count: number }>;
-  /** "clean": all candidates removed, cache purged.
-   *  "partial": stopped with failures or no-progress; cache NOT purged. */
+  /** "clean": tous les candidats supprimés ; "partial": des scripts restants. */
   status: "clean" | "partial";
   remaining: number;
 };
@@ -180,77 +179,36 @@ export default function Maintenance() {
     setScriptError(null);
     setScriptProgress(null);
 
-    let totalRemoved = 0;
-    let totalFailed = 0;
-    let cacheRowsDeleted = 0;
-    let total = 0;
-    let lastRemaining = 0;
-    let cleanFinish = false;
-    let routerName = selectedRouter?.name ?? "";
-    let routerHost = selectedRouter?.host ?? "";
-    const byMonthMap = new Map<string, number>();
-
     try {
-      // Loop until backend reports done. Each call deletes at most BATCH scripts.
-      // Defensive cap to avoid an infinite loop if something is wrong.
-      for (let i = 0; i < 10_000; i++) {
-        const res = await fetchScriptPurgeBatch(`${BASE}/api/admin/purge-old-sales-scripts`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            routerId: selectedRouterId,
-            batchSize: SCRIPT_PURGE_BATCH_SIZE,
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? `Erreur ${res.status}`);
-        }
-        const batch: ScriptPurgeBatchResponse = await res.json();
-
-        // First successful response sets the total target (= scanned of batch 1)
-        if (i === 0) total = batch.scanned;
-        routerName = batch.router.routerName;
-        routerHost = batch.router.routerHost;
-
-        totalRemoved    += batch.removed;
-        totalFailed     += batch.failed;
-        cacheRowsDeleted = batch.cacheRowsDeleted; // only set on final clean batch
-        lastRemaining    = batch.remaining;
-        for (const m of batch.byMonth) byMonthMap.set(m.yearMonth, (byMonthMap.get(m.yearMonth) ?? 0) + m.count);
-
-        // Progress bar = removed-only (real progress); cap at total.
-        setScriptProgress({
-          done:  Math.min(totalRemoved, Math.max(total, totalRemoved)),
-          total: Math.max(total, totalRemoved),
-        });
-
-        if (batch.done) {
-          cleanFinish = true;
-          break;
-        }
-        // Safety: if no script was actually removed in this batch, stop —
-        // either failures are blocking deletion, or there is nothing left
-        // to remove. Either way, looping further would not make progress.
-        if (batch.removed === 0) break;
+      // Le backend traite désormais tous les mois en UN SEUL aller-retour
+      // (une seule connexion MikroTik, scans ciblés `?owner=` par mois,
+      // arrêt anticipé après plusieurs mois vides). Pas de pagination côté
+      // client : une requête, un résultat.
+      const res = await fetchScriptPurgeBatch(`${BASE}/api/admin/purge-old-sales-scripts`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ routerId: selectedRouterId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Erreur ${res.status}`);
       }
+      const batch: ScriptPurgeBatchResponse = await res.json();
 
-      const byMonth = Array.from(byMonthMap.entries())
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([yearMonth, count]) => ({ yearMonth, count }));
+      const total = Math.max(batch.scanned, batch.removed);
+      setScriptProgress({ done: batch.removed, total });
 
       setScriptSummary({
-        routerName,
-        routerHost,
-        totalRemoved,
-        totalFailed,
-        cacheRowsDeleted,
-        byMonth,
-        status: cleanFinish ? "clean" : "partial",
-        remaining: lastRemaining,
+        routerName: batch.router.routerName,
+        routerHost: batch.router.routerHost,
+        totalRemoved: batch.removed,
+        totalFailed: batch.failed,
+        byMonth: batch.byMonth ?? [],
+        status: batch.remaining === 0 && batch.failed === 0 ? "clean" : "partial",
+        remaining: batch.remaining,
       });
     } catch (err: unknown) {
       setScriptError(err instanceof Error ? err.message : "Erreur inconnue");
@@ -399,14 +357,14 @@ export default function Maintenance() {
             Anciens scripts de ventes
           </CardTitle>
           <CardDescription className="text-gray-400 text-sm">
-            Supprime sur le <span className="text-white font-medium">routeur sélectionné</span>{" "}
-            les scripts MikHmon de ventes les plus anciens, par lots de{" "}
-            {SCRIPT_PURGE_BATCH_SIZE}, en commençant par les plus vieux.{" "}
-            <span className="text-green-400 font-medium">Conservés :</span> mois en cours
-            et mois précédent.
+            Supprime <span className="text-white font-medium">uniquement sur le MikroTik</span>{" "}
+            du routeur sélectionné les scripts MikHmon de ventes anciens.{" "}
+            <span className="text-green-400 font-medium">Conservés sur le routeur :</span>{" "}
+            mois en cours et mois précédent.
             <br />
-            La base PostgreSQL locale n'est pas modifiée : seuls les scripts sur le
-            routeur sont supprimés.
+            <span className="text-blue-400 font-medium">Cache local conservé :</span>{" "}
+            la base PostgreSQL n'est jamais purgée — l'historique reste disponible
+            (dashboard, rapports, vendeurs) même après suppression sur le routeur.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0 space-y-4">
@@ -508,9 +466,9 @@ export default function Maintenance() {
                     <div className="text-xs font-normal mt-1 text-yellow-200/80">
                       Suppression incomplète : {scriptSummary.remaining} script
                       {scriptSummary.remaining > 1 ? "s" : ""} restant
-                      {scriptSummary.remaining > 1 ? "s" : ""} sur le routeur. Le cache local
-                      n'a pas été purgé. Réessayez après vérification (router accessible,
-                      droits, etc.).
+                      {scriptSummary.remaining > 1 ? "s" : ""} sur le routeur. Réessayez
+                      après vérification (routeur accessible, droits, etc.). Le cache
+                      local n'est pas affecté.
                     </div>
                   )}
                 </div>
@@ -523,8 +481,8 @@ export default function Maintenance() {
                     <span className="text-sm font-medium text-white">{scriptSummary.routerName}</span>
                     <span className="text-xs text-gray-500">{scriptSummary.routerHost}</span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {scriptSummary.cacheRowsDeleted} ligne{scriptSummary.cacheRowsDeleted > 1 ? "s" : ""} purgée{scriptSummary.cacheRowsDeleted > 1 ? "s" : ""} du cache local
+                  <p className="text-xs text-blue-400/80 mt-0.5">
+                    Cache local conservé — historique des ventes intact en base.
                   </p>
                   {scriptSummary.byMonth.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1.5">
@@ -550,7 +508,7 @@ export default function Maintenance() {
         open={confirmScript}
         onOpenChange={setConfirmScript}
         title="Supprimer les anciens scripts ?"
-        description="Cette action supprime définitivement les scripts de ventes MikHmon antérieurs au mois précédent sur chaque routeur, ainsi que les entrées du cache local. Les scripts du mois en cours et du mois précédent sont conservés."
+        description="Cette action supprime sur le MikroTik du routeur sélectionné les scripts de ventes MikHmon antérieurs au mois précédent. Le cache local PostgreSQL n'est pas modifié : l'historique des ventes reste disponible (dashboard, rapports, vendeurs) même après suppression sur le routeur."
         onConfirm={() => { setConfirmScript(false); runScriptPurge(); }}
         confirmLabel="Confirmer la suppression"
       />
