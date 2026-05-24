@@ -5,6 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useQuery } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRouterLogsQueryKey } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
@@ -123,9 +124,9 @@ function formatMemory(bytes: string | null): string | null {
   return `${n} B`;
 }
 
-function formatAmount(amount: number): string {
+function formatAmount(amount: number, currency = "FCFA"): string {
   if (amount === 0) return "";
-  return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " FCFA";
+  return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " " + currency;
 }
 
 function amountTextStyle(amount: number, currency = "FCFA"): React.CSSProperties {
@@ -486,6 +487,7 @@ export default function Dashboard() {
 
   const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity, isPingFailed, setIsPingFailed } =
     useRouterContext();
+  const currency = useCurrency();
 
   const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: {
@@ -909,9 +911,9 @@ export default function Dashboard() {
         />
         <StatCard
           title="Vendu aujourd'hui"
-          label={cardSales ? formatAmount(cardSales.dailyAmount) : undefined}
+          label={cardSales ? formatAmount(cardSales.dailyAmount, currency) : undefined}
           amountValue={cardSales?.dailyAmount}
-          currency="FCFA"
+          currency={currency}
           sub={cardSales ? `${cardSales.dailyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}
@@ -922,9 +924,9 @@ export default function Dashboard() {
         />
         <StatCard
           title="Vente mensuelle"
-          label={cardSales ? formatAmount(cardSales.monthlyAmount) : undefined}
+          label={cardSales ? formatAmount(cardSales.monthlyAmount, currency) : undefined}
           amountValue={cardSales?.monthlyAmount}
-          currency="FCFA"
+          currency={currency}
           sub={cardSales ? `${cardSales.monthlyCount.toLocaleString()} tickets vendus` : undefined}
           live={!!selectedRouterId}
           fetching={salesFetching}

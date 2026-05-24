@@ -211,6 +211,7 @@ async function computeAndCacheVendorDash(vendor: VendorRow): Promise<unknown> {
     lastFreshAt: new Date().toISOString(),
     vendor: { id: vendor.id, name: vendor.name, email: vendor.email, username: vendor.username },
     hotspotName: routerRow?.hotspotName ?? null,
+    currency: (routerRow?.currency ?? "").trim() || "FCFA",
     totalVouchers:  totals?.total        ?? 0,
     totalAvailable,
     totalPrinted:   Number(totals?.printed ?? 0),

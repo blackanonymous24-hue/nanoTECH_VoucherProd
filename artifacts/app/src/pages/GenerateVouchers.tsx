@@ -8,6 +8,7 @@ import type { HotspotProfile } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Voucher } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -369,6 +370,7 @@ function makeBatchId(mode: "vc" | "up" = "vc"): string {
 
 export default function GenerateVouchers() {
   const { selectedRouterId, selectedRouter } = useRouterContext();
+  const currency = useCurrency();
   const { connectedUsername, role } = useAuth();
   const allowDelete = canDelete(role);
   const { toast } = useToast();
@@ -1302,7 +1304,7 @@ export default function GenerateVouchers() {
                   )}
                   {lastLot.price && (
                     <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 bg-green-100 text-green-700 border-0">
-                      {lastLot.price} FCFA
+                      {lastLot.price} {currency}
                     </Badge>
                   )}
                   {lastLot.vendorName && (

@@ -1,6 +1,7 @@
 import { useState, useMemo, useDeferredValue, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -52,8 +53,8 @@ function saleEntryKey(e: Pick<SaleEntry, "date" | "time" | "username" | "label" 
   return [e.date, e.time, e.username, e.label, e.batch ?? "", e.price, e.ip, e.mac, e.validity, e.rawName ?? "", e.origin ?? ""].join("-|-");
 }
 
-function exportCSV(entries: SaleEntry[], filename: string) {
-  const header = ["#","Date","Heure","Utilisateur","Profil","Lot","Prix (FCFA)","IP","MAC","Validité"];
+function exportCSV(entries: SaleEntry[], filename: string, currency: string) {
+  const header = ["#","Date","Heure","Utilisateur","Profil","Lot",`Prix (${currency})`,"IP","MAC","Validité"];
   const rows = entries.map((e, i) => [
     i + 1, e.date, e.time, e.username, e.label, e.batch ?? "", e.price, e.ip, e.mac, e.validity,
   ]);
@@ -67,6 +68,7 @@ function exportCSV(entries: SaleEntry[], filename: string) {
 
 export default function SellingReport() {
   const { selectedRouterId } = useRouterContext();
+  const currency = useCurrency();
   const { role } = useAuth();
   const allowDelete = canDelete(role);
   const { toast } = useToast();
@@ -329,7 +331,7 @@ export default function SellingReport() {
               {!isLoading && (
                 <div className="flex flex-col items-end gap-0.5 text-right shrink-0">
                   <span className="text-xs text-gray-500 tabular-nums leading-tight">
-                    {orderedFiltered.length} vente{orderedFiltered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} FCFA</span>
+                    {orderedFiltered.length} vente{orderedFiltered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} {currency}</span>
                   </span>
                   <span className="text-[11px] tabular-nums text-amber-700 leading-tight">
                     {sourceCounts.localDb.toLocaleString("fr-FR")} base locale
@@ -409,7 +411,7 @@ export default function SellingReport() {
               <Button
                 size="sm" variant="outline"
                 className="gap-1.5 flex-shrink-0 sm:ml-auto"
-                onClick={() => exportCSV(orderedFiltered, csvFilename)}
+                onClick={() => exportCSV(orderedFiltered, csvFilename, currency)}
                 disabled={orderedFiltered.length === 0}
               >
                 <FileDown className="h-3.5 w-3.5" /> CSV
@@ -473,7 +475,7 @@ export default function SellingReport() {
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Sync routeur</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Profil</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Lot</th>
-                    <th className="px-3 py-2 text-right text-gray-500 font-medium">Prix (FCFA)</th>
+                    <th className="px-3 py-2 text-right text-gray-500 font-medium">Prix ({currency})</th>
                   </tr>
                   {/* Running total header */}
                   <tr className="bg-emerald-50 border-b border-emerald-100">
@@ -481,7 +483,7 @@ export default function SellingReport() {
                       {orderedFiltered.length} ticket{orderedFiltered.length !== 1 ? "s" : ""}
                     </th>
                     <th className="px-3 py-1.5 text-right text-emerald-700 font-bold text-xs" colSpan={2}>
-                      Total : {fmtAmount(totalAmount)} FCFA
+                      Total : {fmtAmount(totalAmount)} {currency}
                     </th>
                   </tr>
                 </thead>
@@ -501,7 +503,7 @@ export default function SellingReport() {
                         Total — {orderedFiltered.length} ticket{orderedFiltered.length !== 1 ? "s" : ""}
                       </td>
                       <td colSpan={2} className="px-3 py-2 text-right text-sm font-bold text-emerald-700 tabular-nums">
-                        {fmtAmount(totalAmount)} FCFA
+                        {fmtAmount(totalAmount)} {currency}
                       </td>
                     </tr>
                   </tfoot>

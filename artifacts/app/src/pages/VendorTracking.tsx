@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -263,7 +264,8 @@ function escapeHtmlPrint(s: string): string {
 function openPrintWindow(
   data: DailyTrackingResponse,
   soldDate: string,
-  arrears?: DailyArrearsResponse,
+  arrears: DailyArrearsResponse | undefined,
+  currency: string,
 ) {
   const dateFr = fmtDateFr(soldDate);
   const vouchers = data.vouchers;
@@ -281,18 +283,18 @@ function openPrintWindow(
 
     const bodyRows: string[] = [];
     bodyRows.push(
-      `<tr class="sum-print-vendor"><td class="lbl">${vname}</td><td class="num">${fmtAmount(s.amount)} FCFA</td></tr>`,
+      `<tr class="sum-print-vendor"><td class="lbl">${vname}</td><td class="num">${fmtAmount(s.amount)} ${currency}</td></tr>`,
     );
 
     for (const row of vendorArrearSummaryLines(soldDate, data.weekStart, weekCarry, allArrears)) {
       bodyRows.push(
-        `<tr class="sum-print-arrear"><td class="lbl">${escapeHtmlPrint(row.label)}</td><td class="num">${fmtAmount(row.amount)} FCFA</td></tr>`,
+        `<tr class="sum-print-arrear"><td class="lbl">${escapeHtmlPrint(row.label)}</td><td class="num">${fmtAmount(row.amount)} ${currency}</td></tr>`,
       );
     }
 
     if (hasArr) {
       bodyRows.push(
-        `<tr class="sum-line"><td class="lbl">Total à verser</td><td class="num"><span class="sum-line-amt">${fmtAmount(totalDu)} FCFA</span></td></tr>`,
+        `<tr class="sum-line"><td class="lbl">Total à verser</td><td class="num"><span class="sum-line-amt">${fmtAmount(totalDu)} ${currency}</span></td></tr>`,
       );
     }
 
@@ -356,7 +358,7 @@ function openPrintWindow(
   }`;
   const body = `
 <h2>Suivi des ventes par vendeur</h2>
-<p class="meta">Date : ${dateFr} &nbsp;|&nbsp; ${grandCount} ticket${grandCount !== 1 ? "s" : ""} &nbsp;|&nbsp; ${fmtAmount(grandTotal)} FCFA &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
+<p class="meta">Date : ${dateFr} &nbsp;|&nbsp; ${grandCount} ticket${grandCount !== 1 ? "s" : ""} &nbsp;|&nbsp; ${fmtAmount(grandTotal)} ${currency} &nbsp;|&nbsp; Généré le ${new Date().toLocaleString("fr-FR")}</p>
 <h3>Résumé de la vente du ${dateFr}</h3>
 ${summarySection}
 <div class="detail-block">
@@ -377,7 +379,7 @@ ${summarySection}
       <th>Utilisateur</th>
       <th>Profil</th>
       <th>Vendeur</th>
-      <th class="num">Prix (FCFA)</th>
+      <th class="num">Prix (${currency})</th>
     </tr>
   </thead>
   <tbody>${detailRows}
@@ -394,7 +396,7 @@ ${summarySection}
 }
 
 /* ── Print helper: weekly report — un bloc par vendeur ──────── */
-function openWeekPrintWindow(data: DailyTrackingResponse) {
+function openWeekPrintWindow(data: DailyTrackingResponse, currency: string) {
   const weekLabel = weekLabelFromRange(data.weekStart, data.weekEnd);
   const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
   const totalAmount = ws.reduce((s, r) => s + r.amount, 0);
@@ -415,11 +417,11 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
     const resteColor = mainDue > 0 ? "#991b1b" : "inherit";
     const totalCeJour = s.totalToPay ?? s.remainingAmount ?? 0;
     const arrearsRow = coAmt > 0
-      ? `<tr><td>${arrearsWeekLabel(data.weekStart)}</td><td class="val" style="color:#991b1b;font-weight:700">${fmtAmount(coAmt)} FCFA</td></tr>`
+      ? `<tr><td>${arrearsWeekLabel(data.weekStart)}</td><td class="val" style="color:#991b1b;font-weight:700">${fmtAmount(coAmt)} ${currency}</td></tr>`
       : "";
     const mainPayLabel = coAmt > 0 ? "Montant à verser" : "Total à verser";
     const totalCeJourRow = coAmt > 0
-      ? `<tr><td><div>Total à verser à ce jour</div><div style="font-size:8px;color:#6b7280;font-weight:normal;margin-top:2px">= ${arrearsWeekLabel(data.weekStart)} + Montant à verser</div></td><td class="val" style="color:${totalCeJour > 0 ? "#991b1b" : "inherit"};font-weight:bold">${fmtAmount(totalCeJour)} FCFA</td></tr>`
+      ? `<tr><td><div>Total à verser à ce jour</div><div style="font-size:8px;color:#6b7280;font-weight:normal;margin-top:2px">= ${arrearsWeekLabel(data.weekStart)} + Montant à verser</div></td><td class="val" style="color:${totalCeJour > 0 ? "#991b1b" : "inherit"};font-weight:bold">${fmtAmount(totalCeJour)} ${currency}</td></tr>`
       : "";
     const statusIcon = s.paymentStatus === "none"
       ? `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="${sColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:2px;display:inline-block"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="0.5" fill="${sColor}"/></svg>`
@@ -432,12 +434,12 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
     <span class="vstatus" style="background:${sBg};color:${sColor};border:1px solid ${sBorder}">${statusIcon}${badge.text}</span>
   </div>
 <table>
-    <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} FCFA</td></tr>
+    <tr><td>Montant vendu</td><td class="val">${fmtAmount(s.amount)} ${currency}</td></tr>
     ${arrearsRow}
-    <tr><td>Versé</td><td class="val">${fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount, s.settlementMode))} FCFA</td></tr>
-    <tr><td>${mainPayLabel}</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(mainDue)} FCFA</td></tr>
+    <tr><td>Versé</td><td class="val">${fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount, s.settlementMode))} ${currency}</td></tr>
+    <tr><td>${mainPayLabel}</td><td class="val" style="color:${resteColor};font-weight:bold">${fmtAmount(mainDue)} ${currency}</td></tr>
     <tr><td>Commission</td><td class="val">${commRate > 0 ? commRate + "%" : "—"}</td></tr>
-    <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"}</td></tr>
+    <tr><td>Rémunération</td><td class="val">${(s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " " + currency : "—"}</td></tr>
     ${totalCeJourRow}
 </table>
 </div>`;
@@ -472,9 +474,9 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
 <div class="totals">
   <div class="totals-header">Totaux de la semaine</div>
 <table>
-    <tr><td>Montant total vendu</td><td class="tval">${fmtAmount(totalAmount)} FCFA</td></tr>
-    <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} FCFA</td></tr>
-    <tr><td>Total à verser</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} FCFA</td></tr>
+    <tr><td>Montant total vendu</td><td class="tval">${fmtAmount(totalAmount)} ${currency}</td></tr>
+    <tr><td>Total versé</td><td class="tval">${fmtAmount(totalPaid)} ${currency}</td></tr>
+    <tr><td>Total à verser</td><td class="tval" style="color:${totalReste > 0 ? "#991b1b" : "#3730a3"}">${fmtAmount(totalReste)} ${currency}</td></tr>
 </table>
 </div>`;
 
@@ -482,7 +484,7 @@ function openWeekPrintWindow(data: DailyTrackingResponse) {
 }
 
 /* ── Canvas JPEG: daily — même structure que l’impression (tableau par vendeur) ── */
-function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSaving: (v: boolean) => void, arrears?: DailyArrearsResponse) {
+function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSaving: (v: boolean) => void, arrears: DailyArrearsResponse | undefined, currency: string) {
   setSaving(true);
   try {
     const DPR = 2;
@@ -569,7 +571,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     t("Suivi des ventes par vendeur", PAD, headY + 9, { size: 12, bold: true, color: "#111827" });
     headY += 20;
     t(
-      `Date : ${dateFr}  |  ${grandCount} ticket${grandCount !== 1 ? "s" : ""}  |  ${fmtAmount(grandAmount)} FCFA  |  Généré le ${new Date().toLocaleString("fr-FR")}`,
+      `Date : ${dateFr}  |  ${grandCount} ticket${grandCount !== 1 ? "s" : ""}  |  ${fmtAmount(grandAmount)} ${currency}  |  Généré le ${new Date().toLocaleString("fr-FR")}`,
       PAD,
       headY + 6,
       { size: 8, color: "#374151" },
@@ -594,7 +596,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 
       let ry = y;
       t(vendorSoldDayTitle(s.vendorName, appliedDate), C_LBL, ry + VENDOR_DAY_H / 2, { size: 11, bold: true, color: "#111827" });
-      t(fmtAmount(s.amount) + " FCFA", C_AMT, ry + VENDOR_DAY_H / 2, { size: 11, bold: true, color: "#111827", align: "right" });
+      t(fmtAmount(s.amount) + " " + currency, C_AMT, ry + VENDOR_DAY_H / 2, { size: 11, bold: true, color: "#111827", align: "right" });
       ln(PAD, ry + VENDOR_DAY_H, PAD + CW, ry + VENDOR_DAY_H, "#ccc");
       ry += VENDOR_DAY_H;
 
@@ -608,7 +610,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
         const amtColor = isCarry ? "#9f1239" : "#b91c1c";
         const lblDraw = lbl.length > 54 ? `${lbl.slice(0, 52)}…` : lbl;
         t(lblDraw, C_LBL, ry + ARR_ROW_H / 2, { size: lblSize, color: lblColor });
-        t(fmtAmount(line.amount) + " FCFA", C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: amtColor, align: "right" });
+        t(fmtAmount(line.amount) + " " + currency, C_AMT, ry + ARR_ROW_H / 2, { size: 8, bold: true, color: amtColor, align: "right" });
         ln(PAD, ry + ARR_ROW_H, PAD + CW, ry + ARR_ROW_H, "#ddd");
         ry += ARR_ROW_H;
       });
@@ -618,7 +620,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
         ln(PAD, ry, PAD + CW, ry, "#111", 1.5);
         rf(PAD, ry, CW, GRAND_ROW_H, "#f7f7f7");
         t("Total à verser", C_LBL, ry + GRAND_ROW_H / 2, { size: 9, bold: true, color: "#111827" });
-        t(fmtAmount(totalDu) + " FCFA", C_AMT, ry + GRAND_ROW_H / 2, { size: 11, bold: true, color: "#111827", align: "right" });
+        t(fmtAmount(totalDu) + " " + currency, C_AMT, ry + GRAND_ROW_H / 2, { size: 11, bold: true, color: "#111827", align: "right" });
       }
 
       strokeBox(PAD, y, CW, ch);
@@ -628,7 +630,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
     rf(PAD, y, CW, FOOTER_H, "#1e3a8a", BOX_R);
     t("TOTAL", PAD + 10, y + FOOTER_H / 2, { size: 10, bold: true, color: "#ffffff" });
     t(String(grandCount) + " ticket" + (grandCount !== 1 ? "s" : ""), W / 2, y + FOOTER_H / 2, { size: 9, bold: true, color: "#93c5fd", align: "center" });
-    t(fmtAmount(grandAmount) + " FCFA", C_AMT, y + FOOTER_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
+    t(fmtAmount(grandAmount) + " " + currency, C_AMT, y + FOOTER_H / 2, { size: 11, bold: true, color: "#ffffff", align: "right" });
 
     const link = document.createElement("a");
     link.download = `suivi-vendeurs-${appliedDate}.jpeg`;
@@ -640,7 +642,7 @@ function saveJpegDaily(data: DailyTrackingResponse, appliedDate: string, setSavi
 }
 
 /* ── Canvas JPEG: weekly — grille de cartes par vendeur ─────── */
-function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => void) {
+function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => void, currency: string) {
     setSaving(true);
     try {
     const ws = [...(data.weekSummary ?? [])].sort((a, b) => b.amount - a.amount);
@@ -731,20 +733,20 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
       const mainDueJ = coAmt > 0 ? (s.remainingAmount ?? 0) : (s.totalToPay ?? s.remainingAmount ?? 0);
       const totalCeJourJ = s.totalToPay ?? s.remainingAmount ?? 0;
       const rows: [string, string, string?][] = [
-        ["Montant vendu", fmtAmount(s.amount) + " FCFA"],
+        ["Montant vendu", fmtAmount(s.amount) + " " + currency],
         ...(coAmt > 0
-          ? [[arrearsWeekLabel(data.weekStart), fmtAmount(coAmt) + " FCFA", "#991b1b"]] as [string, string, string?][]
+          ? [[arrearsWeekLabel(data.weekStart), fmtAmount(coAmt) + " " + currency, "#991b1b"]] as [string, string, string?][]
           : []),
-        ["Versé",         fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount, s.settlementMode)) + " FCFA"],
+        ["Versé",         fmtAmount(paidShownVersusWeekContext(s.paidAmount, s.amount, s.commission, s.carryOverAmount, s.settlementMode)) + " " + currency],
         [
           coAmt > 0 ? "Montant à verser" : "Total à verser",
-          fmtAmount(mainDueJ) + " FCFA",
+          fmtAmount(mainDueJ) + " " + currency,
           mainDueJ > 0 ? "#b91c1c" : "#6b7280",
         ],
         ["Commission",    commRate > 0 ? commRate + "%" : "—"],
-        ["Rémunération",  (s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " FCFA" : "—"],
+        ["Rémunération",  (s.commission ?? 0) > 0 ? fmtAmount(s.commission!) + " " + currency : "—"],
         ...(coAmt > 0
-          ? [["Total à verser à ce jour", fmtAmount(totalCeJourJ) + " FCFA", totalCeJourJ > 0 ? "#b91c1c" : "#6b7280"]] as [string, string, string?][]
+          ? [["Total à verser à ce jour", fmtAmount(totalCeJourJ) + " " + currency, totalCeJourJ > 0 ? "#b91c1c" : "#6b7280"]] as [string, string, string?][]
           : []),
       ];
       const rowH = (CARD_H - 28) / rows.length;
@@ -777,9 +779,9 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
     ln(PAD, ty + 24, PAD + tw, ty + 24, "#c7d2fe");
 
     const totRows: [string, string, string?][] = [
-      ["Montant total vendu", fmtAmount(totalAmount) + " FCFA"],
-      ["Total versé",         fmtAmount(totalPaid) + " FCFA"],
-      ["Total à verser",      fmtAmount(totalReste) + " FCFA", totalReste > 0 ? "#b91c1c" : "#3730a3"],
+      ["Montant total vendu", fmtAmount(totalAmount) + " " + currency],
+      ["Total versé",         fmtAmount(totalPaid) + " " + currency],
+      ["Total à verser",      fmtAmount(totalReste) + " " + currency, totalReste > 0 ? "#b91c1c" : "#3730a3"],
     ];
     const totRowH = (TOTAL_SECTION_H - 34) / totRows.length;
     totRows.forEach(([label, val, vc], ri) => {
@@ -798,6 +800,7 @@ function saveJpegWeek(data: DailyTrackingResponse, setSaving: (v: boolean) => vo
 /* ── Main page ───────────────────────────────────────────────── */
 export default function VendorTracking() {
   const { selectedRouterId } = useRouterContext();
+  const currency = useCurrency();
 
   const [date, setDate]       = useState<string>(yesterdayLocal());
   const [applied, setApplied] = useState<string>(yesterdayLocal());
@@ -853,13 +856,13 @@ export default function VendorTracking() {
 
   const handleSaveDailyJpeg = useCallback(() => {
     if (!data) return;
-    saveJpegDaily(data, applied, setSaving, arrearsData);
-  }, [applied, data, arrearsData]);
+    saveJpegDaily(data, applied, setSaving, arrearsData, currency);
+  }, [applied, data, arrearsData, currency]);
 
   const handleSaveWeekJpeg = useCallback(() => {
     if (!prevWeekData) return;
-    saveJpegWeek(prevWeekData, setSavingWeek);
-  }, [prevWeekData]);
+    saveJpegWeek(prevWeekData, setSavingWeek, currency);
+  }, [prevWeekData, currency]);
 
   const vouchers    = data?.vouchers    ?? [];
   const summary     = data?.summary     ?? [];
@@ -915,7 +918,7 @@ export default function VendorTracking() {
               {!isLoading && data && (
                 <span className="text-xs text-gray-500 tabular-nums">
                   {grandCount} ticket{grandCount !== 1 ? "s" : ""} —{" "}
-                  <span className="font-semibold text-gray-700">{fmtAmount(grandTotal)} FCFA</span>
+                  <span className="font-semibold text-gray-700">{fmtAmount(grandTotal)} {currency}</span>
                 </span>
               )}
             </div>
@@ -954,7 +957,7 @@ export default function VendorTracking() {
                   variant="outline"
                   className="gap-1.5 flex-shrink-0 whitespace-nowrap"
                   disabled={!data || grandCount === 0}
-                  onClick={() => data && openPrintWindow(data, applied, arrearsData)}
+                  onClick={() => data && openPrintWindow(data, applied, arrearsData, currency)}
                   title={`Imprimer le rapport journalier du ${dateLabelFr}`}
                 >
                   <Printer className="h-3.5 w-3.5" />
@@ -997,7 +1000,7 @@ export default function VendorTracking() {
                     variant="outline"
                     className="gap-1.5 whitespace-nowrap border-indigo-300 text-indigo-800 bg-white hover:bg-indigo-50"
                     disabled={!hasPrevWeekData || prevWeekLoading}
-                    onClick={() => prevWeekData && openWeekPrintWindow(prevWeekData)}
+                    onClick={() => prevWeekData && openWeekPrintWindow(prevWeekData, currency)}
                     title={hasPrevWeekData ? `Imprimer le rapport hebdo — ${prevWeekLabel}` : "Semaine précédente sans ventes"}
                   >
                     <Printer className="h-3.5 w-3.5" />
@@ -1048,7 +1051,7 @@ export default function VendorTracking() {
                     Résumé de la vente du {dateLabelFr}
                   </span>
                   <span className="text-[10px] text-gray-400 tabular-nums">
-                    {grandCount} ticket{grandCount !== 1 ? "s" : ""} · {fmtAmount(grandTotal)} FCFA
+                    {grandCount} ticket{grandCount !== 1 ? "s" : ""} · {fmtAmount(grandTotal)} {currency}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1073,7 +1076,7 @@ export default function VendorTracking() {
                             {vendorSoldDayTitle(s.vendorName, applied)}
                           </span>
                           <span className="font-bold tabular-nums flex-shrink-0" style={{ color: pal.dark }}>
-                            {fmtAmount(s.amount)} FCFA
+                            {fmtAmount(s.amount)} {currency}
                           </span>
                         </div>
                         <table className="w-full border-collapse">
@@ -1109,7 +1112,7 @@ export default function VendorTracking() {
                                           isCarry ? "text-rose-800" : "text-orange-700"
                                         }`}
                                       >
-                                        {fmtAmount(row.amount)} FCFA
+                                        {fmtAmount(row.amount)} {currency}
                                       </span>
                                     </div>
                                   </td>
@@ -1124,7 +1127,7 @@ export default function VendorTracking() {
                                       Total à verser
                                     </span>
                                     <span className="text-[9px] sm:text-[10px] font-bold text-white tabular-nums whitespace-nowrap flex-shrink-0">
-                                      {fmtAmount(totalDu)} FCFA
+                                      {fmtAmount(totalDu)} {currency}
                                     </span>
                                   </div>
                                 </td>
@@ -1148,7 +1151,7 @@ export default function VendorTracking() {
                     Semaine — {weekLabelFromRange(data?.weekStart, data?.weekEnd)}
                   </span>
                   <span className="text-[10px] text-gray-400 tabular-nums">
-                    {fmtAmount(weekTotal_amount)} FCFA total · {fmtAmount(weekTotal_paid)} versé
+                    {fmtAmount(weekTotal_amount)} {currency} total · {fmtAmount(weekTotal_paid)} versé
                   </span>
                 </div>
 
@@ -1185,7 +1188,7 @@ export default function VendorTracking() {
                           <tbody>
                             <tr className="border-b border-gray-50">
                               <td className="px-3 py-1.5 text-gray-500">Montant vendu</td>
-                              <td className="px-3 py-1.5 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)} FCFA</td>
+                              <td className="px-3 py-1.5 text-right font-semibold text-gray-800 tabular-nums">{fmtAmount(s.amount)} {currency}</td>
                   </tr>
                             {(s.carryOverAmount ?? 0) > 0 && (
                               <tr className="border-b border-gray-50">
@@ -1198,14 +1201,14 @@ export default function VendorTracking() {
                                   </span>
                                 </td>
                                 <td className="px-3 py-1 text-right font-semibold text-red-600 tabular-nums text-[9px] sm:text-[10px] whitespace-nowrap">
-                                  {fmtAmount(s.carryOverAmount!)} FCFA
+                                  {fmtAmount(s.carryOverAmount!)} {currency}
                                 </td>
                               </tr>
                             )}
                             {s.dailyPaid === undefined && (s.paidAmount ?? 0) > 0 && (
                               <tr className="border-b border-gray-50 bg-gray-50/50">
                                 <td className="px-3 py-1.5 text-gray-500">Versé</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(paidAggregateShown)} FCFA</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtAmount(paidAggregateShown)} {currency}</td>
                               </tr>
                             )}
                             <tr className="border-b border-gray-50">
@@ -1218,7 +1221,7 @@ export default function VendorTracking() {
                                     ? (s.remainingAmount ?? 0)
                                     : (s.totalToPay ?? s.remainingAmount ?? 0),
                                 )}{" "}
-                                FCFA
+                                {currency}
                     </td>
                             </tr>
                             <tr className="border-b border-gray-50 bg-gray-50/50">
@@ -1240,7 +1243,7 @@ export default function VendorTracking() {
                                   const net = s.commission ?? 0;
                                   return (
                                     <>
-                                      {fmtAmount(net)} FCFA
+                                      {fmtAmount(net)} {currency}
                                       {isDaily && gross > net && (
                                         <span className="block text-[9px] text-gray-400 font-normal">
                                           avant reliquats : {fmtAmount(gross)}
@@ -1262,7 +1265,7 @@ export default function VendorTracking() {
                                   </span>
                                 </td>
                                 <td className={`px-3 py-1 text-right font-bold tabular-nums align-middle text-[9px] sm:text-[10px] whitespace-nowrap ${(s.totalToPay ?? 0) > 0 ? "text-red-600" : "text-gray-400"}`}>
-                                  {fmtAmount(s.totalToPay ?? 0)} FCFA
+                                  {fmtAmount(s.totalToPay ?? 0)} {currency}
                                 </td>
                               </tr>
                             )}
@@ -1281,15 +1284,15 @@ export default function VendorTracking() {
                   <div className="grid grid-cols-3 divide-x divide-gray-100">
                     <div className="px-3 py-2">
                       <p className="text-gray-400 text-[10px]">Vendu</p>
-                      <p className="font-bold text-gray-800 tabular-nums">{fmtAmount(weekTotal_amount)} <span className="font-normal text-gray-400">FCFA</span></p>
+                      <p className="font-bold text-gray-800 tabular-nums">{fmtAmount(weekTotal_amount)} <span className="font-normal text-gray-400">{currency}</span></p>
                     </div>
                     <div className="px-3 py-2">
                       <p className="text-gray-400 text-[10px]">Versé</p>
-                      <p className="font-bold text-indigo-700 tabular-nums">{fmtAmount(weekTotal_paid)} <span className="font-normal text-gray-400">FCFA</span></p>
+                      <p className="font-bold text-indigo-700 tabular-nums">{fmtAmount(weekTotal_paid)} <span className="font-normal text-gray-400">{currency}</span></p>
                     </div>
                     <div className="px-3 py-2">
                       <p className="text-gray-400 text-[10px]">Reste</p>
-                      <p className={`font-bold tabular-nums ${weekTotal_reste > 0 ? "text-red-600" : "text-gray-400"}`}>{fmtAmount(weekTotal_reste)} <span className="font-normal text-gray-400">FCFA</span></p>
+                      <p className={`font-bold tabular-nums ${weekTotal_reste > 0 ? "text-red-600" : "text-gray-400"}`}>{fmtAmount(weekTotal_reste)} <span className="font-normal text-gray-400">{currency}</span></p>
                     </div>
                   </div>
                 </div>
@@ -1309,14 +1312,14 @@ export default function VendorTracking() {
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Utilisateur</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Profil</th>
                     <th className="px-3 py-2 text-left text-gray-500 font-medium">Vendeur</th>
-                    <th className="px-3 py-2 text-right text-gray-500 font-medium">Prix (FCFA)</th>
+                    <th className="px-3 py-2 text-right text-gray-500 font-medium">Prix ({currency})</th>
                   </tr>
                   <tr className="bg-emerald-50 border-b border-emerald-100">
                     <th colSpan={4} className="px-3 py-1.5 text-left text-emerald-700 font-medium text-xs">
                       {vouchers.length} ticket{vouchers.length !== 1 ? "s" : ""}
                     </th>
                     <th colSpan={2} className="px-3 py-1.5 text-right text-emerald-700 font-bold text-xs">
-                      Total : {fmtAmount(totalAmount)} FCFA
+                      Total : {fmtAmount(totalAmount)} {currency}
                     </th>
                   </tr>
                 </thead>

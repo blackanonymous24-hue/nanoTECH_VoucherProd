@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateAllPaymentQueries } from "@/lib/invalidatePayments";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -179,6 +180,7 @@ function VendorRow({
   const [amount, setAmount] = useState("");
   const [note, setNote]     = useState("");
   const { toast } = useToast();
+  const currency = useCurrency();
 
   const isFullyPaid = vendor.remaining === 0 && (vendor.totalPaid > 0 || vendor.commission >= vendor.amount);
   const addPayment = async () => {
@@ -193,13 +195,13 @@ function VendorRow({
     setAmount("");
     setNote("");
     onMutated();
-    toast({ title: "Versement enregistré", description: `${fmtAmount(amt)} FCFA pour ${vendor.vendorName}` });
+    toast({ title: "Versement enregistré", description: `${fmtAmount(amt)} ${currency} pour ${vendor.vendorName}` });
   };
 
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const deletePayment = async (id: number, amt: number, source: "weekly" | "daily" | undefined) => {
     if (deletingId !== null) return;
-    if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} FCFA ?`)) return;
+    if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} ${currency} ?`)) return;
     setDeletingId(id);
     try {
       const tryDelete = async (src: "weekly" | "daily") => {
@@ -288,7 +290,7 @@ function VendorRow({
           </div>
           <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-gray-500">
             <span className="whitespace-nowrap">{vendor.count} ticket{vendor.count !== 1 ? "s" : ""}</span>
-            <span className="whitespace-nowrap">Ventes : <span className="font-medium text-gray-700">{fmtAmount(vendor.amount)} FCFA</span></span>
+            <span className="whitespace-nowrap">Ventes : <span className="font-medium text-gray-700">{fmtAmount(vendor.amount)} {currency}</span></span>
             {(() => {
               const isDaily = (vendor.settlementMode ?? "daily") !== "weekly";
               const showComm = isDaily
@@ -302,7 +304,7 @@ function VendorRow({
                   {isDaily ? "Rémunération" : "Commission"} :{" "}
                   <span className="font-medium text-violet-600">
                     {!isDaily && "−"}
-                    {fmtAmount(net)} FCFA ({vendor.commissionRate}%)
+                    {fmtAmount(net)} {currency} ({vendor.commissionRate}%)
                     {isDaily && gross > net && (
                       <span className="text-gray-400 font-normal ml-1">
                         (avant reliquats : {fmtAmount(gross)})
@@ -323,14 +325,14 @@ function VendorRow({
               );
               const label = co > 0 ? "Total versé" : "Versé";
               return (
-                <span className="whitespace-nowrap">{label} : <span className="font-medium text-emerald-700">{fmtAmount(verseAmt)} FCFA</span></span>
+                <span className="whitespace-nowrap">{label} : <span className="font-medium text-emerald-700">{fmtAmount(verseAmt)} {currency}</span></span>
               );
             })()}
             {(vendor.dailyPaid ?? 0) > 0 && (vendor.weeklyExpected ?? 0) > 0 && (
-              <span className="whitespace-nowrap">Hebdo. à régler : <span className="font-semibold text-blue-700">{fmtAmount(vendor.weeklyExpected!)} FCFA</span></span>
+              <span className="whitespace-nowrap">Hebdo. à régler : <span className="font-semibold text-blue-700">{fmtAmount(vendor.weeklyExpected!)} {currency}</span></span>
             )}
             {vendor.remaining > 0 && (
-              <span className="whitespace-nowrap">Reste : <span className="font-semibold text-orange-600">{fmtAmount(vendor.remaining)} FCFA</span></span>
+              <span className="whitespace-nowrap">Reste : <span className="font-semibold text-orange-600">{fmtAmount(vendor.remaining)} {currency}</span></span>
             )}
           </div>
         </div>
@@ -351,7 +353,7 @@ function VendorRow({
           <div className="space-y-2">
             <div className="flex gap-2 flex-wrap">
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Montant (FCFA)</span>
+                <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Montant ({currency})</span>
                 <Input
                   type="number" min={1} placeholder="Ex: 33900"
                   value={amount} onChange={(e) => setAmount(e.target.value)}
@@ -387,7 +389,7 @@ function VendorRow({
               {vendor.payments.map((p) => (
                 <div key={p.id} className="flex items-center gap-2 bg-white border border-gray-100 rounded px-2.5 py-1.5 text-xs">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
-                  <span className="font-semibold text-gray-800 tabular-nums">{fmtAmount(p.amount)} FCFA</span>
+                  <span className="font-semibold text-gray-800 tabular-nums">{fmtAmount(p.amount)} {currency}</span>
                   <span className="text-gray-400">{new Date(p.paidAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</span>
                   {p.note && <span className="text-gray-500 italic truncate flex-1">— {p.note}</span>}
                   {allowDelete && (
@@ -438,6 +440,7 @@ function WeekCard({
   canGoNext?: boolean;
 }) {
   const qk = ["weekly-summary", routerId, weekStart];
+  const currency = useCurrency();
 
   const { data, isLoading, isError } = useQuery<WeeklySummaryResponse>({
     queryKey: qk,
@@ -542,13 +545,13 @@ function WeekCard({
           </CardTitle>
           {data && data.vendors.length > 0 && (
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
-              <span>Ventes : <span className="font-semibold text-gray-700">{fmtAmount(grandSales)} FCFA</span></span>
+              <span>Ventes : <span className="font-semibold text-gray-700">{fmtAmount(grandSales)} {currency}</span></span>
               {grandCommission > 0 && (
-                <span>Commissions : <span className="font-semibold text-violet-600">−{fmtAmount(grandCommission)} FCFA</span></span>
+                <span>Commissions : <span className="font-semibold text-violet-600">−{fmtAmount(grandCommission)} {currency}</span></span>
               )}
-              <span>Versé : <span className="font-semibold text-emerald-700">{fmtAmount(grandPaid)} FCFA</span></span>
+              <span>Versé : <span className="font-semibold text-emerald-700">{fmtAmount(grandPaid)} {currency}</span></span>
               {grandLeft > 0 && (
-                <span>Reste : <span className="font-semibold text-orange-600">{fmtAmount(grandLeft)} FCFA</span></span>
+                <span>Reste : <span className="font-semibold text-orange-600">{fmtAmount(grandLeft)} {currency}</span></span>
               )}
             </div>
           )}
@@ -595,6 +598,7 @@ interface DailyPaymentWithVendor {
 function WeeklyDailyPaymentsSection({ routerId, allowDelete }: { routerId: number; allowDelete: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const currency = useCurrency();
   const monday = currentMonday();
   const today  = new Date().toISOString().slice(0, 10);
   const qk = ["weekly-daily-payments", routerId, monday];
@@ -624,7 +628,7 @@ function WeeklyDailyPaymentsSection({ routerId, allowDelete }: { routerId: numbe
 
   const handleDelete = async (id: number, amt: number) => {
     if (deleting !== null) return;
-    if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} FCFA ?`)) return;
+    if (!window.confirm(`Annuler le versement de ${fmtAmount(amt)} ${currency} ?`)) return;
     setDeleting(id);
     try {
       const res = await deleteWithRetry(`${BASE}/api/vendors/daily-payments/${id}`);
@@ -680,7 +684,7 @@ function WeeklyDailyPaymentsSection({ routerId, allowDelete }: { routerId: numbe
     <div className="space-y-3">
       <div className="flex items-center justify-between text-xs text-gray-500 px-1">
         <span>{data.length} versement{data.length > 1 ? "s" : ""}</span>
-        <span className="font-semibold text-emerald-700">{fmtAmount(total)} FCFA total</span>
+        <span className="font-semibold text-emerald-700">{fmtAmount(total)} {currency} total</span>
       </div>
       {byDate.map(([date, payments]) => (
         <div key={date} className="border border-gray-100 rounded-lg overflow-hidden">
@@ -698,7 +702,7 @@ function WeeklyDailyPaymentsSection({ routerId, allowDelete }: { routerId: numbe
                   </div>
                 </div>
                 <span className="text-sm font-bold text-emerald-700 tabular-nums flex-shrink-0">
-                  {fmtAmount(p.amount)} FCFA
+                  {fmtAmount(p.amount)} {currency}
                 </span>
                 {allowDelete && (
                 <button
@@ -748,6 +752,7 @@ function vendorColor(vendorId: string) {
 function DailyArrearsSection({ routerId }: { routerId: number }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const currency = useCurrency();
   const qk = ["daily-arrears-versement", routerId];
   const [payingKey, setPayingKey]   = useState<string | null>(null);
   const [payAmount, setPayAmount]   = useState<string>("");
@@ -811,7 +816,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
           toast({
             title: applied > 0 ? "Versement partiellement appliqué" : "Erreur",
             description: applied > 0
-              ? `${fmtAmount(applied)} FCFA appliqué · ${fmtAmount(Math.round(amount) - applied)} FCFA non appliqué : ${failure}`
+              ? `${fmtAmount(applied)} ${currency} appliqué · ${fmtAmount(Math.round(amount) - applied)} ${currency} non appliqué : ${failure}`
               : failure,
             variant: "destructive",
           });
@@ -819,7 +824,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
         }
         setPayingKey(null);
         setPayAmount("");
-        toast({ title: "Versement enregistré", description: `${fmtAmount(applied)} FCFA réparti sur ${appliedDays} jour${appliedDays > 1 ? "s" : ""}` });
+        toast({ title: "Versement enregistré", description: `${fmtAmount(applied)} ${currency} réparti sur ${appliedDays} jour${appliedDays > 1 ? "s" : ""}` });
         return;
       }
       // Single-day payment
@@ -832,7 +837,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
       await invalidateAllPaymentQueries(queryClient, routerId);
       setPayingKey(null);
       setPayAmount("");
-      toast({ title: "Versement enregistré", description: `${fmtAmount(Math.round(amount))} FCFA · ${fmtDateShort(date)}` });
+      toast({ title: "Versement enregistré", description: `${fmtAmount(Math.round(amount))} ${currency} · ${fmtDateShort(date)}` });
     } finally {
       setPayLoading(false);
     }
@@ -888,7 +893,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
       {/* Total header */}
       <div className="flex items-center justify-between text-xs text-gray-500 px-1">
         <span>{vendorIds.length} vendeur{vendorIds.length > 1 ? "s" : ""} avec arriérés</span>
-        <span className="font-semibold text-orange-700">{fmtAmount(totalRemaining)} FCFA total</span>
+        <span className="font-semibold text-orange-700">{fmtAmount(totalRemaining)} {currency} total</span>
       </div>
 
       {vendorIds.map((vid) => {
@@ -917,7 +922,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                 </span>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <span className={`font-bold ${c.amount} text-sm tabular-nums`}>{fmtAmount(daySales > 0 ? daySales : vendorTotal)} FCFA</span>
+                <span className={`font-bold ${c.amount} text-sm tabular-nums`}>{fmtAmount(daySales > 0 ? daySales : vendorTotal)} {currency}</span>
                 <button
                   className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                   disabled={payLoading}
@@ -945,14 +950,14 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                           </p>
                           {entry.paidAmount > 0 ? (
                             <p className="text-[10px] text-gray-400">
-                              Ventes: {fmtAmount(entry.salesAmount)} · Versé: {fmtAmount(paidShownVersusWeekContext(entry.paidAmount, entry.salesAmount, 0, 0))} FCFA
+                              Ventes: {fmtAmount(entry.salesAmount)} · Versé: {fmtAmount(paidShownVersusWeekContext(entry.paidAmount, entry.salesAmount, 0, 0))} {currency}
                             </p>
                           ) : (
-                            <p className="text-[10px] text-gray-400">Ventes: {fmtAmount(entry.salesAmount)} FCFA</p>
+                            <p className="text-[10px] text-gray-400">Ventes: {fmtAmount(entry.salesAmount)} {currency}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className={`text-xs font-bold ${c.amount} tabular-nums`}>{fmtAmount(entry.remaining)} FCFA</span>
+                          <span className={`text-xs font-bold ${c.amount} tabular-nums`}>{fmtAmount(entry.remaining)} {currency}</span>
                           {!isPaying && (
                             <>
                               <button
@@ -982,7 +987,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                             onChange={(e) => setPayAmount(e.target.value)}
                             placeholder="Montant"
                           />
-                          <span className="text-[10px] text-gray-500">FCFA</span>
+                          <span className="text-[10px] text-gray-500">{currency}</span>
                           <button
                             className="text-[10px] px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
                             disabled={payLoading || !payAmount || Number(payAmount) <= 0}
@@ -1005,7 +1010,7 @@ function DailyArrearsSection({ routerId }: { routerId: number }) {
                           {entry.payments.map((p) => (
                             <div key={p.id} className="flex items-center gap-1.5 text-[10px] text-gray-400">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400 flex-shrink-0" />
-                              <span>{fmtAmount(p.amount)} FCFA versé</span>
+                              <span>{fmtAmount(p.amount)} {currency} versé</span>
                             </div>
                           ))}
                         </div>

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { useAuth } from "@/contexts/AuthContext";
 import { canDelete } from "@/lib/permissions";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -77,6 +78,7 @@ function ArrearRow({
   const [done, setDone]       = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const { toast } = useToast();
+  const currency = useCurrency();
 
   const pay = useCallback(async (amt: number) => {
     if (amt <= 0 || loading) return;
@@ -105,7 +107,7 @@ function ArrearRow({
 
   const deletePayment = useCallback(async (paymentId: number, paymentAmount: number) => {
     if (deletingId !== null) return;
-    if (!window.confirm(`Annuler le versement de ${fmtAmount(paymentAmount)} FCFA du ${fmtDateFr(entry.date)} ?`)) return;
+    if (!window.confirm(`Annuler le versement de ${fmtAmount(paymentAmount)} ${currency} du ${fmtDateFr(entry.date)} ?`)) return;
     setDeletingId(paymentId);
     try {
       const res = await fetch(`${BASE}/api/vendors/daily-payments/${paymentId}`, { method: "DELETE" });
@@ -139,7 +141,7 @@ function ArrearRow({
           <span className="font-medium text-gray-700">{fmtDateFr(entry.date)}</span>
           {entry.paidAmount > 0 && (
             <span className="text-gray-400 tabular-nums">
-              versé {fmtAmount(entry.paidAmount)} / {fmtAmount(entry.salesAmount)} FCFA
+              versé {fmtAmount(entry.paidAmount)} / {fmtAmount(entry.salesAmount)} {currency}
             </span>
           )}
         </div>
@@ -148,7 +150,7 @@ function ArrearRow({
             (~320 px) afin que les boutons ne débordent jamais. */}
         <div className="flex flex-wrap items-center gap-1.5 justify-between sm:justify-end">
           <span className="font-bold text-orange-700 tabular-nums flex-shrink-0">
-            {fmtAmount(entry.remaining)} FCFA
+            {fmtAmount(entry.remaining)} {currency}
           </span>
 
           {done ? (
@@ -204,7 +206,7 @@ function ArrearRow({
                 disabled={deletingId === p.id}
                 className="ml-0.5 rounded-full p-0.5 hover:bg-emerald-100 hover:text-red-600 disabled:opacity-50"
                 title="Annuler ce versement"
-                aria-label={`Annuler le versement de ${p.amount} FCFA`}
+                aria-label={`Annuler le versement de ${p.amount} ${currency}`}
               >
                 {deletingId === p.id
                   ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -237,6 +239,7 @@ function VendorCard({
 }) {
   const [expanded, setExpanded] = useState(true);
   const daySales = row.arrears.find((a) => a.date === viewDate)?.salesAmount ?? 0;
+  const currency = useCurrency();
 
   return (
     <Card className={`overflow-hidden border ${row.totalRemaining > 0 ? "border-orange-200" : "border-gray-100"}`}>
@@ -256,7 +259,7 @@ function VendorCard({
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
           <span className={`text-sm font-bold tabular-nums ${daySales > 0 ? "text-gray-800" : row.totalRemaining > 0 ? "text-orange-700" : "text-gray-400"}`}>
-            {fmtAmount(daySales > 0 ? daySales : row.totalRemaining)} FCFA
+            {fmtAmount(daySales > 0 ? daySales : row.totalRemaining)} {currency}
           </span>
           {expanded
             ? <ChevronUp className="h-4 w-4 text-gray-400" />
@@ -290,6 +293,7 @@ function VendorCard({
 /* ── Main page ──────────────────────────────────────────────── */
 export default function DailyPayments() {
   const { selectedRouterId } = useRouterContext();
+  const currency = useCurrency();
   const { role } = useAuth();
   const allowDelete = canDelete(role);
   const [, navigate] = useLocation();
@@ -447,7 +451,7 @@ export default function DailyPayments() {
               </span>
               <span>
                 Total dû :{" "}
-                <span className="font-bold text-orange-700 tabular-nums">{fmtAmount(grandTotal)} FCFA</span>
+                <span className="font-bold text-orange-700 tabular-nums">{fmtAmount(grandTotal)} {currency}</span>
               </span>
             </div>
           )}

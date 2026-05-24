@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
 import { printReport } from "@/lib/print";
 import {
@@ -70,6 +71,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
 }) {
   const isUnattributed = vendorId === UNATTRIBUTED_VENDOR_ID;
   const isVisible = usePageVisibility();
+  const currency = useCurrency();
   const { data, isLoading, error } = useQuery<PeriodSalesData>({
     queryKey: isUnattributed
       ? ["unattributed-period-sales", routerId, period]
@@ -157,7 +159,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
                     </div>
                     <div>
                       <p className="fit-price font-bold text-gray-900">{data.revenue.toLocaleString("fr-FR")}</p>
-                      <p className="text-xs text-gray-500">FCFA estimé</p>
+                      <p className="text-xs text-gray-500">{currency} estimé</p>
                     </div>
                   </div>
                 </Card>
@@ -176,7 +178,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
                             <div className="flex items-center gap-4 text-sm">
                               <span className="text-gray-500">{p.count} ticket{Number(p.count) > 1 ? "s" : ""}</span>
                               {Number(p.revenue) > 0 && (
-                                <span className="font-semibold text-gray-800">{Number(p.revenue).toLocaleString("fr-FR")} FCFA</span>
+                                <span className="font-semibold text-gray-800">{Number(p.revenue).toLocaleString("fr-FR")} {currency}</span>
                               )}
                             </div>
                           </div>
@@ -240,7 +242,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
                                   {displayPrice ? (
                                     <span className="font-semibold text-emerald-600 tabular-nums">
                                       {Number(displayPrice).toLocaleString("fr-FR")}
-                                      <span className="text-[9px] text-gray-400 ml-0.5">FCFA</span>
+                                      <span className="text-[9px] text-gray-400 ml-0.5">{currency}</span>
                                     </span>
                                   ) : <span className="text-gray-300">—</span>}
                                 </td>
@@ -279,7 +281,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
                 <tbody>
                   <tr>
                     <td><strong>{data.total}</strong></td>
-                    <td><strong>{data.revenue.toLocaleString("fr-FR")} FCFA</strong></td>
+                    <td><strong>{data.revenue.toLocaleString("fr-FR")} {currency}</strong></td>
                   </tr>
                 </tbody>
               </table>
@@ -287,7 +289,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
                 <>
                   <p className="report-print-section-label">Par forfait</p>
                   <table className="report-print-table">
-                    <thead><tr><th>Forfait</th><th>Tickets</th><th>Montant FCFA</th></tr></thead>
+                    <thead><tr><th>Forfait</th><th>Tickets</th><th>Montant {currency}</th></tr></thead>
                     <tbody>
                       {data.byProfile.map((p) => (
                         <tr key={p.profileName}>
@@ -309,7 +311,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
               )}
               <p className="report-print-section-label">Liste des tickets vendus ({data.total})</p>
               <table className="report-print-table">
-                <thead><tr><th>#</th><th>Code</th><th>Forfait</th><th>Prix (FCFA)</th><th>Heure</th></tr></thead>
+                <thead><tr><th>#</th><th>Code</th><th>Forfait</th><th>Prix ({currency})</th><th>Heure</th></tr></thead>
                 <tbody>
                   {data.vouchers.map((v, i) => (
                     <tr key={v.id}>
@@ -334,6 +336,7 @@ function VendorPeriodReport({ vendorId, vendorName, routerId, period, onBack }: 
 export default function SalesRanking({ period }: { period: "daily" | "monthly" }) {
   const { selectedRouterId } = useRouterContext();
   const isVisible = usePageVisibility();
+  const currency = useCurrency();
   const [selectedVendor, setSelectedVendor] = useState<{ id: number; name: string } | null>(null);
   const queryClient = useQueryClient();
   const { livePriority, rankingReady } = useRouterDashboardPriority(selectedRouterId);
@@ -479,7 +482,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
               </Link>
                 <div className="text-right">
                   <p className="text-xl font-bold text-gray-900 tabular-nums">
-                    {totalAmount.toLocaleString("fr-FR")} <span className="text-sm font-semibold text-gray-500">FCFA</span>
+                    {totalAmount.toLocaleString("fr-FR")} <span className="text-sm font-semibold text-gray-500">{currency}</span>
                   </p>
                   <p className="text-xs text-gray-500">{totalTickets.toLocaleString("fr-FR")} tickets vendus</p>
                 </div>
@@ -524,7 +527,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
                         <div className="text-right flex-shrink-0">
                           <p className="text-lg font-bold text-emerald-700 tabular-nums leading-tight">
                             {entry.amount.toLocaleString("fr-FR")}
-                            <span className="text-[10px] font-semibold text-emerald-600/80 ml-0.5">FCFA</span>
+                            <span className="text-[10px] font-semibold text-emerald-600/80 ml-0.5">{currency}</span>
                           </p>
                           <p className="text-[10px] text-gray-400 tabular-nums">
                             {entry.count.toLocaleString("fr-FR")} ticket{entry.count !== 1 ? "s" : ""}
@@ -558,7 +561,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
               {" "}
               &nbsp;·&nbsp; {sorted.length} entrée{sorted.length !== 1 ? "s" : ""}
               {" "}
-              &nbsp;·&nbsp; {totalAmount.toLocaleString("fr-FR")} FCFA ({totalTickets.toLocaleString("fr-FR")} tickets)
+              &nbsp;·&nbsp; {totalAmount.toLocaleString("fr-FR")} {currency} ({totalTickets.toLocaleString("fr-FR")} tickets)
               {" "}
               &nbsp;·&nbsp; Imprimé le{" "}
               {new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
@@ -569,7 +572,7 @@ export default function SalesRanking({ period }: { period: "daily" | "monthly" }
                 <tr>
                   <th>Rang</th>
                   <th>Vendeur</th>
-                  <th>Montant FCFA</th>
+                  <th>Montant {currency}</th>
                   <th>Tickets</th>
                   <th>Part</th>
                 </tr>

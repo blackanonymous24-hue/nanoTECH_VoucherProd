@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
   useGetVendorReport,
@@ -82,15 +83,15 @@ function amountFontClass(formatted: string): string {
   return "text-[10px]";
 }
 
-function SalesMiniCard({ label, amount, count, icon: Icon, color }: {
-  label: string; amount: number; count: number; icon: React.ElementType; color: string;
+function SalesMiniCard({ label, amount, count, icon: Icon, color, currency }: {
+  label: string; amount: number; count: number; icon: React.ElementType; color: string; currency: string;
 }) {
   const formatted = fmtFcfa(amount);
   return (
     <div className={`flex flex-col items-center justify-center rounded-lg p-3 gap-0.5 ${color}`}>
       <Icon className="h-4 w-4 opacity-60" />
       <span className={`${amountFontClass(formatted)} fit-price font-bold leading-none mt-0.5`}>{formatted}</span>
-      <span className="fit-text text-[10px] font-semibold opacity-50 leading-none">FCFA</span>
+      <span className="fit-text text-[10px] font-semibold opacity-50 leading-none">{currency}</span>
       <span className="text-[10px] opacity-60">{count} ticket{count !== 1 ? "s" : ""} vendu{count !== 1 ? "s" : ""}</span>
       <span className="text-xs text-center leading-tight opacity-80 font-medium mt-0.5">{label}</span>
     </div>
@@ -122,6 +123,7 @@ function SyncButton({ routerId }: { routerId: number | null }) {
 /* ─── detail view ─────────────────────────────────────────────── */
 function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: () => void }) {
   const isVisible = usePageVisibility();
+  const currency = useCurrency();
   const { data, isLoading } = useGetVendorReport(vendorId, {
     query: {
       queryKey: getGetVendorReportQueryKey(vendorId),
@@ -223,12 +225,12 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
         </CardHeader>
         <CardContent className="pt-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <SalesMiniCard label="Aujourd'hui"     amount={ss.todayAmount}     count={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" />
-            <SalesMiniCard label="Hier"             amount={ss.yesterdayAmount} count={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
-            <SalesMiniCard label="Cette semaine"   amount={ss.weekAmount}      count={ss.weekSold}       icon={CalendarClock} color="bg-blue-50 text-blue-700" />
-            <SalesMiniCard label="Semaine dernière" amount={ss.lastWeekAmount}  count={ss.lastWeekSold}   icon={CalendarClock} color="bg-indigo-50 text-indigo-700" />
-            <SalesMiniCard label="Mois en cours"   amount={ss.thisMonthAmount} count={ss.thisMonthSold}  icon={TrendingUp}    color="bg-teal-50 text-teal-700" />
-            <SalesMiniCard label="Mois dernier"    amount={ss.lastMonthAmount} count={ss.lastMonthSold}  icon={BarChart3}     color="bg-purple-50 text-purple-700" />
+            <SalesMiniCard label="Aujourd'hui"     amount={ss.todayAmount}     count={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" currency={currency} />
+            <SalesMiniCard label="Hier"             amount={ss.yesterdayAmount} count={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" currency={currency} />
+            <SalesMiniCard label="Cette semaine"   amount={ss.weekAmount}      count={ss.weekSold}       icon={CalendarClock} color="bg-blue-50 text-blue-700" currency={currency} />
+            <SalesMiniCard label="Semaine dernière" amount={ss.lastWeekAmount}  count={ss.lastWeekSold}   icon={CalendarClock} color="bg-indigo-50 text-indigo-700" currency={currency} />
+            <SalesMiniCard label="Mois en cours"   amount={ss.thisMonthAmount} count={ss.thisMonthSold}  icon={TrendingUp}    color="bg-teal-50 text-teal-700" currency={currency} />
+            <SalesMiniCard label="Mois dernier"    amount={ss.lastMonthAmount} count={ss.lastMonthSold}  icon={BarChart3}     color="bg-purple-50 text-purple-700" currency={currency} />
           </div>
         </CardContent>
       </Card>
@@ -327,7 +329,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
                           {/* Prix */}
                           <td className="px-3 py-2 text-right whitespace-nowrap">
                             {displayPrice
-                              ? <span className="font-semibold text-green-700 tabular-nums">{Number(displayPrice).toLocaleString("fr-FR")} <span className="text-[10px] font-normal text-gray-400">FCFA</span></span>
+                              ? <span className="font-semibold text-green-700 tabular-nums">{Number(displayPrice).toLocaleString("fr-FR")} <span className="text-[10px] font-normal text-gray-400">{currency}</span></span>
                               : <span className="text-gray-300">—</span>
                             }
                           </td>
@@ -394,7 +396,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
             <thead>
               <tr>
                 <th>Période</th>
-                <th>Montant FCFA</th>
+                <th>Montant {currency}</th>
                 <th>Tickets</th>
               </tr>
             </thead>
@@ -453,7 +455,7 @@ function VendorDetailReport({ vendorId, onBack }: { vendorId: number; onBack: ()
             <thead>
               <tr>
                 <th>Utilisateur</th>
-                <th>Prix (FCFA)</th>
+                <th>Prix ({currency})</th>
                 <th>Date</th>
               </tr>
             </thead>
@@ -483,6 +485,7 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
   const ss        = summary.salesStats;
   const todaySold = ss.todaySold;
   const total     = nonSold + todaySold;
+  const currency  = useCurrency();
 
   return (
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
@@ -525,12 +528,12 @@ function VendorCard({ summary, onClick }: { summary: VendorSummary; onClick: () 
         {/* Stats temporelles */}
         <div className="mt-3 pt-3 border-t border-gray-100">
           <div className="grid grid-cols-2 gap-1.5">
-            <SalesMiniCard label="Aujourd'hui"     amount={ss.todayAmount}     count={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" />
-            <SalesMiniCard label="Hier"             amount={ss.yesterdayAmount} count={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" />
-            <SalesMiniCard label="Cette semaine"   amount={ss.weekAmount}      count={ss.weekSold}       icon={CalendarClock} color="bg-blue-50 text-blue-700" />
-            <SalesMiniCard label="Semaine dernière" amount={ss.lastWeekAmount}  count={ss.lastWeekSold}   icon={CalendarClock} color="bg-indigo-50 text-indigo-700" />
-            <SalesMiniCard label="Mois en cours"   amount={ss.thisMonthAmount} count={ss.thisMonthSold}  icon={TrendingUp}    color="bg-teal-50 text-teal-700" />
-            <SalesMiniCard label="Mois dernier"    amount={ss.lastMonthAmount} count={ss.lastMonthSold}  icon={BarChart3}     color="bg-purple-50 text-purple-700" />
+            <SalesMiniCard label="Aujourd'hui"     amount={ss.todayAmount}     count={ss.todaySold}      icon={CalendarDays}  color="bg-green-50 text-green-700" currency={currency} />
+            <SalesMiniCard label="Hier"             amount={ss.yesterdayAmount} count={ss.yesterdaySold}  icon={CalendarDays}  color="bg-amber-50 text-amber-700" currency={currency} />
+            <SalesMiniCard label="Cette semaine"   amount={ss.weekAmount}      count={ss.weekSold}       icon={CalendarClock} color="bg-blue-50 text-blue-700" currency={currency} />
+            <SalesMiniCard label="Semaine dernière" amount={ss.lastWeekAmount}  count={ss.lastWeekSold}   icon={CalendarClock} color="bg-indigo-50 text-indigo-700" currency={currency} />
+            <SalesMiniCard label="Mois en cours"   amount={ss.thisMonthAmount} count={ss.thisMonthSold}  icon={TrendingUp}    color="bg-teal-50 text-teal-700" currency={currency} />
+            <SalesMiniCard label="Mois dernier"    amount={ss.lastMonthAmount} count={ss.lastMonthSold}  icon={BarChart3}     color="bg-purple-50 text-purple-700" currency={currency} />
           </div>
         </div>
       </CardContent>

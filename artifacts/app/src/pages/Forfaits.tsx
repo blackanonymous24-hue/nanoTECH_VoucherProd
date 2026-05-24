@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getListRouterProfilesQueryKey, useListRouterProfiles } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
+import { useCurrency } from "@/lib/use-currency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -79,6 +80,7 @@ export default function Forfaits() {
   const { role } = useAuth();
   const isManager = role === "manager";
   const { selectedRouterId } = useRouterContext();
+  const currency = useCurrency();
   const queryClient = useQueryClient();
 
   const { data: profiles = [], isLoading: loadingProfiles } = useListRouterProfiles(
@@ -391,7 +393,7 @@ export default function Forfaits() {
                     {p.price && p.price !== "0" ? (
                       <div className="flex items-center gap-2 text-sm">
                         <Banknote className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                        <span className="fit-price text-gray-700 font-semibold">{p.price} FCFA</span>
+                        <span className="fit-price text-gray-700 font-semibold">{p.price} {currency}</span>
                       </div>
                     ) : null}
 
@@ -548,7 +550,7 @@ export default function Forfaits() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Prix FCFA</Label>
+              <Label>Prix {currency}</Label>
               <Input
                 placeholder="ex: 100"
                 type="number"
@@ -559,7 +561,7 @@ export default function Forfaits() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Prix de vente FCFA</Label>
+              <Label>Prix de vente {currency}</Label>
               <Input
                 placeholder="ex: 150"
                 type="number"
