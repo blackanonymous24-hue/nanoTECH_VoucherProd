@@ -2858,39 +2858,61 @@ async function buildDashboardPrioritySnapshot(id: number) {
 
   const vendorRanking = await readVendorRankingQuickFromDb(id, routerClockDate).catch(() => null);
 
-  const dm = dbQuickSales ?? {
-    dailyCount: salesCached?.data.dailyCount ?? 0,
-    dailyAmount: salesCached?.data.dailyAmount ?? 0,
-    monthlyCount: salesCached?.data.monthlyCount ?? 0,
-    monthlyAmount: salesCached?.data.monthlyAmount ?? 0,
-  };
-  const salesKnown =
-    (salesCached != null && salesCached.updatedAt > 0) ||
-    (dbQuickSales != null && (dbQuickSales.dailyCount > 0 || dbQuickSales.monthlyCount > 0));
-
   const dashCal = getMikhmonCalendar(routerClockDate);
   const mm = String(dashCal.m).padStart(2, "0");
   const y = dashCal.y;
   const d = String(dashCal.d).padStart(2, "0");
+  const todayDateLabel = `${y}-${mm}-${d}`;
+  const todayMonthLabel = `${mm}${y}`;
+
+  // « Ventes connues » = la synchro d'arrière-plan (runDashboardSalesSyncJob)
+  // a déjà rempli le cache RAM AVEC LE LIBELLÉ DU JOUR/MOIS courant. Sinon
+  // dbQuickSales peut ne refléter que des jours précédents (sync pas encore
+  // exécutée pour aujourd'hui) → 0 affiché à tort avant la vraie valeur.
+  // On préfère garder le skeleton tant que la vraie valeur n'est pas confirmée.
+  const salesCachedIsCurrent =
+    salesCached != null
+    && salesCached.updatedAt > 0
+    && salesCached.data.dateLabel === todayDateLabel
+    && salesCached.data.monthLabel === todayMonthLabel;
+
+  const salesKnown = salesCachedIsCurrent;
+
+  // Valeurs affichées : on privilégie le cache RAM courant (synchronisé), puis
+  // la lecture DB du mois (fait pour aujourd'hui), puis 0. Lorsque salesKnown
+  // est false ces valeurs ne sont pas montrées (skeleton côté UI).
+  const dm = salesCachedIsCurrent
+    ? {
+        dailyCount: salesCached.data.dailyCount,
+        dailyAmount: salesCached.data.dailyAmount,
+        monthlyCount: salesCached.data.monthlyCount,
+        monthlyAmount: salesCached.data.monthlyAmount,
+      }
+    : (dbQuickSales ?? {
+        dailyCount: 0,
+        dailyAmount: 0,
+        monthlyCount: 0,
+        monthlyAmount: 0,
+      });
 
   const sales: SalesReport & { _cachedAt: number | null } = {
     dailyCount: dm.dailyCount,
     dailyAmount: dm.dailyAmount,
-    yesterdayCount: salesCached?.data.yesterdayCount ?? 0,
-    yesterdayAmount: salesCached?.data.yesterdayAmount ?? 0,
-    weekCount: salesCached?.data.weekCount ?? 0,
-    weekAmount: salesCached?.data.weekAmount ?? 0,
-    lastWeekCount: salesCached?.data.lastWeekCount ?? 0,
-    lastWeekAmount: salesCached?.data.lastWeekAmount ?? 0,
+    yesterdayCount: salesCachedIsCurrent ? (salesCached.data.yesterdayCount ?? 0) : 0,
+    yesterdayAmount: salesCachedIsCurrent ? (salesCached.data.yesterdayAmount ?? 0) : 0,
+    weekCount: salesCachedIsCurrent ? (salesCached.data.weekCount ?? 0) : 0,
+    weekAmount: salesCachedIsCurrent ? (salesCached.data.weekAmount ?? 0) : 0,
+    lastWeekCount: salesCachedIsCurrent ? (salesCached.data.lastWeekCount ?? 0) : 0,
+    lastWeekAmount: salesCachedIsCurrent ? (salesCached.data.lastWeekAmount ?? 0) : 0,
     monthlyCount: dm.monthlyCount,
     monthlyAmount: dm.monthlyAmount,
-    lastMonthCount: salesCached?.data.lastMonthCount ?? 0,
-    lastMonthAmount: salesCached?.data.lastMonthAmount ?? 0,
-    totalCount: salesCached?.data.totalCount ?? 0,
-    totalAmount: salesCached?.data.totalAmount ?? 0,
-    dateLabel: `${y}-${mm}-${d}`,
-    monthLabel: `${mm}${y}`,
-    _cachedAt: salesKnown ? Date.now() : (salesCached?.updatedAt ?? null),
+    lastMonthCount: salesCachedIsCurrent ? (salesCached.data.lastMonthCount ?? 0) : 0,
+    lastMonthAmount: salesCachedIsCurrent ? (salesCached.data.lastMonthAmount ?? 0) : 0,
+    totalCount: salesCachedIsCurrent ? (salesCached.data.totalCount ?? 0) : 0,
+    totalAmount: salesCachedIsCurrent ? (salesCached.data.totalAmount ?? 0) : 0,
+    dateLabel: todayDateLabel,
+    monthLabel: todayMonthLabel,
+    _cachedAt: salesCachedIsCurrent ? salesCached.updatedAt : null,
   };
 
   return {
@@ -2899,7 +2921,7 @@ async function buildDashboardPrioritySnapshot(id: number) {
     vendorRanking,
     availability: {
       ...fast.availability,
-      salesKnown: salesKnown || sales.dailyCount > 0 || sales.monthlyCount > 0,
+      salesKnown,
       vendorRankingKnown: vendorRanking != null,
     },
   };
