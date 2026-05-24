@@ -25,8 +25,11 @@ export { isNativeAppShell } from "@/lib/native-app-shell";
  *   si l'onglet est masqué (`visibilityState !== "visible"`).
  *
  * • APK (WebView) :
- *   - « Se souvenir de moi » coché → aucune déconnexion automatique (session persistante).
- *   - « Se souvenir de moi » décoché → même règle d'inactivité que le web.
+ *   - Vendeur (rôle `vendor`) → **jamais** d'auto-logout, peu importe « Se souvenir de moi »
+ *     (les vendeurs utilisent l'app en boutique, on veut éviter de les sortir au milieu d'une vente).
+ *   - Autres rôles (admin / manager / collaborateur) :
+ *     - « Se souvenir de moi » coché → aucune déconnexion automatique (session persistante).
+ *     - « Se souvenir de moi » décoché → même règle d'inactivité que le web.
  *   Pause API toujours active en arrière-plan, peu importe l'option.
  */
 /** Déconnexion auto après inactivité (web ; APK uniquement quand « Se souvenir de moi » est décoché). */
@@ -58,14 +61,16 @@ function sharedLastActivityMs(localRef: number): number {
 }
 
 export function SessionLifecycle() {
-  const { isAuthenticated, logout, rememberMe } = useAuth();
+  const { isAuthenticated, logout, rememberMe, role } = useAuth();
   const apkNative = isNativeAppShell();
   /**
-   * Seul cas où la déconnexion automatique est désactivée :
-   * APK *et* utilisateur a coché « Se souvenir de moi ». Sinon (web tout court,
-   * ou APK sans remember-me), la session expire après {@link SESSION_IDLE_LOGOUT_MS}.
+   * Cas où la déconnexion automatique est désactivée :
+   *  1. APK + vendeur : jamais d'auto-logout (workflow boutique).
+   *  2. APK + autre rôle avec « Se souvenir de moi » coché : session persistante.
+   * Sinon (web tout court, APK admin/manager/collab sans remember-me) → auto-logout après
+   * {@link SESSION_IDLE_LOGOUT_MS} d'inactivité.
    */
-  const skipAutoLogout = apkNative && rememberMe;
+  const skipAutoLogout = apkNative && (role === "vendor" || rememberMe);
   const lastLocalPulse = useRef(0);
   const lastSharedRef = useRef(Date.now());
   const tabHidePauseTimerRef = useRef<number | null>(null);
@@ -294,7 +299,7 @@ export function SessionLifecycle() {
       if (intervalId !== undefined) window.clearInterval(intervalId);
       setApiRequestPause(false);
     };
-  }, [isAuthenticated, logout, apkNative, skipAutoLogout, rememberMe]);
+  }, [isAuthenticated, logout, apkNative, skipAutoLogout, rememberMe, role]);
 
   return null;
 }
