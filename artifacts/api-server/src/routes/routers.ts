@@ -1477,29 +1477,20 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
  *
  * Préparation impression : utilisateurs du lot + tarifs/validités résolus.
  *
- * **Source primaire = base PostgreSQL.** Toutes les colonnes nécessaires
- * (username, password, profile, price, validity, comment, mac-address) sont
- * persistées en DB à la génération du voucher. Les tickets peuvent donc être
- * imprimés à 100 % depuis Postgres sans round-trip MikroTik, ce qui garde
- * l'impression instantanée même quand le routeur est lent, déconnecté ou
- * surchargé (cas concret : router 47 « Bravo connexion », tunnel VPN
- * saturé qui faisait timeout l'ancien flow `/ip/hotspot/user/print`).
+ * 1. **PostgreSQL en priorité** (instantané, routeur lent/hors ligne OK) quand
+ *    des vouchers avec mot de passe existent pour ce commentaire.
+ * 2. **Repli MikroTik** si la base est vide (lots MikHmon, sync manquante,
+ *    commentaire encodé différemment) : cache lot → cache users → requête
+ *    ciblée `?comment=` (rapide, pas de print global).
  *
- * Les seuls champs absents du schéma vouchers sont `limit-uptime` /
- * `limit-bytes-total` qui ne sont jamais modifiés voucher par voucher dans
- * cette app : ils sont hérités du profil. On les dérive du cache profils
- * (lui-même cache 15 min) avec fallback string vide.
- *
- * Le paramètre `refresh=1` est conservé pour compatibilité API mais sans
- * effet — DB est always-on, il n'y a rien à rafraîchir côté MikroTik pour
- * les besoins du print.
+ * `refresh=1` force le repli MikroTik même si la base contient des lignes.
  */
 router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
-  const { comment, fallbackPrice, fallbackValidity } = req.query as {
+  const { comment, refresh, fallbackPrice, fallbackValidity } = req.query as {
     comment?: string;
     refresh?: string;
     fallbackPrice?: string;
@@ -1510,15 +1501,17 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Le paramètre comment est requis" });
     return;
   }
+  const force = refresh === "1" || refresh === "true";
   const fbPrice = (fallbackPrice ?? "").trim();
   const fbValidity = (fallbackValidity ?? "").trim();
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
 
-  try {
-    const sc = routerCacheScope(r.ownerAdminId, id);
+  const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+  const sc = routerCacheScope(r.ownerAdminId, id);
 
+  try {
     const dbRows = await db
       .select({
         username: vouchersTable.username,
@@ -1532,33 +1525,103 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
       .from(vouchersTable)
       .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal)));
 
-    // Profile cache is fed by every other route (page Forfaits, voucher
-    // generation, dashboard…) so it's almost always already warm. We try the
-    // fresh cache and gracefully fall back to an empty profile map: the
-    // ticket template can still render without limit-uptime / limit-bytes
-    // (just blank time/data fields) instead of timing out the whole print.
-    const profiles = getFreshProfileCache(sc) ?? profileListCache.get(sc)?.profiles ?? [];
+    const dbWithCreds = dbRows.filter((row) => String(row.password ?? "").trim().length > 0);
+
+    if (dbWithCreds.length > 0 && !force) {
+      const profiles = getFreshProfileCache(sc) ?? profileListCache.get(sc)?.profiles ?? [];
+      const profByName = new Map(profiles.map((p) => [p.name, p]));
+      const users = dbWithCreds.map((row) => {
+        const p = profByName.get(row.profile);
+        const price = (row.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
+        const validity = (row.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
+        return {
+          username: row.username,
+          password: row.password,
+          profile: row.profile,
+          comment: row.comment,
+          limitUptime: (p?.validity ?? "").trim() || null,
+          limitBytesTotal: null as string | null,
+          price,
+          validity,
+        };
+      });
+      res.json({ users, total: users.length, source: "db" });
+      return;
+    }
+
+    // ── Repli MikroTik (lot absent ou incomplet en base) ──────────────────
+    const lotCacheKey = `${sc}:${commentVal}`;
+    let usersPromise: Promise<Awaited<ReturnType<typeof listHotspotUsersByComment>>>;
+    let saveToLotCache = false;
+
+    if (force) {
+      lotPrintCache.delete(lotCacheKey);
+      usersPromise = listHotspotUsersByComment(conn, commentVal, 30_000);
+      saveToLotCache = true;
+    } else {
+      const lotHit = lotPrintCache.get(lotCacheKey);
+      if (lotHit && Date.now() < lotHit.expiresAt) {
+        usersPromise = Promise.resolve(lotHit.users);
+      } else {
+        const fullHit = userCache.get(sc);
+        if (fullHit && Date.now() < fullHit.expiresAt) {
+          usersPromise = Promise.resolve(fullHit.users);
+        } else {
+          usersPromise = listHotspotUsersByComment(conn, commentVal, 30_000);
+          saveToLotCache = true;
+        }
+      }
+    }
+
+    const [usersRaw, profiles, dbMetaRows] = await Promise.all([
+      usersPromise,
+      fetchProfilesWithCache(r.ownerAdminId, id, conn),
+      dbRows.length > 0
+        ? Promise.resolve(dbRows)
+        : db
+            .select({
+              username: vouchersTable.username,
+              price: vouchersTable.price,
+              validity: vouchersTable.validity,
+            })
+            .from(vouchersTable)
+            .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal))),
+    ]);
+
+    if (saveToLotCache) {
+      lotPrintCache.set(lotCacheKey, {
+        users: usersRaw,
+        expiresAt: Date.now() + LOT_PRINT_CACHE_TTL,
+      });
+    }
+
     const profByName = new Map(profiles.map((p) => [p.name, p]));
+    const storedByUser = new Map(dbMetaRows.map((row) => [row.username, row]));
 
-    const users = dbRows.map((row) => {
-      const p = profByName.get(row.profile);
-      const price = (row.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
-      const validity = (row.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
-      return {
-        username: row.username,
-        password: row.password,
-        profile: row.profile,
-        comment: row.comment,
-        limitUptime: (p?.validity ?? "").trim() || null,
-        limitBytesTotal: null as string | null,
-        price,
-        validity,
-      };
-    });
+    const users = usersRaw
+      .filter((u) => (u.comment ?? "").trim() === commentVal && isRealUser(u))
+      .map((u) => {
+        const p = profByName.get(u.profile);
+        const stored = storedByUser.get(u.username);
+        const price =
+          (stored?.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
+        const validity =
+          (stored?.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
+        return {
+          username: u.username,
+          password: u.password,
+          profile: u.profile,
+          comment: u.comment,
+          limitUptime: u.limitUptime ?? null,
+          limitBytesTotal: u.limitBytesTotal ?? null,
+          price,
+          validity,
+        };
+      });
 
-    res.json({ users, total: users.length });
+    res.json({ users, total: users.length, source: "mikrotik" });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "Erreur lors de la lecture du lot" });
+    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
   }
 });
 
