@@ -1447,6 +1447,146 @@ function Dashboard({ token, vendor, onLogout }: {
               </Card>
             </div>
 
+            {/* ── Versements ───────────────────────────────────────── */}
+            {versData && versData.weeks.some((w) => w.count > 0 || w.payments.length > 0) && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-blue-500" />
+                  <h3 className="text-sm font-semibold text-gray-700">Mes versements</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {versData.weeks.map((w, i) => {
+                    if (w.count === 0 && w.payments.length === 0) return null;
+                    const isSolde   = w.remaining === 0 && (w.totalPaid > 0 || w.commission >= w.amount);
+                    const dueAmount = weekAmountDue(w.amount, w.commission, (w as { settlementMode?: string }).settlementMode);
+                    const totalPaidShown = paidShownVersusWeekContext(
+                      w.totalPaid,
+                      w.amount,
+                      w.commission,
+                      w.carryOverFromPriorWeeks,
+                      (w as { settlementMode?: string }).settlementMode,
+                    );
+                    const { weekly: weeklyPaidShown } = splitDailyWeeklyPaidShown(
+                      w.dailyPaid,
+                      w.weeklyPaid,
+                      w.amount,
+                      w.commission,
+                      w.carryOverFromPriorWeeks,
+                      (w as { settlementMode?: string }).settlementMode,
+                    );
+                    const paidPct   = dueAmount > 0 ? Math.min(100, Math.round((w.totalPaid / dueAmount) * 100)) : 100;
+                    return (
+                      <Card key={w.weekStart} className={`border ${isSolde ? "border-emerald-200 bg-emerald-50/30" : i === 0 ? "border-orange-200 bg-orange-50/20" : "border-gray-100"}`}>
+                        <CardContent className="p-4 space-y-3">
+                          {/* Header */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                {i === 0 ? "Semaine en cours" : "Semaine dernière"}
+                              </p>
+                              <p className="text-[11px] text-gray-400">{w.label}</p>
+                            </div>
+                            {isSolde ? (
+                              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-2 py-0.5 flex-shrink-0">
+                                <CheckCircle2 className="h-3 w-3" /> Soldé
+                              </span>
+                            ) : w.count > 0 ? (
+                              <span className="text-[10px] font-semibold text-orange-600 bg-orange-100 border border-orange-200 rounded-full px-2 py-0.5 flex-shrink-0">
+                                En attente
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {/* Stats */}
+                          <div className="grid grid-cols-3 gap-1 text-center">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-gray-800 tabular-nums truncate">{fmtFcfa(w.amount)}</p>
+                              <p className="text-[9px] text-gray-400">Ventes</p>
+                              <p className="text-[9px] text-gray-400">{w.count} ticket{w.count !== 1 ? "s" : ""}</p>
+                            </div>
+                            <div className="min-w-0">
+                              <p className={`text-xs font-bold tabular-nums truncate ${w.totalPaid > 0 ? "text-emerald-600" : "text-gray-300"}`}>{fmtFcfa(totalPaidShown)}</p>
+                              <p className="text-[9px] text-gray-400">Versé</p>
+                            </div>
+                            <div className="min-w-0">
+                              <p className={`text-xs font-bold tabular-nums truncate ${w.remaining > 0 ? "text-orange-600" : "text-gray-300"}`}>{fmtFcfa(w.remaining)}</p>
+                              <p className="text-[9px] text-gray-400">Reste</p>
+                            </div>
+                          </div>
+
+                          {/* Versements détaillés — uniquement la part hebdomadaire.
+                              Le détail "Journalier" n'est jamais affiché. */}
+                          {!isSolde && (w.weeklyPaid ?? 0) > 0 && (
+                            <div className="grid grid-cols-1 gap-1.5 text-[10px]">
+                              <div className="rounded bg-emerald-50 border border-emerald-100 px-2 py-1 flex items-center justify-between">
+                                <span className="text-emerald-600">Hebdo.</span>
+                                <span className="font-bold text-emerald-700 tabular-nums">{fmtFcfa(weeklyPaidShown)}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Hebdomadaire à régler après déduction des journaliers */}
+                          {!isSolde && (w.dailyPaid ?? 0) > 0 && (w.weeklyExpected ?? 0) > 0 && (
+                            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-blue-700">Hebdo. à régler</span>
+                              <span className="text-sm font-bold text-blue-700 tabular-nums">{fmtFcfa(w.weeklyExpected!)} {currency}</span>
+                            </div>
+                          )}
+
+                          {/* Commission row — only if rate is configured */}
+                          {w.commissionRate > 0 && w.amount > 0 && (
+                            <div className="flex items-center justify-between gap-2 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
+                              <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-violet-700 min-w-0">
+                                <span className="font-semibold whitespace-nowrap">Votre rémunération</span>
+                                <span className="text-violet-400 whitespace-nowrap">({w.commissionRate}%)</span>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <p className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap">{fmtFcfa(w.commission)} {currency}</p>
+                                {((w as { commissionGross?: number }).commissionGross ?? w.commission) > w.commission && (
+                                  <p className="text-[9px] text-violet-400 tabular-nums">
+                                    avant reliquats : {fmtFcfa((w as { commissionGross?: number }).commissionGross ?? w.commission)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Progress bar */}
+                          {w.amount > 0 && (
+                            <div>
+                              <div className="relative h-2 rounded-full overflow-hidden bg-gray-100">
+                                <div
+                                  className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${isSolde ? "bg-emerald-500" : "bg-blue-500"}`}
+                                  style={{ width: `${paidPct}%` }}
+                                />
+                              </div>
+                              <p className="text-[10px] text-gray-400 mt-0.5 text-right">{paidPct}% versé</p>
+                            </div>
+                          )}
+
+                          {/* Payments list */}
+                          {!isSolde && w.payments.length > 0 && (
+                            <div className="space-y-1 pt-1 border-t border-gray-100">
+                              {w.payments.map((p) => (
+                                <div key={p.id} className="flex items-center gap-2 text-[11px]">
+                                  <CheckCircle2 className="h-3 w-3 text-emerald-500 flex-shrink-0" />
+                                  <span className="font-semibold text-gray-700 tabular-nums">{fmtFcfa(p.amount)} {currency}</span>
+                                  <span className="text-gray-400">
+                                    {new Date(p.paidAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}
+                                  </span>
+                                  {p.note && <span className="text-gray-400 italic truncate">— {p.note}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* ── Arriérés (journalier ou hebdo) ─────────────────────── */}
             {portalShouldShowUnpaid(arrearsData, versData) && (
               <div className="space-y-3">
@@ -1641,146 +1781,6 @@ function Dashboard({ token, vendor, onLogout }: {
                     </div>
                   </CardContent>
                 </Card>
-              </div>
-            )}
-
-            {/* ── Versements ───────────────────────────────────────── */}
-            {versData && versData.weeks.some((w) => w.count > 0 || w.payments.length > 0) && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Wallet className="h-4 w-4 text-blue-500" />
-                  <h3 className="text-sm font-semibold text-gray-700">Mes versements</h3>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {versData.weeks.map((w, i) => {
-                    if (w.count === 0 && w.payments.length === 0) return null;
-                    const isSolde   = w.remaining === 0 && (w.totalPaid > 0 || w.commission >= w.amount);
-                    const dueAmount = weekAmountDue(w.amount, w.commission, (w as { settlementMode?: string }).settlementMode);
-                    const totalPaidShown = paidShownVersusWeekContext(
-                      w.totalPaid,
-                      w.amount,
-                      w.commission,
-                      w.carryOverFromPriorWeeks,
-                      (w as { settlementMode?: string }).settlementMode,
-                    );
-                    const { weekly: weeklyPaidShown } = splitDailyWeeklyPaidShown(
-                      w.dailyPaid,
-                      w.weeklyPaid,
-                      w.amount,
-                      w.commission,
-                      w.carryOverFromPriorWeeks,
-                      (w as { settlementMode?: string }).settlementMode,
-                    );
-                    const paidPct   = dueAmount > 0 ? Math.min(100, Math.round((w.totalPaid / dueAmount) * 100)) : 100;
-                    return (
-                      <Card key={w.weekStart} className={`border ${isSolde ? "border-emerald-200 bg-emerald-50/30" : i === 0 ? "border-orange-200 bg-orange-50/20" : "border-gray-100"}`}>
-                        <CardContent className="p-4 space-y-3">
-                          {/* Header */}
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                {i === 0 ? "Semaine en cours" : "Semaine dernière"}
-                              </p>
-                              <p className="text-[11px] text-gray-400">{w.label}</p>
-                            </div>
-                            {isSolde ? (
-                              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded-full px-2 py-0.5 flex-shrink-0">
-                                <CheckCircle2 className="h-3 w-3" /> Soldé
-                              </span>
-                            ) : w.count > 0 ? (
-                              <span className="text-[10px] font-semibold text-orange-600 bg-orange-100 border border-orange-200 rounded-full px-2 py-0.5 flex-shrink-0">
-                                En attente
-                              </span>
-                            ) : null}
-                          </div>
-
-                          {/* Stats */}
-                          <div className="grid grid-cols-3 gap-1 text-center">
-                            <div className="min-w-0">
-                              <p className="text-xs font-bold text-gray-800 tabular-nums truncate">{fmtFcfa(w.amount)}</p>
-                              <p className="text-[9px] text-gray-400">Ventes</p>
-                              <p className="text-[9px] text-gray-400">{w.count} ticket{w.count !== 1 ? "s" : ""}</p>
-                            </div>
-                            <div className="min-w-0">
-                              <p className={`text-xs font-bold tabular-nums truncate ${w.totalPaid > 0 ? "text-emerald-600" : "text-gray-300"}`}>{fmtFcfa(totalPaidShown)}</p>
-                              <p className="text-[9px] text-gray-400">Versé</p>
-                            </div>
-                            <div className="min-w-0">
-                              <p className={`text-xs font-bold tabular-nums truncate ${w.remaining > 0 ? "text-orange-600" : "text-gray-300"}`}>{fmtFcfa(w.remaining)}</p>
-                              <p className="text-[9px] text-gray-400">Reste</p>
-                            </div>
-                          </div>
-
-                          {/* Versements détaillés — uniquement la part hebdomadaire.
-                              Le détail "Journalier" n'est jamais affiché. */}
-                          {!isSolde && (w.weeklyPaid ?? 0) > 0 && (
-                            <div className="grid grid-cols-1 gap-1.5 text-[10px]">
-                              <div className="rounded bg-emerald-50 border border-emerald-100 px-2 py-1 flex items-center justify-between">
-                                <span className="text-emerald-600">Hebdo.</span>
-                                <span className="font-bold text-emerald-700 tabular-nums">{fmtFcfa(weeklyPaidShown)}</span>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Hebdomadaire à régler après déduction des journaliers */}
-                          {!isSolde && (w.dailyPaid ?? 0) > 0 && (w.weeklyExpected ?? 0) > 0 && (
-                            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 flex items-center justify-between">
-                              <span className="text-[11px] font-semibold text-blue-700">Hebdo. à régler</span>
-                              <span className="text-sm font-bold text-blue-700 tabular-nums">{fmtFcfa(w.weeklyExpected!)} {currency}</span>
-                            </div>
-                          )}
-
-                          {/* Commission row — only if rate is configured */}
-                          {w.commissionRate > 0 && w.amount > 0 && (
-                            <div className="flex items-center justify-between gap-2 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
-                              <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-violet-700 min-w-0">
-                                <span className="font-semibold whitespace-nowrap">Votre rémunération</span>
-                                <span className="text-violet-400 whitespace-nowrap">({w.commissionRate}%)</span>
-                              </div>
-                              <div className="text-right flex-shrink-0">
-                                <p className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap">{fmtFcfa(w.commission)} {currency}</p>
-                                {((w as { commissionGross?: number }).commissionGross ?? w.commission) > w.commission && (
-                                  <p className="text-[9px] text-violet-400 tabular-nums">
-                                    avant reliquats : {fmtFcfa((w as { commissionGross?: number }).commissionGross ?? w.commission)}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Progress bar */}
-                          {w.amount > 0 && (
-                            <div>
-                              <div className="relative h-2 rounded-full overflow-hidden bg-gray-100">
-                                <div
-                                  className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${isSolde ? "bg-emerald-500" : "bg-blue-500"}`}
-                                  style={{ width: `${paidPct}%` }}
-                                />
-                              </div>
-                              <p className="text-[10px] text-gray-400 mt-0.5 text-right">{paidPct}% versé</p>
-                            </div>
-                          )}
-
-                          {/* Payments list */}
-                          {!isSolde && w.payments.length > 0 && (
-                            <div className="space-y-1 pt-1 border-t border-gray-100">
-                              {w.payments.map((p) => (
-                                <div key={p.id} className="flex items-center gap-2 text-[11px]">
-                                  <CheckCircle2 className="h-3 w-3 text-emerald-500 flex-shrink-0" />
-                                  <span className="font-semibold text-gray-700 tabular-nums">{fmtFcfa(p.amount)} {currency}</span>
-                                  <span className="text-gray-400">
-                                    {new Date(p.paidAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}
-                                  </span>
-                                  {p.note && <span className="text-gray-400 italic truncate">— {p.note}</span>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
               </div>
             )}
 
