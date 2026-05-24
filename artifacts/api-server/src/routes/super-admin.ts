@@ -20,18 +20,15 @@ const router = Router();
 const BASE_ROUTER_SLOTS = 5;
 const CREDITS_PER_EXTRA_ROUTER = 10;
 
-const TICKET_TEMPLATE_PRESET_IDS = new Set([
-  "mikhmon-small",
-  "nanotech-normal",
-  "nanotech-small",
-  "custom",
-]);
+/** Voir `routes/admin.ts` pour la documentation des slugs acceptés. */
+const TICKET_PRESET_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-_]{0,62}[a-z0-9])?$/;
 
 function parseTicketTemplatePresetBody(raw: unknown): string | null | undefined {
   if (raw === undefined) return undefined;
   if (raw === null) return null;
-  if (typeof raw === "string" && TICKET_TEMPLATE_PRESET_IDS.has(raw)) return raw;
-  return undefined;
+  if (typeof raw !== "string") return undefined;
+  if (raw === "custom") return raw;
+  return TICKET_PRESET_SLUG_PATTERN.test(raw) ? raw : undefined;
 }
 
 // Allowed forfait durations, in months. Maps the user-facing labels

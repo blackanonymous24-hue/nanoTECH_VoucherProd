@@ -11,3 +11,4 @@ export * from "./profiles-cache.js";
 export * from "./router-profiles-snapshot.js";
 export * from "./collaborateurs.js";
 export * from "./user-sessions.js";
+export * from "./builtin-ticket-templates.js";

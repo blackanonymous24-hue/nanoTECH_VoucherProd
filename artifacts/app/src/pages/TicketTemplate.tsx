@@ -9,12 +9,17 @@ export default function TicketTemplate() {
     <TicketTemplateEditor
       layout="page"
       title="Modèle de ticket"
-      subtitle="Trois modèles intégrés (fichiers nanoTECH / Mikhmon)"
+      subtitle={
+        isSuperAdmin
+          ? "Modèles intégrés partagés : importer / supprimer pour mettre à jour tous les comptes."
+          : "Trois modèles intégrés (fichiers nanoTECH / Mikhmon)"
+      }
       loadPath="/api/admin/ticket-template"
       savePath="/api/admin/ticket-template"
       authHeaders={authHeaders}
       enabled={!!token}
       showBroadcastScale={isSuperAdmin}
+      showBuiltinTemplatesManager={isSuperAdmin}
     />
   );
 }

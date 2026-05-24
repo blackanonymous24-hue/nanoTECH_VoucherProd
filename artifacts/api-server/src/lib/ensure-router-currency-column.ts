@@ -87,6 +87,32 @@ export async function ensureTicketTemplatePresetColumn(): Promise<void> {
 }
 
 /**
+ * Crée la table `builtin_ticket_templates` (modèles de tickets gérés par le super-admin
+ * et partagés entre tous les comptes). Idempotent — appelée à chaque démarrage.
+ */
+export async function ensureBuiltinTicketTemplatesTable(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS builtin_ticket_templates (
+        id serial PRIMARY KEY,
+        slug text NOT NULL UNIQUE,
+        label text NOT NULL,
+        body text NOT NULL,
+        sort_order integer NOT NULL DEFAULT 0,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    logger.info("DB compat: table builtin_ticket_templates vérifiée / créée");
+  } catch (err) {
+    logger.error(
+      { err },
+      "DB compat: impossible de créer la table builtin_ticket_templates",
+    );
+  }
+}
+
+/**
  * Ajoute la colonne password_plain sur admin_settings si elle n'existe pas.
  * Stocke le mot de passe en clair pour affichage dans l'interface super-admin.
  */

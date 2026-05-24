@@ -4,7 +4,7 @@ import { patchNodeRouterosEmptyReply } from "./lib/mikrotik-patch.js";
 patchNodeRouterosEmptyReply();
 import { app } from "./app.js";
 import { logger } from "./lib/logger.js";
-import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureRouterTimezoneOffsetColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensureTicketTemplatePresetColumn, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureManagerRoutersTable, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensureVendorSettlementModeColumn, ensurePrintScaleColumns, ensureUserSessionsTable, ensureSessionEpochColumns, normalizeStoredRouterHosts } from "./lib/ensure-router-currency-column.js";
+import { ensureRouterCurrencyColumn, ensureRouterAutoDeleteSalesScriptsColumn, ensureRouterTimezoneOffsetColumn, ensureDropAdminSettingsVoucherPrintColumns, ensureTicketTemplateColumn, ensureTicketTemplatePresetColumn, ensureBuiltinTicketTemplatesTable, ensurePasswordPlainColumn, ensureVendorPasswordPlainColumn, ensureManagerPasswordPlainColumn, ensureManagerRoutersTable, ensureCollaborateurPasswordPlainColumn, ensureVerificationCodeColumn, ensureSuperAdminPasswordPlainBackfill, ensureVendorTicketLetterColumn, ensureVendorSettlementModeColumn, ensurePrintScaleColumns, ensureUserSessionsTable, ensureSessionEpochColumns, normalizeStoredRouterHosts } from "./lib/ensure-router-currency-column.js";
 import { ensureScriptSalesMonthSyncTable } from "./lib/script-sales-month-sync.js";
 import { ensureRouterMikrotikSerialColumn } from "./lib/router-sales-on-reconnect.js";
 import { startRealtimeVendorSync, setOnVendorSyncComplete } from "./lib/vendor-sync.js";
@@ -45,6 +45,7 @@ async function start() {
   await ensureDropAdminSettingsVoucherPrintColumns();
   await ensureTicketTemplateColumn();
   await ensureTicketTemplatePresetColumn();
+  await ensureBuiltinTicketTemplatesTable();
   await ensurePasswordPlainColumn();
   await ensureVendorPasswordPlainColumn();
   await ensureManagerPasswordPlainColumn();

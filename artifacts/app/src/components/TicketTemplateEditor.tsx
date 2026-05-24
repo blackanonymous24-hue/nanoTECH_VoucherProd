@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-  TICKET_TEMPLATE_PRESETS,
   DEFAULT_TICKET_PRESET_ID,
   type TicketTemplatePresetId,
   type TicketTemplateSelectionId,
@@ -29,11 +28,16 @@ import {
   findMatchingPresetId,
   resolveTicketTemplateSelection,
   resolveTicketTemplateDisplayBody,
+  fetchAndApplyServerTicketTemplates,
+  subscribeServerTicketTemplates,
+  getEffectiveTicketTemplatePresets,
+  type TicketTemplatePreset,
 } from "@/lib/voucher-ticket-presets";
 import { DeleteConfirmDialog } from "@/components/ui/delete-confirm-dialog";
 import { TicketPhpEditor } from "@/components/TicketPhpEditor";
 import { VoucherPrintScaleButton } from "@/components/VoucherPrintScaleButton";
 import { VoucherPrintScaleBroadcastButton } from "@/components/VoucherPrintScaleBroadcastButton";
+import { BuiltinTicketTemplatesManager } from "@/components/BuiltinTicketTemplatesManager";
 import { setCurrentPrintTemplateId } from "@/lib/voucher-print-scale";
 import {
   TICKET_TEMPLATE_VAR_REFERENCE,
@@ -55,6 +59,8 @@ export type TicketTemplateEditorProps = {
   onClose?: () => void;
   onSaved?: () => void;
   showBroadcastScale?: boolean;
+  /** Affiche le panneau super-admin (import / suppression de modèles intégrés). */
+  showBuiltinTemplatesManager?: boolean;
 };
 
 export function TicketTemplateEditor({
@@ -69,6 +75,7 @@ export function TicketTemplateEditor({
   onClose,
   onSaved,
   showBroadcastScale = false,
+  showBuiltinTemplatesManager = false,
 }: TicketTemplateEditorProps) {
   const { toast } = useToast();
   const [code, setCode] = useState("");
@@ -82,10 +89,23 @@ export function TicketTemplateEditor({
   const [templateCardHeight, setTemplateCardHeight] = useState<number | undefined>(undefined);
   const [syncVarsCardHeight, setSyncVarsCardHeight] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [effectivePresets, setEffectivePresets] = useState<TicketTemplatePreset[]>(() =>
+    getEffectiveTicketTemplatePresets(),
+  );
 
   useEffect(() => {
     setCurrentPrintTemplateId(presetValue);
   }, [presetValue]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    void fetchAndApplyServerTicketTemplates(authHeaders);
+    const unsub = subscribeServerTicketTemplates(() => {
+      setEffectivePresets(getEffectiveTicketTemplatePresets());
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
@@ -223,7 +243,7 @@ export function TicketTemplateEditor({
     setCode(body);
     setDirty(true);
     setEditorEpoch((n) => n + 1);
-    const label = TICKET_TEMPLATE_PRESETS.find((p) => p.id === id)?.label ?? id;
+    const label = effectivePresets.find((p) => p.id === id)?.label ?? id;
     toast({
       title: "Modèle intégré chargé",
       description: `${label} — enregistrez pour l’appliquer${isolatedScope ? " à cet admin" : " en base"}.`,
@@ -281,7 +301,7 @@ export function TicketTemplateEditor({
                       <SelectValue placeholder="Choisir…" />
                     </SelectTrigger>
                     <SelectContent className="text-xs">
-                      {TICKET_TEMPLATE_PRESETS.map(({ id, label }) => (
+                      {effectivePresets.map(({ id, label }) => (
                         <SelectItem key={id} value={id} className="text-xs py-1 pl-2 pr-7 min-h-0">
                           {label}
                         </SelectItem>
@@ -470,6 +490,14 @@ export function TicketTemplateEditor({
           <VoucherPrintScaleBroadcastButton templateId={presetValue} />
         ) : null}
       </div>
+      {showBuiltinTemplatesManager ? (
+        <BuiltinTicketTemplatesManager
+          authHeaders={authHeaders}
+          onTemplatesChanged={() => {
+            setEffectivePresets(getEffectiveTicketTemplatePresets());
+          }}
+        />
+      ) : null}
       {editorBlock}
       {resetDialog}
     </div>

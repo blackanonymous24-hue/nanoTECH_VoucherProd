@@ -36,19 +36,25 @@ function parsePrintScales(raw: string | null | undefined): Record<string, number
   try { return (raw ? JSON.parse(raw) : {}) as Record<string, number>; } catch { return {}; }
 }
 
-const TICKET_TEMPLATE_PRESET_IDS = new Set([
-  "mikhmon-small",
-  "nanotech-normal",
-  "nanotech-small",
-  "custom",
-]);
+/**
+ * Slugs acceptés en `admin_settings.ticket_template_preset` :
+ *   - "custom"                  — modèle édité à la main par l'admin
+ *   - "mikhmon-small" / "nanotech-normal" / "nanotech-small" — factory embarqués côté client
+ *   - n'importe quel slug ajouté par le super-admin (table `builtin_ticket_templates`)
+ *
+ * On ne vérifie volontairement pas l'existence en base : si le super-admin supprime
+ * plus tard un slug que des admins ont déjà sauvegardé, leur `ticket_template` reste
+ * valide (le body est persisté en `admin_settings.ticket_template`).
+ */
+const TICKET_PRESET_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-_]{0,62}[a-z0-9])?$/;
 
 /** undefined = ne pas modifier la colonne ; sinon valeur à enregistrer (y compris null explicite). */
 function parseTicketTemplatePresetBody(raw: unknown): string | null | undefined {
   if (raw === undefined) return undefined;
   if (raw === null) return null;
-  if (typeof raw === "string" && TICKET_TEMPLATE_PRESET_IDS.has(raw)) return raw;
-  return undefined;
+  if (typeof raw !== "string") return undefined;
+  if (raw === "custom") return raw;
+  return TICKET_PRESET_SLUG_PATTERN.test(raw) ? raw : undefined;
 }
 
 /**
