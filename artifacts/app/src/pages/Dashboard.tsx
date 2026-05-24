@@ -4,6 +4,7 @@ import { Link, useLocation } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRouterLogsQueryKey } from "@workspace/api-client-react";
+import { isApiPauseError } from "@workspace/api-client-react";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useCurrency } from "@/lib/use-currency";
 import { useAuth } from "@/contexts/AuthContext";
@@ -316,7 +317,9 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
   const authHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : [];
 
   // Fetch interface list when router changes — gated on tab visibility
-  const { data: ifaceList } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
+  // NOTE: on accepte un petit retry quand la requête est annulée par la pause API
+  // (retour d'arrière-plan APK), sinon la liste reste vide jusqu'au prochain mount.
+  const { data: ifaceList, refetch: refetchIfaces } = useQuery<{ name: string; type: string; disabled: boolean }[]>({
     queryKey: ["interfaces", routerId],
     queryFn: async ({ signal }) => {
       const res = await fetch(`${BASE}/api/routers/${routerId}/interfaces`, { signal, headers: authHeaders });
@@ -325,7 +328,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     },
     enabled: isVisible && !!routerId && enabled,
     staleTime: 60_000,
-    retry: false,
+    retry: (failureCount, err) => isApiPauseError(err) && failureCount < 3,
     throwOnError: false,
   });
 
@@ -344,7 +347,7 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     ? `${BASE}/api/routers/${routerId}/traffic?live=1${selectedIface ? `&iface=${encodeURIComponent(selectedIface)}` : ""}`
     : "";
 
-  const { data, isError } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
+  const { data, isError, refetch: refetchTraffic } = useQuery<{ rxBps: number; txBps: number; name: string | null }>({
     queryKey: ["traffic", routerId, selectedIface],
     queryFn: async ({ signal }) => {
       const res = await fetch(trafficUrl, { signal, headers: authHeaders });
@@ -356,7 +359,9 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     refetchInterval: isVisible ? 3_000 : false,
     refetchIntervalInBackground: false,
     staleTime: 1_500,
-    retry: false,
+    // Quelques retries quand la requête est annulée par la pause API (retour APK)
+    // sinon la carte reste bloquée sur "Connexion au routeur…" jusqu'au prochain tick.
+    retry: (failureCount, err) => isApiPauseError(err) && failureCount < 3,
     throwOnError: false,
   });
 
@@ -365,9 +370,36 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     setHistory(prev => [...prev, { t: Date.now(), rx: data.rxBps, tx: data.txBps }].slice(-MAX_TRAFFIC_POINTS));
   }, [data]);
 
+  // Reset l'historique seulement quand le routeur change OU quand l'interface
+  // est volontairement changée vers une autre valeur non-vide. On évite ainsi
+  // d'effacer le graphique pendant le bootstrap (selectedIface "" → "ether1")
+  // ou un re-render transitoire après reprise.
+  const lastResetKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    setHistory([]);
+    if (!routerId) {
+      if (lastResetKeyRef.current !== null) {
+        lastResetKeyRef.current = null;
+        setHistory([]);
+      }
+      return;
+    }
+    if (!selectedIface) return;
+    const key = `${routerId}:${selectedIface}`;
+    if (lastResetKeyRef.current !== null && lastResetKeyRef.current !== key) {
+      setHistory([]);
+    }
+    lastResetKeyRef.current = key;
   }, [routerId, selectedIface]);
+
+  // Forcer un refetch immédiat quand l'onglet redevient visible / le router se ré-active
+  // (retour d'arrière-plan APK ou onglet caché). Évite d'attendre jusqu'à 3 s pour la
+  // prochaine itération du refetchInterval.
+  const canFetch = isVisible && !!routerId && enabled;
+  useEffect(() => {
+    if (!canFetch) return;
+    void refetchTraffic();
+    if (!ifaceList?.length) void refetchIfaces();
+  }, [canFetch, selectedIface, refetchTraffic, refetchIfaces, ifaceList?.length]);
 
   const maxVal = Math.max(...history.flatMap(p => [p.rx, p.tx]), 1);
   const yTop = maxVal * 1.5;
@@ -381,13 +413,19 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
           <CardTitle className="text-base flex items-center gap-2">
             <Activity className="h-4 w-4 text-gray-400" />
             Trafic
-            {routerId && !isError && selectedIface && (
+            {routerId && selectedIface && !isError && (
               <span className="flex items-center gap-1 text-xs font-normal text-green-600">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
                 </span>
                 Live
+              </span>
+            )}
+            {routerId && selectedIface && isError && history.length > 0 && (
+              <span className="flex items-center gap-1 text-xs font-normal text-amber-600">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Reconnexion…
               </span>
             )}
           </CardTitle>
@@ -416,17 +454,12 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
             <Activity className="h-8 w-8 text-gray-200" />
             <p className="text-xs text-gray-400">Sélectionnez un routeur</p>
           </div>
-        ) : isError ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2">
-            <Activity className="h-8 w-8 text-red-200" />
-            <p className="text-xs text-red-400">Indisponible</p>
-          </div>
-        ) : history.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2">
-            <RefreshCw className="h-8 w-8 text-gray-300 animate-spin" />
-            <p className="text-xs text-gray-400">Connexion au routeur…</p>
-          </div>
-        ) : (
+        ) : history.length > 0 ? (
+          // Une fois qu'on a des points, on garde le graphique visible même
+          // pendant une erreur transitoire (pause API, retour d'arrière-plan,
+          // perte momentanée du routeur). Le badge « Reconnexion… » informe
+          // l'utilisateur. On bascule sur « Indisponible » uniquement quand on
+          // n'a jamais reçu de données.
           <div className="flex flex-col flex-1" style={{ minHeight: 0 }}>
             {selectedIface && (
               <p className="hidden">Interface {selectedIface}</p>
@@ -475,6 +508,16 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
                 </LineChart>
               </ResponsiveContainer>
             </div>
+          </div>
+        ) : isError ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            <Activity className="h-8 w-8 text-red-200" />
+            <p className="text-xs text-red-400">Indisponible</p>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            <RefreshCw className="h-8 w-8 text-gray-300 animate-spin" />
+            <p className="text-xs text-gray-400">Connexion au routeur…</p>
           </div>
         )}
       </CardContent>
