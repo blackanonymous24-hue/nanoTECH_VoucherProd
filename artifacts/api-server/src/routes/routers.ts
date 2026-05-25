@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, listHotspotUsersByComment, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, parseMikhmonDate, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, listHotspotProfileSchedulers, removeSystemScheduler, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
+import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, listHotspotUsersByComment, listHotspotUsersByCommentResilient, formatRouterOsConnectionError, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, parseMikhmonDate, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, listHotspotProfileSchedulers, removeSystemScheduler, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 import { runUsageSync } from "../lib/usage-sync.js";
@@ -1155,7 +1155,7 @@ const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expi
  */
 interface LotPrintCache { users: Awaited<ReturnType<typeof listHotspotUsersByComment>>; expiresAt: number; }
 const lotPrintCache = new Map<string, LotPrintCache>();
-const LOT_PRINT_CACHE_TTL = 120_000; // 2 min — long enough to absorb retries
+const LOT_PRINT_CACHE_TTL = 600_000; // 10 min — absorbe les reprises impression sans re-fetch MikroTik
 
 async function getCachedUsers(
   router: { id: number; ownerAdminId: number | null },
@@ -1479,12 +1479,151 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
  *
  * 1. **PostgreSQL en priorité** (instantané, routeur lent/hors ligne OK) quand
  *    des vouchers avec mot de passe existent pour ce commentaire.
- * 2. **Repli MikroTik** si la base est vide (lots MikHmon, sync manquante,
- *    commentaire encodé différemment) : cache lot → cache users → requête
- *    ciblée `?comment=` (rapide, pas de print global).
+ * 2. **DB + cache mémoire** (mots de passe manquants en base, ex. sync historique).
+ * 3. **Cache lot / cache users** (même périmé — stale-while-revalidate pour l'impression).
+ * 4. **Repli MikroTik ciblé** `?comment=` avec reprises (jamais de print global).
  *
- * `refresh=1` force le repli MikroTik même si la base contient des lignes.
+ * `refresh=1` force le repli MikroTik (ignore caches mémoire, pas la base si complète).
  */
+
+type LotPrintDbRow = {
+  username: string;
+  password: string | null;
+  profile: string;
+  price: string | null;
+  validity: string | null;
+  comment: string | null;
+  macAddress: string | null;
+};
+
+type HotspotUserRow = Awaited<ReturnType<typeof listHotspotUsersByComment>>[number];
+type ProfileRow = Awaited<ReturnType<typeof listProfiles>>[number];
+
+function profilesForLotPrint(scope: string): ProfileRow[] {
+  return getFreshProfileCache(scope) ?? profileListCache.get(scope)?.profiles ?? [];
+}
+
+/** Utilisateurs du lot depuis cache lot (frais) ou cache global (stale OK pour impression). */
+function pickCachedHotspotUsersForLot(
+  scope: string,
+  commentVal: string,
+  allowStaleFullCache: boolean,
+): HotspotUserRow[] | null {
+  const lotKey = `${scope}:${commentVal}`;
+  const lotHit = lotPrintCache.get(lotKey);
+  if (lotHit && Date.now() < lotHit.expiresAt) {
+    const rows = lotHit.users.filter(
+      (u) => (u.comment ?? "").trim() === commentVal && isRealUser(u),
+    );
+    if (rows.length > 0) return rows;
+  }
+
+  const fullHit = userCache.get(scope);
+  if (!fullHit) return null;
+  const fresh = Date.now() < fullHit.expiresAt;
+  if (!fresh && !allowStaleFullCache) return null;
+
+  const rows = fullHit.users.filter(
+    (u) => (u.comment ?? "").trim() === commentVal && isRealUser(u),
+  );
+  return rows.length > 0 ? rows : null;
+}
+
+function buildLotPrintPayload(
+  usersRaw: HotspotUserRow[],
+  commentVal: string,
+  profiles: ProfileRow[],
+  dbMetaRows: Array<{ username: string; price: string | null; validity: string | null }>,
+  fbPrice: string,
+  fbValidity: string,
+) {
+  const profByName = new Map(profiles.map((p) => [p.name, p]));
+  const storedByUser = new Map(dbMetaRows.map((row) => [row.username, row]));
+
+  const users = usersRaw
+    .filter((u) => (u.comment ?? "").trim() === commentVal && isRealUser(u))
+    .map((u) => {
+      const p = profByName.get(u.profile);
+      const stored = storedByUser.get(u.username);
+      const price =
+        (stored?.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
+      const validity =
+        (stored?.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
+      return {
+        username: u.username,
+        password: u.password,
+        profile: u.profile,
+        comment: u.comment,
+        limitUptime: u.limitUptime ?? null,
+        limitBytesTotal: u.limitBytesTotal ?? null,
+        price,
+        validity,
+      };
+    })
+    .filter((u) => String(u.password ?? "").trim().length > 0);
+
+  return users;
+}
+
+function buildLotPrintPayloadFromDb(
+  dbRows: LotPrintDbRow[],
+  profiles: ProfileRow[],
+  fbPrice: string,
+  fbValidity: string,
+) {
+  const profByName = new Map(profiles.map((p) => [p.name, p]));
+  return dbRows
+    .filter((row) => String(row.password ?? "").trim().length > 0)
+    .map((row) => {
+      const p = profByName.get(row.profile);
+      const price = (row.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
+      const validity = (row.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
+      return {
+        username: row.username,
+        password: row.password!,
+        profile: row.profile,
+        comment: row.comment,
+        limitUptime: (p?.validity ?? "").trim() || null,
+        limitBytesTotal: null as string | null,
+        price,
+        validity,
+      };
+    });
+}
+
+/** Fusionne lignes DB (sans mot de passe) + cache MikroTik pour l'impression. */
+function mergeDbRowsWithHotspotCache(
+  dbRows: LotPrintDbRow[],
+  cached: HotspotUserRow[],
+  profiles: ProfileRow[],
+  fbPrice: string,
+  fbValidity: string,
+) {
+  const byUser = new Map(cached.map((u) => [u.username.toLowerCase(), u]));
+  const profByName = new Map(profiles.map((p) => [p.name, p]));
+  const out: ReturnType<typeof buildLotPrintPayloadFromDb> = [];
+
+  for (const row of dbRows) {
+    const hk = byUser.get(row.username.toLowerCase());
+    const password = String(row.password ?? "").trim() || String(hk?.password ?? "").trim();
+    if (!password) continue;
+    const p = profByName.get(row.profile);
+    const price = (row.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
+    const validity = (row.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
+    out.push({
+      username: row.username,
+      password,
+      profile: row.profile,
+      comment: row.comment,
+      limitUptime: hk?.limitUptime ?? ((p?.validity ?? "").trim() || null),
+      limitBytesTotal: hk?.limitBytesTotal ?? null,
+      price,
+      validity,
+    });
+  }
+  return out;
+}
+
 router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
@@ -1510,9 +1649,10 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   const sc = routerCacheScope(r.ownerAdminId, id);
+  const profiles = profilesForLotPrint(sc);
 
   try {
-    const dbRows = await db
+    const dbRows: LotPrintDbRow[] = await db
       .select({
         username: vouchersTable.username,
         password: vouchersTable.password,
@@ -1528,100 +1668,62 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
     const dbWithCreds = dbRows.filter((row) => String(row.password ?? "").trim().length > 0);
 
     if (dbWithCreds.length > 0 && !force) {
-      const profiles = getFreshProfileCache(sc) ?? profileListCache.get(sc)?.profiles ?? [];
-      const profByName = new Map(profiles.map((p) => [p.name, p]));
-      const users = dbWithCreds.map((row) => {
-        const p = profByName.get(row.profile);
-        const price = (row.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
-        const validity = (row.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
-        return {
-          username: row.username,
-          password: row.password,
-          profile: row.profile,
-          comment: row.comment,
-          limitUptime: (p?.validity ?? "").trim() || null,
-          limitBytesTotal: null as string | null,
-          price,
-          validity,
-        };
-      });
+      const users = buildLotPrintPayloadFromDb(dbWithCreds, profiles, fbPrice, fbValidity);
       res.json({ users, total: users.length, source: "db" });
       return;
     }
 
-    // ── Repli MikroTik (lot absent ou incomplet en base) ──────────────────
-    const lotCacheKey = `${sc}:${commentVal}`;
-    let usersPromise: Promise<Awaited<ReturnType<typeof listHotspotUsersByComment>>>;
-    let saveToLotCache = false;
-
-    if (force) {
-      lotPrintCache.delete(lotCacheKey);
-      usersPromise = listHotspotUsersByComment(conn, commentVal, 30_000);
-      saveToLotCache = true;
-    } else {
-      const lotHit = lotPrintCache.get(lotCacheKey);
-      if (lotHit && Date.now() < lotHit.expiresAt) {
-        usersPromise = Promise.resolve(lotHit.users);
-      } else {
-        const fullHit = userCache.get(sc);
-        if (fullHit && Date.now() < fullHit.expiresAt) {
-          usersPromise = Promise.resolve(fullHit.users);
-        } else {
-          usersPromise = listHotspotUsersByComment(conn, commentVal, 30_000);
-          saveToLotCache = true;
+    if (dbRows.length > 0 && !force) {
+      const cachedForMerge = pickCachedHotspotUsersForLot(sc, commentVal, true);
+      if (cachedForMerge) {
+        const merged = mergeDbRowsWithHotspotCache(dbRows, cachedForMerge, profiles, fbPrice, fbValidity);
+        if (merged.length > 0) {
+          res.json({ users: merged, total: merged.length, source: "db+cache" });
+          return;
         }
       }
     }
 
-    const [usersRaw, profiles, dbMetaRows] = await Promise.all([
-      usersPromise,
-      fetchProfilesWithCache(r.ownerAdminId, id, conn),
-      dbRows.length > 0
-        ? Promise.resolve(dbRows)
-        : db
-            .select({
-              username: vouchersTable.username,
-              price: vouchersTable.price,
-              validity: vouchersTable.validity,
-            })
-            .from(vouchersTable)
-            .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal))),
-    ]);
+    const lotCacheKey = `${sc}:${commentVal}`;
+    let usersRaw: HotspotUserRow[];
+    let source: "cache" | "mikrotik" = "cache";
 
-    if (saveToLotCache) {
+    if (force) {
+      lotPrintCache.delete(lotCacheKey);
+    }
+
+    const cachedUsers = !force ? pickCachedHotspotUsersForLot(sc, commentVal, true) : null;
+    if (cachedUsers) {
+      usersRaw = cachedUsers;
+    } else {
+      usersRaw = await listHotspotUsersByCommentResilient(conn, commentVal);
+      source = "mikrotik";
       lotPrintCache.set(lotCacheKey, {
         users: usersRaw,
         expiresAt: Date.now() + LOT_PRINT_CACHE_TTL,
       });
     }
 
-    const profByName = new Map(profiles.map((p) => [p.name, p]));
-    const storedByUser = new Map(dbMetaRows.map((row) => [row.username, row]));
+    const dbMetaRows =
+      dbRows.length > 0
+        ? dbRows.map((row) => ({
+            username: row.username,
+            price: row.price,
+            validity: row.validity,
+          }))
+        : await db
+            .select({
+              username: vouchersTable.username,
+              price: vouchersTable.price,
+              validity: vouchersTable.validity,
+            })
+            .from(vouchersTable)
+            .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal)));
 
-    const users = usersRaw
-      .filter((u) => (u.comment ?? "").trim() === commentVal && isRealUser(u))
-      .map((u) => {
-        const p = profByName.get(u.profile);
-        const stored = storedByUser.get(u.username);
-        const price =
-          (stored?.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
-        const validity =
-          (stored?.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
-        return {
-          username: u.username,
-          password: u.password,
-          profile: u.profile,
-          comment: u.comment,
-          limitUptime: u.limitUptime ?? null,
-          limitBytesTotal: u.limitBytesTotal ?? null,
-          price,
-          validity,
-        };
-      });
-
-    res.json({ users, total: users.length, source: "mikrotik" });
+    const users = buildLotPrintPayload(usersRaw, commentVal, profiles, dbMetaRows, fbPrice, fbValidity);
+    res.json({ users, total: users.length, source });
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+    res.status(502).json({ error: formatRouterOsConnectionError(err) });
   }
 });
 

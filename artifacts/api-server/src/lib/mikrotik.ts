@@ -1276,6 +1276,39 @@ export async function listHotspotUsersByComment(
   );
 }
 
+function isRetryableRouterOsError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err ?? "")).toLowerCase();
+  return msg.includes("timed out")
+    || msg.includes("timeout")
+    || msg.includes("rate exceeded")
+    || msg.includes("econnreset")
+    || msg.includes("connection reset");
+}
+
+/**
+ * Requête ciblée `?comment=` avec reprises automatiques (impression lot).
+ * Évite l'échec définitif sur un seul timeout VPN / routeur occupé.
+ */
+export async function listHotspotUsersByCommentResilient(
+  conn: RouterConnection,
+  comment: string,
+): Promise<HotspotUser[]> {
+  const trimmed = comment.trim();
+  if (!trimmed) return [];
+  const timeouts = [45_000, 60_000, 90_000] as const;
+  let lastErr: unknown;
+  for (let i = 0; i < timeouts.length; i++) {
+    if (i > 0) await new Promise<void>((r) => setTimeout(r, 700 * i));
+    try {
+      return await listHotspotUsersByComment(conn, trimmed, timeouts[i]);
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableRouterOsError(err) || i === timeouts.length - 1) throw err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("RouterOS operation timed out");
+}
+
 export interface AddHotspotUserOpts {
   name: string;
   password: string;
