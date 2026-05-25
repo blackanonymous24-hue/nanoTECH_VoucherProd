@@ -43,6 +43,8 @@ import {
 } from "@/lib/router-host-port";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+/** Aligné sur l'API POST /api/routers : débit auto pour +1 slot routeur. */
+const CREDITS_PER_EXTRA_ROUTER = 10;
 
 type RouterFormData = {
   name: string;
@@ -205,6 +207,19 @@ export default function Routers() {
   const adminUsedRouters = adminMe?.routerCount ?? routers.length;
   const adminRouterLimit = adminMe?.routerLimit ?? 5;
   const adminRemainingRouters = Math.max(0, adminRouterLimit - adminUsedRouters);
+  const isAtRouterSlotLimit = adminUsedRouters >= adminRouterLimit;
+  const canExtendWithCredits = adminCredits >= CREDITS_PER_EXTRA_ROUTER;
+  /** Bloquer l'ajout seulement si plafond atteint ET crédits insuffisants. */
+  const blockAddRouter =
+    role === "admin"
+    && !isSuperAdmin
+    && isAtRouterSlotLimit
+    && !canExtendWithCredits;
+  const addRouterButtonTitle = blockAddRouter
+    ? `Limite atteinte (${adminRouterLimit} routeurs). ${CREDITS_PER_EXTRA_ROUTER} crédits requis.`
+    : isAtRouterSlotLimit && canExtendWithCredits
+      ? `Extension auto : ${CREDITS_PER_EXTRA_ROUTER} crédits seront débités à l'ajout`
+      : "Ajouter un routeur";
   const [showForm, setShowForm] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
   const [editRouter, setEditRouter] = useState<RouterType | null>(null);
@@ -221,7 +236,10 @@ export default function Routers() {
       ? (listRoutersAxiosError.response.data as { error: string }).error
       : null;
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: getListRoutersQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: ["admin", "me"] });
+  };
 
   const openCreate = () => {
     setForm(emptyForm);
@@ -277,8 +295,20 @@ export default function Routers() {
         toast({ title: "Routeur mis à jour" });
       }
     } else {
-      await createMutation.mutateAsync({ data: { ...basePayload, password: form.password } });
-      toast({ title: "Routeur ajouté" });
+      try {
+        await createMutation.mutateAsync({ data: { ...basePayload, password: form.password } });
+        toast({ title: "Routeur ajouté" });
+      } catch (err) {
+        const apiErr = isAxiosError(err)
+          ? (err.response?.data as { error?: string } | undefined)?.error
+          : undefined;
+        toast({
+          title: "Ajout impossible",
+          description: apiErr ?? (err instanceof Error ? err.message : "Erreur serveur"),
+          variant: "destructive",
+        });
+        return;
+      }
     }
     setShowForm(false);
     invalidate();
@@ -379,7 +409,12 @@ export default function Routers() {
             </Button>
           )}
           {!isManager && (
-            <Button onClick={openCreate} className="gap-2" title="Ajouter un routeur">
+            <Button
+              onClick={openCreate}
+              className="gap-2"
+              disabled={blockAddRouter}
+              title={addRouterButtonTitle}
+            >
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Ajouter un routeur</span>
             </Button>
@@ -399,7 +434,11 @@ export default function Routers() {
                 Crédits: {adminCredits}
               </Badge>
               <span className="text-xs text-blue-700">
-                Restants: {adminRemainingRouters}
+                {isAtRouterSlotLimit
+                  ? canExtendWithCredits
+                    ? `Quota atteint — extension auto possible (${CREDITS_PER_EXTRA_ROUTER} crédits / routeur)`
+                    : `Quota atteint — ${CREDITS_PER_EXTRA_ROUTER} crédits requis pour ajouter`
+                  : `Restants : ${adminRemainingRouters}`}
               </span>
             </div>
             <span className="text-xs text-blue-700">
@@ -415,20 +454,48 @@ export default function Routers() {
         const remaining = Math.max(0, limit - used);
         const isFull = used >= limit;
         const isWarn = remaining <= 1;
+        const fullButCanExtend = isFull && adminCredits >= CREDITS_PER_EXTRA_ROUTER;
         if (!isFull && !isWarn) return null;
+        const alertTone = fullButCanExtend
+          ? "border-emerald-200 bg-emerald-50"
+          : isFull
+            ? "border-red-200 bg-red-50"
+            : "border-amber-200 bg-amber-50";
+        const iconTone = fullButCanExtend
+          ? "text-emerald-500"
+          : isFull
+            ? "text-red-500"
+            : "text-amber-500";
+        const titleTone = fullButCanExtend
+          ? "text-emerald-900"
+          : isFull
+            ? "text-red-900"
+            : "text-amber-900";
+        const bodyTone = fullButCanExtend
+          ? "text-emerald-700"
+          : isFull
+            ? "text-red-700"
+            : "text-amber-700";
         return (
-          <Card className={`mb-4 border ${isFull ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+          <Card className={`mb-4 border ${alertTone}`}>
             <CardContent className="py-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-start gap-2 min-w-0">
-                <AlertTriangle className={`h-5 w-5 flex-shrink-0 ${isFull ? "text-red-500" : "text-amber-500"}`} />
+                <AlertTriangle className={`h-5 w-5 flex-shrink-0 ${iconTone}`} />
                 <div className="text-sm">
-                  <div className={`font-medium ${isFull ? "text-red-900" : "text-amber-900"}`}>
+                  <div className={`font-medium ${titleTone}`}>
                     {isFull
-                      ? `Quota atteint : ${used}/${limit} routeurs`
+                      ? fullButCanExtend
+                        ? `Quota atteint (${used}/${limit}) — vous pouvez encore ajouter un routeur`
+                        : `Quota atteint : ${used}/${limit} routeurs`
                       : `Bientôt à la limite : ${used}/${limit} routeurs`}
                   </div>
-                  <div className={`text-xs ${isFull ? "text-red-700" : "text-amber-700"}`}>
-                    Crédits disponibles : {adminCredits}. Si vous ajoutez un routeur au-delà de la limite, 10 crédits sont débités automatiquement.
+                  <div className={`text-xs ${bodyTone}`}>
+                    Crédits disponibles : {adminCredits}.
+                    {fullButCanExtend
+                      ? ` Chaque routeur au-delà du quota coûte ${CREDITS_PER_EXTRA_ROUTER} crédits (débit automatique).`
+                      : isFull
+                        ? ` ${CREDITS_PER_EXTRA_ROUTER} crédits minimum requis pour dépasser la limite.`
+                        : ` Si vous dépassez la limite, ${CREDITS_PER_EXTRA_ROUTER} crédits sont débités par routeur.`}
                   </div>
                 </div>
               </div>
@@ -505,7 +572,12 @@ export default function Routers() {
             <WifiOff className="h-10 w-10 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 font-medium">Aucun routeur configuré</p>
             <p className="text-sm text-gray-400 mt-1">Ajoutez votre premier routeur MikroTik pour commencer</p>
-            <Button onClick={openCreate} className="mt-4 gap-2">
+            <Button
+              onClick={openCreate}
+              className="mt-4 gap-2"
+              disabled={blockAddRouter}
+              title={addRouterButtonTitle}
+            >
               <Plus className="h-4 w-4" /> Ajouter un routeur
             </Button>
           </CardContent>
