@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { queryClient } from "@/lib/queryClient";
 import { abortAllApiRequests } from "@/lib/installAuthFetch";
 import { clearAllSavedPrintLots } from "@/lib/voucher-print-lot-persist";
+import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
 import { getListRoutersQueryKey, VOUCHERNET_SESSION_REVOKED_EVENT } from "@workspace/api-client-react";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { isNativeAppShell } from "@/lib/native-app-shell";
@@ -250,6 +251,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Réinitialise le compteur d'inactivité partagé : une nouvelle session a toujours
     // droit au délai complet ({@link SESSION_IDLE_LOGOUT_MS}) avant la déconnexion auto.
     writeSharedLastActivityTs(Date.now());
+    // Nouvelle session : purge les caches localStorage scopés par routeur pour que
+    // le premier clic sur un routeur déclenche un vrai fetch frais côté MikroTik,
+    // et pas un réaffichage de KPI datant de plusieurs minutes (issue : "données
+    // qui datent de +1min ou 2" après login depuis la page /admin).
+    clearRouterScopedClientCaches();
     writeKey(TOKEN_KEY, t, persist);
     writeKey(ROLE_KEY, r, persist);
     if (vi) writeKey(VENDOR_KEY, JSON.stringify(vi), persist);
@@ -316,6 +322,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void queryClient.cancelQueries();
     queryClient.clear();
     clearAllSavedPrintLots();
+    // Logout (manuel ou auto via session revoked / idle) : purge aussi les
+    // caches localStorage scopés par routeur. Sinon la prochaine connexion
+    // affiche d'abord les KPI / sessions / IP-bindings d'il y a quelques
+    // minutes avant le fetch frais.
+    clearRouterScopedClientCaches();
 
     removeKey(TOKEN_KEY);
     removeKey(ROLE_KEY);

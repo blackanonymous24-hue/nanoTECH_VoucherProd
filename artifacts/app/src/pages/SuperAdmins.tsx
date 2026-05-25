@@ -447,12 +447,12 @@ export default function SuperAdmins() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-72">
-          <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <div className="relative flex-1 min-w-[12rem] max-w-sm">
+          <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un admin..." className="pl-9" />
         </div>
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-          <SelectTrigger className="w-full sm:w-52">
+          <SelectTrigger className="w-full sm:w-52 shrink-0">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -462,6 +462,12 @@ export default function SuperAdmins() {
             <SelectItem value="expired">Expirés</SelectItem>
           </SelectContent>
         </Select>
+        <span className="text-sm text-gray-500 shrink-0 whitespace-nowrap tabular-nums ml-auto sm:ml-0">
+          {search.trim() || statusFilter !== "all"
+            ? `${filteredAdmins.length} / ${admins.length}`
+            : admins.length}{" "}
+          admin{admins.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
       {/* Table card */}
