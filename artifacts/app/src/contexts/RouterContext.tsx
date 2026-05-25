@@ -7,6 +7,7 @@ import {
   prefetchAllRoutersDashboardKpi,
   prefetchRouterDashboardPriority,
 } from "@/lib/prefetch-router-dashboard-priority";
+import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
 
 export type BorrowedRouter = {
   id: number;
@@ -231,6 +232,16 @@ export function RouterProvider({ children }: { children: ReactNode }) {
         ?? (borrowedRouterRef.current?.id === id ? borrowedRouterRef.current : null);
       setRouterIdentity(dbRouter?.name ?? null);
       setPingTrigger((n) => n + 1);
+      // Selection manuelle = l'utilisateur veut voir l'etat actuel de CE routeur,
+      // pas un cache d'il y a 1-2 minutes. On purge le cache localStorage scope
+      // a ce routeur (KPI / sessions / IP-bindings / DHCP / cookies / forfaits)
+      // ET on supprime les entrees queryClient correspondantes pour qu'un fetch
+      // frais MikroTik soit declenche au prochain mount de la page.
+      // prefetchRouterDashboardPriority(id) ci-dessous repopule immediatement.
+      clearRouterScopedClientCaches(id);
+      void queryClient.removeQueries({
+        predicate: (query) => query.queryKey.includes(id),
+      });
       void prefetchRouterDashboardPriority(id);
     }
   }, [isRouterLocked, allRouters]);

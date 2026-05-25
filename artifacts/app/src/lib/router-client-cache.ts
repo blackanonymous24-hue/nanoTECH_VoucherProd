@@ -28,16 +28,20 @@ const ROUTER_SCOPED_CACHE_PREFIXES = [
  * routeur. À appeler au logout et au login pour garantir que le premier clic
  * sur un routeur déclenche un vrai fetch côté MikroTik (et pas un réaffichage
  * de chiffres potentiellement vieux de plusieurs minutes).
+ *
+ * @param routerId si fourni, ne supprime que les caches scopés à ce routeur.
+ *                 Sinon, supprime tous les caches scopés par routeur.
  */
-export function clearRouterScopedClientCaches(): void {
+export function clearRouterScopedClientCaches(routerId?: number | null): void {
   try {
     const keysToRemove: string[] = [];
+    const targetSuffix = routerId != null ? `:${routerId}` : null;
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (!key) continue;
-      if (ROUTER_SCOPED_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
-        keysToRemove.push(key);
-      }
+      if (!ROUTER_SCOPED_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) continue;
+      if (targetSuffix && !key.endsWith(targetSuffix)) continue;
+      keysToRemove.push(key);
     }
     for (const k of keysToRemove) {
       localStorage.removeItem(k);
