@@ -8,6 +8,17 @@ import {
   prefetchRouterDashboardPriority,
 } from "@/lib/prefetch-router-dashboard-priority";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
+import { readPriorityCache } from "@/lib/dashboard-priority";
+
+/**
+ * Tolerance d'age du cache au changement de routeur via le selecteur :
+ * - cache <= 5 min → on garde (affichage instantane + refetch background)
+ * - cache  > 5 min → on purge (skeleton de loading + fetch frais MikroTik)
+ *
+ * Evite d'afficher fugacement des KPI / sessions / IP-bindings figes depuis
+ * plusieurs minutes quand l'utilisateur revient sur un routeur peu visite.
+ */
+const SELECTOR_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 
 export type BorrowedRouter = {
   id: number;
@@ -232,16 +243,22 @@ export function RouterProvider({ children }: { children: ReactNode }) {
         ?? (borrowedRouterRef.current?.id === id ? borrowedRouterRef.current : null);
       setRouterIdentity(dbRouter?.name ?? null);
       setPingTrigger((n) => n + 1);
-      // Selection manuelle = l'utilisateur veut voir l'etat actuel de CE routeur,
-      // pas un cache d'il y a 1-2 minutes. On purge le cache localStorage scope
-      // a ce routeur (KPI / sessions / IP-bindings / DHCP / cookies / forfaits)
-      // ET on supprime les entrees queryClient correspondantes pour qu'un fetch
-      // frais MikroTik soit declenche au prochain mount de la page.
-      // prefetchRouterDashboardPriority(id) ci-dessous repopule immediatement.
-      clearRouterScopedClientCaches(id);
-      void queryClient.removeQueries({
-        predicate: (query) => query.queryKey.includes(id),
-      });
+      // Politique de fraicheur au changement de routeur via le selecteur :
+      // - si on a un snapshot dashboard-priority recent (<= 5 min) : on conserve
+      //   le cache pour un affichage instantane, useQuery refetch en arriere-plan
+      //   (staleTime 10s + refetchOnMount "always").
+      // - sinon (cache > 5 min ou absent) : on purge le localStorage scope a ce
+      //   routeur ET les entrees queryClient correspondantes pour afficher un
+      //   skeleton de chargement plutot que des valeurs figees d'il y a >5 min.
+      const cached = readPriorityCache(id);
+      const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
+      const cacheIsTooOld = cachedAgeMs > SELECTOR_CACHE_MAX_AGE_MS;
+      if (cacheIsTooOld) {
+        clearRouterScopedClientCaches(id);
+        void queryClient.removeQueries({
+          predicate: (query) => query.queryKey.includes(id),
+        });
+      }
       void prefetchRouterDashboardPriority(id);
     }
   }, [isRouterLocked, allRouters]);
