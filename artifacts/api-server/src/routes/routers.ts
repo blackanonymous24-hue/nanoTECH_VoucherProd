@@ -133,6 +133,21 @@ function isRealUser(u: { username: string; profile: string }): boolean {
   return uname !== "default" && uname !== "default-trial" && !SYSTEM_PROFILE_NAMES.has(prof);
 }
 
+/** Compare lot comments (UTF-8 / win1252 / mojibake) — lots MikHmon vs app. */
+function lotCommentsEqual(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = decodeRouterText(a).trim();
+  const nb = decodeRouterText(b).trim();
+  if (!na || !nb) return false;
+  return na === nb;
+}
+
+function userBelongsToLotComment(
+  u: { comment?: string | null },
+  commentVal: string,
+): boolean {
+  return lotCommentsEqual(u.comment, commentVal) && isRealUser(u as { username: string; profile: string });
+}
+
 async function fetchProfilesWithCache(ownerAdminId: number | null, routerId: number, conn: RouterConnection) {
   const scope = routerCacheScope(ownerAdminId, routerId);
   // Fresh cache hit (within TTL) → return synchronously, never touch the router.
@@ -1157,6 +1172,33 @@ interface LotPrintCache { users: Awaited<ReturnType<typeof listHotspotUsersByCom
 const lotPrintCache = new Map<string, LotPrintCache>();
 const LOT_PRINT_CACHE_TTL = 600_000; // 10 min — absorbe les reprises impression sans re-fetch MikroTik
 
+type HotspotUserCacheRow = Awaited<ReturnType<typeof listHotspotUsers>>[number];
+
+/**
+ * Préchauffe le cache lot depuis la liste complète (lots MikHmon / non générés app).
+ * Appelé après /lots, /users et refresh userCache pour que l'impression évite MikroTik.
+ */
+function seedLotPrintCacheFromUsers(scope: string, users: HotspotUserCacheRow[]): void {
+  const byComment = new Map<string, HotspotUserCacheRow[]>();
+  for (const u of users) {
+    if (!isRealUser(u)) continue;
+    const c = decodeRouterText(u.comment).trim();
+    if (!c) continue;
+    const arr = byComment.get(c) ?? [];
+    arr.push(u);
+    byComment.set(c, arr);
+  }
+  const expiresAt = Date.now() + LOT_PRINT_CACHE_TTL;
+  for (const [comment, rows] of byComment) {
+    if (rows.length === 0) continue;
+    const lotKey = `${scope}:${comment}`;
+    const existing = lotPrintCache.get(lotKey);
+    if (!existing || rows.length >= existing.users.length) {
+      lotPrintCache.set(lotKey, { users: rows, expiresAt });
+    }
+  }
+}
+
 async function getCachedUsers(
   router: { id: number; ownerAdminId: number | null },
   conn: Parameters<typeof listHotspotUsers>[0],
@@ -1167,7 +1209,35 @@ async function getCachedUsers(
   if (!opts.force && cached && Date.now() < cached.expiresAt) return cached.users;
   const users = (await listHotspotUsers(conn, 60_000)).filter(isRealUser);
   userCache.set(scope, { users, expiresAt: Date.now() + USER_CACHE_TTL });
+  seedLotPrintCacheFromUsers(scope, users);
   return users;
+}
+
+/** Complète les mots de passe en base (sync historique sans password, lots MikHmon). */
+function scheduleLotPasswordBackfill(
+  routerId: number,
+  users: Array<{ username: string; password: string }>,
+): void {
+  const rows = users.filter((u) => String(u.password ?? "").trim().length > 0);
+  if (rows.length === 0) return;
+  setImmediate(() => {
+    void (async () => {
+      try {
+        for (const u of rows) {
+          await db
+            .update(vouchersTable)
+            .set({ password: u.password })
+            .where(and(
+              eq(vouchersTable.routerId, routerId),
+              eq(vouchersTable.username, u.username),
+              or(eq(vouchersTable.password, ""), isNull(vouchersTable.password)),
+            ));
+        }
+      } catch {
+        /* best-effort */
+      }
+    })();
+  });
 }
 
 /** Drop every lot-print cache entry for a given router scope. */
@@ -1444,6 +1514,8 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
       users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
     }
 
+    seedLotPrintCacheFromUsers(sc, users);
+
     if (search) {
       const q = foldText(search);
       users = users.filter(
@@ -1477,12 +1549,12 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
  *
  * Préparation impression : utilisateurs du lot + tarifs/validités résolus.
  *
- * 1. **PostgreSQL en priorité** (instantané, routeur lent/hors ligne OK) quand
- *    des vouchers avec mot de passe existent pour ce commentaire.
- * 2. **DB + cache mémoire** (mots de passe manquants en base, ex. sync historique).
- * 3. **Cache lot / cache users** (même périmé — stale-while-revalidate pour l'impression).
- * 4. **Repli MikroTik ciblé** `?comment=` avec reprises (jamais de print global).
+ * 1. **PostgreSQL en priorité** (instantané) quand des vouchers avec mot de passe existent.
+ * 2. **DB + cache mémoire** (mots de passe manquants — sync historique / MikHmon).
+ * 3. **Cache lot / cache users** (même périmé — lots non générés depuis l'app inclus).
+ * 4. **Repli MikroTik ciblé** `?comment=` avec reprises ; repli cache si échec routeur.
  *
+ * Le cache lot est préchauffé par `/lots` et `/users` (liste MikroTik complète).
  * `refresh=1` force le repli MikroTik (ignore caches mémoire, pas la base si complète).
  */
 
@@ -1503,29 +1575,30 @@ function profilesForLotPrint(scope: string): ProfileRow[] {
   return getFreshProfileCache(scope) ?? profileListCache.get(scope)?.profiles ?? [];
 }
 
-/** Utilisateurs du lot depuis cache lot (frais) ou cache global (stale OK pour impression). */
+/** Utilisateurs du lot depuis cache lot (frais ou périmé) ou cache global (stale OK). */
 function pickCachedHotspotUsersForLot(
   scope: string,
   commentVal: string,
-  allowStaleFullCache: boolean,
+  allowStale: boolean,
 ): HotspotUserRow[] | null {
-  const lotKey = `${scope}:${commentVal}`;
-  const lotHit = lotPrintCache.get(lotKey);
-  if (lotHit && Date.now() < lotHit.expiresAt) {
-    const rows = lotHit.users.filter(
-      (u) => (u.comment ?? "").trim() === commentVal && isRealUser(u),
-    );
+  const scopePrefix = `${scope}:`;
+
+  for (const [key, lotHit] of lotPrintCache) {
+    if (!key.startsWith(scopePrefix)) continue;
+    const keyComment = key.slice(scopePrefix.length);
+    if (!lotCommentsEqual(keyComment, commentVal)) continue;
+    const fresh = Date.now() < lotHit.expiresAt;
+    if (!fresh && !allowStale) continue;
+    const rows = lotHit.users.filter((u) => userBelongsToLotComment(u, commentVal));
     if (rows.length > 0) return rows;
   }
 
   const fullHit = userCache.get(scope);
   if (!fullHit) return null;
   const fresh = Date.now() < fullHit.expiresAt;
-  if (!fresh && !allowStaleFullCache) return null;
+  if (!fresh && !allowStale) return null;
 
-  const rows = fullHit.users.filter(
-    (u) => (u.comment ?? "").trim() === commentVal && isRealUser(u),
-  );
+  const rows = fullHit.users.filter((u) => userBelongsToLotComment(u, commentVal));
   return rows.length > 0 ? rows : null;
 }
 
@@ -1541,7 +1614,7 @@ function buildLotPrintPayload(
   const storedByUser = new Map(dbMetaRows.map((row) => [row.username, row]));
 
   const users = usersRaw
-    .filter((u) => (u.comment ?? "").trim() === commentVal && isRealUser(u))
+    .filter((u) => userBelongsToLotComment(u, commentVal))
     .map((u) => {
       const p = profByName.get(u.profile);
       const stored = storedByUser.get(u.username);
@@ -1665,7 +1738,29 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
       .from(vouchersTable)
       .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal)));
 
-    const dbWithCreds = dbRows.filter((row) => String(row.password ?? "").trim().length > 0);
+    let effectiveDbRows = dbRows;
+
+    // Sync historique / MikHmon : commentaire DB parfois absent ou encodé différemment.
+    if (effectiveDbRows.length === 0 && !force) {
+      const cachedForDb = pickCachedHotspotUsersForLot(sc, commentVal, true);
+      if (cachedForDb && cachedForDb.length > 0) {
+        const usernames = cachedForDb.map((u) => u.username);
+        effectiveDbRows = await db
+          .select({
+            username: vouchersTable.username,
+            password: vouchersTable.password,
+            profile: vouchersTable.profileName,
+            price: vouchersTable.price,
+            validity: vouchersTable.validity,
+            comment: vouchersTable.comment,
+            macAddress: vouchersTable.macAddress,
+          })
+          .from(vouchersTable)
+          .where(and(eq(vouchersTable.routerId, id), inArray(vouchersTable.username, usernames)));
+      }
+    }
+
+    const dbWithCreds = effectiveDbRows.filter((row) => String(row.password ?? "").trim().length > 0);
 
     if (dbWithCreds.length > 0 && !force) {
       const users = buildLotPrintPayloadFromDb(dbWithCreds, profiles, fbPrice, fbValidity);
@@ -1673,10 +1768,10 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
       return;
     }
 
-    if (dbRows.length > 0 && !force) {
+    if (effectiveDbRows.length > 0 && !force) {
       const cachedForMerge = pickCachedHotspotUsersForLot(sc, commentVal, true);
       if (cachedForMerge) {
-        const merged = mergeDbRowsWithHotspotCache(dbRows, cachedForMerge, profiles, fbPrice, fbValidity);
+        const merged = mergeDbRowsWithHotspotCache(effectiveDbRows, cachedForMerge, profiles, fbPrice, fbValidity);
         if (merged.length > 0) {
           res.json({ users: merged, total: merged.length, source: "db+cache" });
           return;
@@ -1684,29 +1779,45 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
       }
     }
 
-    const lotCacheKey = `${sc}:${commentVal}`;
+    const lotCacheKey = `${sc}:${decodeRouterText(commentVal).trim()}`;
     let usersRaw: HotspotUserRow[];
     let source: "cache" | "mikrotik" = "cache";
 
     if (force) {
       lotPrintCache.delete(lotCacheKey);
+      const norm = decodeRouterText(commentVal).trim();
+      for (const key of [...lotPrintCache.keys()]) {
+        if (key.startsWith(`${sc}:`) && lotCommentsEqual(key.slice(sc.length + 1), norm)) {
+          lotPrintCache.delete(key);
+        }
+      }
     }
 
     const cachedUsers = !force ? pickCachedHotspotUsersForLot(sc, commentVal, true) : null;
     if (cachedUsers) {
       usersRaw = cachedUsers;
     } else {
-      usersRaw = await listHotspotUsersByCommentResilient(conn, commentVal);
-      source = "mikrotik";
-      lotPrintCache.set(lotCacheKey, {
-        users: usersRaw,
-        expiresAt: Date.now() + LOT_PRINT_CACHE_TTL,
-      });
+      try {
+        usersRaw = await listHotspotUsersByCommentResilient(conn, commentVal);
+        source = "mikrotik";
+        lotPrintCache.set(lotCacheKey, {
+          users: usersRaw,
+          expiresAt: Date.now() + LOT_PRINT_CACHE_TTL,
+        });
+      } catch (mikErr) {
+        const stale = pickCachedHotspotUsersForLot(sc, commentVal, true);
+        if (stale && stale.length > 0) {
+          usersRaw = stale;
+          source = "cache";
+        } else {
+          throw mikErr;
+        }
+      }
     }
 
     const dbMetaRows =
-      dbRows.length > 0
-        ? dbRows.map((row) => ({
+      effectiveDbRows.length > 0
+        ? effectiveDbRows.map((row) => ({
             username: row.username,
             price: row.price,
             validity: row.validity,
@@ -1721,6 +1832,9 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
             .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal)));
 
     const users = buildLotPrintPayload(usersRaw, commentVal, profiles, dbMetaRows, fbPrice, fbValidity);
+    if (source === "mikrotik" && users.length > 0) {
+      scheduleLotPasswordBackfill(id, users);
+    }
     res.json({ users, total: users.length, source });
   } catch (err) {
     res.status(502).json({ error: formatRouterOsConnectionError(err) });
@@ -1803,6 +1917,7 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
         .from(vouchersTable)
         .where(and(eq(vouchersTable.routerId, id), isNotNull(vouchersTable.usedAt))),
     ]);
+    seedLotPrintCacheFromUsers(sc, users);
     const soldSet = new Set(soldRows.map((r) => r.username.toLowerCase()));
 
     // Patterns that identify system / non-batch comments — exclude from lots
