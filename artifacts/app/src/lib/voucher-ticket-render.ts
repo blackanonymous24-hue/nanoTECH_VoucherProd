@@ -8,8 +8,11 @@ import {
   getCustomDefault,
 } from "@/lib/voucher-ticket-defaults";
 import {
+  fetchAndApplyServerTicketTemplates,
   getPresetBody,
+  resolveTicketTemplateDisplayBody,
   resolveTicketTemplateSelection,
+  setStoredTicketPresetId,
 } from "@/lib/voucher-ticket-presets";
 
 const MKS = "<!--mks-mulai-->";
@@ -256,26 +259,48 @@ export function ticketTemplateUsesQrcode(template: string): boolean {
 }
 
 /**
- * Modèle effectif : serveur (si enregistré), sinon défaut local / préréglage stocké.
+ * Modèle effectif pour l'impression : même résolution que {@link TicketTemplateEditor}
+ * (presetId en base + corps enregistré + modèles intégrés serveur).
+ *
+ * Utilise `/api/tenant/ticket-template` (admin, manager, collaborateur, vendeur → tenant owner)
+ * et n'applique le localStorage qu'en cas d'échec API (pas quand le super-admin a validé
+ * un preset pour le compte cible).
  */
 export async function fetchEffectiveTicketTemplate(apiBase: string): Promise<string> {
-  let fromServer = "";
+  await fetchAndApplyServerTicketTemplates({});
+
+  let templateBody = "";
   let serverPresetId: unknown = null;
+  let apiOk = false;
+
   try {
-    const r = await fetch(`${apiBase}/api/admin/ticket-template`);
+    const r = await fetch(`${apiBase}/api/tenant/ticket-template`);
     if (r.ok) {
+      apiOk = true;
       const data = (await r.json()) as { template?: string | null; presetId?: string | null };
-      fromServer = data.template?.trim() ?? "";
+      templateBody = data.template?.trim() ?? "";
       serverPresetId = data.presetId;
     }
   } catch {
     /* ignore */
   }
-  if (fromServer) return fromServer;
+
   const resolved = resolveTicketTemplateSelection({
-    templateBody: "",
+    templateBody,
     serverPresetId,
+    skipLocalFallback: apiOk,
   });
-  if (resolved !== "custom") return getPresetBody(resolved);
+
+  const display = resolveTicketTemplateDisplayBody(templateBody, resolved);
+  if (display.trim()) {
+    if (apiOk) setStoredTicketPresetId(resolved);
+    return display;
+  }
+
+  if (resolved !== "custom") {
+    if (apiOk) setStoredTicketPresetId(resolved);
+    return getPresetBody(resolved);
+  }
+
   return getCustomDefault() || "";
 }
