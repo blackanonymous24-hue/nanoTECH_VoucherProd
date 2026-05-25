@@ -464,7 +464,6 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
                 ))}
               </select>
             )}
-            <span className="text-xs text-gray-400">↻ 3s</span>
           </div>
         </div>
       </CardHeader>
@@ -1101,7 +1100,6 @@ export default function Dashboard() {
                 </span>
               )}
             </CardTitle>
-                <span className="text-xs text-gray-400">↻ 10s</span>
           </div>
         </CardHeader>
 

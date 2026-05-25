@@ -1793,7 +1793,6 @@ function Dashboard({ token, vendor, onLogout }: {
                       <PackageOpen className="h-3.5 w-3.5 text-gray-400" />
                       Stock tickets (ce mois)
                     </CardTitle>
-                    <span className="text-[10px] text-gray-400">↻ 30s</span>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-3 pb-3">

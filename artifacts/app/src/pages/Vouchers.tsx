@@ -1721,7 +1721,7 @@ export default function Vouchers() {
                 <CardContent className="py-3">
                   <div className="space-y-1.5">
 
-                    {/* Ligne 1 : recherche + ↻ */}
+                    {/* Ligne 1 : recherche */}
                     <div className="flex items-center gap-2">
                       <div className="relative flex-1 min-w-0">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -1732,7 +1732,6 @@ export default function Vouchers() {
                           onChange={(e) => handleSearchChange(e.target.value)}
                         />
                       </div>
-                      <span className="flex-shrink-0 text-[11px] text-gray-400">↻ 30s</span>
                     </div>
 
                     {/* Ligne 2 : 4 filtres sur la même ligne */}
