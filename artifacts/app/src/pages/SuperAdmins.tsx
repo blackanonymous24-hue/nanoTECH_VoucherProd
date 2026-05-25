@@ -53,6 +53,8 @@ interface RouterRow {
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+/** Aligné sur l'API super-admin / routers : débit auto pour +1 slot routeur. */
+const CREDITS_PER_EXTRA_ROUTER = 10;
 const VALID_MONTHS = [1, 2, 3, 4, 5, 6, 12] as const;
 type ForfaitChoice = "24h" | "unlimited" | `${(typeof VALID_MONTHS)[number]}`;
 type CreateForfaitChoice = "0" | ForfaitChoice;
@@ -934,8 +936,16 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
     }
   };
 
-  const atRouterLimit =
-    routerLimit != null && routers.length >= routerLimit && panelView === "list";
+  const isAtRouterSlotLimit =
+    routerLimit != null && routers.length >= routerLimit;
+  const adminCredits = Math.max(0, admin.credits ?? 0);
+  const canExtendWithCredits = adminCredits >= CREDITS_PER_EXTRA_ROUTER;
+  /** Bloquer seulement si plafond atteint ET crédits insuffisants (l'API débite 10 crédits / slot). */
+  const blockAddRouter =
+    panelView === "list"
+    && isAtRouterSlotLimit
+    && !admin.isSuperAdmin
+    && !canExtendWithCredits;
 
   return (
     <>
@@ -969,7 +979,14 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                   <>
                     {routers.length} routeur{routers.length !== 1 ? "s" : ""}
                     {admin.isSuperAdmin ? " · Limite illimitée" : ` · Limite ${routerLimit}`}
-                    {atRouterLimit ? " · Plafond atteint (crédits requis pour extension auto)" : ""}
+                    {isAtRouterSlotLimit && !admin.isSuperAdmin
+                      ? canExtendWithCredits
+                        ? ` · Plafond atteint — ajout possible (${CREDITS_PER_EXTRA_ROUTER} crédits / routeur)`
+                        : " · Plafond atteint (crédits requis pour extension auto)"
+                      : ""}
+                    {!admin.isSuperAdmin && adminCredits > 0
+                      ? ` · Crédits : ${adminCredits}`
+                      : ""}
                   </>
                 )}
             </DialogDescription>
@@ -1062,8 +1079,14 @@ function AdminRoutersSheet({ admin, onClose }: { admin: AdminRow; onClose: () =>
                     size="sm"
                     className="gap-1 h-7"
                     onClick={openCreateForm}
-                    disabled={atRouterLimit}
-                    title={atRouterLimit ? "Limite de routeurs atteinte pour cet admin" : undefined}
+                    disabled={blockAddRouter}
+                    title={
+                      blockAddRouter
+                        ? `Limite atteinte (${routerLimit} routeurs). ${CREDITS_PER_EXTRA_ROUTER} crédits requis.`
+                        : isAtRouterSlotLimit && canExtendWithCredits
+                          ? `Extension auto : ${CREDITS_PER_EXTRA_ROUTER} crédits seront débités à l'ajout`
+                          : undefined
+                    }
                   >
                     <Plus className="h-3 w-3" /> Ajouter
                   </Button>
