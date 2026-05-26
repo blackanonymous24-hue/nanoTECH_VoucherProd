@@ -8,17 +8,13 @@ import {
   prefetchRouterDashboardPriority,
 } from "@/lib/prefetch-router-dashboard-priority";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
-import { readPriorityCache } from "@/lib/dashboard-priority";
+import { DASHBOARD_FRESH_MAX_AGE_MS, readPriorityCache } from "@/lib/dashboard-priority";
 
 /**
- * Tolerance d'age du cache au changement de routeur via le selecteur :
- * - cache <= 5 min → on garde (affichage instantane + refetch background)
- * - cache  > 5 min → on purge (skeleton de loading + fetch frais MikroTik)
- *
- * Evite d'afficher fugacement des KPI / sessions / IP-bindings figes depuis
- * plusieurs minutes quand l'utilisateur revient sur un routeur peu visite.
+ * Tolérance d'âge du cache au changement de routeur (sélecteur ou page Routeurs) :
+ * - cache <= 1 min → affichage instantané + refetch `fresh=1` en arrière-plan
+ * - cache  > 1 min → purge localStorage + queryClient, puis fetch frais
  */
-const SELECTOR_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 
 export type BorrowedRouter = {
   id: number;
@@ -243,23 +239,17 @@ export function RouterProvider({ children }: { children: ReactNode }) {
         ?? (borrowedRouterRef.current?.id === id ? borrowedRouterRef.current : null);
       setRouterIdentity(dbRouter?.name ?? null);
       setPingTrigger((n) => n + 1);
-      // Politique de fraicheur au changement de routeur via le selecteur :
-      // - si on a un snapshot dashboard-priority recent (<= 5 min) : on conserve
-      //   le cache pour un affichage instantane, useQuery refetch en arriere-plan
-      //   (staleTime 10s + refetchOnMount "always").
-      // - sinon (cache > 5 min ou absent) : on purge le localStorage scope a ce
-      //   routeur ET les entrees queryClient correspondantes pour afficher un
-      //   skeleton de chargement plutot que des valeurs figees d'il y a >5 min.
       const cached = readPriorityCache(id);
       const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
-      const cacheIsTooOld = cachedAgeMs > SELECTOR_CACHE_MAX_AGE_MS;
+      const cacheIsTooOld = cachedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS;
       if (cacheIsTooOld) {
         clearRouterScopedClientCaches(id);
         void queryClient.removeQueries({
           predicate: (query) => query.queryKey.includes(id),
         });
       }
-      void prefetchRouterDashboardPriority(id);
+      void queryClient.invalidateQueries({ queryKey: ["router-dashboard-priority", id] });
+      void prefetchRouterDashboardPriority(id, { fresh: true });
     }
   }, [isRouterLocked, allRouters]);
 
@@ -275,15 +265,32 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   // Annuler toutes les requêtes en cours de l'ancien routeur quand on change.
   // Évite que des réponses tardives d'un router A polluent l'affichage du router B.
   const prevRouterIdRef = useRef<number | null>(selectedRouterId);
+  const freshPrefetchDoneRef = useRef<number | null>(null);
   useEffect(() => {
     const prevId = prevRouterIdRef.current;
     prevRouterIdRef.current = selectedRouterId;
     if (prevId === null || prevId === selectedRouterId) return;
-    // Annuler toutes les queries dont la clé contient l'ancien router ID
     void queryClient.cancelQueries({
       predicate: (query) => query.queryKey.includes(prevId),
     });
   }, [selectedRouterId]);
+
+  /** Rechargement KPI dashboard au changement de routeur (y compris restauration localStorage). */
+  useEffect(() => {
+    if (!selectedRouterId || !isAuthenticated) return;
+    if (freshPrefetchDoneRef.current === selectedRouterId) return;
+    freshPrefetchDoneRef.current = selectedRouterId;
+    const cached = readPriorityCache(selectedRouterId);
+    const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
+    if (cachedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS) {
+      clearRouterScopedClientCaches(selectedRouterId);
+      void queryClient.removeQueries({
+        predicate: (query) => query.queryKey.includes(selectedRouterId),
+      });
+    }
+    void queryClient.invalidateQueries({ queryKey: ["router-dashboard-priority", selectedRouterId] });
+    void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true });
+  }, [selectedRouterId, isAuthenticated]);
 
   // Removed aggressive bootstrap prewarm to keep MikroTik traffic focused on
   // the currently open page actions and avoid background contention.

@@ -2890,10 +2890,12 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   }
 });
 
-async function buildDashboardKpiFastSnapshot(id: number) {
+async function buildDashboardKpiFastSnapshot(id: number, opts?: { freshOnly?: boolean }) {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) throw new Error("ROUTER_NOT_FOUND");
   const sc = routerCacheScope(r.ownerAdminId, id);
+  const freshOnly = !!opts?.freshOnly;
+  const usersCountMaxAgeMs = freshOnly ? 60_000 : 20_000;
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   markRouterActive(id);
@@ -2915,18 +2917,23 @@ async function buildDashboardKpiFastSnapshot(id: number) {
 
   const sessionsKey = `sessions:${sc}`;
   const sessionsFresh = mGet(sessionsKey) as unknown[] | null;
-  const sessionsStale = mGetStale(sessionsKey) as unknown[] | null;
+  const sessionsStale = freshOnly ? null : (mGetStale(sessionsKey) as unknown[] | null);
   const fastEntryBefore = _sessionsFastCount.get(sc);
   const fastCountBefore = fastEntryBefore && (now - fastEntryBefore.cachedAt) < 8_000 ? fastEntryBefore.count : null;
 
   const infoKey = `info:${sc}`;
   const infoFresh = mGet(infoKey);
-  const infoStale = mGetStale(infoKey);
+  const infoStale = freshOnly ? null : mGetStale(infoKey);
 
-  const usersCachedBefore = _usersCountCache.get(sc) ?? null;
+  const usersCachedBeforeRaw = _usersCountCache.get(sc) ?? null;
+  const usersCachedBefore =
+    usersCachedBeforeRaw
+    && (now - usersCachedBeforeRaw.cachedAt) < usersCountMaxAgeMs
+      ? usersCachedBeforeRaw
+      : null;
   const userHit   = userCache.get(sc);
   const userFresh = !!userHit && now < userHit.expiresAt;
-  const COUNT_FRESH_MS = 20_000;
+  const COUNT_FRESH_MS = usersCountMaxAgeMs;
 
   // Détecter les manques (cold start pour chaque KPI)
   const needSessionsCold = !sessionsFresh && !sessionsStale && fastCountBefore === null && !_sessionsFastRefreshing.has(id);
@@ -3010,13 +3017,13 @@ async function buildDashboardKpiFastSnapshot(id: number) {
 
   // Lire les caches après les fetches éventuels
   const sessionsFreshAfter = mGet(sessionsKey) as unknown[] | null;
-  const sessionsStaleAfter = mGetStale(sessionsKey) as unknown[] | null;
+  const sessionsStaleAfter = freshOnly ? null : (mGetStale(sessionsKey) as unknown[] | null);
   const fastEntryAfter     = _sessionsFastCount.get(sc);
   const fastCountAfter     = fastEntryAfter && (now - fastEntryAfter.cachedAt) < 8_000 ? fastEntryAfter.count : null;
   const sessionsCount = sessionsFreshAfter?.length ?? sessionsStaleAfter?.length ?? fastCountAfter ?? 0;
 
   const infoFreshAfter = mGet(infoKey);
-  const infoStaleAfter = mGetStale(infoKey);
+  const infoStaleAfter = freshOnly ? null : mGetStale(infoKey);
   const info = (infoFreshAfter ?? infoStaleAfter ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
 
   const usersCached = _usersCountCache.get(sc) ?? null;
@@ -3110,8 +3117,8 @@ async function runDashboardSalesSyncJob(
   });
 }
 
-async function buildDashboardPrioritySnapshot(id: number) {
-  const fast = await buildDashboardKpiFastSnapshot(id);
+async function buildDashboardPrioritySnapshot(id: number, opts?: { freshOnly?: boolean }) {
+  const fast = await buildDashboardKpiFastSnapshot(id, opts);
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) throw new Error("ROUTER_NOT_FOUND");
   const sc = routerCacheScope(r.ownerAdminId, id);
@@ -3281,10 +3288,11 @@ router.get("/routers/:id/dashboard-priority", async (req, res): Promise<void> =>
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
   const fastOnly = req.query.fast === "1" || req.query.fast === "true";
+  const freshOnly = req.query.fresh === "1" || req.query.fresh === "true";
   try {
     const snapshot = fastOnly
-      ? await buildDashboardKpiFastSnapshot(id)
-      : await buildDashboardPrioritySnapshot(id);
+      ? await buildDashboardKpiFastSnapshot(id, { freshOnly })
+      : await buildDashboardPrioritySnapshot(id, { freshOnly });
     res.json(snapshot);
   } catch (err) {
     if (err instanceof Error && err.message === "ROUTER_NOT_FOUND") {

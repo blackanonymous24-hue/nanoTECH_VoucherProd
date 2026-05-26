@@ -1,5 +1,6 @@
 import { queryClient } from "@/lib/queryClient";
 import {
+  DASHBOARD_FRESH_MAX_AGE_MS,
   mergeKnownPriorityFields,
   readPriorityCache,
   writePriorityCache,
@@ -15,17 +16,27 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
  * 1) fast = clients actifs + utilisateurs (réponse ~2–5 s)
  * 2) complet = ventes en arrière-plan
  */
-export async function prefetchRouterDashboardPriority(routerId: number): Promise<PrioritySnapshot | null> {
+export async function prefetchRouterDashboardPriority(
+  routerId: number,
+  opts?: { fresh?: boolean },
+): Promise<PrioritySnapshot | null> {
   const qk = ["router-dashboard-priority", routerId] as const;
   const cached = queryClient.getQueryData<PrioritySnapshot>(qk);
-  if (cached?.availability?.sessionsKnown && cached?.availability?.usersKnown) {
+  const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
+  const freshQ = opts?.fresh ? "&fresh=1" : "";
+  if (
+    !opts?.fresh
+    && cached?.availability?.sessionsKnown
+    && cached?.availability?.usersKnown
+    && cachedAgeMs < DASHBOARD_FRESH_MAX_AGE_MS
+  ) {
     return cached;
   }
 
   let fastSnap: PrioritySnapshot | null = null;
 
   try {
-    const fastRes = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority?fast=1`);
+    const fastRes = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority?fast=1${freshQ}`);
     if (fastRes.ok) {
       fastSnap = (await fastRes.json()) as PrioritySnapshot;
       const prev = queryClient.getQueryData<PrioritySnapshot>(qk);
@@ -39,7 +50,7 @@ export async function prefetchRouterDashboardPriority(routerId: number): Promise
     fastSnap = readPriorityCache(routerId);
   }
 
-  void fetch(`${BASE}/api/routers/${routerId}/dashboard-priority`)
+  void fetch(`${BASE}/api/routers/${routerId}/dashboard-priority${opts?.fresh ? "?fresh=1" : ""}`)
     .then(async (res) => {
       if (!res.ok) return;
       const full = (await res.json()) as PrioritySnapshot;

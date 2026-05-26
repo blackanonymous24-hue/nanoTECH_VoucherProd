@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
+  DASHBOARD_FRESH_MAX_AGE_MS,
   isPriorityCacheDisplayable,
   mergePrioritySnapshots,
   readPriorityCache,
@@ -40,7 +41,10 @@ export function useRouterDashboardPriority(routerId: number | null) {
   } = useQuery<PrioritySnapshot>({
     queryKey: ["router-dashboard-priority", routerId],
     queryFn: async ({ signal }) => {
-      const res = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority`, { signal });
+      const seed = readPriorityCache(routerId);
+      const seedAgeMs = seed?.serverTs ? Date.now() - seed.serverTs : Infinity;
+      const freshQ = seedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS ? "?fresh=1" : "";
+      const res = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority${freshQ}`, { signal });
       if (!res.ok) throw new Error("dashboard priority unavailable");
       return res.json() as Promise<PrioritySnapshot>;
     },

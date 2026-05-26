@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { pingRouterTcpApi, ROUTER_OFFLINE_LABEL } from "@/lib/router-connection-test";
-import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
 
 /**
  * Ping TCP (`/ping?force=1`) avant connexion (3 tentatives courtes), toujours un test réel sans cache.
@@ -34,7 +33,6 @@ export function useSelectRouterWithPing() {
       activeRef.current = true;
       setPingingId(id);
       setIsPingFailed(false);
-      void prefetchRouterDashboardPriority(id);
 
       let success = false;
 

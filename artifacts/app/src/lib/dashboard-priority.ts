@@ -37,8 +37,10 @@ export interface PrioritySnapshot {
 }
 
 const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
-/** Âge max du cache local pour affichage instantané au changement de routeur. */
-export const PRIORITY_CACHE_MAX_AGE_MS = 30 * 60_000;
+/** Âge max du cache local (KPI dashboard) — politique « données fraîches < 1 min » au changement de routeur. */
+export const DASHBOARD_FRESH_MAX_AGE_MS = 60_000;
+/** @deprecated Utiliser DASHBOARD_FRESH_MAX_AGE_MS */
+export const PRIORITY_CACHE_MAX_AGE_MS = DASHBOARD_FRESH_MAX_AGE_MS;
 
 export function readPriorityCache(routerId: number | null): PrioritySnapshot | null {
   if (!routerId) return null;
@@ -47,7 +49,7 @@ export function readPriorityCache(routerId: number | null): PrioritySnapshot | n
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PrioritySnapshot;
     if (!parsed || typeof parsed.serverTs !== "number") return null;
-    if (Date.now() - parsed.serverTs > PRIORITY_CACHE_MAX_AGE_MS) return null;
+    if (Date.now() - parsed.serverTs > DASHBOARD_FRESH_MAX_AGE_MS) return null;
     return parsed;
   } catch {
     return null;

@@ -770,7 +770,16 @@ export default function Dashboard() {
         refetchIntervalInBackground: false,
         staleTime: 800,
         initialData: readDashLogsCache(selectedRouterId),
-        initialDataUpdatedAt: readDashLogsCache(selectedRouterId) ? Date.now() : undefined,
+        initialDataUpdatedAt: (() => {
+          if (!selectedRouterId) return undefined;
+          try {
+            const raw = localStorage.getItem(`${DASH_LOGS_CACHE_KEY}:${selectedRouterId}`);
+            const parsed = raw ? (JSON.parse(raw) as { ts?: number }) : null;
+            return typeof parsed?.ts === "number" ? parsed.ts : undefined;
+          } catch {
+            return undefined;
+          }
+        })(),
       },
     },
   );
