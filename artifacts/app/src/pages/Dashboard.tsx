@@ -10,6 +10,8 @@ import { useCurrency } from "@/lib/use-currency";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
+import { VOUCHERNET_APP_RESUME_EVENT } from "@/lib/dashboard-resume";
+import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -406,6 +408,17 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     }
     lastResetKeyRef.current = key;
   }, [routerId, selectedIface]);
+
+  useEffect(() => {
+    const onResume = () => {
+      if (!routerId || !enabled) return;
+      setHistory([]);
+      void refetchIfaces();
+      if (selectedIface) void refetchTraffic();
+    };
+    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onResume);
+    return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onResume);
+  }, [routerId, enabled, selectedIface, refetchIfaces, refetchTraffic]);
 
   // Reprise après arrière-plan : refetch une seule fois quand le routeur redevient actif.
   const canFetchBase = isVisible && !!routerId && enabled;
@@ -874,6 +887,19 @@ export default function Dashboard() {
     refetchLogs();
     refetchPriority();
   }, [pingTrigger, refetch, refetchLogs, refetchPriority]);
+
+  useEffect(() => {
+    const onAppResume = () => {
+      if (!selectedRouterId || isPingFailed) return;
+      void queryClient.resetQueries({
+        queryKey: getListRouterLogsQueryKey(selectedRouterId, DASH_LOGS_PARAMS),
+        exact: true,
+      });
+      void refetchLogs();
+    };
+    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
+    return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
+  }, [selectedRouterId, isPingFailed, refetchLogs]);
 
   const handleRefresh = () => {
     if (isPingFailed) return;

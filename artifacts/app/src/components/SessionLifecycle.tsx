@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { notifyAppResume, readSelectedRouterIdFromStorage, refreshDashboardDataOnResume } from "@/lib/dashboard-resume";
 import { setApiRequestPause } from "@/lib/installAuthFetch";
 import { queryClient } from "@/lib/queryClient";
 import {
@@ -239,6 +240,13 @@ export function SessionLifecycle() {
         }
         const lsAct = readSharedLastActivityTs();
         if (lsAct > lastSharedRef.current) lastSharedRef.current = lsAct;
+        notifyAppResume();
+        const resumeRouterId = readSelectedRouterIdFromStorage();
+        if (resumeRouterId != null) {
+          void refreshDashboardDataOnResume(resumeRouterId);
+        } else {
+          void queryClient.invalidateQueries({ queryKey: ["router-dashboard-priority"] });
+        }
         if (apkNative) {
           void queryClient.invalidateQueries();
         }

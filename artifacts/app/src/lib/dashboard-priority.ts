@@ -73,6 +73,15 @@ export function isPriorityCacheDisplayable(snapshot: PrioritySnapshot | null | u
   return !!(a.sessionsKnown || a.usersKnown || a.salesKnown);
 }
 
+/** Snapshot accepté seulement s’il est postérieur à l’époque de fraîcheur (switch routeur ou reprise app). */
+export function snapshotValidForFreshEpoch(
+  snapshot: PrioritySnapshot | null | undefined,
+  epochStartedAt: number,
+): snapshot is PrioritySnapshot {
+  if (!snapshot || typeof snapshot.serverTs !== "number") return false;
+  return snapshot.serverTs >= epochStartedAt - 800;
+}
+
 function newerSnapshot(a: PrioritySnapshot, b: PrioritySnapshot): PrioritySnapshot {
   const aTs = typeof a.serverTs === "number" ? a.serverTs : 0;
   const bTs = typeof b.serverTs === "number" ? b.serverTs : 0;

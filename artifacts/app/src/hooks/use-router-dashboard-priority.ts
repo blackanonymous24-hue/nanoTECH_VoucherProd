@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
@@ -7,19 +7,13 @@ import {
   isPriorityCacheDisplayable,
   mergePrioritySnapshots,
   readPriorityCache,
+  snapshotValidForFreshEpoch,
   writePriorityCache,
   type PrioritySnapshot,
 } from "@/lib/dashboard-priority";
+import { VOUCHERNET_APP_RESUME_EVENT } from "@/lib/dashboard-resume";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-function snapshotValidForSwitch(
-  snapshot: PrioritySnapshot | null | undefined,
-  switchStartedAt: number,
-): snapshot is PrioritySnapshot {
-  if (!snapshot || typeof snapshot.serverTs !== "number") return false;
-  return snapshot.serverTs >= switchStartedAt - 800;
-}
 
 /**
  * Même flux temps réel que la carte « Vendu aujourd'hui » du tableau de bord :
@@ -32,10 +26,16 @@ export function useRouterDashboardPriority(routerId: number | null) {
   const [sseConnected, setSseConnected] = useState(false);
 
   const prevRouterIdRef = useRef<number | null>(null);
-  const switchStartedAtRef = useRef(0);
+  const freshnessEpochRef = useRef(0);
+
+  const bumpFreshnessEpoch = useCallback(() => {
+    freshnessEpochRef.current = Date.now();
+    setSsePriority(null);
+    setSseConnected(false);
+  }, []);
 
   if (routerId !== prevRouterIdRef.current) {
-    switchStartedAtRef.current = Date.now();
+    freshnessEpochRef.current = Date.now();
     prevRouterIdRef.current = routerId;
   }
 
@@ -44,7 +44,16 @@ export function useRouterDashboardPriority(routerId: number | null) {
     setSseConnected(false);
   }, [routerId]);
 
-  const switchStartedAt = switchStartedAtRef.current;
+  useEffect(() => {
+    const onAppResume = () => {
+      if (!routerId) return;
+      bumpFreshnessEpoch();
+    };
+    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
+    return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
+  }, [routerId, bumpFreshnessEpoch]);
+
+  const freshnessEpoch = freshnessEpochRef.current;
 
   const {
     data: httpPriority,
@@ -84,7 +93,7 @@ export function useRouterDashboardPriority(routerId: number | null) {
     const onPriority = (ev: MessageEvent) => {
       try {
         const payload = JSON.parse(ev.data) as PrioritySnapshot;
-        if (!snapshotValidForSwitch(payload, switchStartedAtRef.current)) return;
+        if (!snapshotValidForFreshEpoch(payload, freshnessEpochRef.current)) return;
         setSsePriority(payload);
         writePriorityCache(routerId, payload);
       } catch {
@@ -100,10 +109,10 @@ export function useRouterDashboardPriority(routerId: number | null) {
     };
   }, [routerId, authToken, isVisible]);
 
-  const httpForMerge = snapshotValidForSwitch(httpPriority, switchStartedAt)
+  const httpForMerge = snapshotValidForFreshEpoch(httpPriority, freshnessEpoch)
     ? httpPriority
     : undefined;
-  const sseForMerge = snapshotValidForSwitch(ssePriority, switchStartedAt)
+  const sseForMerge = snapshotValidForFreshEpoch(ssePriority, freshnessEpoch)
     ? ssePriority
     : null;
 
@@ -117,15 +126,15 @@ export function useRouterDashboardPriority(routerId: number | null) {
   const cacheFallback = useMemo(() => {
     if (!routerId) return null;
     const cached = readPriorityCache(routerId);
-    if (!snapshotValidForSwitch(cached, switchStartedAt)) return null;
+    if (!snapshotValidForFreshEpoch(cached, freshnessEpoch)) return null;
     return isPriorityCacheDisplayable(cached) ? cached : null;
-  }, [routerId, switchStartedAt, httpForMerge, sseForMerge]);
+  }, [routerId, freshnessEpoch, httpForMerge, sseForMerge]);
 
   const displayPriority = livePriority ?? cacheFallback;
 
   useEffect(() => {
     if (!routerId || !displayPriority) return;
-    if (!snapshotValidForSwitch(displayPriority, switchStartedAtRef.current)) return;
+    if (!snapshotValidForFreshEpoch(displayPriority, freshnessEpochRef.current)) return;
     writePriorityCache(routerId, displayPriority);
   }, [routerId, displayPriority]);
 
@@ -143,10 +152,10 @@ export function useRouterDashboardPriority(routerId: number | null) {
 
   const liveSnapshotAgeMs = displayPriority?.serverTs ? Date.now() - displayPriority.serverTs : null;
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > DASHBOARD_FRESH_MAX_AGE_MS;
-  const awaitingRouterSwitch =
+  const awaitingFreshData =
     !!routerId && !displayPriority && (priorityLoading || priorityQueryFetching);
   const salesFetching =
-    awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
+    awaitingFreshData || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
 
   return {
     livePriority: displayPriority,
@@ -155,13 +164,14 @@ export function useRouterDashboardPriority(routerId: number | null) {
     rankingReady,
     salesFetching,
     sseConnected,
-    priorityLoading: priorityLoading || awaitingRouterSwitch,
+    priorityLoading: priorityLoading || awaitingFreshData,
     priorityUpdatedAt,
     priorityQueryFetching,
     liveSnapshotAgeMs,
     refetchPriority,
     priorityIsError,
     priorityErrorUpdatedAt,
-    awaitingRouterSwitch,
+    awaitingRouterSwitch: awaitingFreshData,
+    awaitingFreshData,
   };
 }
