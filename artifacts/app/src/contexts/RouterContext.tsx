@@ -239,17 +239,6 @@ export function RouterProvider({ children }: { children: ReactNode }) {
         ?? (borrowedRouterRef.current?.id === id ? borrowedRouterRef.current : null);
       setRouterIdentity(dbRouter?.name ?? null);
       setPingTrigger((n) => n + 1);
-      const cached = readPriorityCache(id);
-      const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
-      const cacheIsTooOld = cachedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS;
-      if (cacheIsTooOld) {
-        clearRouterScopedClientCaches(id);
-        void queryClient.removeQueries({
-          predicate: (query) => query.queryKey.includes(id),
-        });
-      }
-      void queryClient.invalidateQueries({ queryKey: ["router-dashboard-priority", id] });
-      void prefetchRouterDashboardPriority(id, { fresh: true });
     }
   }, [isRouterLocked, allRouters]);
 
@@ -264,31 +253,32 @@ export function RouterProvider({ children }: { children: ReactNode }) {
 
   // Annuler toutes les requêtes en cours de l'ancien routeur quand on change.
   // Évite que des réponses tardives d'un router A polluent l'affichage du router B.
-  const prevRouterIdRef = useRef<number | null>(selectedRouterId);
-  const freshPrefetchDoneRef = useRef<number | null>(null);
+  const prevRouterIdRef = useRef<number | null>(null);
   useEffect(() => {
+    if (!isAuthenticated || selectedRouterId == null) return;
+
     const prevId = prevRouterIdRef.current;
     prevRouterIdRef.current = selectedRouterId;
-    if (prevId === null || prevId === selectedRouterId) return;
-    void queryClient.cancelQueries({
-      predicate: (query) => query.queryKey.includes(prevId),
-    });
-  }, [selectedRouterId]);
+    if (prevId === selectedRouterId) return;
 
-  /** Rechargement KPI dashboard au changement de routeur (y compris restauration localStorage). */
-  useEffect(() => {
-    if (!selectedRouterId || !isAuthenticated) return;
-    if (freshPrefetchDoneRef.current === selectedRouterId) return;
-    freshPrefetchDoneRef.current = selectedRouterId;
+    if (prevId != null) {
+      void queryClient.cancelQueries({
+        queryKey: ["router-dashboard-priority", prevId],
+        exact: true,
+      });
+    }
+
     const cached = readPriorityCache(selectedRouterId);
     const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
     if (cachedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS) {
       clearRouterScopedClientCaches(selectedRouterId);
-      void queryClient.removeQueries({
-        predicate: (query) => query.queryKey.includes(selectedRouterId),
-      });
     }
-    void queryClient.invalidateQueries({ queryKey: ["router-dashboard-priority", selectedRouterId] });
+
+    // Vide les KPI en mémoire (évite d'afficher le routeur précédent pendant le fetch).
+    void queryClient.resetQueries({
+      queryKey: ["router-dashboard-priority", selectedRouterId],
+      exact: true,
+    });
     void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true });
   }, [selectedRouterId, isAuthenticated]);
 

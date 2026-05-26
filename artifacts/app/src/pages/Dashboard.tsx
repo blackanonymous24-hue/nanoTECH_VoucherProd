@@ -595,6 +595,7 @@ export default function Dashboard() {
     livePriority,
     sales,
     salesKpiReady,
+    salesFetching,
     sseConnected,
     priorityLoading,
     priorityUpdatedAt,
@@ -603,6 +604,7 @@ export default function Dashboard() {
     priorityErrorUpdatedAt,
     refetchPriority,
     liveSnapshotAgeMs,
+    awaitingRouterSwitch,
   } = useRouterDashboardPriority(isPingFailed ? null : selectedRouterId);
 
   // Stable callback — uses refs to avoid stale closures
@@ -728,11 +730,10 @@ export default function Dashboard() {
     !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
   const routerInfo = (livePriority?.info ?? null) as RouterInfo | null;
   const cpuLoadLabel = formatCpuLoad(routerInfo?.cpuLoad ?? null);
-  const infoLoading = !!selectedRouterId && !infoKpiReady && (priorityLoading || !livePriority);
+  const infoLoading = !!selectedRouterId && (awaitingRouterSwitch || (!infoKpiReady && (priorityLoading || !livePriority)));
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
-  const sessionsFetching = (!sseConnected || isLiveSnapshotStale) && priorityQueryFetching;
-  const usersFetching = (!sseConnected || isLiveSnapshotStale) && priorityQueryFetching;
-  const salesFetching = (!sseConnected || isLiveSnapshotStale) && priorityQueryFetching;
+  const sessionsFetching = awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
+  const usersFetching = awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
 
   const priorityReady =
     !!selectedRouterId && sessionsKpiReady && usersKpiReady && salesKpiReady && infoKpiReady;
@@ -1090,7 +1091,11 @@ export default function Dashboard() {
         </Link>
         {/* ── Trafic : desktop cols 1-2 row 3, mobile pleine largeur ── */}
         <div className="col-span-2 order-6 lg:col-start-1 lg:row-start-3 flex flex-col lg:h-[300px]">
-          <TrafficMonitorCard routerId={selectedRouterId} enabled={!!selectedRouterId && !isPingFailed} />
+          <TrafficMonitorCard
+            key={selectedRouterId ?? "none"}
+            routerId={selectedRouterId}
+            enabled={!!selectedRouterId && !isPingFailed}
+          />
         </div>
         {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}
         <div className="col-span-2 order-7 lg:col-start-3 lg:row-start-2 lg:row-span-2 flex flex-col lg:h-[384px]">

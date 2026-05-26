@@ -39,12 +39,17 @@ export async function prefetchRouterDashboardPriority(
     const fastRes = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority?fast=1${freshQ}`);
     if (fastRes.ok) {
       fastSnap = (await fastRes.json()) as PrioritySnapshot;
-      const prev = queryClient.getQueryData<PrioritySnapshot>(qk);
-      const merged = prev?.availability?.salesKnown
-        ? mergeKnownPriorityFields(fastSnap, prev)
-        : fastSnap;
-      queryClient.setQueryData(qk, merged);
-      writePriorityCache(routerId, merged);
+      if (opts?.fresh) {
+        queryClient.setQueryData(qk, fastSnap);
+        writePriorityCache(routerId, fastSnap);
+      } else {
+        const prev = queryClient.getQueryData<PrioritySnapshot>(qk);
+        const merged = prev?.availability?.salesKnown
+          ? mergeKnownPriorityFields(fastSnap, prev)
+          : fastSnap;
+        queryClient.setQueryData(qk, merged);
+        writePriorityCache(routerId, merged);
+      }
     }
   } catch {
     fastSnap = readPriorityCache(routerId);
@@ -54,7 +59,7 @@ export async function prefetchRouterDashboardPriority(
     .then(async (res) => {
       if (!res.ok) return;
       const full = (await res.json()) as PrioritySnapshot;
-      const prev = queryClient.getQueryData<PrioritySnapshot>(qk) ?? fastSnap;
+      const prev = opts?.fresh ? null : (queryClient.getQueryData<PrioritySnapshot>(qk) ?? fastSnap);
       const merged = prev ? mergeKnownPriorityFields(prev, full) : full;
       queryClient.setQueryData(qk, merged);
       writePriorityCache(routerId, merged);

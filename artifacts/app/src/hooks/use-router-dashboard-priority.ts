@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
@@ -13,6 +13,14 @@ import {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+function snapshotValidForSwitch(
+  snapshot: PrioritySnapshot | null | undefined,
+  switchStartedAt: number,
+): snapshot is PrioritySnapshot {
+  if (!snapshot || typeof snapshot.serverTs !== "number") return false;
+  return snapshot.serverTs >= switchStartedAt - 800;
+}
+
 /**
  * Même flux temps réel que la carte « Vendu aujourd'hui » du tableau de bord :
  * SSE dashboard-priority + repli HTTP + cache localStorage par routeur (style MikHmon).
@@ -23,12 +31,20 @@ export function useRouterDashboardPriority(routerId: number | null) {
   const [ssePriority, setSsePriority] = useState<PrioritySnapshot | null>(null);
   const [sseConnected, setSseConnected] = useState(false);
 
-  // Affichage instantané au changement de routeur : dernières valeurs connues.
-  useEffect(() => {
-    const seed = readPriorityCache(routerId);
-    setSsePriority(isPriorityCacheDisplayable(seed) ? seed : null);
+  const prevRouterIdRef = useRef<number | null>(null);
+  const switchStartedAtRef = useRef(0);
+
+  if (routerId !== prevRouterIdRef.current) {
+    switchStartedAtRef.current = Date.now();
+    prevRouterIdRef.current = routerId;
+  }
+
+  useLayoutEffect(() => {
+    setSsePriority(null);
     setSseConnected(false);
   }, [routerId]);
+
+  const switchStartedAt = switchStartedAtRef.current;
 
   const {
     data: httpPriority,
@@ -41,10 +57,10 @@ export function useRouterDashboardPriority(routerId: number | null) {
   } = useQuery<PrioritySnapshot>({
     queryKey: ["router-dashboard-priority", routerId],
     queryFn: async ({ signal }) => {
-      const seed = readPriorityCache(routerId);
-      const seedAgeMs = seed?.serverTs ? Date.now() - seed.serverTs : Infinity;
-      const freshQ = seedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS ? "?fresh=1" : "";
-      const res = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority${freshQ}`, { signal });
+      const res = await fetch(
+        `${BASE}/api/routers/${routerId}/dashboard-priority?fresh=1`,
+        { signal },
+      );
       if (!res.ok) throw new Error("dashboard priority unavailable");
       return res.json() as Promise<PrioritySnapshot>;
     },
@@ -54,9 +70,6 @@ export function useRouterDashboardPriority(routerId: number | null) {
     staleTime: 10_000,
     retry: false,
     throwOnError: false,
-    placeholderData: () => readPriorityCache(routerId) ?? undefined,
-    initialData: () => readPriorityCache(routerId) ?? undefined,
-    initialDataUpdatedAt: () => readPriorityCache(routerId)?.serverTs,
     refetchOnMount: "always",
   });
 
@@ -71,6 +84,7 @@ export function useRouterDashboardPriority(routerId: number | null) {
     const onPriority = (ev: MessageEvent) => {
       try {
         const payload = JSON.parse(ev.data) as PrioritySnapshot;
+        if (!snapshotValidForSwitch(payload, switchStartedAtRef.current)) return;
         setSsePriority(payload);
         writePriorityCache(routerId, payload);
       } catch {
@@ -86,42 +100,68 @@ export function useRouterDashboardPriority(routerId: number | null) {
     };
   }, [routerId, authToken, isVisible]);
 
-  const livePriority = mergePrioritySnapshots(httpPriority, ssePriority, sseConnected, routerId);
+  const httpForMerge = snapshotValidForSwitch(httpPriority, switchStartedAt)
+    ? httpPriority
+    : undefined;
+  const sseForMerge = snapshotValidForSwitch(ssePriority, switchStartedAt)
+    ? ssePriority
+    : null;
+
+  const livePriority = useMemo(
+    () => mergePrioritySnapshots(httpForMerge, sseForMerge, sseConnected, routerId, {
+      skipCacheMerge: true,
+    }),
+    [httpForMerge, sseForMerge, sseConnected, routerId],
+  );
+
+  const cacheFallback = useMemo(() => {
+    if (!routerId) return null;
+    const cached = readPriorityCache(routerId);
+    if (!snapshotValidForSwitch(cached, switchStartedAt)) return null;
+    return isPriorityCacheDisplayable(cached) ? cached : null;
+  }, [routerId, switchStartedAt, httpForMerge, sseForMerge]);
+
+  const displayPriority = livePriority ?? cacheFallback;
 
   useEffect(() => {
-    if (!routerId || !livePriority) return;
-    writePriorityCache(routerId, livePriority);
-  }, [routerId, livePriority]);
+    if (!routerId || !displayPriority) return;
+    if (!snapshotValidForSwitch(displayPriority, switchStartedAtRef.current)) return;
+    writePriorityCache(routerId, displayPriority);
+  }, [routerId, displayPriority]);
 
-  const sales = livePriority?.sales;
+  const sales = displayPriority?.sales;
   const salesKpiReady =
     !!routerId &&
     !!sales &&
     sales._cachedAt != null &&
-    (livePriority?.availability?.salesKnown === true || livePriority?.availability == null);
+    (displayPriority?.availability?.salesKnown === true || displayPriority?.availability == null);
 
   const rankingReady =
     !!routerId &&
-    Array.isArray(livePriority?.vendorRanking) &&
-    (livePriority?.availability?.vendorRankingKnown === true || livePriority?.availability == null);
+    Array.isArray(displayPriority?.vendorRanking) &&
+    (displayPriority?.availability?.vendorRankingKnown === true || displayPriority?.availability == null);
 
-  const liveSnapshotAgeMs = livePriority?.serverTs ? Date.now() - livePriority.serverTs : null;
-  const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
-  const salesFetching = (!sseConnected || isLiveSnapshotStale) && priorityQueryFetching;
+  const liveSnapshotAgeMs = displayPriority?.serverTs ? Date.now() - displayPriority.serverTs : null;
+  const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > DASHBOARD_FRESH_MAX_AGE_MS;
+  const awaitingRouterSwitch =
+    !!routerId && !displayPriority && (priorityLoading || priorityQueryFetching);
+  const salesFetching =
+    awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
 
   return {
-    livePriority,
+    livePriority: displayPriority,
     sales,
     salesKpiReady,
     rankingReady,
     salesFetching,
     sseConnected,
-    priorityLoading,
+    priorityLoading: priorityLoading || awaitingRouterSwitch,
     priorityUpdatedAt,
     priorityQueryFetching,
     liveSnapshotAgeMs,
     refetchPriority,
     priorityIsError,
     priorityErrorUpdatedAt,
+    awaitingRouterSwitch,
   };
 }

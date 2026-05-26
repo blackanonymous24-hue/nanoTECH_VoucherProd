@@ -115,8 +115,9 @@ export function mergePrioritySnapshots(
   sse: PrioritySnapshot | null,
   sseConnected: boolean,
   routerId?: number | null,
+  opts?: { skipCacheMerge?: boolean },
 ): PrioritySnapshot | null {
-  const cached = routerId != null ? readPriorityCache(routerId) : null;
+  const cached = opts?.skipCacheMerge ? null : (routerId != null ? readPriorityCache(routerId) : null);
 
   let live: PrioritySnapshot | null = null;
   if (!sse) live = http ?? null;
