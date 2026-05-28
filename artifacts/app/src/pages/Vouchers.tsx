@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRefetchOnEmpty } from "@/hooks/use-refetch-on-empty";
 import {
@@ -534,7 +534,8 @@ export default function Vouchers() {
     // getCachedUsers (MikroTik, TTL 5 min serveur), un lot supprimé disparaît dès que le
     // cache serveur expire, ou immédiatement après invalidateUserCache (delete/disable).
     staleTime: 0,
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
     gcTime: 30 * 60_000,
     initialData: activeRouterId != null ? _vouchersCache[activeRouterId]?.lots : undefined,
     initialDataUpdatedAt: activeRouterId != null ? _vouchersCache[activeRouterId]?.lotsTs : undefined,
@@ -629,8 +630,13 @@ export default function Vouchers() {
 
   // ── Users query — list view only, server-side filters, limit 2000 ─────────────
   // For the default (unfiltered) case, use module-level cache so list shows instantly on re-visit.
-  const isDefaultFilter = !debouncedSearch && filterProfile === "all" && filterComment === "all";
-  const usersLimit = filterVendor !== "all" ? 20_000 : 2_000;
+  const isDefaultFilter =
+    !debouncedSearch
+    && filterProfile === "all"
+    && filterComment === "all"
+    && filterStatus === "all";
+  const usersLimit =
+    filterVendor !== "all" || filterStatus !== "all" ? 20_000 : 2_000;
   const usersParams = {
     search: debouncedSearch || undefined,
     profile: filterProfile !== "all" ? filterProfile : undefined,
@@ -655,7 +661,8 @@ export default function Vouchers() {
         // même si initialData est présent. Un utilisateur supprimé de MikroTik disparaît
         // dès que le refetch revient (< 1s avec cache serveur), sans jamais rester visible.
         staleTime: 0,
-        refetchInterval: 15_000,
+        refetchInterval: 5_000,
+        refetchIntervalInBackground: false,
         gcTime: 30 * 60_000,
         initialData: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.users : undefined,
         initialDataUpdatedAt: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.usersTs : undefined,
@@ -736,16 +743,16 @@ export default function Vouchers() {
     if (!mode) return false;
     return mode === "none" || mode === "0" || mode === "nothing";
   };
-  const userIsExpired = (u: HotspotUser): boolean => {
+  const userIsExpired = useCallback((u: HotspotUser): boolean => {
     const mode = profileExpiryModeByName.get(u.profile ?? "");
     if (mode) {
       if (mode === "none" || mode === "nothing" || mode === "0") return false;
       return isExpired(u.comment);
     }
     return !isUnlimitedProfile(u.profile) && isExpired(u.comment);
-  };
+  }, [profileExpiryModeByName]);
 
-  // Filtered list = what the server returned (already filtered server-side)
+  // Filtres statut / vendeur côté client sur le lot chargé (jusqu’à 20k utilisateurs).
   const filtered = useMemo(() => {
     let base = allUsersData?.users ?? [];
     if (filterVendor !== "all") {
@@ -758,9 +765,10 @@ export default function Vouchers() {
     }
     if (filterStatus === "all") return base;
     if (filterStatus === "disabled") return base.filter((u) => !!u.disabled);
-    if (filterStatus === "active") return base.filter((u) => !u.disabled);
-    return base.filter((u) => !u.disabled && userIsExpired(u));
-  }, [allUsersData?.users, filterVendor, filterStatus, profileExpiryModeByName, vendorAliasMap, lotVendorByComment]);
+    if (filterStatus === "active") return base.filter((u) => !u.disabled && !userIsExpired(u));
+    // Expirés : inclure aussi les comptes désactivés (le badge « Expiré » ne dépend pas de disabled).
+    return base.filter((u) => userIsExpired(u));
+  }, [allUsersData?.users, filterVendor, filterStatus, userIsExpired, lotVendorByComment]);
   const filteredTotal = filtered.length;
 
   /** Filtre lot : masquer Désactiver si tout est déjà désactivé, masquer Réactiver si tout est actif. */
@@ -3300,9 +3308,22 @@ const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
   jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
 };
+/** Retire les balises Mikhmon / files d’attente avant de chercher une date d’expiration. */
+function stripCommentForExpiryParse(comment: string): string {
+  return comment
+    .replace(/\s*\[Expire le:[^\]]+\]\s*/gi, " ")
+    .replace(/\s*\[Up:[^\]]+\]\s*/gi, " ")
+    .replace(/\s*\[Down:[^\]]+\]\s*/gi, " ")
+    .replace(/\s*\[vnetqu:[^\]]+\]\s*/gi, " ")
+    .replace(/\s*\[vnetqd:[^\]]+\]\s*/gi, " ")
+    .replace(/\s*\[vnetbp:[^\]]+\]\s*/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function parseExpirationDate(comment: string | null | undefined): Date | null {
   if (!comment) return null;
-  const c = comment.trim();
+  const c = stripCommentForExpiryParse(comment.trim());
   if (!c) return null;
   // Skip lot tags ("vc-lotname", "up-lotname") — these are unused vouchers.
   if (/^(vc|up)[-_]/i.test(c)) return null;

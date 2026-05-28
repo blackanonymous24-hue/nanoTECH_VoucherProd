@@ -35,6 +35,7 @@ import {
   ROUTER_OFFLINE_LABEL,
   pingRouterTcpApi,
 } from "@/lib/router-connection-test";
+import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
 import {
   DEFAULT_ROUTER_API_PORT,
   formatMikhmonIpHostForForm,
@@ -178,11 +179,12 @@ export default function Routers() {
   const [pingingIds, setPingingIds] = useState<Set<number>>(new Set());
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { selectedRouterId, setSelectedRouterId } = useRouterContext();
+  const { selectedRouterId, offlineMarkedRouterId, clearRouterOfflineMark } = useRouterContext();
+  const { connectFromRoutersPage, pingingId: connectingFromHook } = useSelectRouterWithPing();
   const { role, token, isSuperAdmin, logout } = useAuth();
   const isManager = role === "manager";
   const [, navigate] = useLocation();
-  const [connectingId, setConnectingId] = useState<number | null>(null);
+  const connectingId = connectingFromHook;
   const [confirmDeleteRouterId, setConfirmDeleteRouterId] = useState<number | null>(null);
   const testResultsTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
@@ -353,7 +355,9 @@ export default function Routers() {
         success: data.success,
         message: data.success ? formatRouterConnectionTestLabel(data) : ROUTER_OFFLINE_LABEL,
       });
-      if (!data.success) {
+      if (data.success) {
+        if (offlineMarkedRouterId === id) clearRouterOfflineMark();
+      } else {
         toast({
           title: ROUTER_OFFLINE_LABEL,
           variant: "destructive",
@@ -368,30 +372,22 @@ export default function Routers() {
 
   const handleSelect = async (id: number) => {
     if (connectingId !== null) return;
-    // Annuler le timer en cours et effacer le badge avant le nouveau ping
     if (testResultsTimersRef.current[id]) {
       clearTimeout(testResultsTimersRef.current[id]);
       delete testResultsTimersRef.current[id];
     }
-    setTestResults((prev) => { const copy = { ...prev }; delete copy[id]; return copy; });
-    setConnectingId(id);
-    try {
-      const data = await pingRouterTcpApi(id, token, { force: true });
-      if (data.success) {
-        setSelectedRouterId(id);
-        navigate("/");
-      } else {
-        setTestResultWithAutoExpiry(id, { success: false, message: ROUTER_OFFLINE_LABEL });
-        toast({
-          title: ROUTER_OFFLINE_LABEL,
-          variant: "destructive",
-        });
-      }
-    } catch {
-      setTestResultWithAutoExpiry(id, { success: false, message: ROUTER_OFFLINE_LABEL });
-    } finally {
-      setConnectingId(null);
+    setTestResults((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
+
+    const status = await connectFromRoutersPage(id);
+    if (status === "online") {
+      navigate("/");
+      return;
     }
+    setTestResultWithAutoExpiry(id, { success: false, message: ROUTER_OFFLINE_LABEL });
   };
 
   return (
@@ -612,16 +608,21 @@ export default function Routers() {
                               <CheckCircle2 className="h-2.5 w-2.5" /> Actif
                             </Badge>
                           )}
-                          {testResults[r.id] && (
+                          {(testResults[r.id] || offlineMarkedRouterId === r.id) && (
                             <span
-                              title={testResults[r.id].message}
+                              title={
+                                testResults[r.id]?.message
+                                ?? (offlineMarkedRouterId === r.id ? ROUTER_OFFLINE_LABEL : "")
+                              }
                               className={`inline-flex max-w-[min(100%,14rem)] items-center rounded-full px-1.5 min-h-5 text-[10px] font-medium border truncate ${
-                                testResults[r.id].success
+                                testResults[r.id]?.success === true
                                   ? "text-green-600 border-green-200 bg-green-50"
                                   : "text-red-600 border-red-200 bg-red-50"
                               }`}
                             >
-                              {routerConnectionStatusShortLabel(testResults[r.id])}
+                              {routerConnectionStatusShortLabel(
+                                testResults[r.id] ?? { success: false, message: ROUTER_OFFLINE_LABEL },
+                              )}
                             </span>
                           )}
                         </div>

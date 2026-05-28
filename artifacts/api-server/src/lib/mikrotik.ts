@@ -445,21 +445,20 @@ export async function countSessionsFast(conn: RouterConnection): Promise<number>
 }
 
 /**
- * Fetch minimal des vouchers pour le comptage rapide du dashboard.
- * N'interroge que name, disabled, profile, mac-address — les seuls champs
- * nécessaires à computeUsersCount(). Pas de password / comment / limits.
- * Beaucoup plus rapide sur les grands parcs (>5 000 vouchers).
+ * Fetch minimal des vouchers pour réconciliation cache / lots / comptage.
+ * Inclut `comment` pour afficher immédiatement les comptes créés hors app
+ * (sans attendre un listHotspotUsers complet).
  */
 export async function listHotspotUsersFast(conn: RouterConnection): Promise<HotspotUser[]> {
   return withRouter(conn, async (api) => {
     const users = await api.write("/ip/hotspot/user/print", [
-      "=.proplist=name,disabled,profile,mac-address",
+      "=.proplist=name,disabled,profile,mac-address,comment",
     ]);
     return users.map((u) => ({
       username:        decodeRouterText((u["name"]        as string) ?? ""),
-      password:        "",   // non récupéré, non nécessaire au comptage
+      password:        "",
       profile:         decodeRouterText((u["profile"]     as string) ?? ""),
-      comment:         null,
+      comment:         decodeRouterText((u["comment"]     as string) ?? "") || null,
       limitUptime:     null,
       limitBytesTotal: null,
       macAddress:      (u["mac-address"] as string) || null,

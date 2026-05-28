@@ -7,6 +7,7 @@ import {
   prefetchAllRoutersDashboardKpi,
   prefetchRouterDashboardPriority,
 } from "@/lib/prefetch-router-dashboard-priority";
+import { openDashboardFreshGate } from "@/lib/dashboard-resume";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
 import { DASHBOARD_FRESH_MAX_AGE_MS, readPriorityCache } from "@/lib/dashboard-priority";
 
@@ -41,6 +42,10 @@ interface RouterContextValue {
   isRouterLocked: boolean;
   isPingFailed: boolean;
   setIsPingFailed: (v: boolean) => void;
+  /** Badge « Hors ligne » sur la page Routeurs après échec ping sélecteur. */
+  offlineMarkedRouterId: number | null;
+  markRouterOffline: (id: number) => void;
+  clearRouterOfflineMark: () => void;
   /** Routeur d'un autre tenant connecté temporairement par le super-admin */
   borrowedRouter: BorrowedRouter | null;
   setBorrowedRouter: (r: BorrowedRouter | null) => void;
@@ -60,6 +65,9 @@ const RouterContext = createContext<RouterContextValue>({
   isRouterLocked: false,
   isPingFailed: false,
   setIsPingFailed: () => {},
+  offlineMarkedRouterId: null,
+  markRouterOffline: () => {},
+  clearRouterOfflineMark: () => {},
   borrowedRouter: null,
   setBorrowedRouter: () => {},
 });
@@ -100,6 +108,16 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
   const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
   const [isPingFailed, setIsPingFailed] = useState(false);
+  const [offlineMarkedRouterId, setOfflineMarkedRouterId] = useState<number | null>(null);
+
+  const markRouterOffline = useCallback((id: number) => {
+    setOfflineMarkedRouterId(id);
+    setRouterOnline(false);
+  }, []);
+
+  const clearRouterOfflineMark = useCallback(() => {
+    setOfflineMarkedRouterId(null);
+  }, []);
   // Déclaré AVANT l'effet d'alignement pour éviter la temporal dead zone.
   // Initialisé depuis localStorage pour survivre aux refreshs de page.
   const [borrowedRouter, setBorrowedRouter] = useState<BorrowedRouter | null>(() => {
@@ -217,8 +235,10 @@ export function RouterProvider({ children }: { children: ReactNode }) {
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
+    if (id != null) openDashboardFreshGate(id);
     setSelectedRouterIdState(id);
-    setIsPingFailed(false); // reset on every router change
+    setIsPingFailed(false);
+    if (id != null) setOfflineMarkedRouterId((prev) => (prev === id ? prev : null));
     if (id === null) {
       localStorage.removeItem(STORAGE_KEY);
       setBorrowedRouter(null);
@@ -268,13 +288,14 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       });
     }
 
+    openDashboardFreshGate(selectedRouterId);
+
     const cached = readPriorityCache(selectedRouterId);
     const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
     if (cachedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS) {
       clearRouterScopedClientCaches(selectedRouterId);
     }
 
-    // Vide les KPI en mémoire (évite d'afficher le routeur précédent pendant le fetch).
     void queryClient.resetQueries({
       queryKey: ["router-dashboard-priority", selectedRouterId],
       exact: true,
@@ -323,6 +344,9 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       isRouterLocked,
       isPingFailed,
       setIsPingFailed,
+      offlineMarkedRouterId,
+      markRouterOffline,
+      clearRouterOfflineMark,
       borrowedRouter,
       setBorrowedRouter,
     }}>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
@@ -10,7 +10,7 @@ import { useCurrency } from "@/lib/use-currency";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
-import { VOUCHERNET_APP_RESUME_EVENT } from "@/lib/dashboard-resume";
+import { VOUCHERNET_APP_RESUME_EVENT, VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT } from "@/lib/dashboard-resume";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,8 +26,8 @@ const _dashboardCache: { data?: any; ts?: number } = {};
 
 type LogEntry = { id: string; time: string; topics: string; message: string };
 
-/** Échec ping au sélecteur : afficher la page hors ligne puis rediriger. */
-const PING_FAIL_REDIRECT_MS = 30_000;
+/** Échec ping au sélecteur : page hors ligne puis redirection vers /routers. */
+const PING_FAIL_REDIRECT_MS = 10_000;
 const RUNTIME_OFFLINE_REDIRECT_MS = 5_000;
 
 const DASH_LOGS_PARAMS = {
@@ -620,6 +620,26 @@ export default function Dashboard() {
     awaitingRouterSwitch,
   } = useRouterDashboardPriority(isPingFailed ? null : selectedRouterId);
 
+  const [logsAwaitingFresh, setLogsAwaitingFresh] = useState(() => selectedRouterId != null);
+  const prevLogsRouterRef = useRef(selectedRouterId);
+  if (selectedRouterId !== prevLogsRouterRef.current) {
+    prevLogsRouterRef.current = selectedRouterId;
+    setLogsAwaitingFresh(selectedRouterId != null);
+  }
+
+  useLayoutEffect(() => {
+    const openGate = () => {
+      if (!selectedRouterId) return;
+      setLogsAwaitingFresh(true);
+    };
+    window.addEventListener(VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT, openGate);
+    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, openGate);
+    return () => {
+      window.removeEventListener(VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT, openGate);
+      window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, openGate);
+    };
+  }, [selectedRouterId]);
+
   // Stable callback — uses refs to avoid stale closures
   const handleMikrotikFailure = useCallback(() => {
     const now = Date.now();
@@ -743,10 +763,14 @@ export default function Dashboard() {
     !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
   const routerInfo = (livePriority?.info ?? null) as RouterInfo | null;
   const cpuLoadLabel = formatCpuLoad(routerInfo?.cpuLoad ?? null);
-  const infoLoading = !!selectedRouterId && (awaitingRouterSwitch || (!infoKpiReady && (priorityLoading || !livePriority)));
+  const infoLoading =
+    !!selectedRouterId
+    && (awaitingRouterSwitch || logsAwaitingFresh || (!infoKpiReady && (priorityLoading || !livePriority)));
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
-  const sessionsFetching = awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
-  const usersFetching = awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
+  const sessionsFetching =
+    awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
+  const usersFetching =
+    awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
 
   const priorityReady =
     !!selectedRouterId && sessionsKpiReady && usersKpiReady && salesKpiReady && infoKpiReady;
@@ -776,27 +800,34 @@ export default function Dashboard() {
     {
       query: {
         queryKey: getListRouterLogsQueryKey(selectedRouterId ?? 0, DASH_LOGS_PARAMS),
-        // Gated : aucune requête logs si onglet caché, pas de routeur, ou pas encore prêt.
         enabled: isVisible && !!selectedRouterId && enableSecondaries && !isPingFailed,
-        // Logs live : 10s — serveur cache à 4s (MIK_TTL.logs), polling plus fréquent = inutile.
-        // Stopper le polling si onglet caché (isVisible = false → enabled = false suffit).
         refetchInterval: isVisible ? 10_000 : false,
         refetchIntervalInBackground: false,
-        staleTime: 800,
-        initialData: readDashLogsCache(selectedRouterId),
-        initialDataUpdatedAt: (() => {
-          if (!selectedRouterId) return undefined;
-          try {
-            const raw = localStorage.getItem(`${DASH_LOGS_CACHE_KEY}:${selectedRouterId}`);
-            const parsed = raw ? (JSON.parse(raw) as { ts?: number }) : null;
-            return typeof parsed?.ts === "number" ? parsed.ts : undefined;
-          } catch {
-            return undefined;
-          }
-        })(),
+        staleTime: 0,
+        initialData: logsAwaitingFresh ? undefined : readDashLogsCache(selectedRouterId),
+        initialDataUpdatedAt: logsAwaitingFresh
+          ? undefined
+          : (() => {
+              if (!selectedRouterId) return undefined;
+              try {
+                const raw = localStorage.getItem(`${DASH_LOGS_CACHE_KEY}:${selectedRouterId}`);
+                const parsed = raw ? (JSON.parse(raw) as { ts?: number }) : null;
+                return typeof parsed?.ts === "number" ? parsed.ts : undefined;
+              } catch {
+                return undefined;
+              }
+            })(),
       },
     },
   );
+
+  useEffect(() => {
+    if (!logsAwaitingFresh) return;
+    if (logsFetching) return;
+    setLogsAwaitingFresh(false);
+  }, [logsAwaitingFresh, logsFetching]);
+
+  const logsShowLoading = logsAwaitingFresh || logsLoading;
 
   useEffect(() => {
     if (!logs.length) return;
@@ -875,8 +906,9 @@ export default function Dashboard() {
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    if (awaitingRouterSwitch) return;
     if (routerInfo?.identity) setRouterIdentity(routerInfo.identity);
-  }, [routerInfo, setRouterIdentity]);
+  }, [routerInfo, setRouterIdentity, awaitingRouterSwitch]);
 
   const prevPingTriggerRef = useRef(0);
   useEffect(() => {
@@ -1130,7 +1162,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <span className="whitespace-nowrap">Logs hotspot</span>
-              {selectedRouterId && !logsLoading && (
+              {selectedRouterId && !logsShowLoading && (
                 <span className="flex items-center gap-1 text-xs font-normal text-green-600">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -1149,7 +1181,7 @@ export default function Dashboard() {
               <Wifi className="h-8 w-8 text-gray-200 mx-auto mb-2" />
               <p className="text-sm text-gray-400">Sélectionnez un routeur dans la barre de gauche</p>
             </div>
-          ) : logsLoading ? (
+          ) : logsShowLoading ? (
             <div className="py-10 text-center text-sm text-gray-400 flex items-center justify-center gap-2">
               <RefreshCw className="h-4 w-4 animate-spin" />
               Connexion au routeur…

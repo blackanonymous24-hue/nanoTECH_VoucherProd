@@ -9,7 +9,7 @@ import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile,
 import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 import { runUsageSync } from "../lib/usage-sync.js";
-import { syncScriptCache, clearRouterScriptCache } from "../lib/script-cache.js";
+import { syncScriptCache, clearRouterScriptCache, getCachedSaleDetails } from "../lib/script-cache.js";
 import {
   persistRouterMikrotikSerialIfMissing,
   reconcileSalesCacheAfterConnectionChange,
@@ -1156,6 +1156,7 @@ router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
 });
 
 interface UserCache { users: Awaited<ReturnType<typeof listHotspotUsers>>; expiresAt: number; }
+type HotspotUserRow = Awaited<ReturnType<typeof listHotspotUsers>>[number];
 const userCache = new Map<string, UserCache>();
 const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expires first
 
@@ -1171,6 +1172,9 @@ const USER_CACHE_TTL = 300_000; // 5 min — large enough so frontend never expi
 interface LotPrintCache { users: Awaited<ReturnType<typeof listHotspotUsersByComment>>; expiresAt: number; }
 const lotPrintCache = new Map<string, LotPrintCache>();
 const LOT_PRINT_CACHE_TTL = 600_000; // 10 min — absorbe les reprises impression sans re-fetch MikroTik
+
+/** Timeout unique pour `?comment=` (lot) — évite les 45+60+90 s de l'impression forcée. */
+const LOT_LIVE_RECONCILE_TIMEOUT_MS = 15_000;
 
 type HotspotUserCacheRow = Awaited<ReturnType<typeof listHotspotUsers>>[number];
 
@@ -1246,6 +1250,135 @@ function invalidateLotPrintCacheByScope(scope: string): void {
   for (const key of lotPrintCache.keys()) {
     if (key.startsWith(prefix)) lotPrintCache.delete(key);
   }
+}
+
+/** Remplace le segment « lot » dans userCache + lotPrintCache après lecture live MikroTik. */
+function patchUserCacheAfterLotReconcile(
+  scope: string,
+  commentVal: string,
+  liveLotUsers: HotspotUserRow[],
+): void {
+  const trimmed = decodeRouterText(commentVal).trim();
+  lotPrintCache.set(`${scope}:${trimmed}`, {
+    users: liveLotUsers,
+    expiresAt: Date.now() + LOT_PRINT_CACHE_TTL,
+  });
+
+  const hit = userCache.get(scope);
+  const withoutLot = (hit?.users ?? []).filter((u) => !userBelongsToLotComment(u, commentVal));
+  userCache.set(scope, {
+    users: [...withoutLot, ...liveLotUsers],
+    expiresAt: hit?.expiresAt ?? Date.now() + USER_CACHE_TTL,
+  });
+  _usersCountCache.delete(scope);
+}
+
+/**
+ * Requête live `?comment=` puis alignement cache — supprime les comptes effacés sur MikroTik.
+ * Utilisé à l'impression (toujours) ; en cas d'échec routeur, conserve le cache.
+ */
+async function reconcileLotUsersWithMikrotik(
+  scope: string,
+  conn: RouterConnection,
+  commentVal: string,
+  cachedRows: HotspotUserRow[],
+): Promise<{ usersRaw: HotspotUserRow[]; source: "cache" | "mikrotik-reconcile" }> {
+  const trimmed = commentVal.trim();
+  if (!trimmed) return { usersRaw: [], source: "cache" };
+
+  try {
+    const liveRows = (await listHotspotUsersByComment(
+      conn,
+      trimmed,
+      LOT_LIVE_RECONCILE_TIMEOUT_MS,
+    )).filter((u) => userBelongsToLotComment(u, trimmed));
+
+    patchUserCacheAfterLotReconcile(scope, trimmed, liveRows);
+    return { usersRaw: liveRows, source: "mikrotik-reconcile" };
+  } catch {
+    return { usersRaw: cachedRows, source: "cache" };
+  }
+}
+
+/**
+ * Retire du cache global les utilisateurs supprimés sur MikroTik (liste rapide sans comment).
+ * Met à jour mac / disabled / profile sur les lignes conservées.
+ */
+async function reconcileUserCacheWithLiveFast(
+  scope: string,
+  router: { id: number; ownerAdminId: number | null },
+  conn: RouterConnection,
+  cachedUsers: HotspotUserRow[],
+): Promise<HotspotUserRow[]> {
+  let liveFast: Awaited<ReturnType<typeof listHotspotUsersFast>>;
+  try {
+    liveFast = await listHotspotUsersFast(conn);
+  } catch {
+    return cachedUsers;
+  }
+
+  const liveByName = new Map(
+    liveFast.filter(isRealUser).map((u) => [u.username.toLowerCase(), u] as const),
+  );
+  if (liveByName.size === 0 && cachedUsers.length > 0) {
+    return cachedUsers;
+  }
+
+  const kept: HotspotUserRow[] = [];
+  let removed = 0;
+  for (const u of cachedUsers) {
+    if (!isRealUser(u)) continue;
+    const live = liveByName.get(u.username.toLowerCase());
+    if (!live) {
+      removed++;
+      continue;
+    }
+    u.macAddress = live.macAddress;
+    u.disabled = live.disabled;
+    if (live.profile) u.profile = live.profile;
+    kept.push(u);
+  }
+
+  const cachedNames = new Set(kept.map((u) => u.username.toLowerCase()));
+  let added = 0;
+  for (const u of liveFast) {
+    if (!isRealUser(u)) continue;
+    const key = u.username.toLowerCase();
+    if (cachedNames.has(key)) continue;
+    kept.push({
+      username: u.username,
+      password: "",
+      profile: u.profile,
+      comment: u.comment,
+      limitUptime: null,
+      limitBytesTotal: null,
+      macAddress: u.macAddress,
+      uptime: null,
+      bytesIn: null,
+      bytesOut: null,
+      server: null,
+      disabled: u.disabled,
+    });
+    cachedNames.add(key);
+    added++;
+  }
+
+  if (added > 0) {
+    scheduleUserCacheAndCountRefresh(router.id, router.ownerAdminId, conn, true);
+  }
+
+  if (removed === 0 && added === 0) {
+    return cachedUsers;
+  }
+
+  userCache.set(scope, {
+    users: kept,
+    expiresAt: Date.now() + USER_CACHE_TTL,
+  });
+  invalidateLotPrintCacheByScope(scope);
+  seedLotPrintCacheFromUsers(scope, kept);
+  _usersCountCache.delete(scope);
+  return kept;
 }
 
 /** Call this after any action that modifies hotspot users (disable/enable/reset/delete/rename). */
@@ -1514,6 +1647,13 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
       users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
     }
 
+    users = await reconcileUserCacheWithLiveFast(
+      sc,
+      { id, ownerAdminId: r.ownerAdminId },
+      conn,
+      users,
+    );
+
     seedLotPrintCacheFromUsers(sc, users);
 
     if (search) {
@@ -1547,15 +1687,15 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
 /**
  * GET /routers/:id/lot-print?comment=…
  *
- * Préparation impression : utilisateurs du lot + tarifs/validités résolus.
+ * Préparation impression : utilisateurs **disponibles** du lot + tarifs/validités résolus.
  *
- * 1. **PostgreSQL en priorité** (instantané) quand des vouchers avec mot de passe existent.
- * 2. **DB + cache mémoire** (mots de passe manquants — sync historique / MikHmon).
- * 3. **Cache lot / cache users** (même périmé — lots non générés depuis l'app inclus).
- * 4. **Repli MikroTik ciblé** `?comment=` avec reprises ; repli cache si échec routeur.
+ * Source de vérité = **MikroTik (cache RAM)**, jamais la seule base PostgreSQL.
+ * Exclusions identiques à `/lots` : vendu (DB `usedAt`, scripts MikHmon), `mac-address`,
+ * compte `disabled`, profils trial.
  *
- * Le cache lot est préchauffé par `/lots` et `/users` (liste MikroTik complète).
- * `refresh=1` force le repli MikroTik (ignore caches mémoire, pas la base si complète).
+ * 1. Cache lot / cache users + **réconciliation live MikroTik** (supprime les comptes effacés).
+ * 2. Enrichissement prix / mot de passe depuis PostgreSQL quand disponible.
+ * 3. `refresh=1` → repli MikroTik ciblé long + refresh cache.
  */
 
 type LotPrintDbRow = {
@@ -1566,13 +1706,109 @@ type LotPrintDbRow = {
   validity: string | null;
   comment: string | null;
   macAddress: string | null;
+  usedAt: Date | null;
 };
 
-type HotspotUserRow = Awaited<ReturnType<typeof listHotspotUsersByComment>>[number];
 type ProfileRow = Awaited<ReturnType<typeof listProfiles>>[number];
+
+/** Même règles que GET /lots et computeUsersCount — un ticket vendu ne doit jamais être imprimé. */
+function isLotUserAvailableForPrint(
+  u: HotspotUserRow,
+  excludedUsernames: ReadonlySet<string>,
+): boolean {
+  const prof = (u.profile ?? "").toLowerCase();
+  if (prof === "trial" || prof === "default-trial") return false;
+  if (u.disabled) return false;
+  if (u.macAddress) return false;
+  if (excludedUsernames.has(u.username.toLowerCase())) return false;
+  return true;
+}
+
+async function loadLotPrintExcludedUsernames(routerId: number): Promise<Set<string>> {
+  const [soldRows, scriptDetails] = await Promise.all([
+    db
+      .select({ username: vouchersTable.username })
+      .from(vouchersTable)
+      .where(and(eq(vouchersTable.routerId, routerId), isNotNull(vouchersTable.usedAt))),
+    getCachedSaleDetails(routerId),
+  ]);
+  const excluded = new Set<string>();
+  for (const row of soldRows) excluded.add(row.username.toLowerCase());
+  for (const username of scriptDetails.keys()) excluded.add(username);
+  return excluded;
+}
+
+function addLotDbSoldExclusions(
+  excluded: Set<string>,
+  dbRows: LotPrintDbRow[],
+): void {
+  for (const row of dbRows) {
+    if (row.usedAt != null || String(row.macAddress ?? "").trim().length > 0) {
+      excluded.add(row.username.toLowerCase());
+    }
+  }
+}
 
 function profilesForLotPrint(scope: string): ProfileRow[] {
   return getFreshProfileCache(scope) ?? profileListCache.get(scope)?.profiles ?? [];
+}
+
+/**
+ * Résolution des utilisateurs d’un lot pour l’impression.
+ * Par défaut : cache RAM uniquement (comme l’ancienne app via GET /users?comment=) — pas de
+ * requête MikroTik `?comment=` (source des « RouterOS operation timed out »).
+ * `force` → repli MikroTik ciblé + refresh cache.
+ */
+async function resolveLotUsersForPrint(
+  router: { id: number; ownerAdminId: number | null },
+  conn: RouterConnection,
+  scope: string,
+  commentVal: string,
+  force: boolean,
+): Promise<{ usersRaw: HotspotUserRow[]; source: "cache" | "cache-full" | "mikrotik" | "mikrotik-reconcile" }> {
+  const trimmed = commentVal.trim();
+  if (!trimmed) return { usersRaw: [], source: "cache" };
+
+  const lotCacheKey = `${scope}:${decodeRouterText(trimmed).trim()}`;
+
+  if (!force) {
+    const cached = pickCachedHotspotUsersForLot(scope, trimmed, true);
+    if (cached && cached.length > 0) {
+      return reconcileLotUsersWithMikrotik(scope, conn, trimmed, cached);
+    }
+    const all = await getCachedUsers(
+      { id: router.id, ownerAdminId: router.ownerAdminId },
+      conn,
+    );
+    const rows = all.filter((u) => userBelongsToLotComment(u, trimmed));
+    return reconcileLotUsersWithMikrotik(scope, conn, trimmed, rows);
+  }
+
+  lotPrintCache.delete(lotCacheKey);
+  const norm = decodeRouterText(trimmed).trim();
+  for (const key of [...lotPrintCache.keys()]) {
+    if (key.startsWith(`${scope}:`) && lotCommentsEqual(key.slice(scope.length + 1), norm)) {
+      lotPrintCache.delete(key);
+    }
+  }
+
+  try {
+    const usersRaw = (await listHotspotUsersByCommentResilient(conn, trimmed))
+      .filter((u) => userBelongsToLotComment(u, trimmed));
+    patchUserCacheAfterLotReconcile(scope, trimmed, usersRaw);
+    return { usersRaw, source: "mikrotik" };
+  } catch (mikErr) {
+    const all = await getCachedUsers(
+      { id: router.id, ownerAdminId: router.ownerAdminId },
+      conn,
+      { force: true },
+    );
+    const rows = all.filter((u) => userBelongsToLotComment(u, trimmed));
+    if (rows.length > 0) {
+      return reconcileLotUsersWithMikrotik(scope, conn, trimmed, rows);
+    }
+    throw mikErr;
+  }
 }
 
 /** Utilisateurs du lot depuis cache lot (frais ou périmé) ou cache global (stale OK). */
@@ -1606,7 +1842,13 @@ function buildLotPrintPayload(
   usersRaw: HotspotUserRow[],
   commentVal: string,
   profiles: ProfileRow[],
-  dbMetaRows: Array<{ username: string; price: string | null; validity: string | null }>,
+  dbMetaRows: Array<{
+    username: string;
+    password?: string | null;
+    price: string | null;
+    validity: string | null;
+  }>,
+  excludedUsernames: ReadonlySet<string>,
   fbPrice: string,
   fbValidity: string,
 ) {
@@ -1615,6 +1857,7 @@ function buildLotPrintPayload(
 
   const users = usersRaw
     .filter((u) => userBelongsToLotComment(u, commentVal))
+    .filter((u) => isLotUserAvailableForPrint(u, excludedUsernames))
     .map((u) => {
       const p = profByName.get(u.profile);
       const stored = storedByUser.get(u.username);
@@ -1622,9 +1865,11 @@ function buildLotPrintPayload(
         (stored?.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
       const validity =
         (stored?.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
+      const password =
+        String(u.password ?? "").trim() || String(stored?.password ?? "").trim();
       return {
         username: u.username,
-        password: u.password,
+        password,
         profile: u.profile,
         comment: u.comment,
         limitUptime: u.limitUptime ?? null,
@@ -1636,65 +1881,6 @@ function buildLotPrintPayload(
     .filter((u) => String(u.password ?? "").trim().length > 0);
 
   return users;
-}
-
-function buildLotPrintPayloadFromDb(
-  dbRows: LotPrintDbRow[],
-  profiles: ProfileRow[],
-  fbPrice: string,
-  fbValidity: string,
-) {
-  const profByName = new Map(profiles.map((p) => [p.name, p]));
-  return dbRows
-    .filter((row) => String(row.password ?? "").trim().length > 0)
-    .map((row) => {
-      const p = profByName.get(row.profile);
-      const price = (row.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
-      const validity = (row.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
-      return {
-        username: row.username,
-        password: row.password!,
-        profile: row.profile,
-        comment: row.comment,
-        limitUptime: (p?.validity ?? "").trim() || null,
-        limitBytesTotal: null as string | null,
-        price,
-        validity,
-      };
-    });
-}
-
-/** Fusionne lignes DB (sans mot de passe) + cache MikroTik pour l'impression. */
-function mergeDbRowsWithHotspotCache(
-  dbRows: LotPrintDbRow[],
-  cached: HotspotUserRow[],
-  profiles: ProfileRow[],
-  fbPrice: string,
-  fbValidity: string,
-) {
-  const byUser = new Map(cached.map((u) => [u.username.toLowerCase(), u]));
-  const profByName = new Map(profiles.map((p) => [p.name, p]));
-  const out: ReturnType<typeof buildLotPrintPayloadFromDb> = [];
-
-  for (const row of dbRows) {
-    const hk = byUser.get(row.username.toLowerCase());
-    const password = String(row.password ?? "").trim() || String(hk?.password ?? "").trim();
-    if (!password) continue;
-    const p = profByName.get(row.profile);
-    const price = (row.price ?? "").trim() || effectiveProfilePrice(p) || fbPrice;
-    const validity = (row.validity ?? "").trim() || (p?.validity ?? "").trim() || fbValidity;
-    out.push({
-      username: row.username,
-      password,
-      profile: row.profile,
-      comment: row.comment,
-      limitUptime: hk?.limitUptime ?? ((p?.validity ?? "").trim() || null),
-      limitBytesTotal: hk?.limitBytesTotal ?? null,
-      price,
-      validity,
-    });
-  }
-  return out;
 }
 
 router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
@@ -1725,115 +1911,63 @@ router.get("/routers/:id/lot-print", async (req, res): Promise<void> => {
   const profiles = profilesForLotPrint(sc);
 
   try {
-    const dbRows: LotPrintDbRow[] = await db
-      .select({
-        username: vouchersTable.username,
-        password: vouchersTable.password,
-        profile: vouchersTable.profileName,
-        price: vouchersTable.price,
-        validity: vouchersTable.validity,
-        comment: vouchersTable.comment,
-        macAddress: vouchersTable.macAddress,
-      })
-      .from(vouchersTable)
-      .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal)));
+    const lotPrintDbSelect = {
+      username: vouchersTable.username,
+      password: vouchersTable.password,
+      profile: vouchersTable.profileName,
+      price: vouchersTable.price,
+      validity: vouchersTable.validity,
+      comment: vouchersTable.comment,
+      macAddress: vouchersTable.macAddress,
+      usedAt: vouchersTable.usedAt,
+    } as const;
+
+    const [excludedUsernames, dbRows, { usersRaw, source }] = await Promise.all([
+      loadLotPrintExcludedUsernames(id),
+      db
+        .select(lotPrintDbSelect)
+        .from(vouchersTable)
+        .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal))),
+      resolveLotUsersForPrint(
+        { id, ownerAdminId: r.ownerAdminId },
+        conn,
+        sc,
+        commentVal,
+        force,
+      ),
+    ]);
 
     let effectiveDbRows = dbRows;
 
     // Sync historique / MikHmon : commentaire DB parfois absent ou encodé différemment.
-    if (effectiveDbRows.length === 0 && !force) {
-      const cachedForDb = pickCachedHotspotUsersForLot(sc, commentVal, true);
-      if (cachedForDb && cachedForDb.length > 0) {
-        const usernames = cachedForDb.map((u) => u.username);
-        effectiveDbRows = await db
-          .select({
-            username: vouchersTable.username,
-            password: vouchersTable.password,
-            profile: vouchersTable.profileName,
-            price: vouchersTable.price,
-            validity: vouchersTable.validity,
-            comment: vouchersTable.comment,
-            macAddress: vouchersTable.macAddress,
-          })
-          .from(vouchersTable)
-          .where(and(eq(vouchersTable.routerId, id), inArray(vouchersTable.username, usernames)));
-      }
+    if (effectiveDbRows.length === 0 && !force && usersRaw.length > 0) {
+      const usernames = usersRaw.map((u) => u.username);
+      effectiveDbRows = await db
+        .select(lotPrintDbSelect)
+        .from(vouchersTable)
+        .where(and(eq(vouchersTable.routerId, id), inArray(vouchersTable.username, usernames)));
     }
 
-    const dbWithCreds = effectiveDbRows.filter((row) => String(row.password ?? "").trim().length > 0);
+    addLotDbSoldExclusions(excludedUsernames, effectiveDbRows);
 
-    if (dbWithCreds.length > 0 && !force) {
-      const users = buildLotPrintPayloadFromDb(dbWithCreds, profiles, fbPrice, fbValidity);
-      res.json({ users, total: users.length, source: "db" });
-      return;
-    }
+    const dbMetaRows = effectiveDbRows.map((row) => ({
+      username: row.username,
+      password: row.password,
+      price: row.price,
+      validity: row.validity,
+    }));
 
-    if (effectiveDbRows.length > 0 && !force) {
-      const cachedForMerge = pickCachedHotspotUsersForLot(sc, commentVal, true);
-      if (cachedForMerge) {
-        const merged = mergeDbRowsWithHotspotCache(effectiveDbRows, cachedForMerge, profiles, fbPrice, fbValidity);
-        if (merged.length > 0) {
-          res.json({ users: merged, total: merged.length, source: "db+cache" });
-          return;
-        }
-      }
-    }
-
-    const lotCacheKey = `${sc}:${decodeRouterText(commentVal).trim()}`;
-    let usersRaw: HotspotUserRow[];
-    let source: "cache" | "mikrotik" = "cache";
-
-    if (force) {
-      lotPrintCache.delete(lotCacheKey);
-      const norm = decodeRouterText(commentVal).trim();
-      for (const key of [...lotPrintCache.keys()]) {
-        if (key.startsWith(`${sc}:`) && lotCommentsEqual(key.slice(sc.length + 1), norm)) {
-          lotPrintCache.delete(key);
-        }
-      }
-    }
-
-    const cachedUsers = !force ? pickCachedHotspotUsersForLot(sc, commentVal, true) : null;
-    if (cachedUsers) {
-      usersRaw = cachedUsers;
-    } else {
-      try {
-        usersRaw = await listHotspotUsersByCommentResilient(conn, commentVal);
-        source = "mikrotik";
-        lotPrintCache.set(lotCacheKey, {
-          users: usersRaw,
-          expiresAt: Date.now() + LOT_PRINT_CACHE_TTL,
-        });
-      } catch (mikErr) {
-        const stale = pickCachedHotspotUsersForLot(sc, commentVal, true);
-        if (stale && stale.length > 0) {
-          usersRaw = stale;
-          source = "cache";
-        } else {
-          throw mikErr;
-        }
-      }
-    }
-
-    const dbMetaRows =
-      effectiveDbRows.length > 0
-        ? effectiveDbRows.map((row) => ({
-            username: row.username,
-            price: row.price,
-            validity: row.validity,
-          }))
-        : await db
-            .select({
-              username: vouchersTable.username,
-              price: vouchersTable.price,
-              validity: vouchersTable.validity,
-            })
-            .from(vouchersTable)
-            .where(and(eq(vouchersTable.routerId, id), eq(vouchersTable.comment, commentVal)));
-
-    const users = buildLotPrintPayload(usersRaw, commentVal, profiles, dbMetaRows, fbPrice, fbValidity);
-    if (source === "mikrotik" && users.length > 0) {
-      scheduleLotPasswordBackfill(id, users);
+    const users = buildLotPrintPayload(
+      usersRaw,
+      commentVal,
+      profiles,
+      dbMetaRows,
+      excludedUsernames,
+      fbPrice,
+      fbValidity,
+    );
+    if (source === "mikrotik" || source === "mikrotik-reconcile") {
+      if (users.length > 0) scheduleLotPasswordBackfill(id, users);
     }
     res.json({ users, total: users.length, source });
   } catch (err) {
@@ -1911,7 +2045,9 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
           : getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
 
     const [users, soldRows] = await Promise.all([
-      usersPromise,
+      usersPromise.then((u) =>
+        reconcileUserCacheWithLiveFast(sc, { id, ownerAdminId: r.ownerAdminId }, conn, u),
+      ),
       db
         .select({ username: vouchersTable.username })
         .from(vouchersTable)

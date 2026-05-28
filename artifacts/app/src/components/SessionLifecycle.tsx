@@ -240,8 +240,8 @@ export function SessionLifecycle() {
         }
         const lsAct = readSharedLastActivityTs();
         if (lsAct > lastSharedRef.current) lastSharedRef.current = lsAct;
-        notifyAppResume();
         const resumeRouterId = readSelectedRouterIdFromStorage();
+        notifyAppResume();
         if (resumeRouterId != null) {
           void refreshDashboardDataOnResume(resumeRouterId);
         } else {
