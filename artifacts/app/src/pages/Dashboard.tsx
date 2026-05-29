@@ -403,9 +403,9 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
     enabled: trafficEnabled,
     // Ne pas enchaîner les polls tant que le 1er point n'est pas reçu — évite
     // d'empiler des requêtes MikroTik lentes qui se annulent mutuellement.
-    refetchInterval: (query) => (isVisible && query.state.data != null ? 3_000 : false),
+    refetchInterval: (query) => (isVisible && query.state.data != null ? 10_000 : false),
     refetchIntervalInBackground: false,
-    staleTime: 2_000,
+    staleTime: 9_000,
     retry: (failureCount, err) => {
       if (isApiPauseError(err)) return failureCount < 6;
       return failureCount < 2;

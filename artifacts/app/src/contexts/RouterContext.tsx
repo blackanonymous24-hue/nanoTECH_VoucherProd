@@ -4,7 +4,6 @@ import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 import {
-  prefetchAllRoutersDashboardKpi,
   prefetchRouterDashboardPriority,
 } from "@/lib/prefetch-router-dashboard-priority";
 import { prefetchRouterSessions } from "@/lib/prefetch-router-sessions";
@@ -228,11 +227,12 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, routersFetched, routers, selectedRouterId, borrowedRouter]);
 
-  // MikHmon : précharger clients actifs / utilisateurs pour chaque routeur de la barre.
+  // Préchauffe uniquement le routeur sélectionné (cadence MikHmon 10 s — pas de rafale multi-routeurs).
   useEffect(() => {
-    if (!isAuthenticated || !routersFetched || routers.length === 0) return;
-    prefetchAllRoutersDashboardKpi(routers.map((r) => r.id));
-  }, [isAuthenticated, routersFetched, routers.map((r) => r.id).join(",")]);
+    if (!isAuthenticated || selectedRouterId == null) return;
+    void prefetchRouterDashboardPriority(selectedRouterId);
+    prefetchRouterSessions(selectedRouterId);
+  }, [isAuthenticated, selectedRouterId]);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
@@ -301,7 +301,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       queryKey: ["router-dashboard-priority", selectedRouterId],
       exact: true,
     });
-    void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true });
+    void prefetchRouterDashboardPriority(selectedRouterId);
     prefetchRouterSessions(selectedRouterId);
   }, [selectedRouterId, isAuthenticated]);
 

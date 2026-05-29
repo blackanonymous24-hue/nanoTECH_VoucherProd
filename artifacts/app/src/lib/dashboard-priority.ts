@@ -37,8 +37,8 @@ export interface PrioritySnapshot {
 }
 
 const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
-/** Âge max du cache local (KPI dashboard) — politique « données fraîches < 1 min » au changement de routeur. */
-export const DASHBOARD_FRESH_MAX_AGE_MS = 60_000;
+/** Âge max du cache local (KPI dashboard) — cadence MikHmon 10 s. */
+export const DASHBOARD_FRESH_MAX_AGE_MS = 10_000;
 /** @deprecated Utiliser DASHBOARD_FRESH_MAX_AGE_MS */
 export const PRIORITY_CACHE_MAX_AGE_MS = DASHBOARD_FRESH_MAX_AGE_MS;
 

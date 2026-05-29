@@ -68,7 +68,7 @@ export default function Sessions() {
         queryKey: getListRouterSessionsQueryKey(selectedRouterId ?? 0),
         enabled: !!selectedRouterId,
         refetchInterval: isVisible ? 30_000 : false,
-        staleTime: 14_000,       // juste sous le TTL serveur (15s) → pas de double-fetch inutile
+        staleTime: 9_000,       // aligné sur cadence MikHmon 10 s
         gcTime: 30 * 60_000,     // garde les données 30 min en mémoire React Query
         initialData: cachedSnapshot?.sessions,
         initialDataUpdatedAt: cachedSnapshot?.ts,

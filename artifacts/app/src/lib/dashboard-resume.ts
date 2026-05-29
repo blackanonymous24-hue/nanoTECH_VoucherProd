@@ -59,5 +59,5 @@ export async function refreshDashboardDataOnResume(routerId: number): Promise<vo
     queryKey: ["router-dashboard-priority", routerId],
     exact: true,
   });
-  await prefetchRouterDashboardPriority(routerId, { fresh: true });
+  await prefetchRouterDashboardPriority(routerId);
 }

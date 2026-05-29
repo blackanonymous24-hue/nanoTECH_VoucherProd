@@ -205,16 +205,27 @@ function purgeMikKeysForScope(scope: string): void {
   }
 }
 
+/** Cadence cible style MikHmon : données « fraîches » ≤ 10 s, servies en stale-while-revalidate. */
+const MIK_FRESH_MS = 10_000;
+
 const MIK_TTL = {
-  ping:       10_000,
-  info:        8_000,
+  ping:       MIK_FRESH_MS,
+  info:       MIK_FRESH_MS,
   pools:     300_000,
-  sessions:   15_000,
+  sessions:  MIK_FRESH_MS,
   interfaces:300_000,
-  traffic:     2_000,
-  logs:        4_000,
+  traffic:     5_000,
+  logs:        8_000,
   leases:     20_000,
 } as const;
+
+/** Garde-fous refresh MikroTik (déclarés tôt — utilisés par /sessions et dashboard). */
+const _sessionsRefreshing     = new Set<number>();
+const _sessionsFastRefreshing = new Set<number>();
+const _sessionsFastCount      = new Map<string, { count: number; cachedAt: number }>();
+const _infoRefreshing         = new Set<number>();
+const _kpiLastRefreshAt       = new Map<number, number>();
+const _kpiRefreshInFlight     = new Set<number>();
 
 function foldText(value: string | null | undefined): string {
   return String(value ?? "")
@@ -773,8 +784,20 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
   const ck = `ping:${sc}`;
   const force = req.query.force === "1";
   if (!force) {
-    const hit = mGet(ck);
-    if (hit) { res.json(hit); return; }
+    const fresh = mGet(ck);
+    if (fresh) { res.json(fresh); return; }
+    const stale = mGetStale(ck);
+    if (stale) {
+      res.json(stale);
+      setImmediate(async () => {
+        const conn = normalizeRouterConnection({
+          host: r.host, port: r.port, username: r.username, password: r.password,
+        });
+        const online = await pingRouter(conn);
+        mSet(ck, MIK_TTL.ping, { success: online, host: conn.host, port: conn.port });
+      });
+      return;
+    }
   }
 
   const conn = normalizeRouterConnection({
@@ -1076,8 +1099,20 @@ router.get("/routers/:id/pools", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const sc = routerCacheScope(r.ownerAdminId, id);
   const ck = `pools:${sc}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
+
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    setImmediate(async () => {
+      try {
+        const pools = await listAddressPools({ host: r.host, port: r.port, username: r.username, password: r.password });
+        mSet(ck, MIK_TTL.pools, pools);
+      } catch { /* keep stale */ }
+    });
+    return;
+  }
 
   try {
     const pools = await listAddressPools({ host: r.host, port: r.port, username: r.username, password: r.password });
@@ -1105,14 +1140,9 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   const stale = mGetStale(ck);
   if (stale) {
     res.json(stale);
-    if (!_sessionsRefreshing.has(id)) {
-      _sessionsRefreshing.add(id);
-      setImmediate(async () => {
-        try {
-          const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
-          mSet(ck, MIK_TTL.sessions, sessions);
-        } catch { /* keep stale */ }
-        finally { _sessionsRefreshing.delete(id); }
+    if (!_kpiRefreshInFlight.has(id)) {
+      scheduleRouterKpiRefresh(id, r.ownerAdminId, {
+        host: r.host, port: r.port, username: r.username, password: r.password,
       });
     }
     return;
@@ -1130,10 +1160,6 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
 // GET /routers/:id/sessions/count — Mikhmon-style: returns the last known
 // count instantly (stale-while-revalidate). Never blocks on MikroTik when a
 // previous value (even expired) is available; refreshes in background.
-const _sessionsRefreshing     = new Set<number>();
-const _sessionsFastRefreshing = new Set<number>();
-const _sessionsFastCount      = new Map<string, { count: number; cachedAt: number }>();
-const _infoRefreshing         = new Set<number>();
 router.get("/routers/:id/sessions/count", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
@@ -2948,7 +2974,7 @@ interface UsageSyncEntry { updatedAt: number; updated: number; total: number; }
 const usageSyncCache  = new Map<number, UsageSyncEntry>();
 const usageSyncActive = new Set<number>(); // routers currently syncing
 const usageSyncTimer  = new Map<number, ReturnType<typeof setTimeout>>();
-const USAGE_SYNC_INTERVAL   = 15_000;      // 15 s  — matches script-cache incremental gap
+const USAGE_SYNC_INTERVAL   = 20_000;      // 20 s — scripts ventes (hors cadence KPI 10 s)
 const ROUTER_IDLE_TIMEOUT   = 5 * 60_000;  // 5 min — stop syncing if no requests
 
 /** Tracks the last time each router received a user request */
@@ -3044,145 +3070,92 @@ router.get("/routers/:id/sales", async (req, res): Promise<void> => {
   }
 });
 
+/**
+ * Un seul cycle MikroTik / 10 s / routeur pour sessions + info + comptage tickets.
+ * Séquentiel (pas parallèle) pour limiter les pics CPU RouterOS — style MikHmon.
+ */
+async function refreshRouterKpiCaches(
+  id: number,
+  ownerAdminId: number | null,
+  conn: RouterConnection,
+): Promise<void> {
+  const sc = routerCacheScope(ownerAdminId, id);
+  try {
+    const list = await listSessions(conn);
+    mSet(`sessions:${sc}`, MIK_TTL.sessions, list);
+    _sessionsFastCount.set(sc, { count: list.length, cachedAt: Date.now() });
+    mSet(`info:${sc}`, MIK_TTL.info, await getRouterInfo(conn));
+    const usersList = await listHotspotUsersFast(conn);
+    _usersCountCache.set(sc, await computeUsersCount(id, conn, usersList));
+  } catch {
+    /* conserve le stale */
+  } finally {
+    _kpiLastRefreshAt.set(id, Date.now());
+    _kpiRefreshInFlight.delete(id);
+    _sessionsRefreshing.delete(id);
+    _infoRefreshing.delete(id);
+    _usersRefreshing.delete(id);
+  }
+}
+
+function scheduleRouterKpiRefresh(
+  id: number,
+  ownerAdminId: number | null,
+  conn: RouterConnection,
+  force = false,
+): void {
+  if (_kpiRefreshInFlight.has(id)) return;
+  const last = _kpiLastRefreshAt.get(id) ?? 0;
+  if (!force && Date.now() - last < MIK_FRESH_MS) return;
+  _kpiRefreshInFlight.add(id);
+  _sessionsRefreshing.add(id);
+  _infoRefreshing.add(id);
+  _usersRefreshing.add(id);
+  setImmediate(() => { void refreshRouterKpiCaches(id, ownerAdminId, conn); });
+}
+
 async function buildDashboardKpiFastSnapshot(id: number, opts?: { freshOnly?: boolean }) {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) throw new Error("ROUTER_NOT_FOUND");
   const sc = routerCacheScope(r.ownerAdminId, id);
   const freshOnly = !!opts?.freshOnly;
-  const usersCountMaxAgeMs = freshOnly ? 60_000 : 20_000;
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   markRouterActive(id);
   ensureUsageSyncScheduled(id, conn);
-  // Ventes des cartes : cache scripts + bons « seuls » (hors doublon jour UTC / login), comme GET …/sales-report.
-  // Ne pas lancer fetchSalesFromScripts ici : le SSE appelle ce snapshot ~1,5 s et écraserait les totaux
-  // avec ce qu’il reste sur le routeur (souvent quasi vide si auto-suppression des scripts).
 
   const now = Date.now();
 
-  // ── Cold-start parallèle : sessions + info routeur + comptage tickets ────────
-  // Stratégie "instant-on" pour les 3 KPIs du dashboard :
-  //   • Cold server (après restart/déploiement) : les 3 fetches MikroTik manquants
-  //     sont lancés EN PARALLÈLE (Promise.all) → premier appel retourne les vraies
-  //     données en max(latences) au lieu de leur somme.
-  //   • Cache chaud : données stale servies immédiatement, refresh en arrière-plan.
-  //   • Cache localStorage client (initialData) : affiche les dernières valeurs
-  //     connues dès le montage du composant, avant même la réponse réseau.
-
   const sessionsKey = `sessions:${sc}`;
   const sessionsFresh = mGet(sessionsKey) as unknown[] | null;
-  const sessionsStale = freshOnly ? null : (mGetStale(sessionsKey) as unknown[] | null);
-  const fastEntryBefore = _sessionsFastCount.get(sc);
-  const fastCountBefore = fastEntryBefore && (now - fastEntryBefore.cachedAt) < 8_000 ? fastEntryBefore.count : null;
+  const sessionsStale = mGetStale(sessionsKey) as unknown[] | null;
+  const fastEntry = _sessionsFastCount.get(sc);
+  const fastCount = fastEntry && (now - fastEntry.cachedAt) < MIK_FRESH_MS ? fastEntry.count : null;
 
   const infoKey = `info:${sc}`;
   const infoFresh = mGet(infoKey);
-  const infoStale = freshOnly ? null : mGetStale(infoKey);
+  const infoStale = mGetStale(infoKey);
 
-  const usersCachedBeforeRaw = _usersCountCache.get(sc) ?? null;
-  const usersCachedBefore =
-    usersCachedBeforeRaw
-    && (now - usersCachedBeforeRaw.cachedAt) < usersCountMaxAgeMs
-      ? usersCachedBeforeRaw
-      : null;
-  const userHit   = userCache.get(sc);
-  const userFresh = !!userHit && now < userHit.expiresAt;
-  const COUNT_FRESH_MS = usersCountMaxAgeMs;
+  const usersCachedRaw = _usersCountCache.get(sc) ?? null;
+  const usersCached =
+    usersCachedRaw && (now - usersCachedRaw.cachedAt) < MIK_FRESH_MS ? usersCachedRaw : null;
 
-  // Détecter les manques (cold start pour chaque KPI)
-  const needSessionsCold = !sessionsFresh && !sessionsStale && fastCountBefore === null && !_sessionsFastRefreshing.has(id);
-  const needInfoCold     = !infoFresh && !infoStale && !_infoRefreshing.has(id);
-  const needUsersCold    = !usersCachedBefore && !_usersRefreshing.has(id);
+  const cacheStale =
+    !sessionsFresh
+    || !infoFresh
+    || !usersCached
+    || (now - (_kpiLastRefreshAt.get(id) ?? 0)) >= MIK_FRESH_MS;
 
-  if (needSessionsCold || needInfoCold || needUsersCold) {
-    // Cold start — attendre les KPI critiques (max 5 s) pour éviter sessions/users à 0
-    // sur la première réponse après changement de routeur ou redémarrage API.
-    const COLD_KPI_MS = 5_000;
-    const coldTasks: Promise<void>[] = [];
-    if (needSessionsCold) {
-      _sessionsFastRefreshing.add(id);
-      coldTasks.push((async () => {
-        try {
-          const [count, list] = await Promise.all([
-            countSessionsFast(conn),
-            listSessions(conn),
-          ]);
-          _sessionsFastCount.set(sc, { count, cachedAt: Date.now() });
-          mSet(sessionsKey, MIK_TTL.sessions, list);
-        } catch { /* keep 0 */ }
-        finally { _sessionsFastRefreshing.delete(id); }
-      })());
-    }
-    if (needInfoCold) {
-      _infoRefreshing.add(id);
-      coldTasks.push((async () => {
-        try { mSet(infoKey, MIK_TTL.info, await getRouterInfo(conn)); }
-        catch { /* keep null */ }
-        finally { _infoRefreshing.delete(id); }
-      })());
-    }
-    if (needUsersCold) {
-      _usersRefreshing.add(id);
-      coldTasks.push((async () => {
-        try {
-          const list = await listHotspotUsersFast(conn);
-          _usersCountCache.set(sc, await computeUsersCount(id, conn, list));
-        } catch { /* keep zeros */ }
-        finally { _usersRefreshing.delete(id); }
-      })());
-    }
-    await Promise.race([
-      Promise.all(coldTasks),
-      new Promise<void>((resolve) => { setTimeout(resolve, COLD_KPI_MS); }),
-    ]);
-  } else {
-    // Cache chaud — refresh stale en arrière-plan (non-bloquant)
-    if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
-      _sessionsRefreshing.add(id);
-      setImmediate(async () => {
-        try { mSet(sessionsKey, MIK_TTL.sessions, await listSessions(conn)); }
-        catch { /* keep stale */ }
-        finally { _sessionsRefreshing.delete(id); }
-      });
-    }
-    if (!infoFresh && !_infoRefreshing.has(id)) {
-      _infoRefreshing.add(id);
-      setImmediate(async () => {
-        try { mSet(infoKey, MIK_TTL.info, await getRouterInfo(conn)); }
-        catch { /* keep stale */ }
-        finally { _infoRefreshing.delete(id); }
-      });
-    }
-    const usersCachedNow = _usersCountCache.get(sc);
-    if (usersCachedNow && (now - usersCachedNow.cachedAt) > COUNT_FRESH_MS) {
-      scheduleUserCacheAndCountRefresh(id, r.ownerAdminId, conn, !userFresh);
-    }
+  if (cacheStale || freshOnly) {
+    scheduleRouterKpiRefresh(id, r.ownerAdminId, conn, freshOnly);
   }
 
-  // Full sessions list refresh (pour la page Sessions) — toujours en arrière-plan
-  if (!sessionsFresh && !_sessionsRefreshing.has(id)) {
-    _sessionsRefreshing.add(id);
-    setImmediate(async () => {
-      try { mSet(sessionsKey, MIK_TTL.sessions, await listSessions(conn)); }
-      catch { /* keep stale */ }
-      finally { _sessionsRefreshing.delete(id); }
-    });
-  }
-
-  // Lire les caches après les fetches éventuels
-  const sessionsFreshAfter = mGet(sessionsKey) as unknown[] | null;
-  const sessionsStaleAfter = freshOnly ? null : (mGetStale(sessionsKey) as unknown[] | null);
-  const fastEntryAfter     = _sessionsFastCount.get(sc);
-  const fastCountAfter     = fastEntryAfter && (now - fastEntryAfter.cachedAt) < 8_000 ? fastEntryAfter.count : null;
-  const sessionsCount = sessionsFreshAfter?.length ?? sessionsStaleAfter?.length ?? fastCountAfter ?? 0;
-
-  const infoFreshAfter = mGet(infoKey);
-  const infoStaleAfter = freshOnly ? null : mGetStale(infoKey);
-  const info = (infoFreshAfter ?? infoStaleAfter ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
-
-  const usersCached = _usersCountCache.get(sc) ?? null;
-  const users = usersCached
-    ? { total: usersCached.total, available: usersCached.available, used: usersCached.used, disabled: usersCached.disabled, cachedAt: usersCached.cachedAt }
+  const sessionsCount =
+    sessionsFresh?.length ?? sessionsStale?.length ?? fastCount ?? 0;
+  const info = (infoFresh ?? infoStale ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
+  const usersPayload = _usersCountCache.get(sc);
+  const users = usersPayload
+    ? { total: usersPayload.total, available: usersPayload.available, used: usersPayload.used, disabled: usersPayload.disabled, cachedAt: usersPayload.cachedAt }
     : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
 
   const routerClockDate = info?.clockDate ?? null;
@@ -3195,11 +3168,11 @@ async function buildDashboardKpiFastSnapshot(id: number, opts?: { freshOnly?: bo
     vendorRanking: null,
     info,
     availability: {
-      sessionsKnown: !!(sessionsFreshAfter || sessionsStaleAfter) || fastCountAfter !== null,
-      usersKnown: !!usersCached,
+      sessionsKnown: !!(sessionsFresh || sessionsStale) || fastCount !== null,
+      usersKnown: !!usersPayload,
       salesKnown: false,
       vendorRankingKnown: false,
-      infoKnown: !!(infoFreshAfter || infoStaleAfter),
+      infoKnown: !!(infoFresh || infoStale),
     },
   };
 }
@@ -3993,8 +3966,20 @@ router.get("/routers/:id/interfaces", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const sc = routerCacheScope(r.ownerAdminId, id);
   const ck = `interfaces:${sc}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
+
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    setImmediate(async () => {
+      try {
+        const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+        mSet(ck, MIK_TTL.interfaces, await listInterfaces(conn));
+      } catch { /* keep stale */ }
+    });
+    return;
+  }
 
   try {
     const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
