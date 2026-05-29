@@ -51,6 +51,7 @@ export function verifyToken(token: string): { vendorId: number; sessionEpoch: nu
       exp: number;
     };
     if (data.exp < Date.now()) return null;
+    if (typeof data.vendorId !== "number" || !Number.isFinite(data.vendorId)) return null;
     const sessionEpoch = typeof data.sid === "number" && Number.isFinite(data.sid) ? data.sid : 0;
     const sessionId = typeof data.ssid === "string" && data.ssid.length > 0 ? data.ssid : undefined;
     return { vendorId: data.vendorId, sessionEpoch, sessionId };

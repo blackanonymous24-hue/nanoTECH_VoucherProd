@@ -233,6 +233,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             : [];
           if (ids.length > 0) {
             writeKey(COLLAB_ROUTER_IDS, JSON.stringify(ids), remember);
+            writeKey(ROUTER_KEY, String(ids[0]), remember);
             setCollaborateurRouterIds(ids);
           }
         })
@@ -281,6 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (r === "collaborateur" && collabRouterIds && collabRouterIds.length > 0) {
       writeKey(COLLAB_ROUTER_IDS, JSON.stringify(collabRouterIds), persist);
+      writeKey(ROUTER_KEY, String(collabRouterIds[0]), persist);
     } else {
       removeKey(COLLAB_ROUTER_IDS);
     }

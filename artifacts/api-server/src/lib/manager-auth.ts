@@ -63,6 +63,7 @@ export function verifyToken(token: string): {
       exp: number;
     };
     if (data.exp < Date.now()) return null;
+    if (typeof data.managerId !== "number" || !Number.isFinite(data.managerId)) return null;
     const sessionEpoch = typeof data.sid === "number" && Number.isFinite(data.sid) ? data.sid : 0;
     const sessionId = typeof data.ssid === "string" && data.ssid.length > 0 ? data.ssid : undefined;
     const routerIds = Array.isArray(data.routerIds)

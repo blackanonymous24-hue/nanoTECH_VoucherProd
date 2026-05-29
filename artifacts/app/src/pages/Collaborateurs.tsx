@@ -118,7 +118,7 @@ export default function Collaborateurs() {
   const { data: routers = [] } = useQuery<RouterInfo[]>({
     queryKey: ["routers-list"],
     queryFn: async ({ signal }) => {
-      const r = await fetch(`${BASE}/api/routers`, { signal });
+      const r = await fetch(`${BASE}/api/routers`, { headers, signal });
       if (!r.ok) throw new Error("Erreur chargement routeurs");
       return r.json();
     },
