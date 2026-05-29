@@ -26,8 +26,28 @@ git pull origin "$BRANCH"
 echo "==> pnpm install + build"
 sudo -u "$APP_USER" bash -lc "cd $APP_DIR && pnpm install --frozen-lockfile && pnpm build"
 
+if [[ -f "$APP_DIR/deploy/vouchernet.service" ]]; then
+  cp "$APP_DIR/deploy/vouchernet.service" /etc/systemd/system/vouchernet.service
+  systemctl daemon-reload
+fi
+
 echo "==> migrations base (drizzle)"
 sudo -u "$APP_USER" bash -lc "cd $APP_DIR && pnpm --filter @workspace/db exec drizzle-kit push" || true
+
+echo "==> nginx (static direct + API proxy)"
+if [[ -f "$APP_DIR/deploy/nginx-nanovoucher.conf" ]]; then
+  cp "$APP_DIR/deploy/nginx-nanovoucher.conf" /etc/nginx/sites-available/nanovoucher
+  ln -sf /etc/nginx/sites-available/nanovoucher /etc/nginx/sites-enabled/nanovoucher
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl reload nginx
+  if command -v certbot >/dev/null; then
+    certbot --nginx -d nanovoucher.com -d www.nanovoucher.com \
+      --non-interactive --agree-tos --redirect -m admin@nanovoucher.com 2>/dev/null || true
+    nginx -t
+    systemctl reload nginx
+  fi
+fi
 
 echo "==> redémarrage service"
 systemctl restart vouchernet

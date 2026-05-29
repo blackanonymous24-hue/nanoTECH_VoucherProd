@@ -3341,6 +3341,81 @@ async function buildDashboardPrioritySnapshot(id: number, opts?: { freshOnly?: b
   };
 }
 
+/** Snapshot léger pour SSE / poll — cache RAM uniquement, pas de requêtes DB lourdes. */
+const _streamSalesSyncLastAt = new Map<number, number>();
+const STREAM_SALES_SYNC_MS = 20_000;
+
+async function buildDashboardStreamSnapshot(id: number): Promise<Awaited<ReturnType<typeof buildDashboardPrioritySnapshot>>> {
+  const fast = await buildDashboardKpiFastSnapshot(id);
+  const [r] = await db
+    .select({ ownerAdminId: routersTable.ownerAdminId, host: routersTable.host, port: routersTable.port, username: routersTable.username, password: routersTable.password })
+    .from(routersTable)
+    .where(eq(routersTable.id, id));
+  if (!r) throw new Error("ROUTER_NOT_FOUND");
+
+  const sc = routerCacheScope(r.ownerAdminId, id);
+  const routerClockDate = (fast.info as { clockDate?: string | null } | null)?.clockDate ?? null;
+  seedRouterClockDate(id, routerClockDate);
+
+  const now = Date.now();
+  const lastSync = _streamSalesSyncLastAt.get(id) ?? 0;
+  if (now - lastSync >= STREAM_SALES_SYNC_MS && !dashboardSalesSyncInFlight.has(id)) {
+    _streamSalesSyncLastAt.set(id, now);
+    dashboardSalesSyncInFlight.add(id);
+    const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
+    setImmediate(() => {
+      void runDashboardSalesSyncJob(id, r.ownerAdminId, conn, routerClockDate)
+        .finally(() => { dashboardSalesSyncInFlight.delete(id); });
+    });
+  }
+
+  const salesCached = getSalesCache(sc);
+  const dashCal = getMikhmonCalendar(routerClockDate);
+  const mm = String(dashCal.m).padStart(2, "0");
+  const y = dashCal.y;
+  const d = String(dashCal.d).padStart(2, "0");
+  const todayDateLabel = `${y}-${mm}-${d}`;
+  const todayMonthLabel = `${mm}${y}`;
+  const salesCachedIsCurrent =
+    salesCached != null
+    && salesCached.updatedAt > 0
+    && salesCached.data.dateLabel === todayDateLabel
+    && salesCached.data.monthLabel === todayMonthLabel;
+
+  const sales: SalesReport & { _cachedAt: number | null } = salesCachedIsCurrent
+    ? {
+        dailyCount: salesCached.data.dailyCount,
+        dailyAmount: salesCached.data.dailyAmount,
+        yesterdayCount: salesCached.data.yesterdayCount ?? 0,
+        yesterdayAmount: salesCached.data.yesterdayAmount ?? 0,
+        weekCount: salesCached.data.weekCount ?? 0,
+        weekAmount: salesCached.data.weekAmount ?? 0,
+        lastWeekCount: salesCached.data.lastWeekCount ?? 0,
+        lastWeekAmount: salesCached.data.lastWeekAmount ?? 0,
+        monthlyCount: salesCached.data.monthlyCount,
+        monthlyAmount: salesCached.data.monthlyAmount,
+        lastMonthCount: salesCached.data.lastMonthCount ?? 0,
+        lastMonthAmount: salesCached.data.lastMonthAmount ?? 0,
+        totalCount: salesCached.data.totalCount ?? 0,
+        totalAmount: salesCached.data.totalAmount ?? 0,
+        dateLabel: todayDateLabel,
+        monthLabel: todayMonthLabel,
+        _cachedAt: salesCached.updatedAt,
+      }
+    : emptyDashboardSales(routerClockDate);
+
+  return {
+    ...fast,
+    sales,
+    vendorRanking: null,
+    availability: {
+      ...fast.availability,
+      salesKnown: salesCachedIsCurrent,
+      vendorRankingKnown: false,
+    },
+  };
+}
+
 let dashboardPriorityWarmTimer: ReturnType<typeof setInterval> | null = null;
 const dashboardPriorityWarmStatus = new Map<number, { updatedAt: number; ok: boolean; error?: string }>();
 
@@ -3657,7 +3732,7 @@ router.get("/routers/:id/dashboard-priority/stream", async (req, res): Promise<v
 
   const unsubscribe = subscribeRouterPoller(
     id,
-    () => buildDashboardPrioritySnapshot(id),
+    () => buildDashboardStreamSnapshot(id),
     (snapshot) => {
       if (closed) return;
       res.write(`event: priority\n`);
