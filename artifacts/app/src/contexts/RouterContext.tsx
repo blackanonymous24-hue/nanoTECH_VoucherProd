@@ -7,6 +7,7 @@ import {
   prefetchAllRoutersDashboardKpi,
   prefetchRouterDashboardPriority,
 } from "@/lib/prefetch-router-dashboard-priority";
+import { prefetchRouterSessions } from "@/lib/prefetch-router-sessions";
 import { openDashboardFreshGate } from "@/lib/dashboard-resume";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
 import { DASHBOARD_FRESH_MAX_AGE_MS, readPriorityCache } from "@/lib/dashboard-priority";
@@ -301,6 +302,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       exact: true,
     });
     void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true });
+    prefetchRouterSessions(selectedRouterId);
   }, [selectedRouterId, isAuthenticated]);
 
   // Removed aggressive bootstrap prewarm to keep MikroTik traffic focused on

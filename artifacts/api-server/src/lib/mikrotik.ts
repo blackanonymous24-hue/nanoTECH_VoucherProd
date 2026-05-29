@@ -1339,7 +1339,9 @@ export async function addHotspotUser(conn: RouterConnection, opts: AddHotspotUse
 
 export async function listSessions(conn: RouterConnection): Promise<HotspotSession[]> {
   return withRouter(conn, async (api) => {
-    const sessions = await api.write("/ip/hotspot/active/print");
+    const sessions = await api.write("/ip/hotspot/active/print", [
+      "=.proplist=user,address,mac-address,uptime,bytes-in,bytes-out,server",
+    ]);
     return sessions.map((s) => ({
       user: decodeRouterText((s["user"] as string) ?? ""),
       address: (s["address"] as string) ?? "",
@@ -1348,7 +1350,7 @@ export async function listSessions(conn: RouterConnection): Promise<HotspotSessi
       ...hotspotTrafficBytesFromRouter(s["bytes-in"], s["bytes-out"]),
       server: decodeRouterText((s["server"] as string) || "") || null,
     }));
-  });
+  }, 8_000, "high");
 }
 
 export async function listHotspotCookies(conn: RouterConnection): Promise<HotspotCookie[]> {

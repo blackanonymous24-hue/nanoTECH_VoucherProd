@@ -7,6 +7,7 @@ import {
 import { useRouterContext } from "@/contexts/RouterContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -145,6 +146,9 @@ export default function Sessions() {
     );
   });
 
+  const hasDisplayData = sessions.length > 0;
+  const showLoading = !!selectedRouterId && isLoading && !hasDisplayData && !error;
+
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
@@ -174,6 +178,18 @@ export default function Sessions() {
         </Card>
       )}
 
+      {showLoading && (
+        <Card>
+          <CardContent className="py-6 space-y-3">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
+      )}
+
       {selectedRouterId && error && (
         <Card>
           <CardContent className="py-8 text-center">
@@ -182,7 +198,7 @@ export default function Sessions() {
         </Card>
       )}
 
-      {selectedRouterId && !isLoading && !error && sessions.length === 0 && (
+      {selectedRouterId && !showLoading && !error && sessions.length === 0 && !isFetching && (
         <Card>
           <CardContent className="py-12 text-center">
             <Wifi className="h-10 w-10 text-gray-300 mx-auto mb-3" />
@@ -192,12 +208,15 @@ export default function Sessions() {
         </Card>
       )}
 
-      {selectedRouterId && !isLoading && !error && sessions.length > 0 && (
+      {selectedRouterId && !showLoading && !error && hasDisplayData && (
         <Card>
           <CardHeader className="space-y-1.5 pb-2.5 border-b border-gray-100 bg-white relative z-10">
             <CardTitle className="text-base flex items-center gap-2">
               <Activity className="h-4 w-4 text-green-500" />
               Clients connectés
+              {isFetching && (
+                <RefreshCw className="h-3.5 w-3.5 text-gray-400 animate-spin" aria-label="Actualisation en cours" />
+              )}
             </CardTitle>
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative flex-1 min-w-48 max-w-sm">

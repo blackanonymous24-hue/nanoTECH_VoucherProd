@@ -1097,8 +1097,26 @@ router.get("/routers/:id/sessions", async (req, res): Promise<void> => {
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const sc = routerCacheScope(r.ownerAdminId, id);
   const ck = `sessions:${sc}`;
-  const hit = mGet(ck);
-  if (hit) { res.json(hit); return; }
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
+
+  // Stale-while-revalidate : réponse instantanée si un snapshot existe déjà
+  // (ex. préchauffé par dashboard-priority), refresh MikroTik en arrière-plan.
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    if (!_sessionsRefreshing.has(id)) {
+      _sessionsRefreshing.add(id);
+      setImmediate(async () => {
+        try {
+          const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
+          mSet(ck, MIK_TTL.sessions, sessions);
+        } catch { /* keep stale */ }
+        finally { _sessionsRefreshing.delete(id); }
+      });
+    }
+    return;
+  }
 
   try {
     const sessions = await listSessions({ host: r.host, port: r.port, username: r.username, password: r.password });
