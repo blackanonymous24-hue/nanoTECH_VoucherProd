@@ -127,6 +127,38 @@ function formatMemory(bytes: string | null): string | null {
   return `${n} B`;
 }
 
+/** Au moins une pastille d’info routeur affichable. */
+function hasRouterInfoContent(info: RouterInfo | null | undefined): boolean {
+  if (!info) return false;
+  return !!(
+    info.boardName ||
+    info.model ||
+    info.routerOsVersion ||
+    info.cpu ||
+    info.freeMemory ||
+    info.totalMemory ||
+    info.uptime ||
+    info.clockDate ||
+    info.clockTime
+  );
+}
+
+/** Placeholders pendant le chargement des infos routeur (modèle, ROS, CPU, RAM, uptime, horloge). */
+function RouterInfoSkeleton() {
+  const pillWidths = ["w-24", "w-20", "w-28", "w-[5.5rem]", "w-[4.5rem]", "w-[7rem]"] as const;
+  return (
+    <div
+      className="grid grid-cols-3 gap-1 justify-items-start sm:flex sm:flex-wrap sm:items-center sm:gap-2"
+      aria-busy="true"
+      aria-label="Chargement des informations routeur"
+    >
+      {pillWidths.map((w, i) => (
+        <Skeleton key={i} className={`h-6 ${w} rounded-full`} />
+      ))}
+    </div>
+  );
+}
+
 function formatAmount(amount: number, currency = "FCFA"): string {
   if (amount === 0) return "";
   return amount.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " " + currency;
@@ -763,9 +795,11 @@ export default function Dashboard() {
     !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
   const routerInfo = (livePriority?.info ?? null) as RouterInfo | null;
   const cpuLoadLabel = formatCpuLoad(routerInfo?.cpuLoad ?? null);
-  const infoLoading =
-    !!selectedRouterId
-    && (awaitingRouterSwitch || logsAwaitingFresh || (!infoKpiReady && (priorityLoading || !livePriority)));
+  /** Skeleton pendant le chargement — la zone reste visible (jamais vide / disparue). */
+  const routerInfoLoading =
+    !!selectedRouterId &&
+    !isPingFailed &&
+    (awaitingRouterSwitch || priorityLoading || !infoKpiReady);
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
   const sessionsFetching =
     awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
@@ -962,15 +996,11 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      {selectedRouterId && (
-        <div className="mb-6 lg:mb-2">
-          {infoLoading ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Skeleton className="h-6 w-36 rounded-full" />
-              <Skeleton className="h-6 w-28 rounded-full" />
-              <Skeleton className="h-6 w-32 rounded-full" />
-            </div>
-          ) : routerInfo ? (
+      {selectedRouterId && !isPingFailed && (
+        <div className="mb-6 lg:mb-2 min-h-[1.5rem]">
+          {routerInfoLoading ? (
+            <RouterInfoSkeleton />
+          ) : hasRouterInfoContent(routerInfo) ? (
             <div className="grid grid-cols-3 gap-1 justify-items-start sm:flex sm:flex-wrap sm:items-center sm:gap-2">
               {(routerInfo.boardName || routerInfo.model) && (
                 <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-100 text-[10px] sm:text-xs font-medium text-blue-700 overflow-hidden">
