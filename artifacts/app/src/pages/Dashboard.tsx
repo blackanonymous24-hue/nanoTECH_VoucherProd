@@ -143,18 +143,17 @@ function hasRouterInfoContent(info: RouterInfo | null | undefined): boolean {
   );
 }
 
-/** Placeholders pendant le chargement des infos routeur (modèle, ROS, CPU, RAM, uptime, horloge). */
+/** Placeholders pendant le chargement — une seule ligne pour ne pas pousser les cartes KPI. */
 function RouterInfoSkeleton() {
-  const pillWidths = ["w-24", "w-20", "w-28", "w-[5.5rem]", "w-[4.5rem]", "w-[7rem]"] as const;
   return (
     <div
-      className="grid grid-cols-3 gap-1 justify-items-start sm:flex sm:flex-wrap sm:items-center sm:gap-2"
+      className="flex flex-wrap items-center gap-2 h-7 overflow-hidden"
       aria-busy="true"
       aria-label="Chargement des informations routeur"
     >
-      {pillWidths.map((w, i) => (
-        <Skeleton key={i} className={`h-6 ${w} rounded-full`} />
-      ))}
+      <Skeleton className="h-6 w-36 rounded-full shrink-0" />
+      <Skeleton className="h-6 w-28 rounded-full shrink-0" />
+      <Skeleton className="h-6 w-32 rounded-full shrink-0" />
     </div>
   );
 }
@@ -795,11 +794,11 @@ export default function Dashboard() {
     !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
   const routerInfo = (livePriority?.info ?? null) as RouterInfo | null;
   const cpuLoadLabel = formatCpuLoad(routerInfo?.cpuLoad ?? null);
-  /** Skeleton pendant le chargement — la zone reste visible (jamais vide / disparue). */
+  /** Skeleton infos routeur uniquement — indépendant du chargement des cartes KPI. */
   const routerInfoLoading =
     !!selectedRouterId &&
     !isPingFailed &&
-    (awaitingRouterSwitch || priorityLoading || !infoKpiReady);
+    (awaitingRouterSwitch || !infoKpiReady);
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
   const sessionsFetching =
     awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
@@ -997,7 +996,13 @@ export default function Dashboard() {
       </div>
 
       {selectedRouterId && !isPingFailed && (
-        <div className="mb-6 lg:mb-2 min-h-[1.5rem]">
+        <div
+          className={
+            routerInfoLoading || hasRouterInfoContent(routerInfo)
+              ? "mb-6 lg:mb-3 min-h-7"
+              : "mb-0"
+          }
+        >
           {routerInfoLoading ? (
             <RouterInfoSkeleton />
           ) : hasRouterInfoContent(routerInfo) ? (
