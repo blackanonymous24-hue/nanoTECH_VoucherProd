@@ -3386,11 +3386,25 @@ export function startDashboardPriorityWarmer() {
  * GET /routers/dashboard-priority/warm-status
  * Returns pre-warm status for each router.
  */
-router.get("/routers/dashboard-priority/warm-status", async (_req, res): Promise<void> => {
+router.get("/routers/dashboard-priority/warm-status", async (req, res): Promise<void> => {
   try {
-    const routers = await db
-      .select({ id: routersTable.id, name: routersTable.name })
-      .from(routersTable);
+    const scope = await resolveCallerScope(req);
+    if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+
+    let routers: { id: number; name: string }[];
+    if (scope.kind === "super" || scope.kind === "admin") {
+      routers = await db
+        .select({ id: routersTable.id, name: routersTable.name })
+        .from(routersTable)
+        .where(eq(routersTable.ownerAdminId, scope.adminId));
+    } else if (scope.routerIds.length === 0) {
+      routers = [];
+    } else {
+      routers = await db
+        .select({ id: routersTable.id, name: routersTable.name })
+        .from(routersTable)
+        .where(inArray(routersTable.id, scope.routerIds));
+    }
     const now = Date.now();
     res.json({
       warmerRunning: !!dashboardPriorityWarmTimer,

@@ -57,7 +57,8 @@ router.get("/collaborateurs/me", async (req, res): Promise<void> => {
   if (!claims) { res.status(401).json({ error: "Non authentifié" }); return; }
   const [collab] = await db.select().from(collaborateursTable).where(eq(collaborateursTable.id, claims.collaborateurId));
   if (!collab) { res.status(404).json({ error: "Collaborateur introuvable" }); return; }
-  res.json({ id: collab.id, name: collab.name, username: collab.username });
+  const routerIds = await getRouterIds(collab.id);
+  res.json({ id: collab.id, name: collab.name, username: collab.username, routerIds });
 });
 
 router.get("/collaborateurs", async (req, res): Promise<void> => {

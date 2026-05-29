@@ -8,6 +8,7 @@ import { getRouterClockDateCached } from "../lib/router-clock-cache.js";
 import { buildRouterReportsSummaryFast } from "../lib/vendor-reports-summary-fast.js";
 import { withRouterLock } from "../lib/router-lock.js";
 import { patchCachedHotspotUsersDisabledByComment, invalidateUserCache, resolveCallerScope, type CallerScope } from "./routers.js";
+import { assertRouterAccessForScope } from "../lib/caller-router-access.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { buildProfilePeriodCounts, computeSalesStats } from "../lib/sales-stats.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
@@ -110,28 +111,27 @@ async function attributeVouchersBySuffix(vendorId: number, routerId: number, com
   }
 }
 
-/**
- * Vérifie qu'un routeur appartient au tenant du scope (ou que c'est un super-admin non-impersonating).
- * Écrit 401/403 et retourne false si refusé, true si autorisé.
- */
-async function assertRouterScope(
-  routerId: number,
-  scope: ReturnType<typeof getAdminScopeOptional>,
+/** Admin, gérant, collaborateur — pas le portail vendeur. */
+async function resolveVendorMutationScope(
+  req: import("express").Request,
   res: import("express").Response,
-): Promise<boolean> {
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return false; }
-  if (scope.isSuperAdmin && !scope.isImpersonating) return true;
-  const [r] = await db.select({ owner: routersTable.ownerAdminId })
-    .from(routersTable).where(eq(routersTable.id, routerId));
-  if (!r || r.owner !== scope.adminId) { res.status(403).json({ error: "Accès refusé" }); return false; }
-  return true;
+): Promise<CallerScope | null> {
+  const scope = await resolveCallerScope(req);
+  if (!scope) {
+    res.status(401).json({ error: "Non authentifié" });
+    return null;
+  }
+  if (scope.kind === "vendor") {
+    res.status(403).json({ error: "Accès refusé" });
+    return null;
+  }
+  return scope;
 }
 
-/** Condition Drizzle de scoping tenant pour vendorsTable, ou undefined pour super-admin global. */
-function vendorTenantCond(scope: NonNullable<ReturnType<typeof getAdminScopeOptional>>) {
-  return (!scope.isSuperAdmin || scope.isImpersonating)
-    ? eq(vendorsTable.ownerAdminId, scope.adminId)
-    : undefined;
+function vendorTenantCondForScope(scope: CallerScope) {
+  if (scope.kind === "super") return undefined;
+  if (scope.adminId != null) return eq(vendorsTable.ownerAdminId, scope.adminId);
+  return undefined;
 }
 
 /** Lecture vendeurs / ventes : admin, super-admin, gérant de zone, collaborateur. */
@@ -153,7 +153,7 @@ async function resolveVendorReadScope(
 
 function vendorReadableByScope(
   scope: CallerScope,
-  vendor: { ownerAdminId: number; routerId: number | null },
+  vendor: { ownerAdminId: number | null; routerId: number | null },
 ): boolean {
   if (scope.kind === "super") return true;
   if (scope.kind === "admin") return vendor.ownerAdminId === scope.adminId;
@@ -184,14 +184,20 @@ function assertRouterReadable(
 }
 
 router.get("/vendors", async (req, res): Promise<void> => {
+  const scope = await resolveVendorReadScope(req, res);
+  if (!scope) return;
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
-  // Tenant scoping: a regular admin token only sees their own vendors.
-  // Other auth modes (vendor portal, manager, collab) keep the legacy
-  // behavior because they have their own server-side guards.
-  const scope = getAdminScopeOptional(req);
+
   const conds: ReturnType<typeof eq>[] = [];
-  if (routerId) conds.push(eq(vendorsTable.routerId, routerId));
-  if (scope && (!scope.isSuperAdmin || scope.isImpersonating)) conds.push(eq(vendorsTable.ownerAdminId, scope.adminId));
+  if (routerId) {
+    if (!assertRouterReadable(scope, routerId, res)) return;
+    conds.push(eq(vendorsTable.routerId, routerId));
+  } else if (scope.kind === "manager" || scope.kind === "collaborateur") {
+    if (scope.routerIds.length === 0) { res.json([]); return; }
+    conds.push(inArray(vendorsTable.routerId, scope.routerIds));
+  }
+  const tenantCond = vendorTenantCondForScope(scope);
+  if (tenantCond) conds.push(tenantCond);
   const where = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
   const vendors = await db.select().from(vendorsTable).where(where).orderBy(vendorsTable.name);
   res.json(vendors.map(safeVendor));
@@ -293,10 +299,16 @@ router.post("/vendors", async (req, res): Promise<void> => {
 
 /* ── PUT /vendors/bulk-commission — must be before /:id to avoid route conflict ── */
 router.put("/vendors/bulk-commission", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope || (scope.kind !== "admin" && scope.kind !== "super")) {
+    res.status(403).json({ error: "Accès réservé à l'administrateur" });
+    return;
+  }
   const { routerId, commissionRate } = req.body as { routerId?: number; commissionRate?: number };
   if (!routerId || isNaN(Number(routerId))) {
     res.status(400).json({ error: "routerId requis" }); return;
   }
+  if (!(await assertRouterAccessForScope(scope, Number(routerId), res))) return;
   const rate = Math.min(100, Math.max(0, Math.round(Number(commissionRate) || 0)));
   const updated = await db
     .update(vendorsTable)
@@ -469,11 +481,17 @@ router.put("/vendors/:id", async (req, res): Promise<void> => {
 });
 
 router.post("/vendors/:id/sync", async (req, res): Promise<void> => {
+  const scope = await resolveVendorReadScope(req, res);
+  if (!scope) return;
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, id));
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
+  if (!vendorReadableByScope(scope, vendor)) {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
+  }
 
   res.json({ ok: true, message: "Synchronisation démarrée" });
 
@@ -519,9 +537,18 @@ const LOW_STOCK_THRESHOLD = 100;
 
 router.get("/vendors/stock-alerts", async (req, res): Promise<void> => {
   try {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorReadScope(req, res);
+  if (!scope) return;
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
+  if (routerId && !assertRouterReadable(scope, routerId, res)) return;
+
+  const routerFilter =
+    routerId
+      ? eq(vendorsTable.routerId, routerId)
+      : (scope.kind === "manager" || scope.kind === "collaborateur") && scope.routerIds.length > 0
+        ? inArray(vendorsTable.routerId, scope.routerIds)
+        : undefined;
+  const tenantCond = vendorTenantCondForScope(scope);
 
   // Aggregate available tickets per vendor per profile — also pull routerId so
   // we can cross-check against the profiles cache and exclude ghost profiles.
@@ -540,8 +567,8 @@ router.get("/vendors/stock-alerts", async (req, res): Promise<void> => {
         isNotNull(vouchersTable.vendorId),
         isNotNull(vouchersTable.profileName),
         ne(vouchersTable.profileName, ""),
-        routerId ? eq(vendorsTable.routerId, routerId) : undefined,
-        vendorTenantCond(scope),
+        routerFilter,
+        tenantCond,
       )
     )
     .groupBy(vouchersTable.vendorId, vouchersTable.profileName, vendorsTable.routerId);
@@ -775,8 +802,8 @@ router.get("/vendors/reports/summary", async (req, res): Promise<void> => {
 });
 
 router.get("/vendors/:id/report", async (req, res): Promise<void> => {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorReadScope(req, res);
+  if (!scope) return;
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
@@ -786,8 +813,9 @@ router.get("/vendors/:id/report", async (req, res): Promise<void> => {
     .where(eq(vendorsTable.id, id));
 
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
-  if ((!scope.isSuperAdmin || scope.isImpersonating) && vendor.ownerAdminId !== scope.adminId) {
-    res.status(403).json({ error: "Accès refusé" }); return;
+  if (!vendorReadableByScope(scope, vendor)) {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
   }
 
   // Déclenche un sync en arrière-plan (non-bloquant) — le sync temps réel (10 s)
@@ -1106,14 +1134,14 @@ async function autoSettleHistoricalWeeks(
  * date defaults to yesterday (UTC).
  * ──────────────────────────────────────────────────────────────── */
 router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorMutationScope(req, res);
+  if (!scope) return;
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
   if (!routerId || isNaN(routerId)) {
     res.status(400).json({ error: "routerId requis" });
     return;
   }
-  if (!await assertRouterScope(routerId, scope, res)) return;
+  if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
 
   // Parse date — default to yesterday UTC
   let dateStr = (req.query.date as string) ?? "";
@@ -1518,11 +1546,11 @@ router.get("/vendors/daily-tracking", async (req, res): Promise<void> => {
  *   Returns payments for a date range, including vendorName joined from vendors table.
  */
 router.get("/vendors/daily-payments", async (req, res): Promise<void> => {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorMutationScope(req, res);
+  if (!scope) return;
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
   if (!routerId || isNaN(routerId)) { res.status(400).json({ error: "routerId requis" }); return; }
-  if (!await assertRouterScope(routerId, scope, res)) return;
+  if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
 
   const from = (req.query.from as string) ?? "";
   const to   = (req.query.to   as string) ?? "";
@@ -1569,13 +1597,14 @@ router.get("/vendors/daily-payments", async (req, res): Promise<void> => {
  * Records a daily payment for the vendor.
  */
 router.post("/vendors/:id/daily-payments", async (req, res): Promise<void> => {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorMutationScope(req, res);
+  if (!scope) return;
   const vendorId = parseInt(req.params.id, 10);
   if (isNaN(vendorId)) { res.status(400).json({ error: "vendorId invalide" }); return; }
   const { routerId, date, amount, note } = req.body as { routerId: number; date: string; amount: number; note?: string };
   if (!routerId || !date || !amount || amount <= 0) { res.status(400).json({ error: "routerId, date et amount requis" }); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { res.status(400).json({ error: "date YYYY-MM-DD invalide" }); return; }
+  if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
   const weekStart = mondayOf(date);
   const wStart = new Date(weekStart + "T00:00:00Z");
   const wEnd = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -1583,7 +1612,7 @@ router.post("/vendors/:id/daily-payments", async (req, res): Promise<void> => {
 
   const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, vendorId));
   if (!vendor) { res.status(404).json({ error: "Vendeur introuvable" }); return; }
-  if ((!scope.isSuperAdmin || scope.isImpersonating) && vendor.ownerAdminId !== scope.adminId) {
+  if (!vendorReadableByScope(scope, vendor)) {
     res.status(403).json({ error: "Accès refusé" }); return;
   }
 
@@ -1739,17 +1768,19 @@ router.post("/vendors/:id/daily-payments", async (req, res): Promise<void> => {
  * Removes a specific daily payment entry.
  */
 router.delete("/vendors/daily-payments/:id", async (req, res): Promise<void> => {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorMutationScope(req, res);
+  if (!scope) return;
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "id invalide" }); return; }
-  if (!scope.isSuperAdmin || scope.isImpersonating) {
-    const [pay] = await db.select({ vendorId: vendorDailyPaymentsTable.vendorId })
-      .from(vendorDailyPaymentsTable).where(eq(vendorDailyPaymentsTable.id, id));
-    if (pay) {
-      const [v] = await db.select({ owner: vendorsTable.ownerAdminId })
-        .from(vendorsTable).where(eq(vendorsTable.id, pay.vendorId));
-      if (!v || v.owner !== scope.adminId) { res.status(403).json({ error: "Accès refusé" }); return; }
+  const [payRow] = await db
+    .select({ vendorId: vendorDailyPaymentsTable.vendorId, routerId: vendorDailyPaymentsTable.routerId })
+    .from(vendorDailyPaymentsTable)
+    .where(eq(vendorDailyPaymentsTable.id, id));
+  if (payRow) {
+    if (!(await assertRouterAccessForScope(scope, payRow.routerId, res))) return;
+    const [v] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payRow.vendorId));
+    if (v && !vendorReadableByScope(scope, v)) {
+      res.status(403).json({ error: "Accès refusé" }); return;
     }
   }
   const [deleted] = await db
@@ -1767,11 +1798,11 @@ router.delete("/vendors/daily-payments/:id", async (req, res): Promise<void> => 
  * based on weekly payment status for finished weeks.
  * ──────────────────────────────────────────────────────────────────────── */
 router.get("/vendors/daily-arrears", async (req, res): Promise<void> => {
-  const scope = getAdminScopeOptional(req);
-  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  const scope = await resolveVendorMutationScope(req, res);
+  if (!scope) return;
   const routerId = req.query.routerId ? parseInt(req.query.routerId as string, 10) : null;
   if (!routerId || isNaN(routerId)) { res.status(400).json({ error: "routerId requis" }); return; }
-  if (!await assertRouterScope(routerId, scope, res)) return;
+  if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
 
   let dateStr = (req.query.date as string) ?? "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) dateStr = new Date().toISOString().slice(0, 10);
@@ -2153,11 +2184,11 @@ async function autoSettleDailyRowsForValidatedWeek(
  */
 router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
   try {
-    const scope = getAdminScopeOptional(req);
-    if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+    const scope = await resolveVendorMutationScope(req, res);
+    if (!scope) return;
     const routerId = parseInt(req.query.routerId as string);
     if (isNaN(routerId)) { res.status(400).json({ error: "routerId required" }); return; }
-    if (!await assertRouterScope(routerId, scope, res)) return;
+    if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
 
     const rawWeek = (req.query.weekStart as string) ?? new Date().toISOString().slice(0, 10);
     const weekStart = mondayOf(rawWeek);
@@ -2343,14 +2374,15 @@ router.get("/vendors/weekly-summary", async (req, res): Promise<void> => {
 /** POST /api/vendors/payments — record a versement */
 router.post("/vendors/payments", async (req, res): Promise<void> => {
   try {
-    const scope = getAdminScopeOptional(req);
-    if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+    const scope = await resolveVendorMutationScope(req, res);
+    if (!scope) return;
     const { vendorId, routerId, weekStart, amount, note } = req.body as {
       vendorId: number; routerId: number; weekStart: string; amount: number; note?: string;
     };
     if (!vendorId || !routerId || !weekStart || !amount) {
       res.status(400).json({ error: "vendorId, routerId, weekStart, amount required" }); return;
     }
+    if (!(await assertRouterAccessForScope(scope, +routerId, res))) return;
     const ws = mondayOf(weekStart);
     const wStart = new Date(ws + "T00:00:00Z");
     const wEnd = new Date(wStart.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -2358,7 +2390,7 @@ router.post("/vendors/payments", async (req, res): Promise<void> => {
 
     const [vendor] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, +vendorId));
     if (!vendor) { res.status(404).json({ error: "vendor introuvable" }); return; }
-    if ((!scope.isSuperAdmin || scope.isImpersonating) && vendor.ownerAdminId !== scope.adminId) {
+    if (!vendorReadableByScope(scope, vendor)) {
       res.status(403).json({ error: "Accès refusé" }); return;
     }
 
@@ -2442,17 +2474,19 @@ router.post("/vendors/payments", async (req, res): Promise<void> => {
 /** DELETE /api/vendors/payments/:id — cancel a versement */
 router.delete("/vendors/payments/:id", async (req, res): Promise<void> => {
   try {
-    const scope = getAdminScopeOptional(req);
-    if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+    const scope = await resolveVendorMutationScope(req, res);
+    if (!scope) return;
     const id = parseInt(req.params.id);
     if (isNaN(id)) { res.status(400).json({ error: "invalid id" }); return; }
-    if (!scope.isSuperAdmin || scope.isImpersonating) {
-      const [pay] = await db.select({ vendorId: vendorPaymentsTable.vendorId })
-        .from(vendorPaymentsTable).where(eq(vendorPaymentsTable.id, id));
-      if (pay) {
-        const [v] = await db.select({ owner: vendorsTable.ownerAdminId })
-          .from(vendorsTable).where(eq(vendorsTable.id, pay.vendorId));
-        if (!v || v.owner !== scope.adminId) { res.status(403).json({ error: "Accès refusé" }); return; }
+    const [payRow] = await db
+      .select({ vendorId: vendorPaymentsTable.vendorId, routerId: vendorPaymentsTable.routerId })
+      .from(vendorPaymentsTable)
+      .where(eq(vendorPaymentsTable.id, id));
+    if (payRow) {
+      if (!(await assertRouterAccessForScope(scope, payRow.routerId, res))) return;
+      const [v] = await db.select().from(vendorsTable).where(eq(vendorsTable.id, payRow.vendorId));
+      if (v && !vendorReadableByScope(scope, v)) {
+        res.status(403).json({ error: "Accès refusé" }); return;
       }
     }
     const [deleted] = await db

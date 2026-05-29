@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, isNull, isNotNull, desc, sql, or, ilike, gte } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, desc, sql, or, ilike, gte, inArray } from "drizzle-orm";
 import { db, routersTable, vouchersTable, vendorsTable, scriptSalesTable } from "@workspace/db";
 import {
   generateVouchers,
@@ -15,6 +15,7 @@ import {
   patchCachedHotspotUsersDisabled,
   patchCachedHotspotUsersDisabledByComment,
 } from "./routers.js";
+import { assertRouterAccessForScope, assertVoucherAccessForScope } from "../lib/caller-router-access.js";
 
 import { getCachedProfilePricesSync, getCachedProfilePrices } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
@@ -57,6 +58,9 @@ async function autoAttributeInserted(insertedIds: number[]) {
 const router = Router();
 
 router.get("/vouchers", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+
   const { routerId, profile, printed, limit, offset } = req.query as {
     routerId?: string;
     profile?: string;
@@ -65,14 +69,39 @@ router.get("/vouchers", async (req, res): Promise<void> => {
     offset?: string;
   };
 
-  const conditions = [];
-  if (routerId) conditions.push(eq(vouchersTable.routerId, parseInt(routerId, 10)));
+  const parsedRouterId = routerId ? parseInt(routerId, 10) : NaN;
+  if (scope.kind === "manager" || scope.kind === "collaborateur" || scope.kind === "vendor") {
+    if (!routerId || Number.isNaN(parsedRouterId)) {
+      res.status(400).json({ error: "routerId requis" });
+      return;
+    }
+    if (!(await assertRouterAccessForScope(scope, parsedRouterId, res))) return;
+  } else if (routerId && !Number.isNaN(parsedRouterId)) {
+    if (!(await assertRouterAccessForScope(scope, parsedRouterId, res))) return;
+  }
+
+  const conditions: ReturnType<typeof eq>[] = [];
+  if (routerId && !Number.isNaN(parsedRouterId)) {
+    conditions.push(eq(vouchersTable.routerId, parsedRouterId));
+  } else if (scope.kind === "admin" || scope.kind === "super") {
+    const adminRouters = await db
+      .select({ id: routersTable.id })
+      .from(routersTable)
+      .where(eq(routersTable.ownerAdminId, scope.adminId));
+    const ids = adminRouters.map((r) => r.id);
+    if (ids.length === 0) {
+      res.json({ vouchers: [], total: 0 });
+      return;
+    }
+    conditions.push(inArray(vouchersTable.routerId, ids));
+  }
   if (profile) conditions.push(eq(vouchersTable.profileName, profile));
   if (printed === "true") conditions.push(isNotNull(vouchersTable.printedAt));
   if (printed === "false") conditions.push(isNull(vouchersTable.printedAt));
 
   const lim = limit ? parseInt(limit, 10) : 50;
   const off = offset ? parseInt(offset, 10) : 0;
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   const query = db
     .select()
@@ -81,10 +110,10 @@ router.get("/vouchers", async (req, res): Promise<void> => {
     .limit(lim)
     .offset(off);
 
-  const countQuery = db.$count(vouchersTable, conditions.length > 0 ? and(...conditions) : undefined);
+  const countQuery = db.$count(vouchersTable, whereClause);
 
   const [vouchers, total] = await Promise.all([
-    conditions.length > 0 ? query.where(and(...conditions)) : query,
+    whereClause ? query.where(whereClause) : query,
     countQuery,
   ]);
 
@@ -106,23 +135,7 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
 
   const rid = parseInt(routerId, 10);
   if (Number.isNaN(rid)) { res.status(400).json({ error: "routerId invalide" }); return; }
-
-  if (scope.kind === "admin" || scope.kind === "super") {
-    const [own] = await db
-      .select({ owner: routersTable.ownerAdminId })
-      .from(routersTable)
-      .where(eq(routersTable.id, rid));
-    if (!own) { res.status(404).json({ error: "Routeur introuvable" }); return; }
-    if (own.owner == null || own.owner !== scope.adminId) {
-      res.status(403).json({ error: "Accès refusé à ce routeur" });
-      return;
-    }
-  } else {
-    if (!scope.routerIds.includes(rid)) {
-      res.status(403).json({ error: "Accès refusé à ce routeur" });
-      return;
-    }
-  }
+  if (!(await assertRouterAccessForScope(scope, rid, res))) return;
 
   const [routerExists] = await db.select({ id: routersTable.id }).from(routersTable).where(eq(routersTable.id, rid));
   if (!routerExists) { res.status(404).json({ error: "Routeur introuvable" }); return; }
@@ -259,6 +272,13 @@ router.get("/vouchers/sold-lookup", async (req, res): Promise<void> => {
 });
 
 router.post("/vouchers/generate", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind === "vendor") {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
+  }
+
   const { routerId, profile, qty, prefix, comment, server, vendorId, passwordMode, charType, userLength, timelimit, datalimit, profilePrice, profileValidity, lotTarget } = req.body as {
     routerId?: number;
     profile?: string;
@@ -286,6 +306,7 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
     res.status(400).json({ error: "qty doit être entre 1 et 1000" });
     return;
   }
+  if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
@@ -411,6 +432,13 @@ router.post("/vouchers/generate", async (req, res): Promise<void> => {
 
 // POST /vouchers/users-toggle — enable/disable a specific set of usernames
 router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind === "vendor") {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
+  }
+
   const { routerId, usernames, enable, skipSessionKick } = req.body as {
     routerId?: number;
     usernames?: string[];
@@ -422,6 +450,7 @@ router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
     res.status(400).json({ error: "routerId et usernames sont requis" });
     return;
   }
+  if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
@@ -447,6 +476,13 @@ router.post("/vouchers/users-toggle", async (req, res): Promise<void> => {
 
 // GET /vouchers/lot-usernames — usernames en base pour un lot (`comment`), pour progression client (toggle paqueté)
 router.get("/vouchers/lot-usernames", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind === "vendor") {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
+  }
+
   const rawRid = req.query.routerId;
   const routerId = typeof rawRid === "string" ? parseInt(rawRid, 10) : NaN;
   const commentTrim = typeof req.query.comment === "string" ? req.query.comment.trim() : "";
@@ -454,6 +490,7 @@ router.get("/vouchers/lot-usernames", async (req, res): Promise<void> => {
     res.status(400).json({ error: "routerId et comment sont requis" });
     return;
   }
+  if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
 
   const rows = await db
     .select({ username: vouchersTable.username })
@@ -464,6 +501,13 @@ router.get("/vouchers/lot-usernames", async (req, res): Promise<void> => {
 });
 
 router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind === "vendor") {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
+  }
+
   const { routerId, comment, enable } = req.body as {
     routerId?: number;
     comment?: string;
@@ -474,6 +518,7 @@ router.post("/vouchers/lot-disable", async (req, res): Promise<void> => {
     res.status(400).json({ error: "routerId et comment sont requis" });
     return;
   }
+  if (!(await assertRouterAccessForScope(scope, routerId, res))) return;
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, routerId));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
@@ -504,10 +549,16 @@ router.delete("/vouchers/:id", async (req, res): Promise<void> => {
     res.status(403).json({ error: "Les gérants de zone ne peuvent pas supprimer de données." });
     return;
   }
+  if (scope.kind === "vendor") {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
+  }
 
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  if (!(await assertVoucherAccessForScope(scope, id, res))) return;
 
   const [deleted] = await db.delete(vouchersTable).where(eq(vouchersTable.id, id)).returning();
   if (!deleted) { res.status(404).json({ error: "Voucher introuvable" }); return; }
@@ -515,9 +566,18 @@ router.delete("/vouchers/:id", async (req, res): Promise<void> => {
 });
 
 router.post("/vouchers/:id/mark-printed", async (req, res): Promise<void> => {
+  const scope = await resolveCallerScope(req);
+  if (!scope) { res.status(401).json({ error: "Non authentifié" }); return; }
+  if (scope.kind === "vendor") {
+    res.status(403).json({ error: "Accès refusé" });
+    return;
+  }
+
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(raw, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  if (!(await assertVoucherAccessForScope(scope, id, res))) return;
 
   const [updated] = await db
     .update(vouchersTable)

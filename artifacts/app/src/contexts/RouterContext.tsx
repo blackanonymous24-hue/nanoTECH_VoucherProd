@@ -93,8 +93,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const allRouters: Router[] = freshRouters ?? [];
 
   const routers: Router[] =
-    role === "collaborateur" && collaborateurRouterIds.length > 0
-      ? allRouters.filter((r) => collaborateurRouterIds.includes(r.id))
+    role === "collaborateur"
+      ? allRouters
       : role === "manager" && managerRouterIds.length > 0
         ? allRouters.filter((r) => managerRouterIds.includes(r.id))
         : allRouters;

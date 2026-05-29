@@ -228,6 +228,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const username = data.username || null;
           if (name)     { writeKey(CONNECTED_NAME_KEY, name, remember);     setConnectedName(name); }
           if (username) { writeKey(CONNECTED_USER_KEY, username, remember); setConnectedUsername(username); }
+          const ids = Array.isArray(data.routerIds)
+            ? data.routerIds.map((id: unknown) => Number(id)).filter((id: number) => Number.isFinite(id) && id > 0)
+            : [];
+          if (ids.length > 0) {
+            writeKey(COLLAB_ROUTER_IDS, JSON.stringify(ids), remember);
+            setCollaborateurRouterIds(ids);
+          }
         })
         .catch(() => {});
     }
