@@ -369,17 +369,22 @@ function makeBatchId(mode: "vc" | "up" = "vc"): string {
 }
 
 type PasswordModeKey = "same" | "random";
-type LotIdDraft = { base: string; manualSuffix: string };
+type LotIdDraft = { base: string; append: string };
 
 function freshLotIdDraft(mode: PasswordModeKey): LotIdDraft {
   return {
     base: makeBatchId(mode === "random" ? "up" : "vc"),
-    manualSuffix: "",
+    append: "",
   };
 }
 
 function initialLotIdsByMode(): Record<PasswordModeKey, LotIdDraft> {
   return { same: freshLotIdDraft("same"), random: freshLotIdDraft("random") };
+}
+
+/** Suffixe libre après le tiret (ex. TEST → …-TEST). Pas de tiret en tête. */
+function sanitizeLotAppend(raw: string): string {
+  return raw.replace(/\s+/g, "").replace(/^-+/, "");
 }
 
 export default function GenerateVouchers() {
@@ -404,7 +409,7 @@ export default function GenerateVouchers() {
   const [timelimit, setTimelimit] = useState("");
   const [datalimit, setDatalimit] = useState("");
   const [mbgb, setMbgb] = useState<number>(1048576);
-  /** Identifiants de lot par mode : Ticket (vc-) et Compte (up-), chacun avec suffixe manuel propre. */
+  /** Identifiant de lot par mode : base verrouillée + ajout optionnel après « - ». */
   const [lotIdByMode, setLotIdByMode] = useState(initialLotIdsByMode);
   const [vendorId, setVendorId] = useState<string>("");
   const [lastLot, setLastLot] = useState<LastLot | null>(null);
@@ -427,25 +432,21 @@ export default function GenerateVouchers() {
     setLotIdByMode(initialLotIdsByMode());
   }, [selectedRouterId]);
 
-  const lotIdPrefix = passwordMode === "random" ? "up" : "vc";
   const lotIdBase = lotIdByMode[passwordMode].base;
-  const lotIdManualSuffix = lotIdByMode[passwordMode].manualSuffix;
+  const lotIdAppend = lotIdByMode[passwordMode].append;
 
-  const setLotIdBase = useCallback(
-    (base: string) => {
+  const regenerateLotId = useCallback(() => {
+    setLotIdByMode((prev) => ({
+      ...prev,
+      [passwordMode]: freshLotIdDraft(passwordMode),
+    }));
+  }, [passwordMode]);
+
+  const setLotIdAppend = useCallback(
+    (append: string) => {
       setLotIdByMode((prev) => ({
         ...prev,
-        [passwordMode]: { ...prev[passwordMode], base },
-      }));
-    },
-    [passwordMode],
-  );
-
-  const setLotIdManualSuffix = useCallback(
-    (manualSuffix: string) => {
-      setLotIdByMode((prev) => ({
-        ...prev,
-        [passwordMode]: { ...prev[passwordMode], manualSuffix },
+        [passwordMode]: { ...prev[passwordMode], append: sanitizeLotAppend(append) },
       }));
     },
     [passwordMode],
@@ -555,15 +556,15 @@ export default function GenerateVouchers() {
     if (vendorId && selectedVendor) {
       return lotIdBase + vendorSuffix;
     }
-    const manual = lotIdManualSuffix.trim();
-    return manual ? `${lotIdBase}-${manual}` : lotIdBase;
-  }, [lotIdBase, lotIdManualSuffix, vendorId, selectedVendor, vendorSuffix]);
+    const extra = lotIdAppend.trim();
+    return extra ? `${lotIdBase}-${extra}` : lotIdBase;
+  }, [lotIdBase, lotIdAppend, vendorId, selectedVendor, vendorSuffix]);
 
   useEffect(() => {
     if (!vendorId) return;
     setLotIdByMode((prev) => ({
-      same: { ...prev.same, manualSuffix: "" },
-      random: { ...prev.random, manualSuffix: "" },
+      same: { ...prev.same, append: "" },
+      random: { ...prev.random, append: "" },
     }));
   }, [vendorId]);
 
@@ -1168,51 +1169,38 @@ export default function GenerateVouchers() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="text-xs">
-                    Identifiant de lot
-                    <span className="ml-1 font-mono text-gray-400 font-normal">
-                      ({passwordMode === "same" ? "Ticket vc-" : "Compte up-"})
-                    </span>
-                  </Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Identifiant de lot</Label>
                   <button
                     type="button"
-                    onClick={() => setLotIdBase(makeBatchId(lotIdPrefix))}
-                    className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1 shrink-0"
-                    title={`Générer un nouvel ID ${lotIdPrefix}-…`}
+                    onClick={regenerateLotId}
+                    className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                    title="Générer un nouvel ID de lot"
                   >
                     <RefreshCw className="h-3 w-3" /> Régénérer
                   </button>
                 </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Input
-                    className="h-8 text-xs font-mono bg-muted/60 min-w-0 flex-[1.4]"
-                    value={lotIdBase}
-                    readOnly
-                    aria-readonly
-                    title={`Identifiant préchargé ${lotIdPrefix}- (non modifiable)`}
-                  />
+                <div
+                  className="mt-0.5 flex h-8 items-center overflow-hidden rounded-md border border-input bg-background font-mono text-xs"
+                  title="La partie vc-/up-… est fixe ; vous pouvez seulement ajouter du texte après le tiret (ex. TEST)"
+                >
+                  <span className="shrink-0 select-none bg-muted/50 px-2 py-1.5 text-muted-foreground">
+                    {lotIdBase}
+                  </span>
                   {!vendorId ? (
                     <>
-                      <span className="text-gray-500 font-mono text-sm shrink-0" aria-hidden>-</span>
-                      <Input
-                        className="h-8 text-xs font-mono flex-1 min-w-0"
-                        value={lotIdManualSuffix}
-                        onChange={(e) => setLotIdManualSuffix(e.target.value.replace(/\s+/g, ""))}
-                        placeholder="Suffixe (ex: TEST)"
-                        title={`Ajouté après le tiret : ${lotIdPrefix}-…-VOTRE_SUFFIXE`}
+                      <span className="shrink-0 select-none px-0.5 text-gray-500" aria-hidden>
+                        -
+                      </span>
+                      <input
+                        type="text"
+                        className="min-w-0 flex-1 bg-transparent px-1 py-1.5 outline-none"
+                        value={lotIdAppend}
+                        onChange={(e) => setLotIdAppend(e.target.value)}
+                        aria-label="Ajout après l'identifiant de lot"
                       />
                     </>
-                  ) : (
-                    <Input
-                      className="h-8 text-xs font-mono flex-1 min-w-0 bg-muted/40 text-muted-foreground"
-                      value=""
-                      readOnly
-                      disabled
-                      placeholder="Suffixe manuel désactivé (vendeur)"
-                      title="Sélectionnez « Aucun vendeur » pour ajouter un suffixe manuel"
-                    />
-                  )}
+                  ) : null}
                 </div>
                 <p className="text-xs mt-0.5 font-mono break-all">
                   <span className="text-gray-400">ID final : </span>
