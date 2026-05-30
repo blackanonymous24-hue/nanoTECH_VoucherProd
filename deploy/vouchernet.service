@@ -10,6 +10,7 @@ Group=vouchernet
 WorkingDirectory=/var/www/vouchernet/artifacts/api-server
 EnvironmentFile=/var/www/vouchernet/.env
 Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=2048
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=5

@@ -534,7 +534,7 @@ export default function Vouchers() {
     // getCachedUsers (MikroTik, TTL 5 min serveur), un lot supprimé disparaît dès que le
     // cache serveur expire, ou immédiatement après invalidateUserCache (delete/disable).
     staleTime: 0,
-    refetchInterval: 5_000,
+    refetchInterval: 15_000,
     refetchIntervalInBackground: false,
     gcTime: 30 * 60_000,
     initialData: activeRouterId != null ? _vouchersCache[activeRouterId]?.lots : undefined,
@@ -661,7 +661,7 @@ export default function Vouchers() {
         // même si initialData est présent. Un utilisateur supprimé de MikroTik disparaît
         // dès que le refetch revient (< 1s avec cache serveur), sans jamais rester visible.
         staleTime: 0,
-        refetchInterval: 5_000,
+        refetchInterval: 15_000,
         refetchIntervalInBackground: false,
         gcTime: 30 * 60_000,
         initialData: (isDefaultFilter && activeRouterId != null) ? _vouchersCache[activeRouterId]?.users : undefined,

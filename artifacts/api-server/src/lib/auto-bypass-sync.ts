@@ -4,6 +4,7 @@ import { parseRouterDurationToMs } from "./router-duration.js";
 import { logger } from "./logger.js";
 import { isRouterLocked } from "./router-lock.js";
 import { hasActiveStaffSessions } from "./user-session-store.js";
+import { isRouterRecentlyActive } from "./router-activity.js";
 
 const DEFAULT_INTERVAL_MS = 30_000;
 let timer: NodeJS.Timeout | null = null;
@@ -217,6 +218,7 @@ export function startAutoBypassSync() {
 
       const routers = await db.select().from(routersTable);
       for (const r of routers) {
+        if (!isRouterRecentlyActive(r.id)) continue;
         // Même logique que vendor / usage sync : pas de concurrence API pendant génération
         // ou verrou résiduel — la page Bypass reste réactive sans « bypass-lock » dédié.
         if (isRouterLocked(r.id)) continue;

@@ -246,6 +246,10 @@ class Semaphore {
 }
 
 const routerSemaphores = new Map<string, Semaphore>();
+const globalMikSemaphore = new Semaphore(
+  Math.max(4, parseInt(process.env.MIK_GLOBAL_MAX_CONCURRENT ?? "32", 10)),
+);
+
 function getRouterSemaphore(host: string, port: number): Semaphore {
   const key = `${host}:${port}`;
   if (!routerSemaphores.has(key)) routerSemaphores.set(key, new Semaphore(2));
@@ -270,6 +274,7 @@ export async function withRouter<T>(
 ): Promise<T> {
   conn = normalizeRouterConnection(conn);
   const key = `${conn.host}:${conn.port}`;
+  await globalMikSemaphore.acquire(priority);
   const sem = getRouterSemaphore(conn.host, conn.port);
   await sem.acquire(priority);
 
@@ -304,6 +309,7 @@ export async function withRouter<T>(
     if (timer !== null) clearTimeout(timer);
     try { api.close(); } catch { /* ignore close errors */ }
     sem.release();
+    globalMikSemaphore.release();
   }
 }
 

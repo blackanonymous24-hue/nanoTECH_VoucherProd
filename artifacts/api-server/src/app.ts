@@ -16,6 +16,9 @@ app.use(
   // @ts-ignore TS2349
   pinoHttp({
     logger,
+    autoLogging: {
+      ignore: (req) => req.url === "/api/healthz" || req.url === "/healthz",
+    },
     serializers: {
       req(req: { id: unknown; method: string; url?: string }) {
         return {

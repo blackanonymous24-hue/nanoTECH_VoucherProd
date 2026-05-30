@@ -19,6 +19,8 @@ import { aggregateScriptSalesDeduped } from "../lib/script-sales-dedup.js";
 import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
+import { markRouterActive, isRouterRecentlyActive, ROUTER_IDLE_MS as ROUTER_IDLE_TIMEOUT } from "../lib/router-activity.js";
+import { mikCacheCoalesce } from "../lib/mik-cache-coalesce.js";
 import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -214,8 +216,8 @@ const MIK_TTL = {
   pools:     300_000,
   sessions:  MIK_FRESH_MS,
   interfaces:300_000,
-  traffic:     5_000,
-  logs:        8_000,
+  traffic:     8_000,
+  logs:       12_000,
   leases:     20_000,
 } as const;
 
@@ -1344,6 +1346,12 @@ async function reconcileLotUsersWithMikrotik(
   }
 }
 
+const _userReconcileLastAt = new Map<string, number>();
+const USER_RECONCILE_MIN_MS = Math.max(
+  10_000,
+  parseInt(process.env.USER_RECONCILE_MIN_MS ?? "30000", 10),
+);
+
 /**
  * Retire du cache global les utilisateurs supprimés sur MikroTik (liste rapide sans comment).
  * Met à jour mac / disabled / profile sur les lignes conservées.
@@ -1354,6 +1362,11 @@ async function reconcileUserCacheWithLiveFast(
   conn: RouterConnection,
   cachedUsers: HotspotUserRow[],
 ): Promise<HotspotUserRow[]> {
+  const now = Date.now();
+  const last = _userReconcileLastAt.get(scope) ?? 0;
+  if (now - last < USER_RECONCILE_MIN_MS) return cachedUsers;
+  _userReconcileLastAt.set(scope, now);
+
   let liveFast: Awaited<ReturnType<typeof listHotspotUsersFast>>;
   try {
     liveFast = await listHotspotUsersFast(conn);
@@ -1691,12 +1704,14 @@ router.get("/routers/:id/users", async (req, res): Promise<void> => {
       users = await getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
     }
 
-    users = await reconcileUserCacheWithLiveFast(
-      sc,
-      { id, ownerAdminId: r.ownerAdminId },
-      conn,
-      users,
-    );
+    if (!(hit && userFresh && !force)) {
+      users = await reconcileUserCacheWithLiveFast(
+        sc,
+        { id, ownerAdminId: r.ownerAdminId },
+        conn,
+        users,
+      );
+    }
 
     seedLotPrintCacheFromUsers(sc, users);
 
@@ -2089,9 +2104,10 @@ router.get("/routers/:id/lots", async (req, res): Promise<void> => {
           : getCachedUsers({ id, ownerAdminId: r.ownerAdminId }, conn);
 
     const [users, soldRows] = await Promise.all([
-      usersPromise.then((u) =>
-        reconcileUserCacheWithLiveFast(sc, { id, ownerAdminId: r.ownerAdminId }, conn, u),
-      ),
+      usersPromise.then(async (u) => {
+        if (hit && userFresh) return u;
+        return reconcileUserCacheWithLiveFast(sc, { id, ownerAdminId: r.ownerAdminId }, conn, u);
+      }),
       db
         .select({ username: vouchersTable.username })
         .from(vouchersTable)
@@ -2975,15 +2991,6 @@ const usageSyncCache  = new Map<number, UsageSyncEntry>();
 const usageSyncActive = new Set<number>(); // routers currently syncing
 const usageSyncTimer  = new Map<number, ReturnType<typeof setTimeout>>();
 const USAGE_SYNC_INTERVAL   = 20_000;      // 20 s — scripts ventes (hors cadence KPI 10 s)
-const ROUTER_IDLE_TIMEOUT   = 5 * 60_000;  // 5 min — stop syncing if no requests
-
-/** Tracks the last time each router received a user request */
-const lastRouterActivityAt = new Map<number, number>();
-
-/** Call from any route that actively uses a router to keep its sync loop alive */
-function markRouterActive(routerId: number): void {
-  lastRouterActivityAt.set(routerId, Date.now());
-}
 
 /** Background auto-sync — self-reschedules every USAGE_SYNC_INTERVAL.
  *  Stops automatically when the router has been idle for ROUTER_IDLE_TIMEOUT. */
@@ -2991,8 +2998,7 @@ async function scheduleUsageSync(routerId: number, conn: RouterConnection) {
   if (usageSyncActive.has(routerId)) return;
 
   // Stop the loop if nobody has touched this router recently.
-  const lastActivity = lastRouterActivityAt.get(routerId) ?? 0;
-  if (Date.now() - lastActivity > ROUTER_IDLE_TIMEOUT) {
+  if (!isRouterRecentlyActive(routerId, ROUTER_IDLE_TIMEOUT)) {
     usageSyncTimer.delete(routerId);
     logger.info({ routerId }, "usage sync: routeur inactif — boucle arrêtée");
     return;
@@ -4071,20 +4077,20 @@ router.get("/routers/:id/traffic", async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
 
   const ifaceName = typeof req.query.iface === "string" && req.query.iface ? req.query.iface : "";
-  const live = req.query.live === "1";
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const sc = routerCacheScope(r.ownerAdminId, id);
   const ck = `traffic:${sc}:${ifaceName}`;
-  const fresh = mGet(ck);
-  if (fresh) { res.json(fresh); return; }
-
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
-    const traffic = await fetchInterfaceTraffic(conn, ifaceName || undefined);
-    mSet(ck, MIK_TTL.traffic, traffic);
+    const { data: traffic } = await mikCacheCoalesce(
+      ck,
+      MIK_TTL.traffic,
+      _mik,
+      () => fetchInterfaceTraffic(conn, ifaceName || undefined),
+    );
     res.json(traffic);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
@@ -4098,23 +4104,21 @@ router.get("/routers/:id/logs", async (req, res): Promise<void> => {
 
   const limit  = req.query.limit  ? parseInt(req.query.limit  as string, 10) : 50;
   const topics = (req.query.topics as string | undefined) ?? "";
-  const live = req.query.live === "1";
   const hotspotUserEventsOnly = req.query.hotspotUsers === "1";
 
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) { res.status(404).json({ error: "Routeur introuvable" }); return; }
   const sc = routerCacheScope(r.ownerAdminId, id);
   const ck = `logs:${sc}:${topics}:${limit}:u${hotspotUserEventsOnly ? 1 : 0}`;
-  if (!live) {
-    const fresh = mGet(ck);
-    if (fresh) { res.json(fresh); return; }
-  }
-
   const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
 
   try {
-    const logs = await listLogs(conn, limit, topics || undefined, hotspotUserEventsOnly);
-    if (!live) mSet(ck, MIK_TTL.logs, logs);
+    const { data: logs } = await mikCacheCoalesce(
+      ck,
+      MIK_TTL.logs,
+      _mik,
+      () => listLogs(conn, limit, topics || undefined, hotspotUserEventsOnly),
+    );
     res.json(logs);
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
