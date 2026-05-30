@@ -20,7 +20,7 @@ import { syncProfileRenames } from "../lib/vendor-sync.js";
 import { withRouterLock, isRouterLocked, lockRouter, unlockRouter } from "../lib/router-lock.js";
 import { logger } from "../lib/logger.js";
 import { markRouterActive, isRouterRecentlyActive, ROUTER_IDLE_MS as ROUTER_IDLE_TIMEOUT } from "../lib/router-activity.js";
-import { mikCacheCoalesce } from "../lib/mik-cache-coalesce.js";
+import { mikCacheCoalesce, mikCacheRefreshBackground } from "../lib/mik-cache-coalesce.js";
 import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -791,12 +791,12 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
     const stale = mGetStale(ck);
     if (stale) {
       res.json(stale);
-      setImmediate(async () => {
-        const conn = normalizeRouterConnection({
-          host: r.host, port: r.port, username: r.username, password: r.password,
-        });
+      const conn = normalizeRouterConnection({
+        host: r.host, port: r.port, username: r.username, password: r.password,
+      });
+      mikCacheRefreshBackground(ck, MIK_TTL.ping, _mik, async () => {
         const online = await pingRouter(conn);
-        mSet(ck, MIK_TTL.ping, { success: online, host: conn.host, port: conn.port });
+        return { success: online, host: conn.host, port: conn.port };
       });
       return;
     }
@@ -864,12 +864,8 @@ router.get("/routers/:id/info", async (req, res): Promise<void> => {
   const stale = mGetStale(ck);
   if (stale) {
     res.json(stale);
-    setImmediate(async () => {
-      try {
-        const info = await getRouterInfo({ host: r.host, port: r.port, username: r.username, password: r.password });
-        mSet(ck, MIK_TTL.info, info);
-      } catch { /* ignore */ }
-    });
+    const conn = { host: r.host, port: r.port, username: r.username, password: r.password };
+    mikCacheRefreshBackground(ck, MIK_TTL.info, _mik, () => getRouterInfo(conn));
     return;
   }
 

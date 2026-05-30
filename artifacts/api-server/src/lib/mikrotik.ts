@@ -246,13 +246,21 @@ class Semaphore {
 }
 
 const routerSemaphores = new Map<string, Semaphore>();
-const globalMikSemaphore = new Semaphore(
-  Math.max(4, parseInt(process.env.MIK_GLOBAL_MAX_CONCURRENT ?? "32", 10)),
-);
+
+/** Connexions simultanées max **par routeur** (RouterOS tolère ~2–3). */
+const ROUTER_MAX_CONCURRENT = Math.max(1, parseInt(process.env.ROUTER_MAX_CONCURRENT ?? "2", 10));
+
+/**
+ * Plafond global optionnel sur tout le VPS (0 = désactivé).
+ * Désactivé par défaut : 1000 users sur des routeurs différents ne se bloquent pas entre eux.
+ * Activer (ex. 128) seulement si le VPS manque de RAM/CPU malgré le cache.
+ */
+const MIK_GLOBAL_MAX = parseInt(process.env.MIK_GLOBAL_MAX_CONCURRENT ?? "0", 10);
+const globalMikSemaphore = MIK_GLOBAL_MAX > 0 ? new Semaphore(MIK_GLOBAL_MAX) : null;
 
 function getRouterSemaphore(host: string, port: number): Semaphore {
   const key = `${host}:${port}`;
-  if (!routerSemaphores.has(key)) routerSemaphores.set(key, new Semaphore(2));
+  if (!routerSemaphores.has(key)) routerSemaphores.set(key, new Semaphore(ROUTER_MAX_CONCURRENT));
   return routerSemaphores.get(key)!;
 }
 
@@ -274,7 +282,7 @@ export async function withRouter<T>(
 ): Promise<T> {
   conn = normalizeRouterConnection(conn);
   const key = `${conn.host}:${conn.port}`;
-  await globalMikSemaphore.acquire(priority);
+  if (globalMikSemaphore) await globalMikSemaphore.acquire(priority);
   const sem = getRouterSemaphore(conn.host, conn.port);
   await sem.acquire(priority);
 
@@ -309,7 +317,7 @@ export async function withRouter<T>(
     if (timer !== null) clearTimeout(timer);
     try { api.close(); } catch { /* ignore close errors */ }
     sem.release();
-    globalMikSemaphore.release();
+    if (globalMikSemaphore) globalMikSemaphore.release();
   }
 }
 
