@@ -1,9 +1,11 @@
 import { randomUUID } from "crypto";
 import type { Request } from "express";
-import { eq } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db, userSessionsTable } from "@workspace/db";
 
 export type UserSessionType = "admin" | "vendor" | "manager" | "collaborateur";
+
+const STAFF_USER_TYPES: UserSessionType[] = ["admin", "manager", "collaborateur"];
 
 export function newSessionId(): string {
   return randomUUID();
@@ -53,4 +55,30 @@ export async function revokeUserSessionById(sessionId: string): Promise<boolean>
     .where(eq(userSessionsTable.sessionId, sessionId))
     .returning({ id: userSessionsTable.id });
   return deleted.length > 0;
+}
+
+/** Sessions admin / gérant / collaborateur — pilotent les sync MikroTik staff. */
+export async function hasActiveStaffSessions(): Promise<boolean> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(userSessionsTable)
+    .where(inArray(userSessionsTable.userType, STAFF_USER_TYPES));
+  return (row?.count ?? 0) > 0;
+}
+
+/** Sessions vendeur — pilotent la sync portail vendeur. */
+export async function hasActiveVendorSessions(): Promise<boolean> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(userSessionsTable)
+    .where(eq(userSessionsTable.userType, "vendor"));
+  return (row?.count ?? 0) > 0;
+}
+
+/** Aucun utilisateur connecté — pas de sync MikroTik en arrière-plan. */
+export async function hasAnyUserSessions(): Promise<boolean> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(userSessionsTable);
+  return (row?.count ?? 0) > 0;
 }

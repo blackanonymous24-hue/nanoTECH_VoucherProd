@@ -6,8 +6,14 @@
 import { db, routersTable, routerProfilesSnapshotTable } from "@workspace/db";
 import { listProfiles } from "./mikrotik.js";
 import { logger } from "./logger.js";
+import { hasActiveStaffSessions } from "./user-session-store.js";
 
 export async function warmProfileSnapshots(): Promise<void> {
+  if (!(await hasActiveStaffSessions())) {
+    logger.info("profiles: warm snapshot ignoré — aucune session staff active");
+    return;
+  }
+
   try {
     const routers = await db.select().from(routersTable);
     await Promise.allSettled(

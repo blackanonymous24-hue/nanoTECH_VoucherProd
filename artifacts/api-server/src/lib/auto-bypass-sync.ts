@@ -3,6 +3,7 @@ import { listHotspotUsers, listIpBindings, listProfiles, updateIpBinding, upsert
 import { parseRouterDurationToMs } from "./router-duration.js";
 import { logger } from "./logger.js";
 import { isRouterLocked } from "./router-lock.js";
+import { hasActiveStaffSessions } from "./user-session-store.js";
 
 const DEFAULT_INTERVAL_MS = 30_000;
 let timer: NodeJS.Timeout | null = null;
@@ -212,6 +213,8 @@ export function startAutoBypassSync() {
 
   const run = async () => {
     try {
+      if (!(await hasActiveStaffSessions())) return;
+
       const routers = await db.select().from(routersTable);
       for (const r of routers) {
         // Même logique que vendor / usage sync : pas de concurrence API pendant génération

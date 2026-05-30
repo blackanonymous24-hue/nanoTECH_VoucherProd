@@ -5,6 +5,7 @@ import { runUsageSync } from "./usage-sync.js";
 import { syncScriptCache, getCachedSalesByBatch, clearRouterScriptCache } from "./script-cache.js";
 import { logger } from "./logger.js";
 import { isRouterLocked } from "./router-lock.js";
+import { hasActiveVendorSessions } from "./user-session-store.js";
 
 /** Throttle: don't sync the same vendor more than once every 2 minutes */
 const SYNC_TTL = 2 * 60_000;
@@ -635,6 +636,8 @@ export function startRealtimeVendorSync(): void {
     if (realtimeRunning) return;
     realtimeRunning = true;
     try {
+      if (!(await hasActiveVendorSessions())) return;
+
       const [vendors, routers] = await Promise.all([
         db.select({
           id: vendorsTable.id,

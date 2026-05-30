@@ -3,6 +3,7 @@ import { logger } from "./logger.js";
 import { isRouterLocked, withRouterLock } from "./router-lock.js";
 import { purgePhantomVouchers } from "./vendor-sync.js";
 import { purgeOldMikhmonScriptsFast } from "./mikrotik.js";
+import { hasActiveStaffSessions } from "./user-session-store.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -129,6 +130,8 @@ async function runMonthlyScriptPurgeIfDue(): Promise<void> {
 }
 
 async function tick(): Promise<void> {
+  if (!(await hasActiveStaffSessions())) return;
+
   try {
     await runHourlyPhantomPurge();
   } catch (err) {
