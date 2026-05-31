@@ -1,10 +1,9 @@
 import { queryClient } from "@/lib/queryClient";
-import {
-  DASHBOARD_FRESH_MAX_AGE_MS,
-  readPriorityCache,
-} from "@/lib/dashboard-priority";
 import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
+
+/** Émis au logout / déconnexion auto — ferme SSE et annule les requêtes routeur côté client. */
+export const VOUCHERNET_CLIENT_DISCONNECT_EVENT = "vouchernet-client-disconnect";
 
 /** Émis par SessionLifecycle quand l’API reprend (onglet visible / APK premier plan). */
 export const VOUCHERNET_APP_RESUME_EVENT = "vouchernet-app-resume";
@@ -17,6 +16,11 @@ export const VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT = "vouchernet-dashboard-fresh
 
 /** Relâche la barrière fraîcheur (routeur injoignable — ne pas bloquer sur skeleton). */
 export const VOUCHERNET_DASHBOARD_RELEASE_GATE_EVENT = "vouchernet-dashboard-release-gate";
+
+export function notifyClientDisconnect(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(VOUCHERNET_CLIENT_DISCONNECT_EVENT));
+}
 
 export function notifyAppResume(): void {
   if (typeof window === "undefined") return;
@@ -75,17 +79,7 @@ export function readSelectedRouterIdFromStorage(): number | null {
   }
 }
 
-/** Recharge KPI dashboard après pause API (même politique que changement de routeur). */
-export async function refreshDashboardDataOnResume(routerId: number): Promise<void> {
-  openDashboardFreshGate(routerId);
-  const cached = readPriorityCache(routerId);
-  const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
-  if (cachedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS) {
-    clearRouterScopedClientCaches(routerId);
-  }
-  await queryClient.resetQueries({
-    queryKey: ["router-dashboard-priority", routerId],
-    exact: true,
-  });
-  await prefetchRouterDashboardPriority(routerId);
+/** Recharge KPI dashboard après pause API — stale-first, sans bloquer l'UI. */
+export function refreshDashboardDataOnResume(routerId: number): void {
+  void prefetchRouterDashboardPriority(routerId);
 }

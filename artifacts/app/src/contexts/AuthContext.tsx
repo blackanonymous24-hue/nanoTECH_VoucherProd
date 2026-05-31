@@ -4,6 +4,7 @@ import { abortAllApiRequests } from "@/lib/installAuthFetch";
 import { clearAllSavedPrintLots } from "@/lib/voucher-print-lot-persist";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
 import { getListRoutersQueryKey, VOUCHERNET_SESSION_REVOKED_EVENT } from "@workspace/api-client-react";
+import { notifyClientDisconnect } from "@/lib/dashboard-resume";
 import { useAppNavigate } from "@/hooks/use-app-navigate";
 import { isNativeAppShell } from "@/lib/native-app-shell";
 import { warmVendorPortalDashboard } from "@/lib/vendor-portal-cache";
@@ -315,6 +316,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = useCallback(async (opts?: { skipRevoke?: boolean }) => {
+    notifyClientDisconnect();
+    abortAllApiRequests();
     const previousRole = role;
     const t = readKey(TOKEN_KEY);
     if (!opts?.skipRevoke && t) {
@@ -327,7 +330,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         /* réseau : on déconnecte quand même côté client */
       }
     }
-    abortAllApiRequests();
     void queryClient.cancelQueries();
     queryClient.clear();
     clearAllSavedPrintLots();

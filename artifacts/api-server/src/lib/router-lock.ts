@@ -4,9 +4,9 @@
  * Per-router exclusive lock for user-initiated MikroTik operations.
  *
  * When a route handler (voucher generation, user add/delete, etc.) acquires
- * the lock for a routerId, all background tasks (vendor sync, usage sync)
- * skip that router until the lock is released.  This prevents connection
- * saturation on routers that have a low concurrent-session limit.
+ * the lock for a routerId, background tasks (vendor sync, usage sync) skip
+ * that router until the lock is released. User operations from several
+ * appareils are NOT mutually exclusive — they share the MikroTik semaphore queue.
  */
 
 const _locked = new Map<number, number>();  // routerId → lock count (reentrant)

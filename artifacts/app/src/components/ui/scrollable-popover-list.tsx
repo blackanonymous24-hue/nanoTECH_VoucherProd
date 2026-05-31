@@ -13,6 +13,7 @@ export function ScrollablePopoverList({
 }) {
   return (
     <div
+      data-scroll-lock-scrollable
       className={cn(
         "overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y",
         "[-webkit-overflow-scrolling:touch]",
@@ -21,6 +22,7 @@ export function ScrollablePopoverList({
       )}
       onWheel={(e) => e.stopPropagation()}
       onTouchMove={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
     >
       {children}
     </div>

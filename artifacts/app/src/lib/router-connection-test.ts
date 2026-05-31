@@ -51,7 +51,7 @@ export async function pingRouterTcpApi(
   token: string | null | undefined,
   options?: { force?: boolean },
 ): Promise<RouterConnectionTestResult> {
-  const force = options?.force !== false;
+  const force = options?.force === true;
   const q = force ? "?force=1" : "";
   try {
     const res = await fetch(`${BASE}/api/routers/${routerId}/ping${q}`, {

@@ -338,12 +338,43 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function isValidWdhm(s: string): boolean {
+    if (!s.trim()) return true;
+    return /^(\d+w)?(\d+d)?(\d+h)?(\d+m)?(\d+s)?$/i.test(s.trim()) && /\d/.test(s);
+  }
+
   async function handleAddHotspotUser() {
     setAddError("");
-    if (!addName.trim())    { setAddError("Le nom d'utilisateur est requis."); return; }
-    if (!addPassword.trim()){ setAddError("Le mot de passe est requis."); return; }
-    if (!addProfile)        { setAddError("Le profil est requis."); return; }
-    if (!selectedRouterId)  { setAddError("Aucun routeur sélectionné."); return; }
+    if (!selectedRouterId) {
+      const msg = "Sélectionnez d'abord un routeur dans la barre latérale.";
+      setAddError(msg);
+      toast({ title: "Routeur requis", description: msg, variant: "destructive" });
+      return;
+    }
+    if (!addName.trim()) {
+      const msg = "Le nom d'utilisateur est requis.";
+      setAddError(msg);
+      toast({ title: "Nom requis", description: msg, variant: "destructive" });
+      return;
+    }
+    if (!addPassword.trim()) {
+      const msg = "Le mot de passe est requis.";
+      setAddError(msg);
+      toast({ title: "Mot de passe requis", description: msg, variant: "destructive" });
+      return;
+    }
+    if (!addProfile.trim()) {
+      const msg = "Le profil est requis.";
+      setAddError(msg);
+      toast({ title: "Profil requis", description: msg, variant: "destructive" });
+      return;
+    }
+    if (!isValidWdhm(addLimitUptime)) {
+      const msg = "Format attendu : wdhm (ex: 30d, 12h, 4w3d).";
+      setAddError(msg);
+      toast({ title: "Time Limit invalide", description: msg, variant: "destructive" });
+      return;
+    }
 
     const body = buildMikhmonAddUserRequestBody({
       name: addName,
@@ -365,8 +396,10 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const data = await res.json() as { error?: string };
-        setAddError(data.error ?? "Erreur MikroTik");
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        const msg = data.error ?? "Erreur MikroTik";
+        setAddError(msg);
+        toast({ title: "Échec de la création", description: msg, variant: "destructive" });
       } else {
         const recapName = body.name;
         setAddRecapUser({
@@ -381,9 +414,12 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         setAddEditOriginalName(recapName);
         setAddDialogMode("recap");
         setAddError("");
+        toast({ title: "Utilisateur ajouté", description: `${recapName} créé sur MikroTik.` });
       }
     } catch {
-      setAddError("Erreur réseau. Réessayez.");
+      const msg = "Erreur réseau. Réessayez.";
+      setAddError(msg);
+      toast({ title: "Échec de la création", description: msg, variant: "destructive" });
     } finally {
       setAddLoading(false);
     }
@@ -1138,13 +1174,26 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             {addDialogMode !== "recap" && (
               <Button type="button" size="sm"
                 onClick={() => void (addDialogMode === "edit" ? handleEditCreatedUser() : handleAddHotspotUser())}
-                disabled={addLoading || addEditLoading || !selectedRouterId}
+                disabled={addLoading || addEditLoading}
                 className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5">
                 {(addLoading || addEditLoading) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                 Enregistrer
               </Button>
             )}
           </div>
+
+          {(addError || (!selectedRouterId && addDialogMode !== "recap")) && (
+            <div className="px-3 pb-1 space-y-1 bg-slate-700">
+              {addError && (
+                <p className="text-xs text-red-400 bg-red-900/40 border border-red-700 rounded px-2 py-1.5">{addError}</p>
+              )}
+              {!selectedRouterId && addDialogMode !== "recap" && (
+                <p className="text-xs text-amber-300 bg-amber-900/30 border border-amber-700 rounded px-2 py-1.5">
+                  Sélectionnez d&apos;abord un routeur dans la barre latérale.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* ── RECAP card (mode recap seulement) ── */}
           {addDialogMode === "recap" && addRecapUser && (
@@ -1199,10 +1248,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
           <div
             className={`px-3 pb-3 space-y-1.5 bg-slate-700 min-h-0 flex-1 overflow-y-auto overscroll-contain${
               addDialogMode === "recap" ? " hidden" : ""
-            }${
-              addServerPopoverOpen || addProfilePopoverOpen || addUnitPopoverOpen
-                ? " overflow-hidden"
-                : ""
             }`}
           >
 
@@ -1216,7 +1261,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             {/* Server */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Server</Label>
-              <Popover modal={false} open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
+              <Popover open={addServerPopoverOpen} onOpenChange={setAddServerPopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox"
                     disabled={addLoading || addEditLoading || addDialogMode === "edit"}
@@ -1229,7 +1274,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                   className="z-[200] w-[var(--radix-popover-trigger-width)] p-0"
                   align="start"
                   collisionPadding={12}
-                  onTouchMove={(e) => e.stopPropagation()}
                 >
                   <ScrollablePopoverList className="p-1" maxHeightClass="max-h-[min(12rem,50vh)]">
                     <button type="button" onClick={() => { setAddServer("all"); setAddServerPopoverOpen(false); }}
@@ -1272,7 +1316,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
             {/* Profile */}
             <div className="grid grid-cols-[68px_1fr] items-center gap-2">
               <Label className="text-xs text-slate-300 font-normal">Profile</Label>
-              <Popover modal={false} open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
+              <Popover open={addProfilePopoverOpen} onOpenChange={setAddProfilePopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox"
                     disabled={
@@ -1300,7 +1344,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                   align="start"
                   collisionPadding={12}
                   onOpenAutoFocus={(e) => e.preventDefault()}
-                  onTouchMove={(e) => e.stopPropagation()}
                 >
                   <ScrollablePopoverList className="p-1" maxHeightClass="max-h-[min(14rem,50vh)]">
                     {profilesRefreshing && dialogProfiles.length === 0 ? (
@@ -1352,7 +1395,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 <Input type="number" min="0" value={addLimitBytes} onChange={(e) => setAddLimitBytes(e.target.value)}
                   disabled={addLoading || addEditLoading || addDialogMode === "edit"}
                   className="h-8 text-xs flex-1 bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 disabled:opacity-40" />
-                <Popover modal={false} open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
+                <Popover open={addUnitPopoverOpen} onOpenChange={setAddUnitPopoverOpen}>
                   <PopoverTrigger asChild>
                     <Button variant="outline" role="combobox"
                       disabled={addLoading || addEditLoading || addDialogMode === "edit"}
@@ -1383,14 +1426,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
                 className="h-8 text-xs bg-slate-600 border-slate-500 text-slate-100 placeholder:text-slate-400 focus-visible:ring-cyan-500 disabled:opacity-40" />
             </div>
 
-            {addError && (
-              <p className="text-xs text-red-400 bg-red-900/40 border border-red-700 rounded px-2 py-1.5">{addError}</p>
-            )}
-            {!selectedRouterId && (
-              <p className="text-xs text-amber-300 bg-amber-900/30 border border-amber-700 rounded px-2 py-1.5">
-                âš  Sélectionnez d'abord un routeur dans la barre latérale.
-              </p>
-            )}
           </div>
         </DialogContent>
       </Dialog>

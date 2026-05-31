@@ -9,7 +9,11 @@ import {
 } from "@/lib/prefetch-router-dashboard-priority";
 import { prefetchRouterSessions } from "@/lib/prefetch-router-sessions";
 import { useRouterTcpPing } from "@/hooks/use-router-tcp-ping";
-import { openDashboardFreshGate, beginRouterConnectFreshEpoch, getRouterConnectFreshEpoch } from "@/lib/dashboard-resume";
+import { openDashboardFreshGate, getRouterConnectFreshEpoch } from "@/lib/dashboard-resume";
+import {
+  isPrioritySnapshotFreshForSwitch,
+  readPriorityCacheForDisplay,
+} from "@/lib/dashboard-priority";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
 
 /**
@@ -256,17 +260,44 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, routersFetched, routers, selectedRouterId, borrowedRouter]);
 
-  // Préchauffe uniquement après ping TCP confirmé en ligne.
+  const prevRouterIdRef = useRef<number | null>(null);
+
+  // Préchauffe / refresh au changement de routeur (fresh si cache B > 2 min ou absent).
   useEffect(() => {
-    if (!isAuthenticated || selectedRouterId == null || routerOnline !== true) return;
-    void prefetchRouterDashboardPriority(selectedRouterId);
+    if (!isAuthenticated || selectedRouterId == null) return;
+
+    const prevId = prevRouterIdRef.current;
+    prevRouterIdRef.current = selectedRouterId;
+
+    if (prevId != null && prevId !== selectedRouterId) {
+      void queryClient.cancelQueries({
+        queryKey: ["router-dashboard-priority", prevId],
+      });
+      const cachedB = readPriorityCacheForDisplay(selectedRouterId);
+      if (!isPrioritySnapshotFreshForSwitch(cachedB)) {
+        void queryClient.removeQueries({
+          queryKey: ["router-dashboard-priority", selectedRouterId],
+          exact: true,
+        });
+        void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true });
+      } else {
+        void prefetchRouterDashboardPriority(selectedRouterId);
+      }
+    } else {
+      void prefetchRouterDashboardPriority(selectedRouterId);
+    }
     prefetchRouterSessions(selectedRouterId);
-  }, [isAuthenticated, selectedRouterId, routerOnline]);
+  }, [isAuthenticated, selectedRouterId]);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
-    if (id != null) openDashboardFreshGate(id);
-    setSelectedRouterIdState(id);
+    setSelectedRouterIdState((prev) => {
+      if (id != null && id !== prev) {
+        const epoch = getRouterConnectFreshEpoch(id);
+        if (epoch > 0) openDashboardFreshGate(id, epoch);
+      }
+      return id;
+    });
     setIsPingFailed(false);
     if (id != null) setOfflineMarkedRouterId((prev) => (prev === id ? prev : null));
     if (id === null) {
@@ -300,30 +331,6 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       setPingTrigger((n) => n + 1);
     }
   }, [selectedRouterId]);
-
-  // Annuler les requêtes de l'ancien routeur au changement (sans reset — beginConnect gère le fresh).
-  const prevRouterIdRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!isAuthenticated || selectedRouterId == null) return;
-
-    const prevId = prevRouterIdRef.current;
-    prevRouterIdRef.current = selectedRouterId;
-    if (prevId === selectedRouterId || prevId == null) return;
-
-    void queryClient.cancelQueries({
-      queryKey: ["router-dashboard-priority", prevId],
-    });
-  }, [selectedRouterId, isAuthenticated]);
-
-  // Entrée dashboard (hors /routers) : refresh stale-first, jamais wait=1 bloquant.
-  useEffect(() => {
-    if (!isAuthenticated || selectedRouterId == null || isRoutersPage) return;
-    if (getRouterConnectFreshEpoch(selectedRouterId) > 0) return;
-    void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true });
-  }, [isAuthenticated, selectedRouterId, isRoutersPage]);
-
-  // Removed aggressive bootstrap prewarm to keep MikroTik traffic focused on
-  // the currently open page actions and avoid background contention.
 
   // When the router list arrives from the DB, immediately seed routerIdentity
   // from the stored name so the sidebar never shows a blank/generic label.

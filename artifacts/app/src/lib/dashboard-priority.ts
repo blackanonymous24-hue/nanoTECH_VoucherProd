@@ -39,21 +39,45 @@ export interface PrioritySnapshot {
 const PRIORITY_CACHE_KEY = "dashboard-priority-cache:v1";
 /** Âge max du cache local (KPI dashboard) — cadence MikHmon 10 s. */
 export const DASHBOARD_FRESH_MAX_AGE_MS = 10_000;
+/** Après changement de routeur : n'afficher un cache local que s'il a moins de 2 min. */
+export const ROUTER_SWITCH_FRESH_MAX_AGE_MS = 2 * 60_000;
 /** @deprecated Utiliser DASHBOARD_FRESH_MAX_AGE_MS */
 export const PRIORITY_CACHE_MAX_AGE_MS = DASHBOARD_FRESH_MAX_AGE_MS;
 
-export function readPriorityCache(routerId: number | null): PrioritySnapshot | null {
+export function prioritySnapshotAgeMs(snapshot: PrioritySnapshot | null | undefined): number | null {
+  if (!snapshot || typeof snapshot.serverTs !== "number") return null;
+  return Date.now() - snapshot.serverTs;
+}
+
+/** Snapshot utilisable après switch routeur (≤ 2 min, métriques connues). */
+export function isPrioritySnapshotFreshForSwitch(
+  snapshot: PrioritySnapshot | null | undefined,
+): boolean {
+  if (!snapshot || !isPriorityCacheDisplayable(snapshot)) return false;
+  const age = prioritySnapshotAgeMs(snapshot);
+  return age != null && age <= ROUTER_SWITCH_FRESH_MAX_AGE_MS;
+}
+
+export function readPriorityCache(
+  routerId: number | null,
+  maxAgeMs: number = DASHBOARD_FRESH_MAX_AGE_MS,
+): PrioritySnapshot | null {
   if (!routerId) return null;
   try {
     const raw = localStorage.getItem(`${PRIORITY_CACHE_KEY}:${routerId}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PrioritySnapshot;
     if (!parsed || typeof parsed.serverTs !== "number") return null;
-    if (Date.now() - parsed.serverTs > DASHBOARD_FRESH_MAX_AGE_MS) return null;
+    if (Date.now() - parsed.serverTs > maxAgeMs) return null;
     return parsed;
   } catch {
     return null;
   }
+}
+
+/** Cache local pour affichage immédiat (reprise onglet, navigation) — tolère jusqu'à 2 min. */
+export function readPriorityCacheForDisplay(routerId: number | null): PrioritySnapshot | null {
+  return readPriorityCache(routerId, ROUTER_SWITCH_FRESH_MAX_AGE_MS);
 }
 
 export function writePriorityCache(routerId: number | null, snapshot: PrioritySnapshot | null) {
@@ -144,7 +168,9 @@ export function mergePrioritySnapshots(
   routerId?: number | null,
   opts?: { skipCacheMerge?: boolean },
 ): PrioritySnapshot | null {
-  const cached = opts?.skipCacheMerge ? null : (routerId != null ? readPriorityCache(routerId) : null);
+  const cached = opts?.skipCacheMerge
+    ? null
+    : (routerId != null ? readPriorityCacheForDisplay(routerId) : null);
 
   let live: PrioritySnapshot | null = null;
   if (!sse) live = http ?? null;

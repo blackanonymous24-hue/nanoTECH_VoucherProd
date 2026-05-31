@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
 import { VOUCHERNET_APP_RESUME_EVENT, VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT } from "@/lib/dashboard-resume";
+import { isPriorityCacheDisplayable } from "@/lib/dashboard-priority";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -602,8 +603,11 @@ export default function Dashboard() {
   } = useRouterContext();
   const currency = useCurrency();
 
+  /** Données routeur : cache serveur partagé — indépendant du ping local (multi-appareils). */
+  const routerDataEnabled = !!selectedRouterId && isVisible;
+  /** Indicateur « live » sidebar / badge (ping TCP local). */
   const mikrotikLive =
-    !!selectedRouterId &&
+    routerDataEnabled &&
     routerOnline === true &&
     !isPingFailed &&
     !isPingChecking;
@@ -611,9 +615,8 @@ export default function Dashboard() {
   const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: {
       queryKey: getGetDashboardQueryKey(),
-      enabled: isVisible && mikrotikLive,
-      // DB-only, pas de MikroTik — on garde le polling mais on le stoppe si onglet caché.
-      refetchInterval: isVisible && mikrotikLive ? 10_000 : false,
+      enabled: routerDataEnabled,
+      refetchInterval: routerDataEnabled ? 10_000 : false,
       staleTime: 9_000,
       gcTime: 30 * 60_000,
       refetchIntervalInBackground: false,
@@ -627,7 +630,7 @@ export default function Dashboard() {
 
   // Display data: fresh from React Query OR last cached value — never undefined after first load
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data: any = mikrotikLive ? (_freshData ?? _dashboardCache.data) : undefined;
+  const data: any = routerDataEnabled ? (_freshData ?? _dashboardCache.data) : undefined;
   const [enableSecondaries, setEnableSecondaries] = useState(false);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
@@ -636,6 +639,7 @@ export default function Dashboard() {
   // ── MikroTik API errors (toasts only — statut hors ligne = ping TCP ×3) ───
   const mikLastFailTsRef = useRef(0);
   const mikLastSuccessTsRef = useRef(0);
+  const appResumeAtRef = useRef(0);
   // ─────────────────────────────────────────────────────────────────────────────
 
   const {
@@ -652,25 +656,25 @@ export default function Dashboard() {
     refetchPriority,
     liveSnapshotAgeMs,
     awaitingRouterSwitch,
-  } = useRouterDashboardPriority(mikrotikLive ? selectedRouterId : null);
+  } = useRouterDashboardPriority(routerDataEnabled ? selectedRouterId : null);
 
-  const [logsAwaitingFresh, setLogsAwaitingFresh] = useState(() => selectedRouterId != null);
+  const [logsAwaitingFresh, setLogsAwaitingFresh] = useState(false);
   const prevLogsRouterRef = useRef(selectedRouterId);
   if (selectedRouterId !== prevLogsRouterRef.current) {
     prevLogsRouterRef.current = selectedRouterId;
-    setLogsAwaitingFresh(selectedRouterId != null);
+    setLogsAwaitingFresh(false);
   }
 
   useLayoutEffect(() => {
-    const openGate = () => {
+    const openGate = (ev: Event) => {
       if (!selectedRouterId) return;
-      setLogsAwaitingFresh(true);
+      const detail = (ev as CustomEvent<{ routerId?: number | null; epochMs?: number }>).detail;
+      if (detail?.routerId != null && detail.routerId !== selectedRouterId) return;
+      if ((detail?.epochMs ?? 0) > 0) setLogsAwaitingFresh(true);
     };
     window.addEventListener(VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT, openGate);
-    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, openGate);
     return () => {
       window.removeEventListener(VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT, openGate);
-      window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, openGate);
     };
   }, [selectedRouterId]);
 
@@ -738,7 +742,7 @@ export default function Dashboard() {
   /** Skeleton infos routeur uniquement — indépendant du chargement des cartes KPI. */
   const routerInfoLoading =
     !!selectedRouterId &&
-    (isPingChecking || routerOnline !== true || awaitingRouterSwitch || !infoKpiReady);
+    (awaitingRouterSwitch || (!infoKpiReady && (priorityLoading || isPingChecking)));
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
   const sessionsFetching =
     awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
@@ -773,7 +777,7 @@ export default function Dashboard() {
     {
       query: {
         queryKey: getListRouterLogsQueryKey(selectedRouterId ?? 0, DASH_LOGS_PARAMS),
-        enabled: isVisible && mikrotikLive && enableSecondaries,
+        enabled: routerDataEnabled && enableSecondaries,
         refetchInterval: isVisible ? 10_000 : false,
         refetchIntervalInBackground: false,
         staleTime: 0,
@@ -814,15 +818,28 @@ export default function Dashboard() {
     prevIdsRef.current = incoming;
   }, [logs]);
 
+  useEffect(() => {
+    const onResume = () => {
+      appResumeAtRef.current = Date.now();
+      toast.dismiss("mikrotik-status");
+      prevPriorityErrorTsRef.current = 0;
+    };
+    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onResume);
+    return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onResume);
+  }, []);
+
   // ── MikroTik offline effects ───────────────────────────────────────────────
   // Count HTTP poll failures (each time errorUpdatedAt advances)
   const prevPriorityErrorTsRef = useRef(0);
   useEffect(() => {
     if (!selectedRouterId || !priorityIsError) return;
+    if (Date.now() - appResumeAtRef.current < 12_000) return;
+    if (livePriority && isPriorityCacheDisplayable(livePriority)) return;
+    if (priorityQueryFetching) return;
     if (priorityErrorUpdatedAt <= prevPriorityErrorTsRef.current) return;
     prevPriorityErrorTsRef.current = priorityErrorUpdatedAt;
     handleMikrotikFailure();
-  }, [selectedRouterId, priorityIsError, priorityErrorUpdatedAt, handleMikrotikFailure]);
+  }, [selectedRouterId, priorityIsError, priorityErrorUpdatedAt, priorityQueryFetching, livePriority, handleMikrotikFailure]);
 
   // Recovery from HTTP poll success
   useEffect(() => {
@@ -856,7 +873,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     const onAppResume = () => {
-      if (!selectedRouterId || !mikrotikLive) return;
+      if (!selectedRouterId || !routerDataEnabled) return;
       void queryClient.resetQueries({
         queryKey: getListRouterLogsQueryKey(selectedRouterId, DASH_LOGS_PARAMS),
         exact: true,
@@ -865,10 +882,10 @@ export default function Dashboard() {
     };
     window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
     return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
-  }, [selectedRouterId, mikrotikLive, refetchLogs]);
+  }, [selectedRouterId, routerDataEnabled, refetchLogs]);
 
   const handleRefresh = () => {
-    if (!mikrotikLive) return;
+    if (!routerDataEnabled) return;
     refetch();
     if (selectedRouterId) {
       refetchLogs();
@@ -892,7 +909,7 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      {selectedRouterId && mikrotikLive && (
+      {selectedRouterId && routerDataEnabled && (
         <div
           className={
             routerInfoLoading || hasRouterInfoContent(routerInfo)
@@ -1084,7 +1101,7 @@ export default function Dashboard() {
           <TrafficMonitorCard
             key={selectedRouterId ?? "none"}
             routerId={selectedRouterId}
-            enabled={mikrotikLive}
+            enabled={routerDataEnabled}
           />
         </div>
         {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}

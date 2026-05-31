@@ -4,13 +4,15 @@ import { useRouterContext } from "@/contexts/RouterContext";
 import { pingRouterMikhmonSequence } from "@/lib/mikhmon-ping-sequence";
 import { pingRouterTcpApi } from "@/lib/router-connection-test";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
+import { VOUCHERNET_APP_RESUME_EVENT } from "@/lib/dashboard-resume";
 
 /** Cadence re-ping style MikHmon pendant qu'un routeur est sélectionné. */
 export const MIKHMON_PING_POLL_MS = 10_000;
 
 /**
- * Statut en ligne/hors ligne = ping TCP MikHmon uniquement.
- * 3 échecs consécutifs → confirmRouterOffline (page erreur + redirection /routers).
+ * Statut en ligne/hors ligne = ping TCP MikHmon (badge sidebar uniquement).
+ * N'appelle jamais confirmRouterOffline : multi-appareils — un échec ping local
+ * ne bloque pas les données (cache serveur partagé) ni les actions API.
  */
 export function useRouterTcpPing(routerId: number | null, enabled = true) {
   const { token } = useAuth();
@@ -18,7 +20,6 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
   const {
     setRouterOnline,
     setIsPingChecking,
-    confirmRouterOffline,
     clearRouterOfflineMark,
     setIsPingFailed,
     isPingFailed,
@@ -53,9 +54,10 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
       clearRouterOfflineMark();
     };
 
-    const applyOffline = (id: number) => {
+    /** Badge hors ligne seulement — pas de purge cache ni overlay (multi-appareils). */
+    const applyOfflineSoft = (id: number) => {
       if (cancelled || routerIdRef.current !== id) return;
-      confirmRouterOffline(id);
+      setRouterOnline(false);
     };
 
     const runInitial = async () => {
@@ -66,12 +68,17 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
       if (inFlightRef.current) return;
       inFlightRef.current = true;
       const id = routerId;
-      setRouterOnline(null);
       try {
+        const cached = await pingRouterTcpApi(id, token, { force: false });
+        if (cancelled || routerIdRef.current !== id) return;
+        if (cached.success) {
+          applyOnline(id);
+          return;
+        }
         const ok = await runTriplet(id);
         if (cancelled || routerIdRef.current !== id) return;
         if (ok) applyOnline(id);
-        else applyOffline(id);
+        else applyOfflineSoft(id);
       } finally {
         inFlightRef.current = false;
       }
@@ -82,7 +89,7 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
       inFlightRef.current = true;
       const id = routerId;
       try {
-        const quick = await pingRouterTcpApi(id, token, { force: true });
+        const quick = await pingRouterTcpApi(id, token, { force: false });
         if (cancelled || routerIdRef.current !== id) return;
         if (quick.success) {
           applyOnline(id);
@@ -91,7 +98,7 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
         const ok = await runTriplet(id);
         if (cancelled || routerIdRef.current !== id) return;
         if (ok) applyOnline(id);
-        else applyOffline(id);
+        else applyOfflineSoft(id);
       } finally {
         inFlightRef.current = false;
       }
@@ -99,9 +106,20 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
 
     void runInitial();
     const timer = window.setInterval(() => { void runPoll(); }, MIKHMON_PING_POLL_MS);
+
+    const onAppResume = () => {
+      if (cancelled || routerIdRef.current == null || isPingFailed) return;
+      void pingRouterTcpApi(routerIdRef.current, token, { force: false }).then((r) => {
+        if (cancelled || !routerIdRef.current) return;
+        if (r.success) applyOnline(routerIdRef.current);
+      });
+    };
+    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
+
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
     };
   }, [
     routerId,
@@ -110,7 +128,6 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
     token,
     setRouterOnline,
     setIsPingChecking,
-    confirmRouterOffline,
     clearRouterOfflineMark,
     isPingFailed,
     skipNextTcpPingInitialRef,

@@ -4,13 +4,17 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
   DASHBOARD_FRESH_MAX_AGE_MS,
+  isPriorityCacheDisplayable,
+  isPrioritySnapshotFreshForSwitch,
   isSnapshotMikrotikFreshAfterEpoch,
   mergePrioritySnapshots,
+  readPriorityCacheForDisplay,
   writePriorityCache,
   type PrioritySnapshot,
 } from "@/lib/dashboard-priority";
 import {
   VOUCHERNET_APP_RESUME_EVENT,
+  VOUCHERNET_CLIENT_DISCONNECT_EVENT,
   VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT,
   VOUCHERNET_DASHBOARD_RELEASE_GATE_EVENT,
   getRouterConnectFreshEpoch,
@@ -21,23 +25,24 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const KPI_POLL_MS = DASHBOARD_FRESH_MAX_AGE_MS;
 
 /**
- * KPI dashboard : skeleton obligatoire après connexion routeur jusqu'au fetch MikroTik wait.
+ * KPI dashboard : stale-first au retour onglet ; skeleton au switch routeur tant que
+ * snapshot < 2 min indisponible ; gate strict uniquement après beginRouterConnectFreshEpoch.
  */
 export function useRouterDashboardPriority(routerId: number | null) {
   const { token: authToken } = useAuth();
   const isVisible = usePageVisibility();
   const [ssePriority, setSsePriority] = useState<PrioritySnapshot | null>(null);
   const [sseConnected, setSseConnected] = useState(false);
-  const [awaitingFresh, setAwaitingFresh] = useState(() => getRouterConnectFreshEpoch(routerId) > 0);
-  const [freshEpochMs, setFreshEpochMs] = useState(() => getRouterConnectFreshEpoch(routerId));
+  const connectEpoch = routerId != null ? getRouterConnectFreshEpoch(routerId) : 0;
+  const [awaitingFresh, setAwaitingFresh] = useState(() => connectEpoch > 0);
+  const [awaitingRouterSwitch, setAwaitingRouterSwitch] = useState(false);
 
   const prevRouterIdRef = useRef<number | null>(routerId);
-  const freshEpochRef = useRef(freshEpochMs);
-  freshEpochRef.current = freshEpochMs;
+  const connectEpochRef = useRef(connectEpoch);
+  connectEpochRef.current = connectEpoch;
 
-  const openFreshGate = useCallback((epochMs?: number) => {
-    const epoch = epochMs ?? Date.now();
-    setFreshEpochMs(epoch);
+  const openStrictFreshGate = useCallback((epochMs: number) => {
+    if (epochMs <= 0) return;
     setAwaitingFresh(true);
     setSsePriority(null);
     setSseConnected(false);
@@ -46,16 +51,17 @@ export function useRouterDashboardPriority(routerId: number | null) {
   if (routerId !== prevRouterIdRef.current) {
     prevRouterIdRef.current = routerId;
     const epoch = getRouterConnectFreshEpoch(routerId);
-    setFreshEpochMs(epoch);
     setAwaitingFresh(epoch > 0);
     setSsePriority(null);
     setSseConnected(false);
+    const cached = routerId != null ? readPriorityCacheForDisplay(routerId) : null;
+    setAwaitingRouterSwitch(!!routerId && !isPrioritySnapshotFreshForSwitch(cached));
   }
 
   useLayoutEffect(() => {
     if (!routerId) {
       setAwaitingFresh(false);
-      setFreshEpochMs(0);
+      setAwaitingRouterSwitch(false);
     }
   }, [routerId]);
 
@@ -63,34 +69,41 @@ export function useRouterDashboardPriority(routerId: number | null) {
     const onFreshGate = (ev: Event) => {
       const detail = (ev as CustomEvent<{ routerId?: number | null; epochMs?: number }>).detail;
       if (detail?.routerId != null && detail.routerId !== routerId) return;
-      openFreshGate(detail?.epochMs);
+      const epoch = detail?.epochMs ?? getRouterConnectFreshEpoch(routerId);
+      if (epoch > 0) openStrictFreshGate(epoch);
     };
     const onReleaseGate = (ev: Event) => {
       const detail = (ev as CustomEvent<{ routerId?: number | null }>).detail;
       if (detail?.routerId != null && detail.routerId !== routerId) return;
       setAwaitingFresh(false);
     };
-    const onAppResume = () => {
-      if (!routerId) return;
-      openFreshGate();
-    };
     window.addEventListener(VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT, onFreshGate);
     window.addEventListener(VOUCHERNET_DASHBOARD_RELEASE_GATE_EVENT, onReleaseGate);
-    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
     return () => {
       window.removeEventListener(VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT, onFreshGate);
       window.removeEventListener(VOUCHERNET_DASHBOARD_RELEASE_GATE_EVENT, onReleaseGate);
-      window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
     };
-  }, [routerId, openFreshGate]);
+  }, [routerId, openStrictFreshGate]);
 
   const tryReleaseFreshGate = useCallback((snapshot: PrioritySnapshot | null | undefined) => {
     if (!routerId || !snapshot) return;
-    const epoch = freshEpochRef.current;
+    const epoch = connectEpochRef.current;
     if (epoch > 0 && !isSnapshotMikrotikFreshAfterEpoch(snapshot, epoch)) return;
     setAwaitingFresh(false);
     if (epoch > 0) finishRouterConnectFreshEpoch(routerId);
   }, [routerId]);
+
+  const tryReleaseRouterSwitchGate = useCallback((snapshot: PrioritySnapshot | null | undefined) => {
+    if (!snapshot || !isPrioritySnapshotFreshForSwitch(snapshot)) return;
+    setAwaitingRouterSwitch(false);
+  }, []);
+
+  const priorityQueryKey = useMemo(
+    () => (connectEpoch > 0
+      ? (["router-dashboard-priority", routerId, connectEpoch] as const)
+      : (["router-dashboard-priority", routerId] as const)),
+    [routerId, connectEpoch],
+  );
 
   const {
     data: httpPriority,
@@ -101,29 +114,52 @@ export function useRouterDashboardPriority(routerId: number | null) {
     isError: priorityIsError,
     errorUpdatedAt: priorityErrorUpdatedAt,
   } = useQuery<PrioritySnapshot>({
-    queryKey: ["router-dashboard-priority", routerId, awaitingFresh ? freshEpochMs : "live"],
+    queryKey: priorityQueryKey,
     queryFn: async ({ signal }) => {
-      const epoch = freshEpochRef.current;
-      const needsWait = epoch > 0;
+      const needsWait = connectEpochRef.current > 0;
       const q = needsWait ? "?fast=1&fresh=1&wait=1" : "?fast=1";
-      const res = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority${q}`, { signal });
-      if (!res.ok) throw new Error("dashboard priority unavailable");
-      return res.json() as Promise<PrioritySnapshot>;
+      try {
+        const res = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority${q}`, { signal });
+        if (!res.ok) throw new Error("dashboard priority unavailable");
+        return res.json() as Promise<PrioritySnapshot>;
+      } catch (err) {
+        if (signal.aborted) {
+          const cached = routerId != null ? readPriorityCacheForDisplay(routerId) : null;
+          if (cached) return cached;
+        }
+        throw err;
+      }
     },
+    placeholderData: () => (
+      routerId != null ? readPriorityCacheForDisplay(routerId) ?? undefined : undefined
+    ),
     enabled: isVisible && !!routerId,
-    refetchInterval: (sseConnected || !isVisible || awaitingFresh) ? false : KPI_POLL_MS,
+    refetchInterval: (sseConnected || !isVisible || (connectEpoch > 0 && awaitingFresh)) ? false : KPI_POLL_MS,
     refetchIntervalInBackground: false,
     staleTime: KPI_POLL_MS - 1_000,
     gcTime: 5 * 60_000,
-    retry: false,
+    retry: 1,
     throwOnError: false,
     structuralSharing: false,
   });
 
   useEffect(() => {
+    const onResume = () => {
+      if (routerId && isVisible) void refetchPriority();
+    };
+    window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onResume);
+    return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onResume);
+  }, [routerId, isVisible, refetchPriority]);
+
+  useEffect(() => {
     if (!awaitingFresh || !routerId || !httpPriority) return;
     tryReleaseFreshGate(httpPriority);
   }, [awaitingFresh, routerId, httpPriority, tryReleaseFreshGate]);
+
+  useEffect(() => {
+    if (!awaitingRouterSwitch) return;
+    tryReleaseRouterSwitchGate(httpPriority ?? ssePriority);
+  }, [awaitingRouterSwitch, httpPriority, ssePriority, tryReleaseRouterSwitchGate]);
 
   useEffect(() => {
     if (!routerId || !authToken || !isVisible) {
@@ -136,23 +172,32 @@ export function useRouterDashboardPriority(routerId: number | null) {
     const onPriority = (ev: MessageEvent) => {
       try {
         const payload = JSON.parse(ev.data) as PrioritySnapshot;
-        const epoch = freshEpochRef.current;
+        const epoch = connectEpochRef.current;
         if (epoch > 0 && !isSnapshotMikrotikFreshAfterEpoch(payload, epoch)) return;
         setSsePriority(payload);
         writePriorityCache(routerId, payload);
         tryReleaseFreshGate(payload);
+        tryReleaseRouterSwitchGate(payload);
       } catch {
         /* polling fallback */
       }
     };
     es.addEventListener("priority", onPriority as EventListener);
     es.onerror = () => setSseConnected(false);
+    const onClientDisconnect = () => {
+      es.close();
+      setSseConnected(false);
+    };
+    window.addEventListener(VOUCHERNET_CLIENT_DISCONNECT_EVENT, onClientDisconnect);
     return () => {
+      window.removeEventListener(VOUCHERNET_CLIENT_DISCONNECT_EVENT, onClientDisconnect);
       es.removeEventListener("priority", onPriority as EventListener);
       es.close();
       setSseConnected(false);
     };
-  }, [routerId, authToken, isVisible, tryReleaseFreshGate]);
+  }, [routerId, authToken, isVisible, tryReleaseFreshGate, tryReleaseRouterSwitchGate]);
+
+  const strictConnectGate = connectEpoch > 0 && awaitingFresh;
 
   const livePriority = useMemo(
     () => mergePrioritySnapshots(
@@ -160,15 +205,15 @@ export function useRouterDashboardPriority(routerId: number | null) {
       ssePriority,
       sseConnected,
       routerId,
-      { skipCacheMerge: awaitingFresh },
+      { skipCacheMerge: strictConnectGate || awaitingRouterSwitch },
     ),
-    [httpPriority, ssePriority, sseConnected, routerId, awaitingFresh],
+    [httpPriority, ssePriority, sseConnected, routerId, strictConnectGate, awaitingRouterSwitch],
   );
 
   useEffect(() => {
-    if (!routerId || !livePriority || awaitingFresh) return;
+    if (!routerId || !livePriority || strictConnectGate) return;
     writePriorityCache(routerId, livePriority);
-  }, [routerId, livePriority, awaitingFresh]);
+  }, [routerId, livePriority, strictConnectGate]);
 
   const sales = livePriority?.sales;
   const salesKpiReady =
@@ -183,23 +228,28 @@ export function useRouterDashboardPriority(routerId: number | null) {
     (livePriority?.availability?.vendorRankingKnown === true || livePriority?.availability == null);
 
   const liveSnapshotAgeMs = livePriority?.serverTs ? Date.now() - livePriority.serverTs : null;
-  const salesFetching = awaitingFresh && priorityQueryFetching;
+  const salesFetching = (strictConnectGate || awaitingRouterSwitch) && priorityQueryFetching;
+
+  const displayableLive = livePriority && isPriorityCacheDisplayable(livePriority);
+  const hideLivePriority =
+    (strictConnectGate && !displayableLive)
+    || (awaitingRouterSwitch && !isPrioritySnapshotFreshForSwitch(livePriority));
 
   return {
-    livePriority: awaitingFresh ? null : livePriority,
-    sales: awaitingFresh ? undefined : sales,
-    salesKpiReady: awaitingFresh ? false : salesKpiReady,
-    rankingReady: awaitingFresh ? false : rankingReady,
+    livePriority: hideLivePriority ? null : livePriority,
+    sales: hideLivePriority ? undefined : sales,
+    salesKpiReady: hideLivePriority ? false : salesKpiReady,
+    rankingReady: hideLivePriority ? false : rankingReady,
     salesFetching,
     sseConnected,
-    priorityLoading: (priorityLoading || awaitingFresh) && !livePriority,
+    priorityLoading: (priorityLoading || strictConnectGate || awaitingRouterSwitch) && !displayableLive,
     priorityUpdatedAt,
     priorityQueryFetching,
     liveSnapshotAgeMs,
     refetchPriority,
     priorityIsError,
     priorityErrorUpdatedAt,
-    awaitingRouterSwitch: awaitingFresh,
-    awaitingFreshData: awaitingFresh,
+    awaitingRouterSwitch: strictConnectGate || awaitingRouterSwitch,
+    awaitingFreshData: strictConnectGate || awaitingRouterSwitch,
   };
 }

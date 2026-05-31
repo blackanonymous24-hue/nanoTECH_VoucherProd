@@ -3,6 +3,7 @@ import net from "net";
 import { toWin1252, fromWin1252, fixEncoding, decodeRouterText } from "./router-encoding.js";
 import { getMikhmonCalendar } from "./mikhmon-calendar.js";
 import { normalizeRouterConnection, MIKHMON_PING_TIMEOUT_MS } from "./router-host.js";
+import { getRequestAbortSignal, raceRequestAbort, throwIfRequestAborted } from "./request-signal.js";
 
 /** Filtre scheduler par nom de profil (UTF-8 + forme Win1252 sur le fil). */
 async function printSchedulersByProfileName(
@@ -224,18 +225,45 @@ function parseProfileOnLogin(onLogin: string): {
   return { price, validity, lockMac, sellingPrice, expiredMode, parentQueue };
 }
 
-// Per-router semaphore: max 2 concurrent API connections per router
+// Per-router semaphore: max 2 concurrent API connections per router (RouterOS ~2).
 class Semaphore {
   private slots: number;
   private readonly highQueue: Array<() => void> = [];
   private readonly normalQueue: Array<() => void> = [];
   constructor(max: number) { this.slots = max; }
 
-  acquire(priority: "high" | "normal" = "normal"): Promise<void> {
+  acquire(priority: "high" | "normal" = "normal", maxWaitMs = 0, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return Promise.reject(new DOMException("Client disconnected", "AbortError"));
+    }
     if (this.slots > 0) { this.slots--; return Promise.resolve(); }
-    return new Promise((resolve) => {
-      if (priority === "high") this.highQueue.push(resolve);
-      else this.normalQueue.push(resolve);
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const cleanup = () => {
+        if (timer != null) clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const grant = () => {
+        cleanup();
+        resolve();
+      };
+      const onAbort = () => {
+        const hiIdx = this.highQueue.indexOf(grant);
+        if (hiIdx >= 0) { this.highQueue.splice(hiIdx, 1); cleanup(); reject(new DOMException("Client disconnected", "AbortError")); return; }
+        const nIdx = this.normalQueue.indexOf(grant);
+        if (nIdx >= 0) { this.normalQueue.splice(nIdx, 1); cleanup(); reject(new DOMException("Client disconnected", "AbortError")); }
+      };
+      if (signal) signal.addEventListener("abort", onAbort, { once: true });
+      if (maxWaitMs > 0) {
+        timer = setTimeout(() => {
+          const hiIdx = this.highQueue.indexOf(grant);
+          if (hiIdx >= 0) { this.highQueue.splice(hiIdx, 1); cleanup(); reject(new Error("Router queue timeout")); return; }
+          const nIdx = this.normalQueue.indexOf(grant);
+          if (nIdx >= 0) { this.normalQueue.splice(nIdx, 1); cleanup(); reject(new Error("Router queue timeout")); }
+        }, maxWaitMs);
+      }
+      if (priority === "high") this.highQueue.push(grant);
+      else this.normalQueue.push(grant);
     });
   }
 
@@ -247,8 +275,8 @@ class Semaphore {
 
 const routerSemaphores = new Map<string, Semaphore>();
 
-/** Connexions simultanées max **par routeur** (RouterOS tolère ~2–3). */
-const ROUTER_MAX_CONCURRENT = Math.max(1, parseInt(process.env.ROUTER_MAX_CONCURRENT ?? "2", 10));
+/** Connexions simultanées max **par routeur** (RouterOS tolère ~2). */
+export const ROUTER_MAX_CONCURRENT = Math.max(1, parseInt(process.env.ROUTER_MAX_CONCURRENT ?? "2", 10));
 
 /**
  * Plafond global optionnel sur tout le VPS (0 = désactivé).
@@ -280,19 +308,21 @@ export async function withRouter<T>(
   timeout = 15000,
   priority: "high" | "normal" = "normal",
 ): Promise<T> {
+  const signal = getRequestAbortSignal();
+  throwIfRequestAborted();
   conn = normalizeRouterConnection(conn);
   const key = `${conn.host}:${conn.port}`;
-  if (globalMikSemaphore) await globalMikSemaphore.acquire(priority);
+  if (globalMikSemaphore) await globalMikSemaphore.acquire(priority, 0, signal);
   const sem = getRouterSemaphore(conn.host, conn.port);
-  await sem.acquire(priority);
+  await sem.acquire(priority, 0, signal);
 
   // Rate-limit: enforce minimum gap between consecutive connections to the same router.
-  // Checked AFTER semaphore acquire so the gap is per-slot (not global), which
-  // means 2 slots × 500ms gap = max 4 connections/s — well within RouterOS limits.
   if (ROUTER_MIN_GAP_MS > 0) {
     const last = lastRouterConnectedAt.get(key) ?? 0;
     const wait = ROUTER_MIN_GAP_MS - (Date.now() - last);
-    if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
+    if (wait > 0) {
+      await raceRequestAbort(new Promise<void>((r) => setTimeout(r, wait)));
+    }
   }
   lastRouterConnectedAt.set(key, Date.now());
 
@@ -310,8 +340,10 @@ export async function withRouter<T>(
   });
 
   try {
-    await Promise.race([api.connect(), timeoutPromise]);
-    const result = await Promise.race([fn(api), timeoutPromise]);
+    throwIfRequestAborted();
+    await raceRequestAbort(Promise.race([api.connect(), timeoutPromise]));
+    throwIfRequestAborted();
+    const result = await raceRequestAbort(Promise.race([fn(api), timeoutPromise]));
     return result;
   } finally {
     if (timer !== null) clearTimeout(timer);
