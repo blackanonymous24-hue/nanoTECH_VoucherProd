@@ -122,16 +122,20 @@ export const HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS: RegExp[] = [
   /\/api\/vouchers\/users-toggle(?:$|[/?#])/,
   /\/api\/vouchers\/lot-usernames(?:$|[/?#])/,
   /\/api\/vouchers\/lot-disable(?:$|[/?#])/,
+  /\/api\/vouchers\/generate(?:$|[/?#])/,
   /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
   /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
   /\/api\/routers\/\d+\/hotspot-users(?:$|[/?#])/,
   /\/api\/routers\/\d+\/users\/[^/?#]+(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/users\/[^/?#]+\/reset(?:$|[/?#])/,
 ];
 
 /** Ne pas annuler ces requêtes en cours lors d'une pause API scopée (génération / toggle lot). */
 const SCOPED_PAUSE_ABORT_EXEMPT: RegExp[] = [
+  /\/api\/vouchers\/generate(?:$|[/?#])/,
   /\/api\/routers\/\d+\/hotspot-users(?:$|[/?#])/,
   /\/api\/routers\/\d+\/users\/[^/?#]+(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/users\/[^/?#]+\/reset(?:$|[/?#])/,
 ];
 
 export function installAuthFetch(): void {

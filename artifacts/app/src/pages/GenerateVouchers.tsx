@@ -168,24 +168,7 @@ const CHAR_TYPE_PREVIEW: Record<GenCharTypeOption, string> = {
 
 const CHAR_TYPE_ORDER: GenCharTypeOption[] = [...GEN_CHAR_TYPE_OPTIONS];
 
-/** Détecte si l'erreur correspond à un routeur inaccessible (502 ou réseau). */
-function isRouterUnreachable(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as Record<string, unknown>;
-  // Interruption intentionnelle du fetch (logout, AbortController) — pas une panne réseau.
-  if (e.name === "AbortError") return false;
-  const response = e.response as Record<string, unknown> | undefined;
-  if (response?.status === 502) return true;
-  const msg = String(e.message ?? "").toLowerCase();
-  return (
-    msg.includes("502") ||
-    msg.includes("contacter") ||
-    msg.includes("unreachable") ||
-    msg.includes("network error") ||
-    msg.includes("failed to fetch") ||   // Chrome / Firefox hors-ligne
-    msg.includes("load failed")           // Safari hors-ligne
-  );
-}
+import { isRouterUnreachableApiError } from "@/lib/router-unreachable-error";
 
 /** Attend que le routeur soit à nouveau accessible (ping toutes les 4s).
  *  Chaque tentative est limitée à 10 s pour ne pas rester figé si le serveur
@@ -668,7 +651,7 @@ export default function GenerateVouchers() {
             unreachableStreak = 0;
             if (done >= total) break;
           } catch (err) {
-            if (isRouterUnreachable(err)) {
+            if (isRouterUnreachableApiError(err)) {
               unreachableStreak++;
               generateMutation.reset();
               if (effectiveComment) {

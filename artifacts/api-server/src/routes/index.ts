@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { clientDisconnectMiddleware } from "../lib/request-signal.js";
 import { sessionEpochMiddleware } from "../lib/session-epoch-middleware.js";
 import routersRouter from "./routers.js";
 import vouchersRouter from "./vouchers.js";
@@ -18,7 +17,6 @@ router.get("/healthz", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-router.use(clientDisconnectMiddleware);
 router.use(sessionEpochMiddleware);
 
 router.use(routersRouter);

@@ -5,7 +5,6 @@ import { verifyAdminTokenFull } from "../lib/admin-auth.js";
 import { verifyToken as verifyManagerToken } from "../lib/manager-auth.js";
 import { verifyToken as verifyVendorToken } from "../lib/vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "../lib/collaborateur-auth.js";
-import { runWithoutRequestAbort } from "../lib/request-signal.js";
 import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile, updateProfile, deleteProfile, listAddressPools, listSessions, listHotspotUsers, listHotspotUsersByComment, listHotspotUsersByCommentResilient, formatRouterOsConnectionError, addHotspotUser, disconnectSession, listLogs, fetchSalesFromScripts, fetchScriptSales, parseMikhmonDate, fetchInterfaceTraffic, listInterfaces, deleteHotspotUsersByComment, deleteHotspotUsersByNames, resetHotspotUser, listIpBindings, addIpBinding, updateIpBinding, deleteIpBinding, listHotspotServers, updateHotspotUser, upsertIpBindingQueue, removeIpBindingQueue, setIpBindingQueueDisabledByBindingId, listDhcpLeases, getIpBindingById, findIpBindingFast, resolveBindingAddressFromDhcp, listHotspotCookies, deleteHotspotCookie, deleteHotspotCookiesByUser, listHotspotProfileSchedulers, removeSystemScheduler, purgeMikhmonScriptsForMonth, rebootRouter, shutdownRouter, countSessionsFast, listHotspotUsersFast, type SalesReport, type RouterConnection } from "../lib/mikrotik.js";
 import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
@@ -2058,7 +2057,7 @@ router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   try {
-    await withRouterLock(id, () => runWithoutRequestAbort(() => addHotspotUser(conn, normalizeMikhmonAddHotspotUser({
+    await withRouterLock(id, () => addHotspotUser(conn, normalizeMikhmonAddHotspotUser({
       name: String(name),
       password: String(password),
       profile: profile.trim(),
@@ -2067,7 +2066,7 @@ router.post("/routers/:id/hotspot-users", async (req, res): Promise<void> => {
       limitUptime,
       limitBytesTotal,
       macAddress,
-    }))));
+    })));
     // Invalidate user/list/count caches so subsequent reads see the new user immediately
     await invalidateUserCache(id);
     res.status(201).json({ success: true });
@@ -2460,7 +2459,7 @@ router.patch("/routers/:id/users/:username", async (req, res): Promise<void> => 
     }
     res.json({ ok: true, oldUsername, newUsername: finalUsername });
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+    res.status(502).json({ error: formatRouterOsConnectionError(err) });
   }
 });
 
@@ -2530,7 +2529,7 @@ router.post("/routers/:id/users/:username/reset", async (req, res): Promise<void
       schedulerRemoved: result.schedulerRemoved,
     });
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : "Impossible de contacter le routeur" });
+    res.status(502).json({ error: formatRouterOsConnectionError(err) });
   }
 });
 

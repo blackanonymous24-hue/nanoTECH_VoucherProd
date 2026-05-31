@@ -3,6 +3,7 @@
  * Réutilise `POST /vouchers/users-toggle` avec progression pour les gros lots.
  */
 import { HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS, setApiRequestPause } from "@/lib/installAuthFetch";
+import { isRouterUnreachableApiError } from "@/lib/router-unreachable-error";
 
 export const TOGGLE_BATCH_THRESHOLD = 50;
 export const TOGGLE_BATCH_SIZE = 150;
@@ -10,20 +11,7 @@ export const TOGGLE_BATCH_SIZE = 150;
 export type HotspotBulkProgressState = { done: number; total: number; enable: boolean };
 
 export function isRouterUnreachableToggle(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as Record<string, unknown>;
-  if (e.name === "AbortError") return false;
-  const response = e.response as Record<string, unknown> | undefined;
-  if (response?.status === 502) return true;
-  const msg = String(e.message ?? "").toLowerCase();
-  return (
-    msg.includes("502") ||
-    msg.includes("contacter") ||
-    msg.includes("unreachable") ||
-    msg.includes("network error") ||
-    msg.includes("failed to fetch") ||
-    msg.includes("load failed")
-  );
+  return isRouterUnreachableApiError(err);
 }
 
 export async function waitForRouterToggle(routerId: number, base: string): Promise<void> {

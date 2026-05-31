@@ -3,8 +3,6 @@ import net from "net";
 import { toWin1252, fromWin1252, fixEncoding, decodeRouterText } from "./router-encoding.js";
 import { getMikhmonCalendar } from "./mikhmon-calendar.js";
 import { normalizeRouterConnection, MIKHMON_PING_TIMEOUT_MS } from "./router-host.js";
-import { getRequestAbortSignal, raceRequestAbort, throwIfRequestAborted } from "./request-signal.js";
-
 /** Filtre scheduler par nom de profil (UTF-8 + forme Win1252 sur le fil). */
 async function printSchedulersByProfileName(
   api: RouterOSAPI,
@@ -232,34 +230,20 @@ class Semaphore {
   private readonly normalQueue: Array<() => void> = [];
   constructor(max: number) { this.slots = max; }
 
-  acquire(priority: "high" | "normal" = "normal", maxWaitMs = 0, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) {
-      return Promise.reject(new DOMException("Client disconnected", "AbortError"));
-    }
+  acquire(priority: "high" | "normal" = "normal", maxWaitMs = 0): Promise<void> {
     if (this.slots > 0) { this.slots--; return Promise.resolve(); }
     return new Promise((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | null = null;
-      const cleanup = () => {
-        if (timer != null) clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
-      };
       const grant = () => {
-        cleanup();
+        if (timer != null) clearTimeout(timer);
         resolve();
       };
-      const onAbort = () => {
-        const hiIdx = this.highQueue.indexOf(grant);
-        if (hiIdx >= 0) { this.highQueue.splice(hiIdx, 1); cleanup(); reject(new DOMException("Client disconnected", "AbortError")); return; }
-        const nIdx = this.normalQueue.indexOf(grant);
-        if (nIdx >= 0) { this.normalQueue.splice(nIdx, 1); cleanup(); reject(new DOMException("Client disconnected", "AbortError")); }
-      };
-      if (signal) signal.addEventListener("abort", onAbort, { once: true });
       if (maxWaitMs > 0) {
         timer = setTimeout(() => {
           const hiIdx = this.highQueue.indexOf(grant);
-          if (hiIdx >= 0) { this.highQueue.splice(hiIdx, 1); cleanup(); reject(new Error("Router queue timeout")); return; }
+          if (hiIdx >= 0) { this.highQueue.splice(hiIdx, 1); reject(new Error("Router queue timeout")); return; }
           const nIdx = this.normalQueue.indexOf(grant);
-          if (nIdx >= 0) { this.normalQueue.splice(nIdx, 1); cleanup(); reject(new Error("Router queue timeout")); }
+          if (nIdx >= 0) { this.normalQueue.splice(nIdx, 1); reject(new Error("Router queue timeout")); }
         }, maxWaitMs);
       }
       if (priority === "high") this.highQueue.push(grant);
@@ -308,21 +292,17 @@ export async function withRouter<T>(
   timeout = 15000,
   priority: "high" | "normal" = "normal",
 ): Promise<T> {
-  const signal = getRequestAbortSignal();
-  throwIfRequestAborted();
   conn = normalizeRouterConnection(conn);
   const key = `${conn.host}:${conn.port}`;
-  if (globalMikSemaphore) await globalMikSemaphore.acquire(priority, 0, signal);
+  if (globalMikSemaphore) await globalMikSemaphore.acquire(priority);
   const sem = getRouterSemaphore(conn.host, conn.port);
-  await sem.acquire(priority, 0, signal);
+  await sem.acquire(priority);
 
   // Rate-limit: enforce minimum gap between consecutive connections to the same router.
   if (ROUTER_MIN_GAP_MS > 0) {
     const last = lastRouterConnectedAt.get(key) ?? 0;
     const wait = ROUTER_MIN_GAP_MS - (Date.now() - last);
-    if (wait > 0) {
-      await raceRequestAbort(new Promise<void>((r) => setTimeout(r, wait)));
-    }
+    if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
   }
   lastRouterConnectedAt.set(key, Date.now());
 
@@ -340,10 +320,8 @@ export async function withRouter<T>(
   });
 
   try {
-    throwIfRequestAborted();
-    await raceRequestAbort(Promise.race([api.connect(), timeoutPromise]));
-    throwIfRequestAborted();
-    const result = await raceRequestAbort(Promise.race([fn(api), timeoutPromise]));
+    await Promise.race([api.connect(), timeoutPromise]);
+    const result = await Promise.race([fn(api), timeoutPromise]);
     return result;
   } finally {
     if (timer !== null) clearTimeout(timer);
