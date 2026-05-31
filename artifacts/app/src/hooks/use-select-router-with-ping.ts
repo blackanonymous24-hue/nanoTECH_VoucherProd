@@ -3,14 +3,8 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
-import {
-  beginRouterConnectFreshEpoch,
-  releaseDashboardFreshGate,
-} from "@/lib/dashboard-resume";
-import {
-  fetchRouterForConnectFromPageWithRetries,
-  fetchRouterForConnectWithRetries,
-} from "@/lib/router-connect-fetch";
+import { releaseDashboardFreshGate } from "@/lib/dashboard-resume";
+import { fetchRouterForConnectFromPageWithRetries } from "@/lib/router-connect-fetch";
 
 export type SelectRouterSource = "selector" | "routers-page" | "quick-connect";
 
@@ -19,8 +13,8 @@ const CONNECT_RETRY_TOAST =
 
 /**
  * Connexion routeur style MikHmon.
- * - **Page Routeurs** : ping TCP + cache serveur (instantané), toast au 1er échec, badge au 2e.
- * - **Sélecteur** : fetch KPI wait (2 tentatives), toast puis overlay 10 s → /routers.
+ * - **Page Routeurs & sélecteur** : ping TCP + cache serveur (instantané), KPI fresh en arrière-plan.
+ * - Toast au 1er échec ; badge (page Routeurs) ou overlay 10 s → /routers (sélecteur).
  */
 export function useSelectRouterWithPing() {
   const { token } = useAuth();
@@ -39,7 +33,7 @@ export function useSelectRouterWithPing() {
   const [connectingId, setConnectingId] = useState<number | null>(null);
   const activeRef = useRef(false);
 
-  const beginConnect = useCallback(
+  const beginConnectFast = useCallback(
     (id: number, opts?: { routerData?: BorrowedRouter | null }) => {
       if (opts?.routerData !== undefined) {
         setBorrowedRouter(opts.routerData);
@@ -49,7 +43,6 @@ export function useSelectRouterWithPing() {
       setIsPingChecking(true);
       setRouterOnline(null);
       skipNextTcpPingInitialRef.current = true;
-      beginRouterConnectFreshEpoch(id);
       setSelectedRouterId(id);
     },
     [setBorrowedRouter, clearRouterOfflineMark, setIsPingFailed, setIsPingChecking, setRouterOnline, setSelectedRouterId, skipNextTcpPingInitialRef],
@@ -62,24 +55,14 @@ export function useSelectRouterWithPing() {
     });
   }, []);
 
-  const connectFromSelectorWithRetries = useCallback(async (id: number): Promise<boolean> => {
-    toast.dismiss("router-ping-fail");
-    toast.dismiss("router-connect-fail");
-    toast.dismiss("router-connect-retry");
-    return fetchRouterForConnectWithRetries(id, showConnectRetryToast);
-  }, [showConnectRetryToast]);
-
-  /** Page Routeurs : pas de purge fresh gate — navigation dès ping OK ou cache chaud. */
-  const beginConnectRoutersPage = useCallback(
-    (id: number) => {
-      clearRouterOfflineMark();
-      setIsPingFailed(false);
-      setIsPingChecking(true);
-      setRouterOnline(null);
-      skipNextTcpPingInitialRef.current = true;
-      setSelectedRouterId(id);
+  const connectFastWithRetries = useCallback(
+    async (id: number): Promise<boolean> => {
+      toast.dismiss("router-ping-fail");
+      toast.dismiss("router-connect-fail");
+      toast.dismiss("router-connect-retry");
+      return fetchRouterForConnectFromPageWithRetries(id, token, showConnectRetryToast);
     },
-    [clearRouterOfflineMark, setIsPingFailed, setIsPingChecking, setRouterOnline, setSelectedRouterId, skipNextTcpPingInitialRef],
+    [token, showConnectRetryToast],
   );
 
   /** Page Routeurs : ping TCP + cache serveur, KPI fresh en arrière-plan. */
@@ -88,13 +71,10 @@ export function useSelectRouterWithPing() {
       if (activeRef.current) return "offline";
       activeRef.current = true;
       setConnectingId(id);
-      beginConnectRoutersPage(id);
+      beginConnectFast(id);
 
       try {
-        toast.dismiss("router-ping-fail");
-        toast.dismiss("router-connect-fail");
-        toast.dismiss("router-connect-retry");
-        const online = await fetchRouterForConnectFromPageWithRetries(id, token, showConnectRetryToast);
+        const online = await connectFastWithRetries(id);
         setIsPingChecking(false);
         if (online) {
           toast.dismiss("router-connect-retry");
@@ -111,7 +91,7 @@ export function useSelectRouterWithPing() {
         setConnectingId(null);
       }
     },
-    [beginConnectRoutersPage, setRouterOnline, markRouterOffline, setIsPingChecking, showConnectRetryToast, token],
+    [beginConnectFast, setRouterOnline, markRouterOffline, setIsPingChecking, connectFastWithRetries],
   );
 
   const selectWithPing = useCallback(
@@ -126,12 +106,12 @@ export function useSelectRouterWithPing() {
       if (activeRef.current) return;
       activeRef.current = true;
       setConnectingId(id);
-      beginConnect(id, opts);
+      beginConnectFast(id, opts);
 
       const dest = opts?.navigateTo;
 
       try {
-        const online = await connectFromSelectorWithRetries(id);
+        const online = await connectFastWithRetries(id);
         setIsPingChecking(false);
 
         if (online) {
@@ -149,7 +129,7 @@ export function useSelectRouterWithPing() {
         setConnectingId(null);
       }
     },
-    [beginConnect, setRouterOnline, confirmRouterOffline, setIsPingChecking, navigate, connectFromSelectorWithRetries],
+    [beginConnectFast, setRouterOnline, confirmRouterOffline, setIsPingChecking, navigate, connectFastWithRetries],
   );
 
   return { selectWithPing, connectFromRoutersPage, pingingId: connectingId, connectingId };

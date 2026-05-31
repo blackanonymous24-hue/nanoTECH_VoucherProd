@@ -65,7 +65,7 @@ export const SELECTOR_CONNECT_MAX_ATTEMPTS = 2;
 export const ROUTERS_PAGE_CONNECT_MAX_ATTEMPTS = 2;
 
 /**
- * Page Routeurs : ping TCP (~3 s max) + snapshot cache serveur en parallèle.
+ * Page Routeurs & sélecteur : ping TCP (~3 s max) + snapshot cache serveur en parallèle.
  * Joignable → navigation immédiate ; KPI fresh en arrière-plan (pas de wait bloquant).
  */
 export async function fetchRouterForConnectFromPage(
