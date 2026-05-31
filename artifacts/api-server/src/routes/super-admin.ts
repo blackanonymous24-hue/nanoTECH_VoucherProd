@@ -647,7 +647,7 @@ router.get("/super/admins/:id/routers/:routerId/ping", async (req, res): Promise
     username: r.username,
     password: r.password,
   });
-  const online = await pingRouter(conn);
+  const online = await pingRouter(conn, { tcpOnly: true });
   res.json({ success: online, host: conn.host, port: conn.port });
 });
 

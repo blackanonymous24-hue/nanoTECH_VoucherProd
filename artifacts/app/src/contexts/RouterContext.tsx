@@ -7,9 +7,9 @@ import {
   prefetchRouterDashboardPriority,
 } from "@/lib/prefetch-router-dashboard-priority";
 import { prefetchRouterSessions } from "@/lib/prefetch-router-sessions";
-import { openDashboardFreshGate } from "@/lib/dashboard-resume";
+import { useRouterTcpPing } from "@/hooks/use-router-tcp-ping";
+import { openDashboardFreshGate, beginRouterConnectFreshEpoch } from "@/lib/dashboard-resume";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
-import { DASHBOARD_FRESH_MAX_AGE_MS, readPriorityCache } from "@/lib/dashboard-priority";
 
 /**
  * Tolérance d'âge du cache au changement de routeur (sélecteur ou page Routeurs) :
@@ -42,6 +42,11 @@ interface RouterContextValue {
   isRouterLocked: boolean;
   isPingFailed: boolean;
   setIsPingFailed: (v: boolean) => void;
+  /** Triplet ping en cours — masquer les caches MikroTik stale. */
+  isPingChecking: boolean;
+  setIsPingChecking: (v: boolean) => void;
+  /** 3 pings échoués : hors ligne, purge cache, page erreur. */
+  confirmRouterOffline: (id: number) => void;
   /** Badge « Hors ligne » sur la page Routeurs après échec ping sélecteur. */
   offlineMarkedRouterId: number | null;
   markRouterOffline: (id: number) => void;
@@ -49,6 +54,8 @@ interface RouterContextValue {
   /** Routeur d'un autre tenant connecté temporairement par le super-admin */
   borrowedRouter: BorrowedRouter | null;
   setBorrowedRouter: (r: BorrowedRouter | null) => void;
+  /** Évite un double triplet quand useSelectRouterWithPing gère déjà le ping. */
+  skipNextTcpPingInitialRef: React.MutableRefObject<boolean>;
 }
 
 const RouterContext = createContext<RouterContextValue>({
@@ -65,11 +72,15 @@ const RouterContext = createContext<RouterContextValue>({
   isRouterLocked: false,
   isPingFailed: false,
   setIsPingFailed: () => {},
+  isPingChecking: false,
+  setIsPingChecking: () => {},
+  confirmRouterOffline: () => {},
   offlineMarkedRouterId: null,
   markRouterOffline: () => {},
   clearRouterOfflineMark: () => {},
   borrowedRouter: null,
   setBorrowedRouter: () => {},
+  skipNextTcpPingInitialRef: { current: false },
 });
 
 const STORAGE_KEY = "vouchernet_router_id";
@@ -107,12 +118,27 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   const [pingTrigger, setPingTrigger] = useState(0);
   const [routerOnline, setRouterOnline] = useState<boolean | null>(null);
   const [routerIdentity, setRouterIdentity] = useState<string | null>(null);
+  const skipNextTcpPingInitialRef = useRef(false);
+
   const [isPingFailed, setIsPingFailed] = useState(false);
+  const [isPingChecking, setIsPingChecking] = useState(false);
   const [offlineMarkedRouterId, setOfflineMarkedRouterId] = useState<number | null>(null);
 
   const markRouterOffline = useCallback((id: number) => {
     setOfflineMarkedRouterId(id);
     setRouterOnline(false);
+  }, []);
+
+  const confirmRouterOffline = useCallback((id: number) => {
+    setOfflineMarkedRouterId(id);
+    setRouterOnline(false);
+    setIsPingFailed(true);
+    setIsPingChecking(false);
+    clearRouterScopedClientCaches(id);
+    void queryClient.resetQueries({
+      queryKey: ["router-dashboard-priority", id],
+      exact: true,
+    });
   }, []);
 
   const clearRouterOfflineMark = useCallback(() => {
@@ -227,12 +253,12 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, routersFetched, routers, selectedRouterId, borrowedRouter]);
 
-  // Préchauffe uniquement le routeur sélectionné (cadence MikHmon 10 s — pas de rafale multi-routeurs).
+  // Préchauffe uniquement après ping TCP confirmé en ligne.
   useEffect(() => {
-    if (!isAuthenticated || selectedRouterId == null) return;
+    if (!isAuthenticated || selectedRouterId == null || routerOnline !== true) return;
     void prefetchRouterDashboardPriority(selectedRouterId);
     prefetchRouterSessions(selectedRouterId);
-  }, [isAuthenticated, selectedRouterId]);
+  }, [isAuthenticated, selectedRouterId, routerOnline]);
 
   const setSelectedRouterId = useCallback((id: number | null) => {
     if (isRouterLocked) return; // Hard-locked: ignore changes
@@ -289,20 +315,12 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       });
     }
 
-    openDashboardFreshGate(selectedRouterId);
-
-    const cached = readPriorityCache(selectedRouterId);
-    const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
-    if (cachedAgeMs > DASHBOARD_FRESH_MAX_AGE_MS) {
-      clearRouterScopedClientCaches(selectedRouterId);
-    }
+    beginRouterConnectFreshEpoch(selectedRouterId);
 
     void queryClient.resetQueries({
       queryKey: ["router-dashboard-priority", selectedRouterId],
       exact: true,
     });
-    void prefetchRouterDashboardPriority(selectedRouterId);
-    prefetchRouterSessions(selectedRouterId);
   }, [selectedRouterId, isAuthenticated]);
 
   // Removed aggressive bootstrap prewarm to keep MikroTik traffic focused on
@@ -320,6 +338,9 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       setRouterIdentity((prev) => prev ?? dbRouter.name ?? null);
     }
   }, [allRouters, selectedRouterId]);
+
+  // Ping TCP MikHmon (fsockopen 3 s) — seule source du badge En ligne / Hors ligne.
+  useRouterTcpPing(isAuthenticated ? selectedRouterId : null);
 
   // selectedRouter : cherche d'abord dans les routeurs propres, puis dans borrowedRouter
   const selectedRouter: Router | undefined =
@@ -346,11 +367,15 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       isRouterLocked,
       isPingFailed,
       setIsPingFailed,
+      isPingChecking,
+      setIsPingChecking,
+      confirmRouterOffline,
       offlineMarkedRouterId,
       markRouterOffline,
       clearRouterOfflineMark,
       borrowedRouter,
       setBorrowedRouter,
+      skipNextTcpPingInitialRef,
     }}>
       {children}
     </RouterContext.Provider>

@@ -23,11 +23,39 @@ export function notifyAppResume(): void {
   window.dispatchEvent(new CustomEvent(VOUCHERNET_APP_RESUME_EVENT));
 }
 
-export function openDashboardFreshGate(routerId: number | null): void {
+export function openDashboardFreshGate(routerId: number | null, epochMs?: number): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
-    new CustomEvent(VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT, { detail: { routerId } }),
+    new CustomEvent(VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT, {
+      detail: { routerId, epochMs: epochMs ?? Date.now() },
+    }),
   );
+}
+
+/** Époque de connexion par routeur — aucun cache antérieur ne doit s'afficher. */
+const connectEpochByRouter = new Map<number, number>();
+
+/** Ping OK ou clic routeur : purge caches client + barrière jusqu'au fetch MikroTik wait. */
+export function beginRouterConnectFreshEpoch(routerId: number): number {
+  const epoch = Date.now();
+  connectEpochByRouter.set(routerId, epoch);
+  clearRouterScopedClientCaches(routerId);
+  void queryClient.resetQueries({
+    queryKey: ["router-dashboard-priority", routerId],
+    exact: true,
+  });
+  openDashboardFreshGate(routerId, epoch);
+  return epoch;
+}
+
+export function getRouterConnectFreshEpoch(routerId: number | null): number {
+  if (routerId == null) return 0;
+  return connectEpochByRouter.get(routerId) ?? 0;
+}
+
+export function finishRouterConnectFreshEpoch(routerId: number): void {
+  connectEpochByRouter.delete(routerId);
+  releaseDashboardFreshGate(routerId);
 }
 
 export function releaseDashboardFreshGate(routerId: number | null): void {

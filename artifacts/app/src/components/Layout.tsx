@@ -36,7 +36,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PasswordInput } from "@/components/ui/password-input";
-import { buildMikhmonAddUserRequestBody } from "@/lib/mikhmon-add-user";
+import { RouterOfflineOverlay } from "@/components/RouterOfflineOverlay";
+import { useRouterOfflineRedirect } from "@/hooks/use-router-offline-redirect";
 import { ScrollablePopoverList } from "@/components/ui/scrollable-popover-list";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1433,10 +1434,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const isRoutersPage = location.startsWith("/routers");
   usePrefetchRouterProfiles();
+  const { showOverlay, secondsLeft, goNow } = useRouterOfflineRedirect();
 
   return (
     <RouterProfilesProvider>
     <div className="flex h-svh bg-gray-100 dark:bg-gray-950 overflow-hidden">
+      {showOverlay && <RouterOfflineOverlay secondsLeft={secondsLeft} onGoNow={goNow} />}
 
       {/* ── Desktop sidebar ── */}
       {!isMobile && (

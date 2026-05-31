@@ -785,36 +785,36 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
   const sc = routerCacheScope(r.ownerAdminId, id);
   const ck = `ping:${sc}`;
   const force = req.query.force === "1";
-  if (!force) {
-    const fresh = mGet(ck);
-    if (fresh) { res.json(fresh); return; }
-    const stale = mGetStale(ck);
-    if (stale) {
-      res.json(stale);
-      const conn = normalizeRouterConnection({
-        host: r.host, port: r.port, username: r.username, password: r.password,
-      });
-      mikCacheRefreshBackground(ck, MIK_TTL.ping, _mik, async () => {
-        const online = await pingRouter(conn, { tcpOnly: true });
-        return { success: online, host: conn.host, port: conn.port };
-      });
-      return;
-    }
-  }
-
   const conn = normalizeRouterConnection({
     host: r.host,
     port: r.port,
     username: r.username,
     password: r.password,
   });
-  // force=1 → ping TCP seul (~3 s max), style Mikhmon — pas de login API (+8 s).
-  const online = await pingRouter(conn, { tcpOnly: force });
-  const payload = {
-    success: online,
-    host: conn.host,
-    port: conn.port,
+
+  const doTcpPing = async () => {
+    const online = await pingRouter(conn, { tcpOnly: true });
+    return { success: online, host: conn.host, port: conn.port };
   };
+
+  if (force) {
+    // Statut UI : ping TCP live style Mikhmon (fsockopen 3 s), coalescence 2 s max.
+    const { data } = await mikCacheCoalesce(`${ck}:force`, 2_000, _mik, doTcpPing);
+    mSet(ck, MIK_TTL.ping, data);
+    res.json(data);
+    return;
+  }
+
+  const fresh = mGet(ck);
+  if (fresh) { res.json(fresh); return; }
+  const stale = mGetStale(ck);
+  if (stale) {
+    res.json(stale);
+    mikCacheRefreshBackground(ck, MIK_TTL.ping, _mik, doTcpPing);
+    return;
+  }
+
+  const payload = await doTcpPing();
   mSet(ck, MIK_TTL.ping, payload);
   res.json(payload);
 });
@@ -3117,32 +3117,72 @@ function scheduleRouterKpiRefresh(
   setImmediate(() => { void refreshRouterKpiCaches(id, ownerAdminId, conn); });
 }
 
-async function buildDashboardKpiFastSnapshot(id: number, opts?: { freshOnly?: boolean }) {
+async function buildDashboardKpiFastSnapshot(
+  id: number,
+  opts?: { freshOnly?: boolean; waitFresh?: boolean },
+) {
   const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
   if (!r) throw new Error("ROUTER_NOT_FOUND");
   const sc = routerCacheScope(r.ownerAdminId, id);
   const freshOnly = !!opts?.freshOnly;
+  const waitFresh = !!opts?.waitFresh;
 
   const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
   markRouterActive(id);
   ensureUsageSyncScheduled(id, conn);
 
+  const readSnapshot = () => {
+    const now = Date.now();
+
+    const sessionsKey = `sessions:${sc}`;
+    const sessionsFresh = mGet(sessionsKey) as unknown[] | null;
+    const sessionsStale = mGetStale(sessionsKey) as unknown[] | null;
+    const fastEntry = _sessionsFastCount.get(sc);
+    const fastCount = fastEntry && (now - fastEntry.cachedAt) < MIK_FRESH_MS ? fastEntry.count : null;
+
+    const infoKey = `info:${sc}`;
+    const infoFresh = mGet(infoKey);
+    const infoStale = mGetStale(infoKey);
+
+    const usersCachedRaw = _usersCountCache.get(sc) ?? null;
+    const usersCached =
+      usersCachedRaw && (now - usersCachedRaw.cachedAt) < MIK_FRESH_MS ? usersCachedRaw : null;
+
+    const sessionsCount =
+      sessionsFresh?.length ?? sessionsStale?.length ?? fastCount ?? 0;
+    const info = (infoFresh ?? infoStale ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
+    const usersPayload = _usersCountCache.get(sc);
+    const users = usersPayload
+      ? { total: usersPayload.total, available: usersPayload.available, used: usersPayload.used, disabled: usersPayload.disabled, cachedAt: usersPayload.cachedAt }
+      : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
+
+    const routerClockDate = info?.clockDate ?? null;
+
+    return {
+      serverTs: now,
+      sessionsCount,
+      users,
+      sales: emptyDashboardSales(routerClockDate),
+      vendorRanking: null,
+      info,
+      availability: {
+        sessionsKnown: !!(sessionsFresh || sessionsStale) || fastCount !== null,
+        usersKnown: !!usersPayload,
+        salesKnown: false,
+        vendorRankingKnown: false,
+        infoKnown: !!(infoFresh || infoStale),
+      },
+    };
+  };
+
   const now = Date.now();
-
   const sessionsKey = `sessions:${sc}`;
-  const sessionsFresh = mGet(sessionsKey) as unknown[] | null;
-  const sessionsStale = mGetStale(sessionsKey) as unknown[] | null;
-  const fastEntry = _sessionsFastCount.get(sc);
-  const fastCount = fastEntry && (now - fastEntry.cachedAt) < MIK_FRESH_MS ? fastEntry.count : null;
-
+  const sessionsFresh = mGet(sessionsKey);
   const infoKey = `info:${sc}`;
   const infoFresh = mGet(infoKey);
-  const infoStale = mGetStale(infoKey);
-
   const usersCachedRaw = _usersCountCache.get(sc) ?? null;
   const usersCached =
     usersCachedRaw && (now - usersCachedRaw.cachedAt) < MIK_FRESH_MS ? usersCachedRaw : null;
-
   const cacheStale =
     !sessionsFresh
     || !infoFresh
@@ -3150,34 +3190,29 @@ async function buildDashboardKpiFastSnapshot(id: number, opts?: { freshOnly?: bo
     || (now - (_kpiLastRefreshAt.get(id) ?? 0)) >= MIK_FRESH_MS;
 
   if (cacheStale || freshOnly) {
-    scheduleRouterKpiRefresh(id, r.ownerAdminId, conn, freshOnly);
+    if (waitFresh && freshOnly) {
+      if (_kpiRefreshInFlight.has(id)) {
+        const deadline = Date.now() + 25_000;
+        while (_kpiRefreshInFlight.has(id) && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 80));
+        }
+      } else {
+        _kpiRefreshInFlight.add(id);
+        _sessionsRefreshing.add(id);
+        _infoRefreshing.add(id);
+        _usersRefreshing.add(id);
+        try {
+          await refreshRouterKpiCaches(id, r.ownerAdminId, conn);
+        } finally {
+          _kpiRefreshInFlight.delete(id);
+        }
+      }
+    } else {
+      scheduleRouterKpiRefresh(id, r.ownerAdminId, conn, freshOnly);
+    }
   }
 
-  const sessionsCount =
-    sessionsFresh?.length ?? sessionsStale?.length ?? fastCount ?? 0;
-  const info = (infoFresh ?? infoStale ?? null) as Awaited<ReturnType<typeof getRouterInfo>> | null;
-  const usersPayload = _usersCountCache.get(sc);
-  const users = usersPayload
-    ? { total: usersPayload.total, available: usersPayload.available, used: usersPayload.used, disabled: usersPayload.disabled, cachedAt: usersPayload.cachedAt }
-    : { total: 0, available: 0, used: 0, disabled: 0, cachedAt: null as number | null };
-
-  const routerClockDate = info?.clockDate ?? null;
-
-  return {
-    serverTs: now,
-    sessionsCount,
-    users,
-    sales: emptyDashboardSales(routerClockDate),
-    vendorRanking: null,
-    info,
-    availability: {
-      sessionsKnown: !!(sessionsFresh || sessionsStale) || fastCount !== null,
-      usersKnown: !!usersPayload,
-      salesKnown: false,
-      vendorRankingKnown: false,
-      infoKnown: !!(infoFresh || infoStale),
-    },
-  };
+  return readSnapshot();
 }
 
 /** Sync ventes + agrégats (arrière-plan — ne bloque pas clients / users). */
@@ -3508,9 +3543,10 @@ router.get("/routers/:id/dashboard-priority", async (req, res): Promise<void> =>
   if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
   const fastOnly = req.query.fast === "1" || req.query.fast === "true";
   const freshOnly = req.query.fresh === "1" || req.query.fresh === "true";
+  const waitFresh = req.query.wait === "1" || req.query.wait === "true";
   try {
     const snapshot = fastOnly
-      ? await buildDashboardKpiFastSnapshot(id, { freshOnly })
+      ? await buildDashboardKpiFastSnapshot(id, { freshOnly, waitFresh: waitFresh && freshOnly })
       : await buildDashboardPrioritySnapshot(id, { freshOnly });
     res.json(snapshot);
   } catch (err) {

@@ -3,60 +3,57 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { pingRouterTcpApi } from "@/lib/router-connection-test";
-import { openDashboardFreshGate, releaseDashboardFreshGate } from "@/lib/dashboard-resume";
-import { writePriorityCache, type PrioritySnapshot } from "@/lib/dashboard-priority";
-import { queryClient } from "@/lib/queryClient";
-import { waitForRouterSnapshot } from "@/lib/wait-router-snapshot";
+import {
+  beginRouterConnectFreshEpoch,
+  finishRouterConnectFreshEpoch,
+  releaseDashboardFreshGate,
+} from "@/lib/dashboard-resume";
+import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
+import {
+  MIKHMON_PING_MAX_ATTEMPTS,
+  pingRouterMikhmonSequence,
+} from "@/lib/mikhmon-ping-sequence";
 
 const SELECTOR_RETRY_TOAST =
   "Impossible de contacter le Mikrotik, nouvelle tentative en cours...";
 
 export type SelectRouterSource = "selector" | "routers-page" | "quick-connect";
 
-function seedSnapshotCache(id: number, snapshot: PrioritySnapshot) {
-  queryClient.setQueryData(["router-dashboard-priority", id], snapshot);
-  writePriorityCache(id, snapshot);
-}
-
-/**
- * Statut en ligne/hors ligne = ping TCP forcé (≈3 s max si offline).
- * Le snapshot dashboard sert uniquement à préchauffer le cache, pas à prouver la connectivité.
- */
-async function pingThenSeedSnapshot(
+/** Ping TCP MikHmon ×3 — seul critère En ligne / Hors ligne. */
+async function mikhmonPingOnly(
   id: number,
   token: string | null | undefined,
+  onRetry?: (attempt: number) => void,
 ): Promise<"online" | "offline"> {
-  const pingPromise = pingRouterTcpApi(id, token, { force: true });
-  const snapshotPromise = waitForRouterSnapshot(id).catch(() => ({
-    responded: false as const,
-    snapshot: null,
-  }));
+  const ok = await pingRouterMikhmonSequence(id, token, (attempt) => {
+    if (attempt > 1) onRetry?.(attempt);
+  });
+  return ok ? "online" : "offline";
+}
 
-  const ping = await pingPromise;
-  if (!ping.success) return "offline";
-
-  const snap = await snapshotPromise;
-  if (snap.responded && snap.snapshot) {
-    seedSnapshotCache(id, snap.snapshot);
-  }
-  return "online";
+/** Fetch KPI MikroTik bloquant (fresh+wait) avant d'afficher le dashboard. */
+async function loadFreshDashboardAfterPing(routerId: number): Promise<void> {
+  await prefetchRouterDashboardPriority(routerId, { fresh: true, wait: true });
+  finishRouterConnectFreshEpoch(routerId);
 }
 
 /**
- * Connexion routeur : ping TCP d'abord, snapshot dashboard en parallèle (cache seulement).
+ * Connexion routeur : ping TCP MikHmon ×3 puis fetch KPI frais (wait MikroTik).
  *
- * - **Page Routeurs** : `connectFromRoutersPage` — ping unique, badge hors ligne, pas de navigation.
- * - **Sélecteur** : 1 retry ping + toasts, page d'erreur 10 s → /routers.
+ * - **Page Routeurs** : ping ×3, badge hors ligne, pas de navigation.
+ * - **Sélecteur** : ping ×3 + toasts, page d'erreur 10 s → /routers.
  */
 export function useSelectRouterWithPing() {
   const {
     setSelectedRouterId,
     setIsPingFailed,
+    setIsPingChecking,
+    skipNextTcpPingInitialRef,
     setBorrowedRouter,
     setRouterOnline,
     markRouterOffline,
     clearRouterOfflineMark,
+    confirmRouterOffline,
   } = useRouterContext();
   const { token } = useAuth();
   const [, navigate] = useLocation();
@@ -70,11 +67,22 @@ export function useSelectRouterWithPing() {
       }
       clearRouterOfflineMark();
       setIsPingFailed(false);
-      openDashboardFreshGate(id);
+      setIsPingChecking(true);
+      setRouterOnline(null);
+      skipNextTcpPingInitialRef.current = true;
+      beginRouterConnectFreshEpoch(id);
       setSelectedRouterId(id);
     },
-    [setBorrowedRouter, clearRouterOfflineMark, setIsPingFailed, setSelectedRouterId],
+    [setBorrowedRouter, clearRouterOfflineMark, setIsPingFailed, setIsPingChecking, setRouterOnline, setSelectedRouterId, skipNextTcpPingInitialRef],
   );
+
+  const onRetryToast = useCallback((attempt: number) => {
+    toast.error(SELECTOR_RETRY_TOAST, {
+      duration: 4000,
+      id: "router-ping-fail",
+      description: `Tentative ${attempt}/${MIKHMON_PING_MAX_ATTEMPTS}…`,
+    });
+  }, []);
 
   const connectFromRoutersPage = useCallback(
     async (id: number): Promise<"online" | "offline"> => {
@@ -84,9 +92,10 @@ export function useSelectRouterWithPing() {
       beginConnect(id);
 
       try {
-        const status = await pingThenSeedSnapshot(id, token);
+        const status = await mikhmonPingOnly(id, token, onRetryToast);
+        setIsPingChecking(false);
         if (status === "online") {
-          releaseDashboardFreshGate(id);
+          await loadFreshDashboardAfterPing(id);
           setRouterOnline(true);
           return "online";
         }
@@ -99,7 +108,7 @@ export function useSelectRouterWithPing() {
         setPingingId(null);
       }
     },
-    [token, beginConnect, setRouterOnline, markRouterOffline],
+    [token, beginConnect, setRouterOnline, markRouterOffline, setIsPingChecking, onRetryToast],
   );
 
   const selectWithPing = useCallback(
@@ -119,31 +128,25 @@ export function useSelectRouterWithPing() {
       const dest = opts?.navigateTo;
 
       try {
-        let status = await pingThenSeedSnapshot(id, token);
-        if (status === "offline") {
-          toast.error(SELECTOR_RETRY_TOAST, { duration: 4000, id: "router-ping-fail" });
-          await new Promise((r) => setTimeout(r, 400));
-          status = await pingThenSeedSnapshot(id, token);
-        }
+        const status = await mikhmonPingOnly(id, token, onRetryToast);
+        setIsPingChecking(false);
 
         if (status === "online") {
-          releaseDashboardFreshGate(id);
+          await loadFreshDashboardAfterPing(id);
           setRouterOnline(true);
           if (dest !== false) navigate(dest ?? "/");
           return;
         }
 
         releaseDashboardFreshGate(id);
-        markRouterOffline(id);
-        setRouterOnline(false);
-        setIsPingFailed(true);
+        confirmRouterOffline(id);
         navigate("/");
       } finally {
         activeRef.current = false;
         setPingingId(null);
       }
     },
-    [token, beginConnect, setRouterOnline, markRouterOffline, setIsPingFailed, navigate],
+    [token, beginConnect, setRouterOnline, confirmRouterOffline, setIsPingChecking, navigate, onRetryToast],
   );
 
   return { selectWithPing, connectFromRoutersPage, pingingId };

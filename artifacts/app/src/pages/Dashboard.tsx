@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { useGetDashboard, useListRouterLogs, getGetDashboardQueryKey, getListRouterLogsQueryKey } from "@workspace/api-client-react";
@@ -15,7 +15,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity, WifiOff, UserPlus, Zap, Users } from "lucide-react";
+import { TrendingUp, CalendarDays, Router, RefreshCw, Wifi, LogIn, LogOut, AlertCircle, Shield, Info, Cpu, HardDrive, Clock, Activity, UserPlus, Zap, Users } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -25,10 +25,6 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const _dashboardCache: { data?: any; ts?: number } = {};
 
 type LogEntry = { id: string; time: string; topics: string; message: string };
-
-/** Échec ping au sélecteur : page hors ligne puis redirection vers /routers. */
-const PING_FAIL_REDIRECT_MS = 10_000;
-const RUNTIME_OFFLINE_REDIRECT_MS = 5_000;
 
 const DASH_LOGS_PARAMS = {
   limit: 120,
@@ -596,16 +592,28 @@ function TrafficMonitorCard({ routerId, enabled = true }: { routerId: number | n
 export default function Dashboard() {
   const isVisible = usePageVisibility();
 
-  const { selectedRouterId, pingTrigger, setRouterOnline, setRouterIdentity, isPingFailed, setIsPingFailed } =
-    useRouterContext();
+  const {
+    selectedRouterId,
+    pingTrigger,
+    setRouterIdentity,
+    isPingFailed,
+    routerOnline,
+    isPingChecking,
+  } = useRouterContext();
   const currency = useCurrency();
+
+  const mikrotikLive =
+    !!selectedRouterId &&
+    routerOnline === true &&
+    !isPingFailed &&
+    !isPingChecking;
 
   const { data: _freshData, isLoading, isFetching: dashFetching, isError, refetch } = useGetDashboard({
     query: {
       queryKey: getGetDashboardQueryKey(),
-      enabled: isVisible && !isPingFailed,
+      enabled: isVisible && mikrotikLive,
       // DB-only, pas de MikroTik — on garde le polling mais on le stoppe si onglet caché.
-      refetchInterval: isVisible && !isPingFailed ? 10_000 : false,
+      refetchInterval: isVisible && mikrotikLive ? 10_000 : false,
       staleTime: 9_000,
       gcTime: 30 * 60_000,
       refetchIntervalInBackground: false,
@@ -619,18 +627,13 @@ export default function Dashboard() {
 
   // Display data: fresh from React Query OR last cached value — never undefined after first load
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data: any = isPingFailed ? undefined : (_freshData ?? _dashboardCache.data);
-  const [pingRedirectSecondsLeft, setPingRedirectSecondsLeft] = useState(
-    Math.ceil(PING_FAIL_REDIRECT_MS / 1000),
-  );
+  const data: any = mikrotikLive ? (_freshData ?? _dashboardCache.data) : undefined;
   const [enableSecondaries, setEnableSecondaries] = useState(false);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const prevIdsRef = useRef<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
 
-  // ── MikroTik offline detection ─────────────────────────────────────────────
-  const [showErrorPage, setShowErrorPage] = useState(false);
-  const mikFailCountRef = useRef(0);
+  // ── MikroTik API errors (toasts only — statut hors ligne = ping TCP ×3) ───
   const mikLastFailTsRef = useRef(0);
   const mikLastSuccessTsRef = useRef(0);
   // ─────────────────────────────────────────────────────────────────────────────
@@ -649,7 +652,7 @@ export default function Dashboard() {
     refetchPriority,
     liveSnapshotAgeMs,
     awaitingRouterSwitch,
-  } = useRouterDashboardPriority(isPingFailed ? null : selectedRouterId);
+  } = useRouterDashboardPriority(mikrotikLive ? selectedRouterId : null);
 
   const [logsAwaitingFresh, setLogsAwaitingFresh] = useState(() => selectedRouterId != null);
   const prevLogsRouterRef = useRef(selectedRouterId);
@@ -674,88 +677,26 @@ export default function Dashboard() {
   // Stable callback — uses refs to avoid stale closures
   const handleMikrotikFailure = useCallback(() => {
     const now = Date.now();
-    if (now - mikLastFailTsRef.current < 10_000) return; // debounce: 1 failure per 10s max
+    if (now - mikLastFailTsRef.current < 10_000) return;
     mikLastFailTsRef.current = now;
-    mikFailCountRef.current += 1;
-    const n = mikFailCountRef.current;
-    if (n === 1) {
-      toast.warning("Impossible de contacter le MikroTik", {
-        id: "mikrotik-status",
-        duration: 3000,
-      });
-    } else {
-      toast.error("Impossible de récupérer les infos du routeur", {
-        id: "mikrotik-status",
-        description: "MikroTik éteint ou hors ligne !!!",
-        duration: 6000,
-      });
-    }
-    if (n >= 3) {
-      setShowErrorPage(true);
-    }
-  }, []);
-
-  const [, navigate] = useLocation();
-
-  const goToRoutersFromPingFail = useCallback(() => {
-    setIsPingFailed(false);
-    setShowErrorPage(false);
-    toast.error("Hors ligne", {
-      id: "router-ping-redirect",
-      description:
-        "Le routeur sélectionné ne répond pas. Vérifiez l’alimentation ou la connexion du MikroTik.",
-      duration: 8000,
+    toast.warning("Impossible de contacter le MikroTik", {
+      id: "mikrotik-status",
+      duration: 3000,
     });
-    navigate("/routers");
-  }, [navigate, setIsPingFailed]);
+  }, []);
 
   const handleMikrotikRecovery = useCallback(() => {
     const now = Date.now();
-    if (now - mikLastSuccessTsRef.current < 3_000) return; // debounce recovery
+    if (now - mikLastSuccessTsRef.current < 3_000) return;
     mikLastSuccessTsRef.current = now;
-    mikFailCountRef.current = 0;
     mikLastFailTsRef.current = 0;
-    setShowErrorPage(false);
-    setIsPingFailed(false);
     toast.dismiss("mikrotik-status");
-  }, [setIsPingFailed]);
-
-  // Ping sélecteur échoué : page hors ligne 30 s puis /routeurs + toast explicite
-  useEffect(() => {
-    if (!isPingFailed) return;
-    setPingRedirectSecondsLeft(Math.ceil(PING_FAIL_REDIRECT_MS / 1000));
-    const tick = window.setInterval(() => {
-      setPingRedirectSecondsLeft((s) => (s > 0 ? s - 1 : 0));
-    }, 1000);
-    const t = window.setTimeout(() => {
-      goToRoutersFromPingFail();
-    }, PING_FAIL_REDIRECT_MS);
-    return () => {
-      clearTimeout(t);
-      clearInterval(tick);
-    };
-  }, [isPingFailed, goToRoutersFromPingFail]);
-
-  // Perte de connexion en cours d’utilisation : redirection plus courte
-  useEffect(() => {
-    if (!showErrorPage || isPingFailed) return;
-    const t = window.setTimeout(() => {
-      setShowErrorPage(false);
-      toast.warning("Connexion MikroTik perdue", {
-        id: "router-runtime-redirect",
-        description: "Redirection vers la liste des routeurs.",
-        duration: 6000,
-      });
-      navigate("/routers");
-    }, RUNTIME_OFFLINE_REDIRECT_MS);
-    return () => clearTimeout(t);
-  }, [showErrorPage, isPingFailed, navigate]);
+  }, []);
 
   useEffect(() => {
     if (!selectedRouterId || !livePriority) return;
-    setRouterOnline(true);
     handleMikrotikRecovery();
-  }, [selectedRouterId, livePriority, setRouterOnline, handleMikrotikRecovery]);
+  }, [selectedRouterId, livePriority, handleMikrotikRecovery]);
 
   const activeSessions = livePriority?.sessionsCount;
   const usersStats = livePriority?.users;
@@ -797,8 +738,7 @@ export default function Dashboard() {
   /** Skeleton infos routeur uniquement — indépendant du chargement des cartes KPI. */
   const routerInfoLoading =
     !!selectedRouterId &&
-    !isPingFailed &&
-    (awaitingRouterSwitch || !infoKpiReady);
+    (isPingChecking || routerOnline !== true || awaitingRouterSwitch || !infoKpiReady);
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
   const sessionsFetching =
     awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
@@ -833,7 +773,7 @@ export default function Dashboard() {
     {
       query: {
         queryKey: getListRouterLogsQueryKey(selectedRouterId ?? 0, DASH_LOGS_PARAMS),
-        enabled: isVisible && !!selectedRouterId && enableSecondaries && !isPingFailed,
+        enabled: isVisible && mikrotikLive && enableSecondaries,
         refetchInterval: isVisible ? 10_000 : false,
         refetchIntervalInBackground: false,
         staleTime: 0,
@@ -874,43 +814,6 @@ export default function Dashboard() {
     prevIdsRef.current = incoming;
   }, [logs]);
 
-  // ── Online indicator driven by real data ──────────────────────────────────
-  // Track timestamp of the last successful data receive from MikroTik
-  const lastSuccessRef = useRef<number>(0);
-
-  // Sessions success → green
-  useEffect(() => {
-    if (!selectedRouterId || priorityUpdatedAt === 0) return;
-    lastSuccessRef.current = Math.max(lastSuccessRef.current, priorityUpdatedAt);
-    setRouterOnline(true);
-  }, [priorityUpdatedAt, selectedRouterId, setRouterOnline]);
-
-  // Logs success → green
-  useEffect(() => {
-    if (!selectedRouterId) return;
-    if (!logsFetching && logs.length > 0) {
-      lastSuccessRef.current = Date.now();
-      setRouterOnline(true);
-    }
-  }, [logs, logsFetching, selectedRouterId, setRouterOnline]);
-
-  // Stale detector: if no successful data for 45s → red
-  useEffect(() => {
-    if (!selectedRouterId) return;
-    const interval = setInterval(() => {
-      if (lastSuccessRef.current > 0 && Date.now() - lastSuccessRef.current > 45_000) {
-        setRouterOnline(false);
-      }
-    }, 5_000);
-    return () => clearInterval(interval);
-  }, [selectedRouterId, setRouterOnline]);
-
-  // Reset tracker when router changes
-  useEffect(() => {
-    lastSuccessRef.current = 0;
-  }, [selectedRouterId]);
-  // ─────────────────────────────────────────────────────────────────────────
-
   // ── MikroTik offline effects ───────────────────────────────────────────────
   // Count HTTP poll failures (each time errorUpdatedAt advances)
   const prevPriorityErrorTsRef = useRef(0);
@@ -929,10 +832,8 @@ export default function Dashboard() {
 
   // Reset all failure state when router changes
   useEffect(() => {
-    mikFailCountRef.current = 0;
     mikLastFailTsRef.current = 0;
     mikLastSuccessTsRef.current = 0;
-    setShowErrorPage(false);
     setEnableSecondaries(false);
     toast.dismiss("mikrotik-status");
   }, [selectedRouterId]);
@@ -955,7 +856,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     const onAppResume = () => {
-      if (!selectedRouterId || isPingFailed) return;
+      if (!selectedRouterId || !mikrotikLive) return;
       void queryClient.resetQueries({
         queryKey: getListRouterLogsQueryKey(selectedRouterId, DASH_LOGS_PARAMS),
         exact: true,
@@ -964,10 +865,10 @@ export default function Dashboard() {
     };
     window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
     return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
-  }, [selectedRouterId, isPingFailed, refetchLogs]);
+  }, [selectedRouterId, mikrotikLive, refetchLogs]);
 
   const handleRefresh = () => {
-    if (isPingFailed) return;
+    if (!mikrotikLive) return;
     refetch();
     if (selectedRouterId) {
       refetchLogs();
@@ -975,12 +876,8 @@ export default function Dashboard() {
     }
   };
 
-  const showOfflineOverlay = (showErrorPage || isPingFailed) && !!selectedRouterId;
-
-
   return (
     <div className="relative min-h-[420px]">
-      <div className={showOfflineOverlay ? "invisible pointer-events-none h-0 overflow-hidden" : undefined}>
       <div className="flex items-center justify-between mb-3 lg:mb-1">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
@@ -995,7 +892,7 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      {selectedRouterId && !isPingFailed && (
+      {selectedRouterId && mikrotikLive && (
         <div
           className={
             routerInfoLoading || hasRouterInfoContent(routerInfo)
@@ -1187,7 +1084,7 @@ export default function Dashboard() {
           <TrafficMonitorCard
             key={selectedRouterId ?? "none"}
             routerId={selectedRouterId}
-            enabled={!!selectedRouterId && !isPingFailed}
+            enabled={mikrotikLive}
           />
         </div>
         {/* ── Log hotspot : desktop cols 3-4 rows 2-3, mobile pleine largeur ── */}
@@ -1334,88 +1231,6 @@ export default function Dashboard() {
       </Card>
         </div>
       </div>
-
-      </div>
-
-      {/* ── Page d'erreur MikroTik hors ligne ─────────────────────────────── */}
-      {showOfflineOverlay && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white rounded-xl py-16 px-4 min-h-[420px]">
-          {/* Animation visuelle */}
-          <div className="relative flex flex-col items-center mb-8">
-            {/* Anneaux de pulsation */}
-            <div className="relative flex items-center justify-center mb-4">
-              <div className="absolute h-28 w-28 rounded-full bg-red-100 opacity-30" style={{ animation: "ping 2s cubic-bezier(0,0,.2,1) infinite" }} />
-              <div className="absolute h-20 w-20 rounded-full bg-red-100 opacity-50 animate-pulse" />
-              <div className="relative h-16 w-16 rounded-full bg-red-50 border-2 border-red-200 shadow-sm flex items-center justify-center">
-                <WifiOff className="h-8 w-8 text-red-400" />
-              </div>
-            </div>
-
-            {/* Points animés = signal cassé */}
-            <div className="flex flex-col items-center gap-1.5 my-1">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="h-1.5 w-1.5 rounded-full bg-red-300 animate-bounce"
-                  style={{ animationDelay: `${i * 0.18}s`, animationDuration: "1.1s" }}
-                />
-              ))}
-            </div>
-
-            {/* Icône routeur éteint */}
-            <div className="mt-1 h-12 w-12 rounded-full bg-gray-100 border-2 border-gray-200 flex items-center justify-center">
-              <Router className="h-6 w-6 text-gray-300" />
-            </div>
-          </div>
-
-          {/* Message */}
-          <h2 className="text-xl font-bold text-gray-800 text-center leading-snug">
-            Impossible de contacter le routeur
-          </h2>
-          <p className="text-base font-bold text-red-500 text-center mt-1">
-            MikroTik éteint ou hors ligne&nbsp;!!!
-          </p>
-          {isPingFailed ? (
-            <>
-              <p className="text-sm text-gray-500 text-center mt-3 max-w-sm leading-relaxed">
-                Le routeur sélectionné ne répond pas après 3 tentatives de connexion.
-              </p>
-              <p className="text-sm text-gray-600 text-center mt-4 font-medium">
-                Redirection vers la liste des routeurs dans{" "}
-                <span className="tabular-nums text-red-600">{pingRedirectSecondsLeft}</span> s…
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-6 border-gray-200 text-gray-700 hover:bg-gray-50 gap-2"
-                onClick={goToRoutersFromPingFail}
-              >
-                Aller aux routeurs maintenant
-              </Button>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-gray-400 text-center mt-3 max-w-xs leading-relaxed">
-                La connexion avec le routeur MikroTik est momentanément indisponible.<br />
-                Reconnexion automatique en cours…
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-6 border-red-200 text-red-600 hover:bg-red-50 gap-2"
-                onClick={() => { refetchPriority(); refetch(); refetchLogs(); }}
-              >
-                <RefreshCw className="h-4 w-4" />
-                Réessayer maintenant
-              </Button>
-              <p className="text-[11px] text-gray-400 mt-4 flex items-center gap-1.5">
-                <RefreshCw className="h-3 w-3 animate-spin" style={{ animationDuration: "3s" }} />
-                Reconnexion automatique toutes les 15 secondes
-              </p>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }

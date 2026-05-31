@@ -73,7 +73,17 @@ export function isPriorityCacheDisplayable(snapshot: PrioritySnapshot | null | u
   return !!(a.sessionsKnown || a.usersKnown || a.salesKnown);
 }
 
-/** Snapshot accepté seulement s’il est postérieur à l’époque de fraîcheur (switch routeur ou reprise app). */
+/** Snapshot MikroTik réellement rafraîchi après une connexion routeur. */
+export function isSnapshotMikrotikFreshAfterEpoch(
+  snapshot: PrioritySnapshot | null | undefined,
+  epochMs: number,
+): boolean {
+  if (!snapshot || epochMs <= 0) return false;
+  const usersCa = snapshot.users?.cachedAt;
+  return typeof usersCa === "number" && usersCa >= epochMs - 3_000;
+}
+
+/** Snapshot accepté seulement s'il est postérieur à l'époque de fraîcheur (switch routeur ou reprise app). */
 export function snapshotValidForFreshEpoch(
   snapshot: PrioritySnapshot | null | undefined,
   epochStartedAt: number,

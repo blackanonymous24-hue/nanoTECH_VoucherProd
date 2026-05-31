@@ -18,59 +18,73 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
  */
 export async function prefetchRouterDashboardPriority(
   routerId: number,
-  opts?: { fresh?: boolean },
+  opts?: { fresh?: boolean; wait?: boolean },
 ): Promise<PrioritySnapshot | null> {
   const qk = ["router-dashboard-priority", routerId] as const;
-  const cached = queryClient.getQueryData<PrioritySnapshot>(qk);
-  const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
   const freshQ = opts?.fresh ? "&fresh=1" : "";
-  if (
-    !opts?.fresh
-    && cached?.availability?.sessionsKnown
-    && cached?.availability?.usersKnown
-    && cachedAgeMs < DASHBOARD_FRESH_MAX_AGE_MS
-  ) {
-    return cached;
+  const waitQ = opts?.wait ? "&wait=1" : "";
+  const query = `?fast=1${freshQ}${waitQ}`;
+
+  if (opts?.fresh) {
+    // Connexion routeur : jamais réutiliser un snapshot React Query / localStorage existant.
+  } else {
+    const cached = queryClient.getQueryData<PrioritySnapshot>(qk);
+    const cachedAgeMs = cached?.serverTs ? Date.now() - cached.serverTs : Infinity;
+    if (
+      cached?.availability?.sessionsKnown
+      && cached?.availability?.usersKnown
+      && cachedAgeMs < DASHBOARD_FRESH_MAX_AGE_MS
+    ) {
+      return cached;
+    }
   }
 
   let fastSnap: PrioritySnapshot | null = null;
 
   try {
-    const fastRes = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority?fast=1${freshQ}`);
+    const fastRes = await fetch(`${BASE}/api/routers/${routerId}/dashboard-priority${query}`);
     if (fastRes.ok) {
       fastSnap = (await fastRes.json()) as PrioritySnapshot;
-      if (opts?.fresh) {
-        queryClient.setQueryData(qk, fastSnap);
-        writePriorityCache(routerId, fastSnap);
-      } else {
-        const prev = queryClient.getQueryData<PrioritySnapshot>(qk);
-        const merged = prev?.availability?.salesKnown
-          ? mergeKnownPriorityFields(fastSnap, prev)
-          : fastSnap;
-        queryClient.setQueryData(qk, merged);
-        writePriorityCache(routerId, merged);
-      }
+      queryClient.setQueryData(qk, fastSnap);
+      writePriorityCache(routerId, fastSnap);
     }
   } catch {
-    fastSnap = readPriorityCache(routerId);
+    if (!opts?.fresh) {
+      fastSnap = readPriorityCache(routerId);
+    }
   }
 
-  void fetch(`${BASE}/api/routers/${routerId}/dashboard-priority${opts?.fresh ? "?fresh=1" : ""}`)
-    .then(async (res) => {
-      if (!res.ok) return;
-      const full = (await res.json()) as PrioritySnapshot;
-      const prev = opts?.fresh ? null : (queryClient.getQueryData<PrioritySnapshot>(qk) ?? fastSnap);
-      const merged = prev ? mergeKnownPriorityFields(prev, full) : full;
-      queryClient.setQueryData(qk, merged);
-      writePriorityCache(routerId, merged);
-      prefetchReportsSummary(routerId);
-      if (merged.vendorRanking?.length) {
-        prefetchVendorsSalesSummary(routerId, merged.vendorRanking);
-      }
-    })
-    .catch(() => { /* polling / SSE */ });
+  if (!opts?.wait) {
+    void fetch(`${BASE}/api/routers/${routerId}/dashboard-priority${opts?.fresh ? "?fresh=1" : ""}`)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const full = (await res.json()) as PrioritySnapshot;
+        const prev = opts?.fresh ? null : (queryClient.getQueryData<PrioritySnapshot>(qk) ?? fastSnap);
+        const merged = prev ? mergeKnownPriorityFields(prev, full) : full;
+        queryClient.setQueryData(qk, merged);
+        writePriorityCache(routerId, merged);
+        prefetchReportsSummary(routerId);
+        if (merged.vendorRanking?.length) {
+          prefetchVendorsSalesSummary(routerId, merged.vendorRanking);
+        }
+      })
+      .catch(() => { /* polling / SSE */ });
+  } else {
+    void fetch(`${BASE}/api/routers/${routerId}/dashboard-priority?fresh=1`)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const full = (await res.json()) as PrioritySnapshot;
+        queryClient.setQueryData(qk, full);
+        writePriorityCache(routerId, full);
+        prefetchReportsSummary(routerId);
+        if (full.vendorRanking?.length) {
+          prefetchVendorsSalesSummary(routerId, full.vendorRanking);
+        }
+      })
+      .catch(() => { /* background */ });
+  }
 
-  return queryClient.getQueryData<PrioritySnapshot>(qk) ?? fastSnap ?? readPriorityCache(routerId);
+  return queryClient.getQueryData<PrioritySnapshot>(qk) ?? fastSnap;
 }
 
 /** Préchauffe les KPI rapides de tous les routeurs visibles (barre latérale). */
