@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import { useRouterDashboardPriority } from "@/hooks/use-router-dashboard-priority";
 import { VOUCHERNET_APP_RESUME_EVENT, VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT } from "@/lib/dashboard-resume";
-import { isPriorityCacheDisplayable } from "@/lib/dashboard-priority";
+import { isPriorityCacheDisplayable, isSnapshotFresh } from "@/lib/dashboard-priority";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -718,6 +718,10 @@ export default function Dashboard() {
     typeof data.monthlySalesCount === "number" &&
     typeof data.monthlySalesAmount === "number";
   const avail = livePriority?.availability;
+  /** Pool KPI MikroTik commun (sessions / users / info) — même serverTs. */
+  const mikPoolFresh =
+    !!livePriority && isSnapshotFresh(livePriority);
+
   /** KPI prêt : l’API confirme la métrique — un vrai 0 s’affiche, pas un skeleton infini. */
   const sessionsKpiReady =
     !!selectedRouterId && !!livePriority && avail?.sessionsKnown === true;
@@ -739,16 +743,14 @@ export default function Dashboard() {
     !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
   const routerInfo = (livePriority?.info ?? null) as RouterInfo | null;
   const cpuLoadLabel = formatCpuLoad(routerInfo?.cpuLoad ?? null);
-  /** Skeleton infos routeur uniquement — indépendant des cartes KPI et du switch routeur. */
+  /** Infos routeur : affichées dès que infoKnown (même pool frais que les cartes MikroTik). */
   const routerInfoLoading =
-    !!selectedRouterId &&
-    !infoKpiReady &&
-    (priorityLoading || priorityQueryFetching);
+    !!selectedRouterId && !infoKpiReady && priorityLoading;
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
   const sessionsFetching =
-    awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
+    sessionsKpiReady && mikPoolFresh && ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
   const usersFetching =
-    awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
+    usersKpiReady && mikPoolFresh && ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
 
   const priorityReady =
     !!selectedRouterId && sessionsKpiReady && usersKpiReady && salesKpiReady && infoKpiReady;
@@ -990,7 +992,7 @@ export default function Dashboard() {
           iconBg="bg-purple-100"
           loading={
             !!selectedRouterId &&
-            (!sessionsKpiReady || typeof activeSessions !== "number")
+            !sessionsKpiReady
           }
           href="/sessions"
         />
@@ -1033,8 +1035,7 @@ export default function Dashboard() {
           icon={<Users className="h-5 w-5 text-blue-500" />}
           iconBg="bg-blue-100"
           loading={
-            !!selectedRouterId &&
-            (!usersKpiReady || typeof hotspotUserCount !== "number")
+            !!selectedRouterId && !usersKpiReady
           }
           className="order-3 lg:order-4"
           href="/vouchers"

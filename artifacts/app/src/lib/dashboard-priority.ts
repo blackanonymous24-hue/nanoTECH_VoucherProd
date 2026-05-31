@@ -97,6 +97,23 @@ export function isPriorityCacheDisplayable(snapshot: PrioritySnapshot | null | u
   return !!(a.sessionsKnown || a.usersKnown || a.salesKnown || a.infoKnown);
 }
 
+/** Snapshot MikroTik ≤ maxAge (pool KPI commun via serverTs). */
+export function isSnapshotFresh(
+  snapshot: PrioritySnapshot | null | undefined,
+  maxAgeMs: number = DASHBOARD_FRESH_MAX_AGE_MS,
+): boolean {
+  const age = prioritySnapshotAgeMs(snapshot);
+  return age != null && age <= maxAgeMs;
+}
+
+/** Au moins une métrique connue et snapshot ≤ 2 min (débloque le switch routeur). */
+export function isAnyMetricFreshForSwitch(
+  snapshot: PrioritySnapshot | null | undefined,
+): boolean {
+  if (!snapshot || !isPriorityCacheDisplayable(snapshot)) return false;
+  return isSnapshotFresh(snapshot, ROUTER_SWITCH_FRESH_MAX_AGE_MS);
+}
+
 /** Infos routeur (modèle, ROS, horloge…) prêtes à afficher. */
 export function isPriorityInfoDisplayable(snapshot: PrioritySnapshot | null | undefined): boolean {
   if (!snapshot?.info || snapshot.availability?.infoKnown !== true) return false;

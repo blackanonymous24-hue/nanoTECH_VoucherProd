@@ -4,13 +4,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
   DASHBOARD_FRESH_MAX_AGE_MS,
+  isAnyMetricFreshForSwitch,
   isPriorityCacheDisplayable,
-  isPriorityInfoDisplayable,
   isPrioritySnapshotFreshForSwitch,
   isSnapshotMikrotikFreshAfterEpoch,
   mergePrioritySnapshots,
   readPriorityCacheForDisplay,
-  ROUTER_SWITCH_FRESH_MAX_AGE_MS,
   writePriorityCache,
   type PrioritySnapshot,
 } from "@/lib/dashboard-priority";
@@ -27,8 +26,9 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const KPI_POLL_MS = DASHBOARD_FRESH_MAX_AGE_MS;
 
 /**
- * KPI dashboard : stale-first au retour onglet ; skeleton au switch routeur tant que
- * snapshot < 2 min indisponible ; gate strict uniquement après beginRouterConnectFreshEpoch.
+ * KPI dashboard : affichage partiel par métrique (sessions / users / info / ventes).
+ * Chaque carte et la barre infos routeur s'affichent dès que leur champ est connu —
+ * sans attendre les autres. Gate strict uniquement après beginRouterConnectFreshEpoch.
  */
 export function useRouterDashboardPriority(routerId: number | null) {
   const { token: authToken } = useAuth();
@@ -97,16 +97,8 @@ export function useRouterDashboardPriority(routerId: number | null) {
 
   const tryReleaseRouterSwitchGate = useCallback((snapshot: PrioritySnapshot | null | undefined) => {
     if (!snapshot) return;
-    if (isPrioritySnapshotFreshForSwitch(snapshot)) {
+    if (isAnyMetricFreshForSwitch(snapshot)) {
       setAwaitingRouterSwitch(false);
-      return;
-    }
-    // Infos routeur fraîches seules : afficher la barre sans attendre toutes les cartes KPI.
-    if (isPriorityInfoDisplayable(snapshot)) {
-      const ageMs = snapshot.serverTs ? Date.now() - snapshot.serverTs : null;
-      if (ageMs != null && ageMs <= ROUTER_SWITCH_FRESH_MAX_AGE_MS) {
-        setAwaitingRouterSwitch(false);
-      }
     }
   }, []);
 
@@ -217,9 +209,10 @@ export function useRouterDashboardPriority(routerId: number | null) {
       ssePriority,
       sseConnected,
       routerId,
-      { skipCacheMerge: strictConnectGate || awaitingRouterSwitch },
+      // Ne pas mélanger le cache local pré-connexion ; au switch routeur le cache est déjà scopé par routerId.
+      { skipCacheMerge: strictConnectGate },
     ),
-    [httpPriority, ssePriority, sseConnected, routerId, strictConnectGate, awaitingRouterSwitch],
+    [httpPriority, ssePriority, sseConnected, routerId, strictConnectGate],
   );
 
   useEffect(() => {
@@ -240,26 +233,16 @@ export function useRouterDashboardPriority(routerId: number | null) {
     (livePriority?.availability?.vendorRankingKnown === true || livePriority?.availability == null);
 
   const liveSnapshotAgeMs = livePriority?.serverTs ? Date.now() - livePriority.serverTs : null;
-  const salesFetching = (strictConnectGate || awaitingRouterSwitch) && priorityQueryFetching;
-
-  const displayableLive = livePriority && isPriorityCacheDisplayable(livePriority);
-  const infoDisplayable = isPriorityInfoDisplayable(livePriority);
-  const hideLivePriority =
-    !livePriority
-    || (
-      (strictConnectGate || awaitingRouterSwitch)
-      && !displayableLive
-      && !infoDisplayable
-    );
+  const hasDisplayableMetric = !!livePriority && isPriorityCacheDisplayable(livePriority);
 
   return {
-    livePriority: hideLivePriority ? null : livePriority,
-    sales: hideLivePriority ? undefined : sales,
-    salesKpiReady: hideLivePriority ? false : salesKpiReady,
-    rankingReady: hideLivePriority ? false : rankingReady,
-    salesFetching,
+    livePriority,
+    sales,
+    salesKpiReady,
+    rankingReady,
+    salesFetching: salesKpiReady && priorityQueryFetching && !sseConnected,
     sseConnected,
-    priorityLoading: (priorityLoading || strictConnectGate || awaitingRouterSwitch) && !displayableLive,
+    priorityLoading: priorityLoading && !hasDisplayableMetric,
     priorityUpdatedAt,
     priorityQueryFetching,
     liveSnapshotAgeMs,
