@@ -658,6 +658,27 @@ export default function Dashboard() {
     awaitingRouterSwitch,
   } = useRouterDashboardPriority(routerDataEnabled ? selectedRouterId : null);
 
+  /** Infos routeur via cache SWR dédié — indépendant du snapshot dashboard-priority. */
+  const {
+    data: routerInfoDirect,
+    isLoading: routerInfoQueryLoading,
+    isFetching: routerInfoQueryFetching,
+    refetch: refetchRouterInfo,
+  } = useQuery<RouterInfo>({
+    queryKey: ["router-info", selectedRouterId] as const,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/info`, { signal });
+      if (!res.ok) throw new Error("router info unavailable");
+      return res.json() as Promise<RouterInfo>;
+    },
+    enabled: routerDataEnabled && !!selectedRouterId,
+    staleTime: 9_000,
+    refetchInterval: routerDataEnabled ? 10_000 : false,
+    refetchIntervalInBackground: false,
+    retry: 1,
+    throwOnError: false,
+  });
+
   const [logsAwaitingFresh, setLogsAwaitingFresh] = useState(false);
   const prevLogsRouterRef = useRef(selectedRouterId);
   if (selectedRouterId !== prevLogsRouterRef.current) {
@@ -739,13 +760,21 @@ export default function Dashboard() {
         }
       : null)
     : dbSales;
+  const routerInfoFromPriority = (livePriority?.info ?? null) as RouterInfo | null;
+  const routerInfo = hasRouterInfoContent(routerInfoFromPriority)
+    ? routerInfoFromPriority
+    : (routerInfoDirect ?? routerInfoFromPriority);
   const infoKpiReady =
-    !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
-  const routerInfo = (livePriority?.info ?? null) as RouterInfo | null;
+    !!selectedRouterId &&
+    ((!!livePriority && avail?.infoKnown === true) || hasRouterInfoContent(routerInfoDirect));
   const cpuLoadLabel = formatCpuLoad(routerInfo?.cpuLoad ?? null);
-  /** Infos routeur : affichées dès que infoKnown (même pool frais que les cartes MikroTik). */
+  /** Skeleton jusqu’à contenu affichable — pas lié au chargement des cartes KPI. */
   const routerInfoLoading =
-    !!selectedRouterId && !infoKpiReady && priorityLoading;
+    !!selectedRouterId &&
+    routerDataEnabled &&
+    !hasRouterInfoContent(routerInfo) &&
+    (routerInfoQueryLoading ||
+      (routerInfoQueryFetching && !hasRouterInfoContent(routerInfoDirect)));
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
   const sessionsFetching =
     sessionsKpiReady && mikPoolFresh && ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);
@@ -872,7 +901,8 @@ export default function Dashboard() {
     refetch();
     refetchLogs();
     refetchPriority();
-  }, [pingTrigger, refetch, refetchLogs, refetchPriority]);
+    refetchRouterInfo();
+  }, [pingTrigger, refetch, refetchLogs, refetchPriority, refetchRouterInfo]);
 
   useEffect(() => {
     const onAppResume = () => {
@@ -882,10 +912,11 @@ export default function Dashboard() {
         exact: true,
       });
       void refetchLogs();
+      void refetchRouterInfo();
     };
     window.addEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
     return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onAppResume);
-  }, [selectedRouterId, routerDataEnabled, refetchLogs]);
+  }, [selectedRouterId, routerDataEnabled, refetchLogs, refetchRouterInfo]);
 
   const handleRefresh = () => {
     if (!routerDataEnabled) return;
@@ -893,6 +924,7 @@ export default function Dashboard() {
     if (selectedRouterId) {
       refetchLogs();
       refetchPriority();
+      refetchRouterInfo();
     }
   };
 
