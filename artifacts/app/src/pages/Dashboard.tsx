@@ -739,10 +739,11 @@ export default function Dashboard() {
     !!selectedRouterId && !!livePriority && avail?.infoKnown === true;
   const routerInfo = (livePriority?.info ?? null) as RouterInfo | null;
   const cpuLoadLabel = formatCpuLoad(routerInfo?.cpuLoad ?? null);
-  /** Skeleton infos routeur uniquement — indépendant du chargement des cartes KPI. */
+  /** Skeleton infos routeur uniquement — indépendant des cartes KPI et du switch routeur. */
   const routerInfoLoading =
     !!selectedRouterId &&
-    (awaitingRouterSwitch || (!infoKpiReady && (priorityLoading || isPingChecking)));
+    !infoKpiReady &&
+    (priorityLoading || priorityQueryFetching);
   const isLiveSnapshotStale = liveSnapshotAgeMs != null && liveSnapshotAgeMs > 10_000;
   const sessionsFetching =
     awaitingRouterSwitch || ((!sseConnected || isLiveSnapshotStale) && priorityQueryFetching);

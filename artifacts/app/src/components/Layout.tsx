@@ -415,7 +415,6 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         setAddEditOriginalName(recapName);
         setAddDialogMode("recap");
         setAddError("");
-        toast({ title: "Utilisateur ajouté", description: `${recapName} créé sur MikroTik.` });
       }
     } catch {
       const msg = "Erreur réseau. Réessayez.";
@@ -449,6 +448,16 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
         setAddError(data.error ?? "Erreur MikroTik");
       } else {
         setAddEditOriginalName(addName.trim());
+        setAddRecapUser({
+          name: addName.trim(),
+          password: addPassword.trim(),
+          profile: addProfile,
+          server: addServer || "all",
+          limitUptime: addLimitUptime.trim(),
+          limitBytes: addLimitBytes.trim(),
+          comment: addComment.trim(),
+        });
+        setAddDialogMode("recap");
         setAddError("");
       }
     } catch {
@@ -1132,13 +1141,23 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
 
       {/* ── Add hotspot user dialog — style Mikhmon compact ── */}
       <Dialog open={showAddUser} onOpenChange={(v) => {
-        if (!v && !addLoading && !addEditLoading) {
+        if (addLoading || addEditLoading) return;
+        if (!v) {
           setShowAddUser(false);
           setAddDialogMode("create");
           setAddEditOriginalName("");
+          setAddRecapUser(null);
         }
       }}>
-        <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[90vh] flex flex-col">
+        <DialogContent
+          className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[90vh] flex flex-col [&>button]:hidden"
+          onInteractOutside={(e) => {
+            if (addLoading || addEditLoading) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (addLoading || addEditLoading) e.preventDefault();
+          }}
+        >
           <DialogHeader className="px-3 pt-2 pb-1.5 border-b border-slate-600 bg-slate-700">
             <DialogTitle className="text-sm font-semibold flex items-center gap-1.5 text-slate-100">
               {addDialogMode === "recap"
@@ -1176,9 +1195,12 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
               <Button type="button" size="sm"
                 onClick={() => void (addDialogMode === "edit" ? handleEditCreatedUser() : handleAddHotspotUser())}
                 disabled={addLoading || addEditLoading}
-                className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5">
-                {(addLoading || addEditLoading) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                Enregistrer
+                className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5 min-w-[6.5rem]">
+                {(addLoading || addEditLoading) ? (
+                  <><Loader2 className="h-3 w-3 animate-spin" /> Enregistrement…</>
+                ) : (
+                  <><Save className="h-3 w-3" /> Enregistrer</>
+                )}
               </Button>
             )}
           </div>

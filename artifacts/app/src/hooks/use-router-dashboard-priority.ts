@@ -5,10 +5,12 @@ import { usePageVisibility } from "@/hooks/use-page-visibility";
 import {
   DASHBOARD_FRESH_MAX_AGE_MS,
   isPriorityCacheDisplayable,
+  isPriorityInfoDisplayable,
   isPrioritySnapshotFreshForSwitch,
   isSnapshotMikrotikFreshAfterEpoch,
   mergePrioritySnapshots,
   readPriorityCacheForDisplay,
+  ROUTER_SWITCH_FRESH_MAX_AGE_MS,
   writePriorityCache,
   type PrioritySnapshot,
 } from "@/lib/dashboard-priority";
@@ -94,8 +96,18 @@ export function useRouterDashboardPriority(routerId: number | null) {
   }, [routerId]);
 
   const tryReleaseRouterSwitchGate = useCallback((snapshot: PrioritySnapshot | null | undefined) => {
-    if (!snapshot || !isPrioritySnapshotFreshForSwitch(snapshot)) return;
-    setAwaitingRouterSwitch(false);
+    if (!snapshot) return;
+    if (isPrioritySnapshotFreshForSwitch(snapshot)) {
+      setAwaitingRouterSwitch(false);
+      return;
+    }
+    // Infos routeur fraîches seules : afficher la barre sans attendre toutes les cartes KPI.
+    if (isPriorityInfoDisplayable(snapshot)) {
+      const ageMs = snapshot.serverTs ? Date.now() - snapshot.serverTs : null;
+      if (ageMs != null && ageMs <= ROUTER_SWITCH_FRESH_MAX_AGE_MS) {
+        setAwaitingRouterSwitch(false);
+      }
+    }
   }, []);
 
   const priorityQueryKey = useMemo(
@@ -231,9 +243,14 @@ export function useRouterDashboardPriority(routerId: number | null) {
   const salesFetching = (strictConnectGate || awaitingRouterSwitch) && priorityQueryFetching;
 
   const displayableLive = livePriority && isPriorityCacheDisplayable(livePriority);
+  const infoDisplayable = isPriorityInfoDisplayable(livePriority);
   const hideLivePriority =
-    (strictConnectGate && !displayableLive)
-    || (awaitingRouterSwitch && !isPrioritySnapshotFreshForSwitch(livePriority));
+    !livePriority
+    || (
+      (strictConnectGate || awaitingRouterSwitch)
+      && !displayableLive
+      && !infoDisplayable
+    );
 
   return {
     livePriority: hideLivePriority ? null : livePriority,

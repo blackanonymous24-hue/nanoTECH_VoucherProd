@@ -1554,7 +1554,6 @@ export default function Vouchers() {
         });
         return;
       }
-      toast({ title: "Utilisateur ajouté", description: `${creatingName} créé sur MikroTik.` });
       setAddRecapUser({
         name: creatingName,
         password: body.password,
@@ -2986,12 +2985,19 @@ export default function Vouchers() {
 
       {/* ── Add User dialog (Mikhmon-style compact) ─────────────────────── */}
       <Dialog open={addUserOpen} onOpenChange={(o) => {
-        if (!isSavingUser && !addEditLoading) {
-          if (!o) { resetAddUserForm(); }
-          setAddUserOpen(o);
-        }
+        if (isSavingUser || addEditLoading) return;
+        if (!o) resetAddUserForm();
+        setAddUserOpen(o);
       }}>
-        <DialogContent className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[90vh]">
+        <DialogContent
+          className="w-[95vw] sm:max-w-md p-0 overflow-hidden bg-slate-700 text-slate-100 border-slate-600 sm:rounded-md max-h-[90vh] [&>button]:hidden"
+          onInteractOutside={(e) => {
+            if (isSavingUser || addEditLoading) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (isSavingUser || addEditLoading) e.preventDefault();
+          }}
+        >
           <DialogHeader className="px-3 pt-2 pb-1.5 border-b border-slate-600 bg-slate-700">
             <DialogTitle className="text-sm font-semibold flex items-center gap-1.5 text-slate-100">
               {addDialogMode === "recap"
@@ -3029,9 +3035,12 @@ export default function Vouchers() {
               <Button type="button" size="sm"
                 onClick={() => void (addDialogMode === "edit" ? handleEditSavedUser() : handleSaveUser())}
                 disabled={isSavingUser || addEditLoading}
-                className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5">
-                {(isSavingUser || addEditLoading) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                Enregistrer
+                className="h-7 text-xs bg-cyan-500 hover:bg-cyan-600 text-white gap-1 px-2.5 min-w-[6.5rem]">
+                {(isSavingUser || addEditLoading) ? (
+                  <><Loader2 className="h-3 w-3 animate-spin" /> Enregistrement…</>
+                ) : (
+                  <><Save className="h-3 w-3" /> Enregistrer</>
+                )}
               </Button>
             )}
           </div>

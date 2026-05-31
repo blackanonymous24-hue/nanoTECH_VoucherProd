@@ -89,12 +89,18 @@ export function writePriorityCache(routerId: number | null, snapshot: PrioritySn
   }
 }
 
-/** Cache local utilisable pour affichage immédiat (au moins sessions ou utilisateurs connus). */
+/** Cache local utilisable pour affichage immédiat (au moins une métrique connue). */
 export function isPriorityCacheDisplayable(snapshot: PrioritySnapshot | null | undefined): boolean {
   if (!snapshot) return false;
   const a = snapshot.availability;
   if (!a) return true;
-  return !!(a.sessionsKnown || a.usersKnown || a.salesKnown);
+  return !!(a.sessionsKnown || a.usersKnown || a.salesKnown || a.infoKnown);
+}
+
+/** Infos routeur (modèle, ROS, horloge…) prêtes à afficher. */
+export function isPriorityInfoDisplayable(snapshot: PrioritySnapshot | null | undefined): boolean {
+  if (!snapshot?.info || snapshot.availability?.infoKnown !== true) return false;
+  return true;
 }
 
 /** Snapshot MikroTik utilisable après connexion (local ou cache serveur partagé multi-appareils). */
@@ -103,6 +109,13 @@ export function isSnapshotMikrotikFreshAfterEpoch(
   epochMs: number,
 ): boolean {
   if (!snapshot || epochMs <= 0) return false;
+
+  // Infos routeur souvent disponibles avant users/sessions — débloquer dès que fraîches.
+  if (isPriorityInfoDisplayable(snapshot)) {
+    const ageMs = prioritySnapshotAgeMs(snapshot);
+    if (ageMs != null && ageMs <= DASHBOARD_FRESH_MAX_AGE_MS) return true;
+  }
+
   const usersCa = snapshot.users?.cachedAt;
   if (typeof usersCa !== "number") return false;
   const ageMs = Date.now() - usersCa;
