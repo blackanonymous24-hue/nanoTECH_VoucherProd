@@ -13,8 +13,8 @@ export function isRouterConnectSnapshotValid(snapshot: PrioritySnapshot | null |
   return snapshot.users?.cachedAt != null;
 }
 
-/** Délai MikHmon par tentative : données reçues en < 3 s = en ligne. */
-export const MIKHMON_CONNECT_ATTEMPT_TIMEOUT_MS = 3_000;
+/** Borne sécurité fetch connect (refresh KPI MikroTik côté serveur). Le ping TCP reste 3 s. */
+export const ROUTER_CONNECT_FETCH_TIMEOUT_MS = 25_000;
 
 async function fetchRouterForConnectOnce(routerId: number): Promise<boolean> {
   try {
@@ -32,15 +32,15 @@ async function fetchRouterForConnectOnce(routerId: number): Promise<boolean> {
 }
 
 /**
- * Connexion routeur style MikHmon : fetch API bloquant (fresh+wait).
- * `timeoutMs` = borne client (ex. 3 s sélecteur) ; sans timeout = attente serveur complète.
+ * Connexion routeur : fetch API bloquant (fresh+wait).
+ * Timeout client = temps max du refresh KPI serveur (pas le ping TCP 3 s).
  */
 export async function fetchRouterForConnect(
   routerId: number,
   opts?: { timeoutMs?: number },
 ): Promise<boolean> {
-  const timeoutMs = opts?.timeoutMs;
-  if (!timeoutMs || timeoutMs <= 0) {
+  const timeoutMs = opts?.timeoutMs ?? ROUTER_CONNECT_FETCH_TIMEOUT_MS;
+  if (timeoutMs <= 0) {
     return fetchRouterForConnectOnce(routerId);
   }
 
@@ -58,7 +58,7 @@ export async function fetchRouterForConnect(
   return result.ok;
 }
 
-/** Sélecteur : 2 tentatives (3 s max chacune), toast après le 1er échec, puis overlay si 2e échec. */
+/** 2 tentatives fetch ; timeout = refresh KPI serveur (~25 s max par essai). */
 export const SELECTOR_CONNECT_MAX_ATTEMPTS = 2;
 
 export async function fetchRouterForConnectWithRetries(
@@ -66,9 +66,7 @@ export async function fetchRouterForConnectWithRetries(
   onRetry?: (attempt: number) => void,
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= SELECTOR_CONNECT_MAX_ATTEMPTS; attempt++) {
-    const online = await fetchRouterForConnect(routerId, {
-      timeoutMs: MIKHMON_CONNECT_ATTEMPT_TIMEOUT_MS,
-    });
+    const online = await fetchRouterForConnect(routerId);
     if (online) return true;
     if (attempt < SELECTOR_CONNECT_MAX_ATTEMPTS) {
       onRetry?.(attempt);

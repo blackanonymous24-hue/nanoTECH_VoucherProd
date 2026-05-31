@@ -17,8 +17,8 @@ const CONNECT_RETRY_TOAST =
 
 /**
  * Connexion routeur style MikHmon.
- * - **Page Routeurs** : 2 tentatives fetch (3 s max), toast au 1er échec, badge au 2e.
- * - **Sélecteur** : 2 tentatives (3 s max chacune), toast après 1er échec, puis overlay 10 s → /routers.
+ * - **Page Routeurs** : 2 tentatives fetch KPI, toast au 1er échec, badge au 2e.
+ * - **Sélecteur** : idem puis overlay 10 s → /routers si 2e échec.
  */
 export function useSelectRouterWithPing() {
   const {
