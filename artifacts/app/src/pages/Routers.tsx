@@ -33,6 +33,7 @@ import {
   formatRouterConnectionTestLabel,
   routerConnectionStatusShortLabel,
   ROUTER_OFFLINE_LABEL,
+  ROUTER_PAGE_CONNECT_FAIL_LABEL,
   pingRouterTcpApi,
 } from "@/lib/router-connection-test";
 import { useSelectRouterWithPing } from "@/hooks/use-select-router-with-ping";
@@ -387,7 +388,7 @@ export default function Routers() {
       navigate("/");
       return;
     }
-    setTestResultWithAutoExpiry(id, { success: false, message: ROUTER_OFFLINE_LABEL });
+    setTestResultWithAutoExpiry(id, { success: false, message: ROUTER_PAGE_CONNECT_FAIL_LABEL });
   };
 
   return (

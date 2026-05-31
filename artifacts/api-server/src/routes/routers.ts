@@ -228,6 +228,7 @@ const _sessionsFastCount      = new Map<string, { count: number; cachedAt: numbe
 const _infoRefreshing         = new Set<number>();
 const _kpiLastRefreshAt       = new Map<number, number>();
 const _kpiRefreshInFlight     = new Set<number>();
+const _kpiRefreshPromises     = new Map<number, Promise<void>>();
 
 function foldText(value: string | null | undefined): string {
   return String(value ?? "")
@@ -3101,6 +3102,25 @@ async function refreshRouterKpiCaches(
   }
 }
 
+async function awaitRouterKpiRefresh(
+  id: number,
+  ownerAdminId: number | null,
+  conn: RouterConnection,
+): Promise<void> {
+  let promise = _kpiRefreshPromises.get(id);
+  if (!promise) {
+    _kpiRefreshInFlight.add(id);
+    _sessionsRefreshing.add(id);
+    _infoRefreshing.add(id);
+    _usersRefreshing.add(id);
+    promise = refreshRouterKpiCaches(id, ownerAdminId, conn).finally(() => {
+      _kpiRefreshPromises.delete(id);
+    });
+    _kpiRefreshPromises.set(id, promise);
+  }
+  await promise;
+}
+
 function scheduleRouterKpiRefresh(
   id: number,
   ownerAdminId: number | null,
@@ -3189,24 +3209,9 @@ async function buildDashboardKpiFastSnapshot(
     || !usersCached
     || (now - (_kpiLastRefreshAt.get(id) ?? 0)) >= MIK_FRESH_MS;
 
-  if (cacheStale || freshOnly) {
+  if (cacheStale) {
     if (waitFresh && freshOnly) {
-      if (_kpiRefreshInFlight.has(id)) {
-        const deadline = Date.now() + 25_000;
-        while (_kpiRefreshInFlight.has(id) && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 80));
-        }
-      } else {
-        _kpiRefreshInFlight.add(id);
-        _sessionsRefreshing.add(id);
-        _infoRefreshing.add(id);
-        _usersRefreshing.add(id);
-        try {
-          await refreshRouterKpiCaches(id, r.ownerAdminId, conn);
-        } finally {
-          _kpiRefreshInFlight.delete(id);
-        }
-      }
+      await awaitRouterKpiRefresh(id, r.ownerAdminId, conn);
     } else {
       scheduleRouterKpiRefresh(id, r.ownerAdminId, conn, freshOnly);
     }

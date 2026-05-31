@@ -50,7 +50,7 @@ export function RouterOfflineOverlay({ secondsLeft, onGoNow, className }: Router
         MikroTik éteint ou hors ligne&nbsp;!!!
       </p>
       <p className="text-sm text-gray-500 text-center mt-3 max-w-sm leading-relaxed">
-        Le routeur sélectionné ne répond pas après 3 tentatives de connexion.
+        Impossible de récupérer les données du routeur après plusieurs tentatives.
       </p>
       <p className="text-sm text-gray-600 text-center mt-4 font-medium">
         Redirection vers la liste des routeurs dans{" "}

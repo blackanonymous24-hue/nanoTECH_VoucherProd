@@ -70,7 +70,7 @@ function RouterSelector({ className, compact }: { className?: string; compact?: 
           value={selectedRouterId ? String(selectedRouterId) : ""}
           onValueChange={(v) => {
             const id = v ? parseInt(v, 10) : null;
-            if (id) void selectWithPing(id, { navigateTo: false, source: "selector" });
+            if (id) void selectWithPing(id, { navigateTo: false });
           }}
           disabled={effectiveRouters.length === 0 || pingingId !== null}
         >

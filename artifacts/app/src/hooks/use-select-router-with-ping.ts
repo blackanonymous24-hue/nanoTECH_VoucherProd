@@ -6,16 +6,19 @@ import {
   beginRouterConnectFreshEpoch,
   releaseDashboardFreshGate,
 } from "@/lib/dashboard-resume";
-import { fetchRouterForConnect } from "@/lib/router-connect-fetch";
+import {
+  fetchRouterForConnectWithRetries,
+} from "@/lib/router-connect-fetch";
 
 export type SelectRouterSource = "selector" | "routers-page" | "quick-connect";
 
-const CONNECT_FAIL_TOAST = "Impossible de récupérer les données du routeur";
+const CONNECT_RETRY_TOAST =
+  "Impossible de contacter le Routeur, nouvelle tentative en cours";
 
 /**
  * Connexion routeur style MikHmon.
- * - **Page Routeurs** : fetch API seul (pas de ping TCP). Échec = badge hors ligne sur la carte.
- * - **Sélecteur** : même fetch ; échec → page erreur ping (hors /routers).
+ * - **Page Routeurs** : 2 tentatives fetch (3 s max), toast au 1er échec, badge au 2e.
+ * - **Sélecteur** : 2 tentatives (3 s max chacune), toast après 1er échec, puis overlay 10 s → /routers.
  */
 export function useSelectRouterWithPing() {
   const {
@@ -49,24 +52,21 @@ export function useSelectRouterWithPing() {
     [setBorrowedRouter, clearRouterOfflineMark, setIsPingFailed, setIsPingChecking, setRouterOnline, setSelectedRouterId, skipNextTcpPingInitialRef],
   );
 
-  const connectViaMikhmonFetch = useCallback(
-    async (id: number, opts?: { toastOnFail?: boolean }): Promise<boolean> => {
-      toast.dismiss("router-ping-fail");
-      toast.dismiss("router-connect-fail");
-      const online = await fetchRouterForConnect(id);
-      if (!online && opts?.toastOnFail !== false) {
-        toast.error(CONNECT_FAIL_TOAST, {
-          id: "router-connect-fail",
-          description: "MikroTik éteint ou hors ligne.",
-          duration: 5000,
-        });
-      }
-      return online;
-    },
-    [],
-  );
+  const showConnectRetryToast = useCallback(() => {
+    toast.error(CONNECT_RETRY_TOAST, {
+      id: "router-connect-retry",
+      duration: 4000,
+    });
+  }, []);
 
-  /** Page Routeurs : fetch MikHmon uniquement — jamais ping ×3 ni overlay global. */
+  const connectFromSelectorWithRetries = useCallback(async (id: number): Promise<boolean> => {
+    toast.dismiss("router-ping-fail");
+    toast.dismiss("router-connect-fail");
+    toast.dismiss("router-connect-retry");
+    return fetchRouterForConnectWithRetries(id, showConnectRetryToast);
+  }, [showConnectRetryToast]);
+
+  /** Page Routeurs : 2 tentatives fetch, toast au 1er échec, badge au 2e — pas d'overlay. */
   const connectFromRoutersPage = useCallback(
     async (id: number): Promise<"online" | "offline"> => {
       if (activeRef.current) return "offline";
@@ -75,12 +75,17 @@ export function useSelectRouterWithPing() {
       beginConnect(id);
 
       try {
-        const online = await connectViaMikhmonFetch(id, { toastOnFail: false });
+        toast.dismiss("router-ping-fail");
+        toast.dismiss("router-connect-fail");
+        toast.dismiss("router-connect-retry");
+        const online = await fetchRouterForConnectWithRetries(id, showConnectRetryToast);
         setIsPingChecking(false);
         if (online) {
+          toast.dismiss("router-connect-retry");
           setRouterOnline(true);
           return "online";
         }
+        toast.dismiss("router-connect-retry");
         releaseDashboardFreshGate(id);
         markRouterOffline(id);
         setRouterOnline(false);
@@ -90,7 +95,7 @@ export function useSelectRouterWithPing() {
         setConnectingId(null);
       }
     },
-    [beginConnect, setRouterOnline, markRouterOffline, setIsPingChecking, connectViaMikhmonFetch],
+    [beginConnect, setRouterOnline, markRouterOffline, setIsPingChecking, showConnectRetryToast],
   );
 
   const selectWithPing = useCallback(
@@ -110,24 +115,25 @@ export function useSelectRouterWithPing() {
       const dest = opts?.navigateTo;
 
       try {
-        const online = await connectViaMikhmonFetch(id);
+        const online = await connectFromSelectorWithRetries(id);
         setIsPingChecking(false);
 
         if (online) {
+          toast.dismiss("router-connect-retry");
           setRouterOnline(true);
           if (dest !== false) navigate(dest ?? "/");
           return;
         }
 
+        toast.dismiss("router-connect-retry");
         releaseDashboardFreshGate(id);
         confirmRouterOffline(id);
-        navigate("/");
       } finally {
         activeRef.current = false;
         setConnectingId(null);
       }
     },
-    [beginConnect, setRouterOnline, confirmRouterOffline, setIsPingChecking, navigate, connectViaMikhmonFetch],
+    [beginConnect, setRouterOnline, confirmRouterOffline, setIsPingChecking, navigate, connectFromSelectorWithRetries],
   );
 
   return { selectWithPing, connectFromRoutersPage, pingingId: connectingId, connectingId };

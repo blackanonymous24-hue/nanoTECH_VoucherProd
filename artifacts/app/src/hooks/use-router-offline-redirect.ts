@@ -5,7 +5,7 @@ import { useRouterContext } from "@/contexts/RouterContext";
 
 export const ROUTER_OFFLINE_REDIRECT_MS = 10_000;
 
-/** Après 3 pings échoués : compte à rebours 10 s puis redirection /routers. */
+/** Après échec connexion sélecteur : compte à rebours 10 s puis redirection /routers. */
 export function useRouterOfflineRedirect() {
   const { isPingFailed, setIsPingFailed, selectedRouterId } = useRouterContext();
   const [location, navigate] = useLocation();

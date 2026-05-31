@@ -73,14 +73,22 @@ export function isPriorityCacheDisplayable(snapshot: PrioritySnapshot | null | u
   return !!(a.sessionsKnown || a.usersKnown || a.salesKnown);
 }
 
-/** Snapshot MikroTik réellement rafraîchi après une connexion routeur. */
+/** Snapshot MikroTik utilisable après connexion (local ou cache serveur partagé multi-appareils). */
 export function isSnapshotMikrotikFreshAfterEpoch(
   snapshot: PrioritySnapshot | null | undefined,
   epochMs: number,
 ): boolean {
   if (!snapshot || epochMs <= 0) return false;
   const usersCa = snapshot.users?.cachedAt;
-  return typeof usersCa === "number" && usersCa >= epochMs - 3_000;
+  if (typeof usersCa !== "number") return false;
+  const ageMs = Date.now() - usersCa;
+  if (
+    ageMs <= DASHBOARD_FRESH_MAX_AGE_MS
+    && snapshot.availability?.usersKnown !== false
+  ) {
+    return true;
+  }
+  return usersCa >= epochMs - 3_000;
 }
 
 /** Snapshot accepté seulement s'il est postérieur à l'époque de fraîcheur (switch routeur ou reprise app). */

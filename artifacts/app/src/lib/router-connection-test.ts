@@ -9,13 +9,16 @@ export type RouterConnectionTestResult = {
 
 export const ROUTER_OFFLINE_LABEL = "Hors ligne";
 
+/** Badge page Routeurs après échec connexion (2 tentatives fetch). */
+export const ROUTER_PAGE_CONNECT_FAIL_LABEL = "Routeur hors ligne ou éteint";
+
 /** Libellé court pour badge / liste routeurs. */
 export function routerConnectionStatusShortLabel(result: {
   success: boolean;
   message?: string;
 }): string {
   if (result.success) return "En ligne";
-  return ROUTER_OFFLINE_LABEL;
+  return result.message?.trim() || ROUTER_OFFLINE_LABEL;
 }
 
 /**
