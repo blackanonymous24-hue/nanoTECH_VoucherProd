@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { useLocation } from "wouter";
 import { useListRouters, getListRoutersQueryKey } from "@workspace/api-client-react";
 import type { Router } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -88,6 +89,8 @@ const BORROWED_ROUTER_KEY = "vouchernet_borrowed_router";
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export function RouterProvider({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  const isRoutersPage = location.startsWith("/routers");
   const { managerRouterIds, role, collaborateurRouterIds, isAuthenticated } = useAuth();
   // Gérants et collaborateurs : liste filtrée, sélecteur libre entre routeurs assignés.
   const isRouterLocked = false;
@@ -312,13 +315,13 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     });
   }, [selectedRouterId, isAuthenticated]);
 
-  // Refresh page / auto-sélection : fresh epoch + prefetch si pas déjà lancé par beginConnect.
+  // Refresh page : fresh epoch + prefetch (pas sur /routers — connexion = clic utilisateur).
   useEffect(() => {
-    if (!isAuthenticated || selectedRouterId == null) return;
+    if (!isAuthenticated || selectedRouterId == null || isRoutersPage) return;
     if (getRouterConnectFreshEpoch(selectedRouterId) > 0) return;
     beginRouterConnectFreshEpoch(selectedRouterId);
     void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true, wait: true });
-  }, [isAuthenticated, selectedRouterId]);
+  }, [isAuthenticated, selectedRouterId, isRoutersPage]);
 
   // Removed aggressive bootstrap prewarm to keep MikroTik traffic focused on
   // the currently open page actions and avoid background contention.
@@ -336,8 +339,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, [allRouters, selectedRouterId]);
 
-  // Ping TCP MikHmon (fsockopen 3 s) — seule source du badge En ligne / Hors ligne.
-  useRouterTcpPing(isAuthenticated ? selectedRouterId : null);
+  // Ping TCP ×3 : badge en ligne sur le dashboard uniquement (jamais sur /routers).
+  useRouterTcpPing(isAuthenticated && !isRoutersPage ? selectedRouterId : null);
 
   // selectedRouter : cherche d'abord dans les routeurs propres, puis dans borrowedRouter
   const selectedRouter: Router | undefined =

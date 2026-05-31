@@ -13,8 +13,9 @@ export type SelectRouterSource = "selector" | "routers-page" | "quick-connect";
 const CONNECT_FAIL_TOAST = "Impossible de récupérer les données du routeur";
 
 /**
- * Connexion routeur style MikHmon : fetch API MikroTik (fresh+wait).
- * Données OK → en ligne + affichage. Échec → hors ligne (sans ping TCP ×3).
+ * Connexion routeur style MikHmon.
+ * - **Page Routeurs** : fetch API seul (pas de ping TCP). Échec = badge hors ligne sur la carte.
+ * - **Sélecteur** : même fetch ; échec → page erreur ping (hors /routers).
  */
 export function useSelectRouterWithPing() {
   const {
@@ -29,7 +30,7 @@ export function useSelectRouterWithPing() {
     confirmRouterOffline,
   } = useRouterContext();
   const [, navigate] = useLocation();
-  const [pingingId, setPingingId] = useState<number | null>(null);
+  const [connectingId, setConnectingId] = useState<number | null>(null);
   const activeRef = useRef(false);
 
   const beginConnect = useCallback(
@@ -48,29 +49,33 @@ export function useSelectRouterWithPing() {
     [setBorrowedRouter, clearRouterOfflineMark, setIsPingFailed, setIsPingChecking, setRouterOnline, setSelectedRouterId, skipNextTcpPingInitialRef],
   );
 
-  const connectViaMikhmonFetch = useCallback(async (id: number): Promise<boolean> => {
-    toast.dismiss("router-ping-fail");
-    toast.dismiss("router-connect-fail");
-    const online = await fetchRouterForConnect(id);
-    if (!online) {
-      toast.error(CONNECT_FAIL_TOAST, {
-        id: "router-connect-fail",
-        description: "MikroTik éteint ou hors ligne.",
-        duration: 5000,
-      });
-    }
-    return online;
-  }, []);
+  const connectViaMikhmonFetch = useCallback(
+    async (id: number, opts?: { toastOnFail?: boolean }): Promise<boolean> => {
+      toast.dismiss("router-ping-fail");
+      toast.dismiss("router-connect-fail");
+      const online = await fetchRouterForConnect(id);
+      if (!online && opts?.toastOnFail !== false) {
+        toast.error(CONNECT_FAIL_TOAST, {
+          id: "router-connect-fail",
+          description: "MikroTik éteint ou hors ligne.",
+          duration: 5000,
+        });
+      }
+      return online;
+    },
+    [],
+  );
 
+  /** Page Routeurs : fetch MikHmon uniquement — jamais ping ×3 ni overlay global. */
   const connectFromRoutersPage = useCallback(
     async (id: number): Promise<"online" | "offline"> => {
       if (activeRef.current) return "offline";
       activeRef.current = true;
-      setPingingId(id);
+      setConnectingId(id);
       beginConnect(id);
 
       try {
-        const online = await connectViaMikhmonFetch(id);
+        const online = await connectViaMikhmonFetch(id, { toastOnFail: false });
         setIsPingChecking(false);
         if (online) {
           setRouterOnline(true);
@@ -82,7 +87,7 @@ export function useSelectRouterWithPing() {
         return "offline";
       } finally {
         activeRef.current = false;
-        setPingingId(null);
+        setConnectingId(null);
       }
     },
     [beginConnect, setRouterOnline, markRouterOffline, setIsPingChecking, connectViaMikhmonFetch],
@@ -99,7 +104,7 @@ export function useSelectRouterWithPing() {
     ) => {
       if (activeRef.current) return;
       activeRef.current = true;
-      setPingingId(id);
+      setConnectingId(id);
       beginConnect(id, opts);
 
       const dest = opts?.navigateTo;
@@ -119,11 +124,11 @@ export function useSelectRouterWithPing() {
         navigate("/");
       } finally {
         activeRef.current = false;
-        setPingingId(null);
+        setConnectingId(null);
       }
     },
     [beginConnect, setRouterOnline, confirmRouterOffline, setIsPingChecking, navigate, connectViaMikhmonFetch],
   );
 
-  return { selectWithPing, connectFromRoutersPage, pingingId };
+  return { selectWithPing, connectFromRoutersPage, pingingId: connectingId, connectingId };
 }
