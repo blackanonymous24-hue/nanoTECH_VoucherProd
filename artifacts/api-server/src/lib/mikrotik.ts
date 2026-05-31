@@ -327,11 +327,15 @@ export async function withRouter<T>(
  * est en ligne. Équivalent de fsockopen($host, $port, $errno, $errstr, 3) en PHP.
  * Résultat typique : <200 ms si en ligne, ~3 s si hors ligne.
  */
-/** Ping TCP Mikhmon (fsockopen 3 s) puis test API si le port filtre le TCP sans auth. */
-export async function pingRouter(conn: RouterConnection): Promise<boolean> {
+/** Ping TCP Mikhmon (fsockopen 3 s). `tcpOnly` : pas de login API (statut en ligne/hors ligne). */
+export async function pingRouter(
+  conn: RouterConnection,
+  opts?: { tcpOnly?: boolean },
+): Promise<boolean> {
   const c = normalizeRouterConnection(conn);
   if (!c.host) return false;
   if (await tcpPing(c.host, c.port, MIKHMON_PING_TIMEOUT_MS)) return true;
+  if (opts?.tcpOnly) return false;
   try {
     const apiTest = await testConnection(c);
     return apiTest.success;

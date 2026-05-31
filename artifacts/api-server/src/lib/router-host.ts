@@ -1,8 +1,8 @@
 /** Port API RouterOS par défaut (Mikhmon). */
 export const DEFAULT_ROUTER_API_PORT = 8728;
 
-/** Délai fsockopen Mikhmon (ping-test.php). */
-export const MIKHMON_PING_TIMEOUT_MS = 5_000;
+/** Délai fsockopen Mikhmon (ping-test.php) — 3 s pour online ET offline symétriques. */
+export const MIKHMON_PING_TIMEOUT_MS = 3_000;
 
 /** `iphost` se termine par `:port` numérique (comme explode(':', $iphost) en PHP). */
 export function iphostHasExplicitPort(iphost: string): boolean {

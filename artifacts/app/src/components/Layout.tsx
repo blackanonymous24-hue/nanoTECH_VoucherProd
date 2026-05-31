@@ -41,7 +41,7 @@ import { ScrollablePopoverList } from "@/components/ui/scrollable-popover-list";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-/** Sélecteur : snapshot 3 s puis ping TCP si besoin (`useSelectRouterWithPing`). */
+/** Sélecteur : ping TCP (~200 ms online / ~3 s offline) + snapshot cache en parallèle. */
 function RouterSelector({ className, compact }: { className?: string; compact?: boolean }) {
   const { selectedRouterId, routers, routersLoading, routerOnline, selectedRouter, isRouterLocked, borrowedRouter } = useRouterContext();
   const { selectWithPing, pingingId } = useSelectRouterWithPing();

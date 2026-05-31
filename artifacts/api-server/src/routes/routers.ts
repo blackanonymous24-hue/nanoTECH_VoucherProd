@@ -795,7 +795,7 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
         host: r.host, port: r.port, username: r.username, password: r.password,
       });
       mikCacheRefreshBackground(ck, MIK_TTL.ping, _mik, async () => {
-        const online = await pingRouter(conn);
+        const online = await pingRouter(conn, { tcpOnly: true });
         return { success: online, host: conn.host, port: conn.port };
       });
       return;
@@ -808,7 +808,8 @@ router.get("/routers/:id/ping", async (req, res): Promise<void> => {
     username: r.username,
     password: r.password,
   });
-  const online = await pingRouter(conn);
+  // force=1 → ping TCP seul (~3 s max), style Mikhmon — pas de login API (+8 s).
+  const online = await pingRouter(conn, { tcpOnly: force });
   const payload = {
     success: online,
     host: conn.host,

@@ -2,8 +2,8 @@ import type { PrioritySnapshot } from "@/lib/dashboard-priority";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-/** Délai avant ping TCP si le snapshot MikroTik n’a pas répondu. */
-export const ROUTER_SNAPSHOT_WAIT_MS = 3_000;
+/** Délai avant ping TCP si le snapshot MikroTik n'a pas répondu (préchauffage cache uniquement). */
+export const ROUTER_SNAPSHOT_WAIT_MS = 2_000;
 
 /**
  * Attend une réponse `dashboard-priority` (fast+fresh) jusqu’à `timeoutMs`.

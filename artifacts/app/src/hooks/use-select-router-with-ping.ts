@@ -19,25 +19,35 @@ function seedSnapshotCache(id: number, snapshot: PrioritySnapshot) {
   writePriorityCache(id, snapshot);
 }
 
-/** Snapshot 3 s puis ping TCP unique. */
-async function snapshotThenPing(
+/**
+ * Statut en ligne/hors ligne = ping TCP forcé (≈3 s max si offline).
+ * Le snapshot dashboard sert uniquement à préchauffer le cache, pas à prouver la connectivité.
+ */
+async function pingThenSeedSnapshot(
   id: number,
   token: string | null | undefined,
 ): Promise<"online" | "offline"> {
-  const { responded, snapshot } = await waitForRouterSnapshot(id);
-  if (responded && snapshot) {
-    seedSnapshotCache(id, snapshot);
-    return "online";
+  const pingPromise = pingRouterTcpApi(id, token, { force: true });
+  const snapshotPromise = waitForRouterSnapshot(id).catch(() => ({
+    responded: false as const,
+    snapshot: null,
+  }));
+
+  const ping = await pingPromise;
+  if (!ping.success) return "offline";
+
+  const snap = await snapshotPromise;
+  if (snap.responded && snap.snapshot) {
+    seedSnapshotCache(id, snap.snapshot);
   }
-  const ping = await pingRouterTcpApi(id, token, { force: true });
-  return ping.success ? "online" : "offline";
+  return "online";
 }
 
 /**
- * Connexion routeur : attendre le snapshot MikroTik (3 s), puis ping TCP si besoin.
+ * Connexion routeur : ping TCP d'abord, snapshot dashboard en parallèle (cache seulement).
  *
  * - **Page Routeurs** : `connectFromRoutersPage` — ping unique, badge hors ligne, pas de navigation.
- * - **Sélecteur** : 3 pings + toasts, page d’erreur 10 s → /routers.
+ * - **Sélecteur** : 1 retry ping + toasts, page d'erreur 10 s → /routers.
  */
 export function useSelectRouterWithPing() {
   const {
@@ -74,7 +84,7 @@ export function useSelectRouterWithPing() {
       beginConnect(id);
 
       try {
-        const status = await snapshotThenPing(id, token);
+        const status = await pingThenSeedSnapshot(id, token);
         if (status === "online") {
           releaseDashboardFreshGate(id);
           setRouterOnline(true);
@@ -109,32 +119,14 @@ export function useSelectRouterWithPing() {
       const dest = opts?.navigateTo;
 
       try {
-        const { responded, snapshot } = await waitForRouterSnapshot(id);
-        if (responded && snapshot) {
-          seedSnapshotCache(id, snapshot);
-          releaseDashboardFreshGate(id);
-          setRouterOnline(true);
-          if (dest !== false) navigate(dest ?? "/");
-          return;
+        let status = await pingThenSeedSnapshot(id, token);
+        if (status === "offline") {
+          toast.error(SELECTOR_RETRY_TOAST, { duration: 4000, id: "router-ping-fail" });
+          await new Promise((r) => setTimeout(r, 400));
+          status = await pingThenSeedSnapshot(id, token);
         }
 
-        let success = false;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const data = await pingRouterTcpApi(id, token, { force: true });
-          if (data.success) {
-            success = true;
-            break;
-          }
-          toast.error(SELECTOR_RETRY_TOAST, {
-            duration: 4000,
-            id: "router-ping-fail",
-          });
-          if (attempt < 2) {
-            await new Promise((r) => setTimeout(r, 500));
-          }
-        }
-
-        if (success) {
+        if (status === "online") {
           releaseDashboardFreshGate(id);
           setRouterOnline(true);
           if (dest !== false) navigate(dest ?? "/");
