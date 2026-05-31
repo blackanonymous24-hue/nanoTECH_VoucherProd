@@ -1,16 +1,12 @@
 import { queryClient } from "@/lib/queryClient";
 import {
   DASHBOARD_FRESH_MAX_AGE_MS,
-  isSnapshotMikrotikFreshAfterEpoch,
   mergeKnownPriorityFields,
   readPriorityCache,
   writePriorityCache,
   type PrioritySnapshot,
 } from "@/lib/dashboard-priority";
-import {
-  finishRouterConnectFreshEpoch,
-  getRouterConnectFreshEpoch,
-} from "@/lib/dashboard-resume";
+import { getRouterConnectFreshEpoch } from "@/lib/dashboard-resume";
 import { prefetchVendorsSalesSummary } from "@/lib/prefetch-vendors-sales-summary";
 import { prefetchReportsSummary } from "@/lib/prefetch-reports-summary";
 
@@ -55,15 +51,13 @@ export async function prefetchRouterDashboardPriority(
       fastSnap = (await fastRes.json()) as PrioritySnapshot;
       queryClient.setQueryData(qk, fastSnap);
       writePriorityCache(routerId, fastSnap);
-      if (
-        opts?.fresh
-        && opts?.wait
-        && (epoch <= 0 || isSnapshotMikrotikFreshAfterEpoch(fastSnap, epoch))
-      ) {
-        finishRouterConnectFreshEpoch(routerId);
-      }
+    } else if (opts?.fresh && opts?.wait) {
+      return null;
     }
   } catch {
+    if (opts?.fresh && opts?.wait) {
+      return null;
+    }
     if (!opts?.fresh) {
       fastSnap = readPriorityCache(routerId);
     }
