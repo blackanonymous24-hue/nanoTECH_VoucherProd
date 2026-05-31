@@ -1,11 +1,16 @@
 import { queryClient } from "@/lib/queryClient";
 import {
   DASHBOARD_FRESH_MAX_AGE_MS,
+  isSnapshotMikrotikFreshAfterEpoch,
   mergeKnownPriorityFields,
   readPriorityCache,
   writePriorityCache,
   type PrioritySnapshot,
 } from "@/lib/dashboard-priority";
+import {
+  finishRouterConnectFreshEpoch,
+  getRouterConnectFreshEpoch,
+} from "@/lib/dashboard-resume";
 import { prefetchVendorsSalesSummary } from "@/lib/prefetch-vendors-sales-summary";
 import { prefetchReportsSummary } from "@/lib/prefetch-reports-summary";
 
@@ -20,7 +25,10 @@ export async function prefetchRouterDashboardPriority(
   routerId: number,
   opts?: { fresh?: boolean; wait?: boolean },
 ): Promise<PrioritySnapshot | null> {
-  const qk = ["router-dashboard-priority", routerId] as const;
+  const epoch = opts?.fresh ? getRouterConnectFreshEpoch(routerId) : 0;
+  const qk = epoch > 0
+    ? (["router-dashboard-priority", routerId, epoch] as const)
+    : (["router-dashboard-priority", routerId] as const);
   const freshQ = opts?.fresh ? "&fresh=1" : "";
   const waitQ = opts?.wait ? "&wait=1" : "";
   const query = `?fast=1${freshQ}${waitQ}`;
@@ -47,6 +55,13 @@ export async function prefetchRouterDashboardPriority(
       fastSnap = (await fastRes.json()) as PrioritySnapshot;
       queryClient.setQueryData(qk, fastSnap);
       writePriorityCache(routerId, fastSnap);
+      if (
+        opts?.fresh
+        && opts?.wait
+        && (epoch <= 0 || isSnapshotMikrotikFreshAfterEpoch(fastSnap, epoch))
+      ) {
+        finishRouterConnectFreshEpoch(routerId);
+      }
     }
   } catch {
     if (!opts?.fresh) {

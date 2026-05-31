@@ -8,7 +8,7 @@ import {
 } from "@/lib/prefetch-router-dashboard-priority";
 import { prefetchRouterSessions } from "@/lib/prefetch-router-sessions";
 import { useRouterTcpPing } from "@/hooks/use-router-tcp-ping";
-import { openDashboardFreshGate, beginRouterConnectFreshEpoch } from "@/lib/dashboard-resume";
+import { openDashboardFreshGate, beginRouterConnectFreshEpoch, getRouterConnectFreshEpoch } from "@/lib/dashboard-resume";
 import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
 
 /**
@@ -298,30 +298,27 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     }
   }, [selectedRouterId]);
 
-  // Annuler toutes les requêtes en cours de l'ancien routeur quand on change.
-  // Évite que des réponses tardives d'un router A polluent l'affichage du router B.
+  // Annuler les requêtes de l'ancien routeur au changement (sans reset — beginConnect gère le fresh).
   const prevRouterIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (!isAuthenticated || selectedRouterId == null) return;
 
     const prevId = prevRouterIdRef.current;
     prevRouterIdRef.current = selectedRouterId;
-    if (prevId === selectedRouterId) return;
+    if (prevId === selectedRouterId || prevId == null) return;
 
-    if (prevId != null) {
-      void queryClient.cancelQueries({
-        queryKey: ["router-dashboard-priority", prevId],
-        exact: true,
-      });
-    }
-
-    beginRouterConnectFreshEpoch(selectedRouterId);
-
-    void queryClient.resetQueries({
-      queryKey: ["router-dashboard-priority", selectedRouterId],
-      exact: true,
+    void queryClient.cancelQueries({
+      queryKey: ["router-dashboard-priority", prevId],
     });
   }, [selectedRouterId, isAuthenticated]);
+
+  // Refresh page / auto-sélection : fresh epoch + prefetch si pas déjà lancé par beginConnect.
+  useEffect(() => {
+    if (!isAuthenticated || selectedRouterId == null) return;
+    if (getRouterConnectFreshEpoch(selectedRouterId) > 0) return;
+    beginRouterConnectFreshEpoch(selectedRouterId);
+    void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true, wait: true });
+  }, [isAuthenticated, selectedRouterId]);
 
   // Removed aggressive bootstrap prewarm to keep MikroTik traffic focused on
   // the currently open page actions and avoid background contention.

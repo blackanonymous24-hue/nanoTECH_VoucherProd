@@ -5,13 +5,12 @@ import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext"
 import { useAuth } from "@/contexts/AuthContext";
 import {
   beginRouterConnectFreshEpoch,
-  finishRouterConnectFreshEpoch,
   releaseDashboardFreshGate,
 } from "@/lib/dashboard-resume";
 import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
 import {
   MIKHMON_PING_MAX_ATTEMPTS,
-  pingRouterMikhmonSequence,
+  pingRouterMikhmonForConnect,
 } from "@/lib/mikhmon-ping-sequence";
 
 const SELECTOR_RETRY_TOAST =
@@ -19,29 +18,12 @@ const SELECTOR_RETRY_TOAST =
 
 export type SelectRouterSource = "selector" | "routers-page" | "quick-connect";
 
-/** Ping TCP MikHmon ×3 — seul critère En ligne / Hors ligne. */
-async function mikhmonPingOnly(
-  id: number,
-  token: string | null | undefined,
-  onRetry?: (attempt: number) => void,
-): Promise<"online" | "offline"> {
-  const ok = await pingRouterMikhmonSequence(id, token, (attempt) => {
-    if (attempt > 1) onRetry?.(attempt);
-  });
-  return ok ? "online" : "offline";
-}
-
-/** Fetch KPI MikroTik bloquant (fresh+wait) avant d'afficher le dashboard. */
-async function loadFreshDashboardAfterPing(routerId: number): Promise<void> {
-  await prefetchRouterDashboardPriority(routerId, { fresh: true, wait: true });
-  finishRouterConnectFreshEpoch(routerId);
-}
-
 /**
- * Connexion routeur : ping TCP MikHmon ×3 puis fetch KPI frais (wait MikroTik).
+ * Connexion routeur : 1 ping TCP rapide puis navigation immédiate.
+ * KPI MikroTik (fresh+wait) en parallèle / skeleton dashboard — jamais de cache stale.
  *
- * - **Page Routeurs** : ping ×3, badge hors ligne, pas de navigation.
- * - **Sélecteur** : ping ×3 + toasts, page d'erreur 10 s → /routers.
+ * - **Page Routeurs** : ping, navigation si en ligne.
+ * - **Sélecteur** : idem ; 3 pings seulement si le premier échoue.
  */
 export function useSelectRouterWithPing() {
   const {
@@ -72,6 +54,8 @@ export function useSelectRouterWithPing() {
       skipNextTcpPingInitialRef.current = true;
       beginRouterConnectFreshEpoch(id);
       setSelectedRouterId(id);
+      // Lance le fetch MikroTik en parallèle du ping — ne bloque pas la navigation.
+      void prefetchRouterDashboardPriority(id, { fresh: true, wait: true });
     },
     [setBorrowedRouter, clearRouterOfflineMark, setIsPingFailed, setIsPingChecking, setRouterOnline, setSelectedRouterId, skipNextTcpPingInitialRef],
   );
@@ -92,10 +76,9 @@ export function useSelectRouterWithPing() {
       beginConnect(id);
 
       try {
-        const status = await mikhmonPingOnly(id, token, onRetryToast);
+        const ok = await pingRouterMikhmonForConnect(id, token, onRetryToast);
         setIsPingChecking(false);
-        if (status === "online") {
-          await loadFreshDashboardAfterPing(id);
+        if (ok) {
           setRouterOnline(true);
           return "online";
         }
@@ -128,11 +111,10 @@ export function useSelectRouterWithPing() {
       const dest = opts?.navigateTo;
 
       try {
-        const status = await mikhmonPingOnly(id, token, onRetryToast);
+        const ok = await pingRouterMikhmonForConnect(id, token, onRetryToast);
         setIsPingChecking(false);
 
-        if (status === "online") {
-          await loadFreshDashboardAfterPing(id);
+        if (ok) {
           setRouterOnline(true);
           if (dest !== false) navigate(dest ?? "/");
           return;

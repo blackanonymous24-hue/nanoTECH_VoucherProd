@@ -4,11 +4,6 @@ import { useRouterContext } from "@/contexts/RouterContext";
 import { pingRouterMikhmonSequence } from "@/lib/mikhmon-ping-sequence";
 import { pingRouterTcpApi } from "@/lib/router-connection-test";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
-import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
-import {
-  finishRouterConnectFreshEpoch,
-  getRouterConnectFreshEpoch,
-} from "@/lib/dashboard-resume";
 
 /** Cadence re-ping style MikHmon pendant qu'un routeur est sélectionné. */
 export const MIKHMON_PING_POLL_MS = 10_000;
@@ -52,14 +47,7 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
       }
     };
 
-    const applyOnline = async (id: number) => {
-      const epoch = getRouterConnectFreshEpoch(id);
-      if (epoch > 0) {
-        try {
-          await prefetchRouterDashboardPriority(id, { fresh: true, wait: true });
-        } catch { /* polling reprendra */ }
-        finishRouterConnectFreshEpoch(id);
-      }
+    const applyOnline = (id: number) => {
       setRouterOnline(true);
       setIsPingFailed(false);
       clearRouterOfflineMark();
@@ -82,7 +70,7 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
       try {
         const ok = await runTriplet(id);
         if (cancelled || routerIdRef.current !== id) return;
-        if (ok) await applyOnline(id);
+        if (ok) applyOnline(id);
         else applyOffline(id);
       } finally {
         inFlightRef.current = false;
@@ -97,12 +85,12 @@ export function useRouterTcpPing(routerId: number | null, enabled = true) {
         const quick = await pingRouterTcpApi(id, token, { force: true });
         if (cancelled || routerIdRef.current !== id) return;
         if (quick.success) {
-          await applyOnline(id);
+          applyOnline(id);
           return;
         }
         const ok = await runTriplet(id);
         if (cancelled || routerIdRef.current !== id) return;
-        if (ok) await applyOnline(id);
+        if (ok) applyOnline(id);
         else applyOffline(id);
       } finally {
         inFlightRef.current = false;
