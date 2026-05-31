@@ -401,6 +401,9 @@ export function formatRouterOsConnectionError(err: unknown): string {
   if (lower.includes("enotfound") || lower.includes("getaddrinfo")) {
     return "Adresse IP ou nom d’hôte introuvable";
   }
+  if (lower.includes("client disconnected")) {
+    return "Connexion interrompue — réessayez dans quelques secondes";
+  }
   return raw.trim() || "Erreur de connexion";
 }
 

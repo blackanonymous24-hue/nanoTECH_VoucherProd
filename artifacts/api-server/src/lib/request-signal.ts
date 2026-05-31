@@ -18,12 +18,20 @@ export function throwIfRequestAborted(): void {
 /** Propage l'annulation client à toutes les opérations MikroTik de la requête. */
 export function clientDisconnectMiddleware(req: Request, res: Response, next: NextFunction): void {
   const ac = new AbortController();
-  const abort = () => {
-    if (!ac.signal.aborted) ac.abort();
+  const abortIfClientGone = () => {
+    // Évite les faux positifs (keep-alive nginx / fin de corps POST) tant que la réponse n'a pas démarré.
+    if (ac.signal.aborted || res.headersSent || res.writableEnded) return;
+    ac.abort();
   };
-  req.once("close", abort);
-  res.once("close", abort);
+  req.once("aborted", abortIfClientGone);
+  req.once("close", abortIfClientGone);
+  res.once("close", abortIfClientGone);
   requestSignalStorage.run(ac.signal, () => next());
+}
+
+/** Mutations courtes (add user…) : ne pas lier au signal HTTP — évite « Client disconnected » en file d'attente MikroTik. */
+export function runWithoutRequestAbort<T>(fn: () => Promise<T>): Promise<T> {
+  return requestSignalStorage.run(undefined as unknown as AbortSignal, fn);
 }
 
 export async function raceRequestAbort<T>(promise: Promise<T>): Promise<T> {

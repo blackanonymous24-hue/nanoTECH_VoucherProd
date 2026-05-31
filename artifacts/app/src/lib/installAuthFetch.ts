@@ -61,11 +61,21 @@ export function abortAllApiRequests(): void {
 }
 
 /** Annule seulement les fetch enveloppés encore en cours pour le routeur concerné (pause toggle / génération). */
+function pathnameFromResolvedUrl(resolvedUrl: string): string {
+  try {
+    return new URL(resolvedUrl, window.location.origin).pathname;
+  } catch {
+    return "";
+  }
+}
+
 function abortInFlightRequestsForScopedPause(scopeRouterId: number): void {
   const ctrls = getApiControllers();
   for (const c of [...ctrls]) {
     const url = fetchUrlByController.get(c);
     if (url == null || url === "") continue;
+    const path = pathnameFromResolvedUrl(url);
+    if (SCOPED_PAUSE_ABORT_EXEMPT.some((re) => re.test(path))) continue;
     if (!resolvedUrlIsSubjectToScopedPause(url, scopeRouterId)) continue;
     try {
       c.abort(API_FETCH_ABORT_REASON);
@@ -114,6 +124,14 @@ export const HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS: RegExp[] = [
   /\/api\/vouchers\/lot-disable(?:$|[/?#])/,
   /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
   /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/hotspot-users(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/users\/[^/?#]+(?:$|[/?#])/,
+];
+
+/** Ne pas annuler ces requêtes en cours lors d'une pause API scopée (génération / toggle lot). */
+const SCOPED_PAUSE_ABORT_EXEMPT: RegExp[] = [
+  /\/api\/routers\/\d+\/hotspot-users(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/users\/[^/?#]+(?:$|[/?#])/,
 ];
 
 export function installAuthFetch(): void {
