@@ -315,12 +315,11 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     });
   }, [selectedRouterId, isAuthenticated]);
 
-  // Refresh page : fresh epoch + prefetch (pas sur /routers — connexion = clic utilisateur).
+  // Entrée dashboard (hors /routers) : refresh stale-first, jamais wait=1 bloquant.
   useEffect(() => {
     if (!isAuthenticated || selectedRouterId == null || isRoutersPage) return;
     if (getRouterConnectFreshEpoch(selectedRouterId) > 0) return;
-    beginRouterConnectFreshEpoch(selectedRouterId);
-    void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true, wait: true });
+    void prefetchRouterDashboardPriority(selectedRouterId, { fresh: true });
   }, [isAuthenticated, selectedRouterId, isRoutersPage]);
 
   // Removed aggressive bootstrap prewarm to keep MikroTik traffic focused on

@@ -1,12 +1,14 @@
 import { useState, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import { useRouterContext, type BorrowedRouter } from "@/contexts/RouterContext";
 import {
   beginRouterConnectFreshEpoch,
   releaseDashboardFreshGate,
 } from "@/lib/dashboard-resume";
 import {
+  fetchRouterForConnectFromPageWithRetries,
   fetchRouterForConnectWithRetries,
 } from "@/lib/router-connect-fetch";
 
@@ -17,10 +19,11 @@ const CONNECT_RETRY_TOAST =
 
 /**
  * Connexion routeur style MikHmon.
- * - **Page Routeurs** : 2 tentatives fetch KPI, toast au 1er échec, badge au 2e.
- * - **Sélecteur** : idem puis overlay 10 s → /routers si 2e échec.
+ * - **Page Routeurs** : ping TCP + cache serveur (instantané), toast au 1er échec, badge au 2e.
+ * - **Sélecteur** : fetch KPI wait (2 tentatives), toast puis overlay 10 s → /routers.
  */
 export function useSelectRouterWithPing() {
+  const { token } = useAuth();
   const {
     setSelectedRouterId,
     setIsPingFailed,
@@ -66,19 +69,32 @@ export function useSelectRouterWithPing() {
     return fetchRouterForConnectWithRetries(id, showConnectRetryToast);
   }, [showConnectRetryToast]);
 
-  /** Page Routeurs : 2 tentatives fetch, toast au 1er échec, badge au 2e — pas d'overlay. */
+  /** Page Routeurs : pas de purge fresh gate — navigation dès ping OK ou cache chaud. */
+  const beginConnectRoutersPage = useCallback(
+    (id: number) => {
+      clearRouterOfflineMark();
+      setIsPingFailed(false);
+      setIsPingChecking(true);
+      setRouterOnline(null);
+      skipNextTcpPingInitialRef.current = true;
+      setSelectedRouterId(id);
+    },
+    [clearRouterOfflineMark, setIsPingFailed, setIsPingChecking, setRouterOnline, setSelectedRouterId, skipNextTcpPingInitialRef],
+  );
+
+  /** Page Routeurs : ping TCP + cache serveur, KPI fresh en arrière-plan. */
   const connectFromRoutersPage = useCallback(
     async (id: number): Promise<"online" | "offline"> => {
       if (activeRef.current) return "offline";
       activeRef.current = true;
       setConnectingId(id);
-      beginConnect(id);
+      beginConnectRoutersPage(id);
 
       try {
         toast.dismiss("router-ping-fail");
         toast.dismiss("router-connect-fail");
         toast.dismiss("router-connect-retry");
-        const online = await fetchRouterForConnectWithRetries(id, showConnectRetryToast);
+        const online = await fetchRouterForConnectFromPageWithRetries(id, token, showConnectRetryToast);
         setIsPingChecking(false);
         if (online) {
           toast.dismiss("router-connect-retry");
@@ -95,7 +111,7 @@ export function useSelectRouterWithPing() {
         setConnectingId(null);
       }
     },
-    [beginConnect, setRouterOnline, markRouterOffline, setIsPingChecking, showConnectRetryToast],
+    [beginConnectRoutersPage, setRouterOnline, markRouterOffline, setIsPingChecking, showConnectRetryToast, token],
   );
 
   const selectWithPing = useCallback(

@@ -1,4 +1,5 @@
 import { prefetchRouterDashboardPriority } from "@/lib/prefetch-router-dashboard-priority";
+import { pingRouterTcpApi } from "@/lib/router-connection-test";
 import {
   finishRouterConnectFreshEpoch,
   releaseDashboardFreshGate,
@@ -60,6 +61,41 @@ export async function fetchRouterForConnect(
 
 /** 2 tentatives fetch ; timeout = refresh KPI serveur (~25 s max par essai). */
 export const SELECTOR_CONNECT_MAX_ATTEMPTS = 2;
+
+export const ROUTERS_PAGE_CONNECT_MAX_ATTEMPTS = 2;
+
+/**
+ * Page Routeurs : ping TCP (~3 s max) + snapshot cache serveur en parallèle.
+ * Joignable → navigation immédiate ; KPI fresh en arrière-plan (pas de wait bloquant).
+ */
+export async function fetchRouterForConnectFromPage(
+  routerId: number,
+  token: string | null | undefined,
+): Promise<boolean> {
+  const [ping, snapshot] = await Promise.all([
+    pingRouterTcpApi(routerId, token, { force: true }),
+    prefetchRouterDashboardPriority(routerId),
+  ]);
+  if (isRouterConnectSnapshotValid(snapshot) || ping.success) {
+    void prefetchRouterDashboardPriority(routerId, { fresh: true });
+    return true;
+  }
+  return false;
+}
+
+export async function fetchRouterForConnectFromPageWithRetries(
+  routerId: number,
+  token: string | null | undefined,
+  onRetry?: (attempt: number) => void,
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= ROUTERS_PAGE_CONNECT_MAX_ATTEMPTS; attempt++) {
+    if (await fetchRouterForConnectFromPage(routerId, token)) return true;
+    if (attempt < ROUTERS_PAGE_CONNECT_MAX_ATTEMPTS) {
+      onRetry?.(attempt);
+    }
+  }
+  return false;
+}
 
 export async function fetchRouterForConnectWithRetries(
   routerId: number,
