@@ -2,8 +2,8 @@ import {
   VOUCHERNET_SESSION_REVOKED_EVENT,
   type VouchernetApiPauseState,
   vouchernetPauseAllowsResolvedUrl,
-  resolvedUrlIsSubjectToScopedPause,
 } from "@workspace/api-client-react";
+import { notifyRouterMikrotikBusy } from "@/lib/dashboard-resume";
 
 const TOKEN_KEY = "vouchernet_admin_token";
 const API_FETCH_ABORT_REASON = "auth-logout";
@@ -26,7 +26,6 @@ function isApiRequest(input: RequestInfo | URL): boolean {
   try {
     const u = new URL(url, window.location.origin);
     if (u.origin !== window.location.origin) return false;
-    // Racine /api/… ou déploiement Vite avec base path : /app/api/…
     return u.pathname.startsWith("/api/") || u.pathname === "/api" || u.pathname.includes("/api/");
   } catch {
     return false;
@@ -60,32 +59,6 @@ export function abortAllApiRequests(): void {
   ctrls.clear();
 }
 
-/** Annule seulement les fetch enveloppés encore en cours pour le routeur concerné (pause toggle / génération). */
-function pathnameFromResolvedUrl(resolvedUrl: string): string {
-  try {
-    return new URL(resolvedUrl, window.location.origin).pathname;
-  } catch {
-    return "";
-  }
-}
-
-function abortInFlightRequestsForScopedPause(scopeRouterId: number): void {
-  const ctrls = getApiControllers();
-  for (const c of [...ctrls]) {
-    const url = fetchUrlByController.get(c);
-    if (url == null || url === "") continue;
-    const path = pathnameFromResolvedUrl(url);
-    if (SCOPED_PAUSE_ABORT_EXEMPT.some((re) => re.test(path))) continue;
-    if (!resolvedUrlIsSubjectToScopedPause(url, scopeRouterId)) continue;
-    try {
-      c.abort(API_FETCH_ABORT_REASON);
-    } catch {
-      // ignore
-    }
-    ctrls.delete(c);
-  }
-}
-
 function getApiPauseState(): VouchernetApiPauseState {
   if (!window.__vouchernetApiPause) {
     window.__vouchernetApiPause = { paused: false, allowPathPatterns: [] };
@@ -95,15 +68,45 @@ function getApiPauseState(): VouchernetApiPauseState {
 
 const fetchUrlByController = new WeakMap<AbortController, string>();
 
+/** Reset / prolonger / impression lot — autorisés pendant gen ou toggle paqueté. */
+export const BOUTIQUE_ROUTER_ALLOW_PATH_PATTERNS: RegExp[] = [
+  /\/api\/routers\/\d+\/users\/[^/?#]+\/reset(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/users\/[^/?#]+(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/lot-print(?:$|[/?#])/,
+];
+
+/** URL autorisées pendant la pause API (toggle hotspot par paquets — verrou routeur). */
+export const HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS: RegExp[] = [
+  /\/api\/vouchers\/users-toggle(?:$|[/?#])/,
+  /\/api\/vouchers\/lot-usernames(?:$|[/?#])/,
+  /\/api\/vouchers\/lot-disable(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
+  ...BOUTIQUE_ROUTER_ALLOW_PATH_PATTERNS,
+];
+
+/** Pause API pendant génération de tickets — gen + ping + actions boutique ciblées. */
+export const GENERATION_PAUSE_ALLOW_PATH_PATTERNS: RegExp[] = [
+  /\/api\/vouchers\/generate(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
+  /\/api\/routers\/\d+\/users(?:$|[/?#])/,
+  ...BOUTIQUE_ROUTER_ALLOW_PATH_PATTERNS,
+];
+
 export function setApiRequestPause(
   paused: boolean,
   options?: { allowPathPatterns?: RegExp[]; scopeRouterId?: number | null },
 ): void {
   const state = getApiPauseState();
   if (!paused) {
+    const prevScope = state.scopeRouterId;
     state.paused = false;
     state.allowPathPatterns = [];
     state.scopeRouterId = null;
+    if (prevScope != null && Number.isFinite(prevScope)) {
+      notifyRouterMikrotikBusy(prevScope, false);
+    }
     return;
   }
   state.paused = true;
@@ -111,32 +114,10 @@ export function setApiRequestPause(
   const scope = options?.scopeRouterId;
   state.scopeRouterId = scope != null && Number.isFinite(scope) ? scope : null;
   if (state.scopeRouterId != null) {
-    abortInFlightRequestsForScopedPause(state.scopeRouterId);
+    notifyRouterMikrotikBusy(state.scopeRouterId, true);
   }
-  // Pause globale (onglet masqué / APK arrière-plan) : bloquer les nouveaux fetch sans
-  // annuler les requêtes en cours — évite erreurs et déconnexions au retour au premier plan.
+  // Ne plus annuler les fetch en cours — seules les nouvelles requêtes hors allow-list sont bloquées.
 }
-
-/** URL autorisées pendant la pause API (toggle hotspot par paquets — verrou routeur). */
-export const HOTSPOT_TOGGLE_ALLOW_PATH_PATTERNS: RegExp[] = [
-  /\/api\/vouchers\/users-toggle(?:$|[/?#])/,
-  /\/api\/vouchers\/lot-usernames(?:$|[/?#])/,
-  /\/api\/vouchers\/lot-disable(?:$|[/?#])/,
-  /\/api\/vouchers\/generate(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/hotspot-users(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/users\/[^/?#]+(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/users\/[^/?#]+\/reset(?:$|[/?#])/,
-];
-
-/** Ne pas annuler ces requêtes en cours lors d'une pause API scopée (génération / toggle lot). */
-const SCOPED_PAUSE_ABORT_EXEMPT: RegExp[] = [
-  /\/api\/vouchers\/generate(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/hotspot-users(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/users\/[^/?#]+(?:$|[/?#])/,
-  /\/api\/routers\/\d+\/users\/[^/?#]+\/reset(?:$|[/?#])/,
-];
 
 export function installAuthFetch(): void {
   if (window.__vouchernetAuthFetchInstalled) return;
@@ -175,7 +156,6 @@ export function installAuthFetch(): void {
     if (token && !existingHeaders.has("Authorization")) {
       existingHeaders.set("Authorization", `Bearer ${token}`);
     }
-    // Impersonation super-admin → tenant emprunté
     const impersonateId = (window as { __vouchernetImpersonateAdminId?: number | null }).__vouchernetImpersonateAdminId;
     if (impersonateId && !existingHeaders.has("X-Impersonate-Admin")) {
       existingHeaders.set("X-Impersonate-Admin", String(impersonateId));

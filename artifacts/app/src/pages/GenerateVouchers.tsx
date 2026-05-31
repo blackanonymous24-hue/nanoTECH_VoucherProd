@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { setApiRequestPause } from "@/lib/installAuthFetch";
+import { setApiRequestPause, GENERATION_PAUSE_ALLOW_PATH_PATTERNS } from "@/lib/installAuthFetch";
 import { formatRouterAddressDisplay } from "@/lib/router-host-port";
 import { useSharedRouterProfiles } from "@/hooks/use-router-profiles-live";
 import { acquireVoucherPrintWindow, commitVoucherPrint, abortVoucherPrint } from "@/lib/print";
@@ -567,15 +567,7 @@ export default function GenerateVouchers() {
     // During generation, pause unrelated API traffic and keep only generation-critical
     // endpoints so RouterOS bandwidth is dedicated to voucher creation.
     setApiRequestPause(true, {
-      // Sous-chemin Vite (BASE_URL) : le pathname peut être `/app/api/...` — pas seulement `/api/...`.
-      allowPathPatterns: [
-        /\/api\/vouchers\/generate(?:$|[/?#])/,
-        /\/api\/routers\/\d+\/generation-lock(?:$|[/?#])/,
-        /\/api\/routers\/\d+\/users(?:$|[/?#])/,
-        // Sinon waitForRouter() est bloqué par installAuthFetch et la reprise
-        // automatique ne peut jamais détecter que le routeur est de nouveau en ligne.
-        /\/api\/routers\/\d+\/ping(?:$|[/?#])/,
-      ],
+      allowPathPatterns: [...GENERATION_PAUSE_ALLOW_PATH_PATTERNS],
       scopeRouterId: selectedRouterId,
     });
 

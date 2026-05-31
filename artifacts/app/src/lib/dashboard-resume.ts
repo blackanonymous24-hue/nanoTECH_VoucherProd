@@ -5,6 +5,18 @@ import { clearRouterScopedClientCaches } from "@/lib/router-client-cache";
 /** Émis au logout / déconnexion auto — ferme SSE et annule les requêtes routeur côté client. */
 export const VOUCHERNET_CLIENT_DISCONNECT_EVENT = "vouchernet-client-disconnect";
 
+/** Génération / toggle lot : suspend le SSE dashboard KPI pour libérer les slots MikroTik. */
+export const VOUCHERNET_ROUTER_MIKROTIK_BUSY_EVENT = "vouchernet-router-mikrotik-busy";
+
+export function notifyRouterMikrotikBusy(routerId: number, busy: boolean): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(VOUCHERNET_ROUTER_MIKROTIK_BUSY_EVENT, {
+      detail: { routerId, busy },
+    }),
+  );
+}
+
 /** Émis par SessionLifecycle quand l’API reprend (onglet visible / APK premier plan). */
 export const VOUCHERNET_APP_RESUME_EVENT = "vouchernet-app-resume";
 

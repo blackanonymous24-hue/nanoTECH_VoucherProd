@@ -18,6 +18,7 @@ import {
   VOUCHERNET_CLIENT_DISCONNECT_EVENT,
   VOUCHERNET_DASHBOARD_FRESH_GATE_EVENT,
   VOUCHERNET_DASHBOARD_RELEASE_GATE_EVENT,
+  VOUCHERNET_ROUTER_MIKROTIK_BUSY_EVENT,
   getRouterConnectFreshEpoch,
   finishRouterConnectFreshEpoch,
 } from "@/lib/dashboard-resume";
@@ -38,6 +39,7 @@ export function useRouterDashboardPriority(routerId: number | null) {
   const connectEpoch = routerId != null ? getRouterConnectFreshEpoch(routerId) : 0;
   const [awaitingFresh, setAwaitingFresh] = useState(() => connectEpoch > 0);
   const [awaitingRouterSwitch, setAwaitingRouterSwitch] = useState(false);
+  const [mikrotikBusy, setMikrotikBusy] = useState(false);
 
   const prevRouterIdRef = useRef<number | null>(routerId);
   const connectEpochRef = useRef(connectEpoch);
@@ -86,6 +88,20 @@ export function useRouterDashboardPriority(routerId: number | null) {
       window.removeEventListener(VOUCHERNET_DASHBOARD_RELEASE_GATE_EVENT, onReleaseGate);
     };
   }, [routerId, openStrictFreshGate]);
+
+  useEffect(() => {
+    if (!routerId || !isVisible) setMikrotikBusy(false);
+  }, [routerId, isVisible]);
+
+  useEffect(() => {
+    const onBusy = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ routerId?: number; busy?: boolean }>).detail;
+      if (detail?.routerId != null && detail.routerId !== routerId) return;
+      setMikrotikBusy(!!detail?.busy);
+    };
+    window.addEventListener(VOUCHERNET_ROUTER_MIKROTIK_BUSY_EVENT, onBusy);
+    return () => window.removeEventListener(VOUCHERNET_ROUTER_MIKROTIK_BUSY_EVENT, onBusy);
+  }, [routerId]);
 
   const tryReleaseFreshGate = useCallback((snapshot: PrioritySnapshot | null | undefined) => {
     if (!routerId || !snapshot) return;
@@ -137,8 +153,8 @@ export function useRouterDashboardPriority(routerId: number | null) {
     placeholderData: () => (
       routerId != null ? readPriorityCacheForDisplay(routerId) ?? undefined : undefined
     ),
-    enabled: isVisible && !!routerId,
-    refetchInterval: (sseConnected || !isVisible || (connectEpoch > 0 && awaitingFresh)) ? false : KPI_POLL_MS,
+    enabled: isVisible && !!routerId && !mikrotikBusy,
+    refetchInterval: (sseConnected || !isVisible || mikrotikBusy || (connectEpoch > 0 && awaitingFresh)) ? false : KPI_POLL_MS,
     refetchIntervalInBackground: false,
     staleTime: KPI_POLL_MS - 1_000,
     gcTime: 5 * 60_000,
@@ -155,6 +171,14 @@ export function useRouterDashboardPriority(routerId: number | null) {
     return () => window.removeEventListener(VOUCHERNET_APP_RESUME_EVENT, onResume);
   }, [routerId, isVisible, refetchPriority]);
 
+  const wasMikrotikBusyRef = useRef(false);
+  useEffect(() => {
+    if (wasMikrotikBusyRef.current && !mikrotikBusy && routerId && isVisible) {
+      void refetchPriority();
+    }
+    wasMikrotikBusyRef.current = mikrotikBusy;
+  }, [mikrotikBusy, routerId, isVisible, refetchPriority]);
+
   useEffect(() => {
     if (!awaitingFresh || !routerId || !httpPriority) return;
     tryReleaseFreshGate(httpPriority);
@@ -166,7 +190,7 @@ export function useRouterDashboardPriority(routerId: number | null) {
   }, [awaitingRouterSwitch, httpPriority, ssePriority, tryReleaseRouterSwitchGate]);
 
   useEffect(() => {
-    if (!routerId || !authToken || !isVisible) {
+    if (!routerId || !authToken || !isVisible || mikrotikBusy) {
       setSseConnected(false);
       return;
     }
@@ -199,7 +223,7 @@ export function useRouterDashboardPriority(routerId: number | null) {
       es.close();
       setSseConnected(false);
     };
-  }, [routerId, authToken, isVisible, tryReleaseFreshGate, tryReleaseRouterSwitchGate]);
+  }, [routerId, authToken, isVisible, mikrotikBusy, tryReleaseFreshGate, tryReleaseRouterSwitchGate]);
 
   const strictConnectGate = connectEpoch > 0 && awaitingFresh;
 

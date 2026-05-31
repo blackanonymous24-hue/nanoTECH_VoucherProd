@@ -20,8 +20,11 @@ export type FetchLotPrintDataOpts = {
   timeoutMs?: number;
 };
 
+import { isTransientMikrotikApiMessage } from "@/lib/router-unreachable-error";
+
 function isRetryableLotPrintError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err ?? "")).toLowerCase();
+  if (isTransientMikrotikApiMessage(msg)) return false;
   return msg.includes("timed out")
     || msg.includes("timeout")
     || msg.includes("délai dépassé")
