@@ -13,7 +13,7 @@ import {
   syncScriptCache,
   clearRouterScriptCache,
   getCachedSaleDetails,
-  prepareReportMonthForDisplay,
+  fetchAuthoritativeReportScriptSales,
   warmReportMonthSync,
 } from "../lib/script-cache.js";
 import {
@@ -31,7 +31,13 @@ import { subscribeRouterPoller } from "../lib/mikrotik-poller.js";
 import { aggregateVendorPeriodSales, fetchUnattributedPeriodSales } from "../lib/vendor-period-sales-aggregate.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
 import { effectiveProfilePrice } from "../lib/profile-price.js";
-import { getMikhmonCalendar, mikhmonMonthRange } from "../lib/mikhmon-calendar.js";
+import {
+  getMikhmonCalendar,
+  mikhmonMonthRange,
+  saleOnMikhmonDayExact,
+  saleOnMikhmonIsoDay,
+} from "../lib/mikhmon-calendar.js";
+import type { SaleEntry } from "../lib/mikrotik.js";
 import {
   isMikhmonMonthCacheIncomplete,
   loadScriptSalesAggRowsForMikhmonMonth,
@@ -3922,6 +3928,9 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
     && monthRaw >= 1
     && monthRaw <= 12;
 
+  let routerConn: RouterConnection | null = null;
+  let authoritativeScriptSales: SaleEntry[] | null = null;
+
   try {
     const [routerRow] = await db
       .select({ host: routersTable.host, port: routersTable.port, username: routersTable.username, password: routersTable.password })
@@ -3929,23 +3938,23 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       .where(eq(routersTable.id, id))
       .limit(1);
     if (routerRow) {
-      const conn: RouterConnection = {
+      routerConn = {
         host: routerRow.host,
         port: routerRow.port,
         username: routerRow.username,
         password: routerRow.password,
       };
       markRouterActive(id);
-      ensureUsageSyncScheduled(id, conn);
+      ensureUsageSyncScheduled(id, routerConn);
 
       if (needsMonthMikrotikSync) {
-        await withRouterLock(id, async () => {
-          await prepareReportMonthForDisplay(id, conn, yearRaw!, monthRaw!, {
+        authoritativeScriptSales = await withRouterLock(id, async () =>
+          fetchAuthoritativeReportScriptSales(id, routerConn!, yearRaw!, monthRaw!, {
             force: forceMonthSync,
-          });
-        });
+          }),
+        );
       } else {
-        void syncScriptCache(id, conn, null).catch(() => { /* non-blocking */ });
+        void syncScriptCache(id, routerConn, null).catch(() => { /* non-blocking */ });
       }
     }
   } catch (syncErr: unknown) {
@@ -3981,57 +3990,85 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       conditions.push(lt (scriptSalesTable.saleDate, rangeEnd)   as any);
     }
 
-    const rows = await db
-      .select({
-        date:     sql<string>`to_char(${scriptSalesTable.saleDate} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
-        time:     sql<string>`to_char(${scriptSalesTable.saleDate} AT TIME ZONE 'UTC', 'HH24:MI:SS')`,
-        username: scriptSalesTable.username,
-        price:    scriptSalesTable.price,
-        ip:       scriptSalesTable.ip,
-        mac:      scriptSalesTable.mac,
-        validity: scriptSalesTable.validity,
-        label:    scriptSalesTable.label,
-        batch:    scriptSalesTable.batch,
-        rawName:  scriptSalesTable.rawName,
-      })
-      .from(scriptSalesTable)
-      .where(and(...conditions))
-      .orderBy(sql`${scriptSalesTable.saleDate} DESC`);
+    let scriptEntries: Array<{
+      date: string;
+      time: string;
+      username: string;
+      price: number;
+      ip: string;
+      mac: string;
+      validity: string;
+      label: string;
+      batch: string | null;
+      rawName: string | null;
+      source: "mikrotik+local" | "local-db";
+      origin: "script";
+    }>;
 
-    let liveRawNames = new Set<string>();
-    if (withPresence && yearRaw !== null && !Number.isNaN(yearRaw) && monthRaw !== null && !Number.isNaN(monthRaw) && monthRaw >= 1 && monthRaw <= 12) {
-      const [r] = await db.select().from(routersTable).where(eq(routersTable.id, id));
-      if (r) {
-        const conn: RouterConnection = { host: r.host, port: r.port, username: r.username, password: r.password };
-        try {
-          await withRouterLock(id, async () => {
-            const live = await fetchScriptSales(conn, { type: "month", year: yearRaw, month: monthRaw }, 60_000);
-            liveRawNames = new Set(live.map((e) => [
-              e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch,
-            ].join("-|-")));
-          });
-        } catch {
-          // Non-blocking marker check: keep report available from local DB.
-          liveRawNames = new Set<string>();
-        }
+    if (authoritativeScriptSales) {
+      let live = authoritativeScriptSales;
+      if (dayRaw !== null && !Number.isNaN(dayRaw) && yearRaw !== null && monthRaw !== null) {
+        const dayCal = getMikhmonCalendar(
+          `${yearRaw}-${String(monthRaw).padStart(2, "0")}-${String(dayRaw).padStart(2, "0")}`,
+        );
+        live = live.filter((e) => {
+          const raw = [e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch ?? ""].join("-|-");
+          const dt = parseMikhmonDate(e.date, e.time || "00:00:00");
+          return (
+            saleOnMikhmonDayExact(raw, dayCal)
+            || (dt != null && saleOnMikhmonIsoDay(dt, dayCal.isoDateLabel, raw))
+          );
+        });
       }
-    }
+      scriptEntries = live.map((e) => {
+        const rawName = [e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch ?? ""].join("-|-");
+        return {
+          date: e.date,
+          time: e.time,
+          username: decodeRouterText(e.username),
+          validity: decodeRouterText(e.validity),
+          label: decodeRouterText(e.label),
+          batch: e.batch == null ? null : decodeRouterText(e.batch),
+          ip: e.ip,
+          mac: e.mac,
+          rawName,
+          price: parseFloat(String(e.price)) || 0,
+          source: "mikrotik+local" as const,
+          origin: "script" as const,
+        };
+      });
+    } else {
+      const rows = await db
+        .select({
+          date:     sql<string>`to_char(${scriptSalesTable.saleDate} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+          time:     sql<string>`to_char(${scriptSalesTable.saleDate} AT TIME ZONE 'UTC', 'HH24:MI:SS')`,
+          username: scriptSalesTable.username,
+          price:    scriptSalesTable.price,
+          ip:       scriptSalesTable.ip,
+          mac:      scriptSalesTable.mac,
+          validity: scriptSalesTable.validity,
+          label:    scriptSalesTable.label,
+          batch:    scriptSalesTable.batch,
+          rawName:  scriptSalesTable.rawName,
+        })
+        .from(scriptSalesTable)
+        .where(and(...conditions))
+        .orderBy(sql`${scriptSalesTable.saleDate} DESC`);
 
-    const scriptEntries = rows.map(({ price, rawName, username, validity, label, batch, ip, mac, ...rest }) => ({
-      ...rest,
-      // Décodage défensif (idempotent) : corrige aussi les lignes legacy
-      // stockées mojibakées avant le fix d'encodage côté ingestion.
-      username: decodeRouterText(username),
-      validity: decodeRouterText(validity),
-      label:    decodeRouterText(label),
-      batch:    batch == null ? null : decodeRouterText(batch),
-      ip,
-      mac,
-      rawName:  rawName ?? null,
-      price:    parseFloat(price) || 0,
-      source:   liveRawNames.size > 0 && rawName && liveRawNames.has(rawName) ? ("mikrotik+local" as const) : ("local-db" as const),
-      origin:   "script" as const,
-    }));
+      scriptEntries = rows.map(({ price, rawName, username, validity, label, batch, ip, mac, ...rest }) => ({
+        ...rest,
+        username: decodeRouterText(username),
+        validity: decodeRouterText(validity),
+        label:    decodeRouterText(label),
+        batch:    batch == null ? null : decodeRouterText(batch),
+        ip,
+        mac,
+        rawName:  rawName ?? null,
+        price:    parseFloat(price) || 0,
+        source:   "local-db" as const,
+        origin:   "script" as const,
+      }));
+    }
 
     const voucherRows =
       rangeStart && rangeEnd

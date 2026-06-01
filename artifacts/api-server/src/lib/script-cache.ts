@@ -30,9 +30,9 @@ import {
 } from "./mikrotik.js";
 import {
   getMikhmonCalendar,
-  isCalendarMonthBefore,
   mikhmonMonthRange,
   mikhmonMonthRangeFor,
+  saleInMikhmonMonth,
   type MikhmonCalendar,
 } from "./mikhmon-calendar.js";
 import { invalidateVendorPeriodAggCache } from "./vendor-period-agg-cache.js";
@@ -40,7 +40,6 @@ import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
 import {
   countScriptSalesInMonth,
   isPastMonthVerified,
-  monthHadMikrotikSync,
   upsertMonthSyncRecord,
   getMonthSyncRow,
   clearRouterMonthSyncMarkers,
@@ -63,11 +62,6 @@ const BACKFILL_PAUSE_MS   = 3_000;
 const MONTH_FRESHNESS_MS  = 60 * 60 * 1000; // 1 h
 /** Throttle minimal entre 2 sync « jour courant » sur le même routeur */
 const DAY_SYNC_MIN_GAP_MS = 10 * 1000;      // 10 s
-/** Rapport ventes : resync MikroTik du mois demandé au plus toutes les 2 min (sync arrière-plan) */
-const REPORT_MONTH_SYNC_GAP_MS = 2 * 60 * 1000;
-/** Mois déjà aligné MikroTik récemment → réponse rapport instantanée (cache local) */
-const REPORT_INSTANT_TRUST_MS = 5 * 60 * 1000;
-
 /** En mémoire : dernier instant où chaque mois (par routeur) a été entièrement sync */
 const monthSyncedAt   = new Map<string, number>(); // key = `${routerId}:${year}-${month}`
 /** En mémoire : dernier sync « jour courant » par routeur */
@@ -79,6 +73,8 @@ const backfillRunning = new Set<number>();
 const inFlight = new Map<number, Promise<number>>();
 /** Sync mois ciblée (rapport ventes) — une par routeur × mois */
 const monthReportSyncInFlight = new Map<string, Promise<{ inserted: number; fetched: number; skipped: boolean }>>();
+/** Pull MikroTik autoritatif rapport — une promesse par routeur × mois */
+const monthReportAuthoritativeInFlight = new Map<string, Promise<SaleEntry[]>>();
 
 function monthKey(routerId: number, year: number, month: number): string {
   return `${routerId}:${year}-${month}`;
@@ -351,13 +347,6 @@ function scheduleHistoricalBackfill(
         if (await isPastMonthVerified(routerId, y, m, cal)) continue;
 
         const existingInDb = await countScriptSalesInMonth(routerId, y, m);
-        if (existingInDb > 0 && await monthHadMikrotikSync(routerId, y, m)) {
-          await dedupeScriptSalesInRange(routerId, monthStart, monthEnd);
-          const after = await countScriptSalesInMonth(routerId, y, m);
-          await upsertMonthSyncRecord(routerId, y, m, after, { verified: true });
-          monthSyncedAt.set(monthKey(routerId, y, m), Date.now());
-          continue;
-        }
         if (existingInDb > 0) {
           logger.info(
             { routerId, year: y, month: m, existingInDb },
@@ -571,58 +560,108 @@ export type EnsureMonthSalesSyncResult = {
   skipped: boolean;
 };
 
-export type ReportMonthSyncPlan = "trusted-cache" | "full-pull";
+function saleEntryRawName(e: SaleEntry): string {
+  return [e.date, e.time, e.username, e.price, e.ip, e.mac, e.validity, e.label, e.batch ?? ""].join("-|-");
+}
+
+function mikhmonCalForYearMonth(year: number, month: number): MikhmonCalendar {
+  const startOfMonth = new Date(year, month - 1, 1);
+  return {
+    y: year,
+    m: month,
+    d: 1,
+    isoDateLabel: "",
+    legacyDateLabel: "",
+    isoOwner: "",
+    todayMidnight: startOfMonth,
+    tomorrowMidnight: new Date(year, month, 1),
+    startOfMonth,
+  };
+}
+
+function filterEntriesToMikhmonMonth(entries: SaleEntry[], year: number, month: number): SaleEntry[] {
+  const cal = mikhmonCalForYearMonth(year, month);
+  return entries.filter((e) => {
+    const raw = saleEntryRawName(e);
+    const dt = parseMikhmonDate(e.date, e.time || "00:00:00");
+    if (!dt) return false;
+    return saleInMikhmonMonth(dt, cal, raw);
+  });
+}
+
+/** Même dédup logique que le tableau de bord MikHmon (clé username + jour script + prix). */
+function dedupeSaleEntriesForReport(entries: SaleEntry[]): SaleEntry[] {
+  const seen = new Set<string>();
+  const out: SaleEntry[] = [];
+  for (const e of entries) {
+    const raw = saleEntryRawName(e);
+    const dt = parseMikhmonDate(e.date, e.time || "00:00:00") ?? new Date(0);
+    const key = scriptSaleLogicalKey(e.username, dt, String(e.price), e.ip, e.mac, raw);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
+  }
+  return out;
+}
 
 /**
- * Rapport ventes : cache local déjà aligné MikroTik (pas de pull mois complet)
- * ou pull mois complet requis avant affichage.
+ * Rapport ventes — source de vérité = MikroTik (comme Mikhmon).
+ * Toujours pull owner=mois, mise à jour base, retourne les lignes dédoublonnées.
+ * Ne s'appuie jamais sur un cache « vérifié » ou une lecture DB seule.
  */
-export async function planReportMonthSync(
+export async function fetchAuthoritativeReportScriptSales(
   routerId: number,
   conn: RouterConnection,
   year: number,
   month: number,
-): Promise<ReportMonthSyncPlan> {
-  if (month < 1 || month > 12) return "trusted-cache";
+  opts?: { force?: boolean; timeoutMs?: number },
+): Promise<SaleEntry[]> {
+  if (month < 1 || month > 12) return [];
 
-  const clock = await resolveRouterClockDate(conn, null);
-  const cal = getMikhmonCalendar(clock);
-
-  if (await isPastMonthVerified(routerId, year, month, cal)) {
-    return "trusted-cache";
+  const key = monthKey(routerId, year, month);
+  if (!opts?.force) {
+    const inflight = monthReportAuthoritativeInFlight.get(key);
+    if (inflight) return inflight;
   }
 
-  const row = await getMonthSyncRow(routerId, year, month);
-  const lastMik = row?.mikrotikSyncAt?.getTime() ?? 0;
-  if (lastMik > 0 && Date.now() - lastMik < REPORT_INSTANT_TRUST_MS) {
-    return "trusted-cache";
-  }
+  const promise = (async (): Promise<SaleEntry[]> => {
+    if (opts?.force) monthSyncedAt.delete(key);
 
-  const isCurrentMonth = year === cal.y && month === cal.m;
-  const memKey = monthKey(routerId, year, month);
-  const memFresh =
-    (monthSyncedAt.get(memKey) ?? 0) > 0
-    && Date.now() - (monthSyncedAt.get(memKey) ?? 0) < MONTH_FRESHNESS_MS;
-  if (isCurrentMonth && memFresh) {
-    return "trusted-cache";
-  }
+    const entries = await fetchScriptSales(
+      conn,
+      { type: "month", year, month },
+      opts?.timeoutMs ?? 120_000,
+    );
 
-  if (!row?.mikrotikSyncAt) {
-    const cnt = await countScriptSalesInMonth(routerId, year, month);
-    if (cnt === 0) return "full-pull";
-  }
+    const inMonth = filterEntriesToMikhmonMonth(entries, year, month);
+    const deduped = dedupeSaleEntriesForReport(inMonth);
 
-  const isPastMonth = isCalendarMonthBefore(year, month, cal);
-  if (isPastMonth && lastMik > 0) {
-    return "trusted-cache";
-  }
+    const { start: monthStart, end: monthEnd } = mikhmonMonthRangeFor(year, month);
+    const rows = entriesToRows(routerId, entries);
+    const { inserted } = await appendMonthScriptSales(routerId, rows, monthStart, monthEnd);
+    await upsertMonthSyncRecord(routerId, year, month, deduped.length, {
+      mikrotikSync: true,
+      verified: false,
+    });
+    monthSyncedAt.set(key, Date.now());
+    invalidateVendorPeriodAggCache(routerId);
 
-  return "full-pull";
+    logger.info(
+      { routerId, year, month, fetched: entries.length, inMonth: inMonth.length, reportRows: deduped.length, inserted },
+      "script cache: rapport ventes aligné MikroTik (source autoritaire)",
+    );
+
+    return deduped;
+  })().finally(() => {
+    monthReportAuthoritativeInFlight.delete(key);
+  });
+
+  monthReportAuthoritativeInFlight.set(key, promise);
+  return promise;
 }
 
 /**
- * Rapport ventes : sync complète (ou cache fiable) **avant** lecture DB.
- * Mois déjà aligné → quasi instantané ; sinon pull MikroTik mois entier (dédupliqué si warm/prefetch).
+ * Rapport ventes : sync MikroTik obligatoire avant affichage (échoue si routeur injoignable).
  */
 export async function prepareReportMonthForDisplay(
   routerId: number,
@@ -631,17 +670,18 @@ export async function prepareReportMonthForDisplay(
   month: number,
   opts?: { force?: boolean; timeoutMs?: number },
 ): Promise<EnsureMonthSalesSyncResult> {
-  return ensureMonthSalesSyncedFromMikrotik(routerId, conn, year, month, opts);
+  const rows = await fetchAuthoritativeReportScriptSales(routerId, conn, year, month, opts);
+  return { inserted: 0, fetched: rows.length, skipped: false };
 }
 
-/** Précharge le mois en arrière-plan (même promesse que le GET rapport — accélère le clic Filtrer). */
+/** Précharge le mois (même promesse que GET rapport). */
 export function warmReportMonthSync(
   routerId: number,
   conn: RouterConnection,
   year: number,
   month: number,
 ): void {
-  void prepareReportMonthForDisplay(routerId, conn, year, month).catch(() => {
+  void fetchAuthoritativeReportScriptSales(routerId, conn, year, month).catch(() => {
     /* prefetch best-effort */
   });
 }
@@ -667,51 +707,11 @@ export async function ensureMonthSalesSyncedFromMikrotik(
 
   const promise = (async (): Promise<EnsureMonthSalesSyncResult> => {
     try {
-      if (!opts?.force) {
-        const plan = await planReportMonthSync(routerId, conn, year, month);
-        if (plan === "trusted-cache") {
-          const clock = await resolveRouterClockDate(conn, null);
-          const cal = getMikhmonCalendar(clock);
-          if (year === cal.y && month === cal.m) {
-            const inserted = await syncScriptCache(routerId, conn, clock, {
-              forDashboard: true,
-              skipBackfill: true,
-            });
-            return { inserted, fetched: 0, skipped: true };
-          }
-          return { inserted: 0, fetched: 0, skipped: true };
-        }
-        const row = await getMonthSyncRow(routerId, year, month);
-        const lastMik = row?.mikrotikSyncAt?.getTime() ?? 0;
-        if (lastMik > 0 && Date.now() - lastMik < REPORT_MONTH_SYNC_GAP_MS) {
-          return { inserted: 0, fetched: 0, skipped: true };
-        }
-      }
-
-      monthSyncedAt.delete(key);
-      const { start: monthStart, end: monthEnd } = mikhmonMonthRangeFor(year, month);
-      const entries = await fetchScriptSales(
-        conn,
-        { type: "month", year, month },
-        opts?.timeoutMs ?? 90_000,
-      );
-      const rows = entriesToRows(routerId, entries);
-      const { inserted } = await appendMonthScriptSales(routerId, rows, monthStart, monthEnd);
-      const totalInDb = await countScriptSalesInMonth(routerId, year, month);
-      await upsertMonthSyncRecord(routerId, year, month, totalInDb, {
-        mikrotikSync: true,
-        verified: false,
-      });
-      monthSyncedAt.set(key, Date.now());
-      invalidateVendorPeriodAggCache(routerId);
-      logger.info(
-        { routerId, year, month, fetched: entries.length, inserted, totalInDb },
-        "script cache: mois rapport aligné sur MikroTik",
-      );
-      return { inserted, fetched: entries.length, skipped: false };
+      const rows = await fetchAuthoritativeReportScriptSales(routerId, conn, year, month, opts);
+      return { inserted: 0, fetched: rows.length, skipped: false };
     } catch (err) {
-      logger.warn({ routerId, year, month, err }, "script cache: sync mois rapport échouée (cache local conservé)");
-      return { inserted: 0, fetched: 0, skipped: true };
+      logger.warn({ routerId, year, month, err }, "script cache: sync mois rapport échouée");
+      throw err;
     }
   })().finally(() => {
     monthReportSyncInFlight.delete(key);
@@ -733,7 +733,7 @@ async function sealPreviousCalendarMonth(
   const row = await getMonthSyncRow(routerId, py, pm);
   if (row?.verifiedAt) return;
 
-  await ensureMonthSalesSyncedFromMikrotik(routerId, conn, py, pm, {
+  await fetchAuthoritativeReportScriptSales(routerId, conn, py, pm, {
     force: true,
     timeoutMs: 120_000,
   });

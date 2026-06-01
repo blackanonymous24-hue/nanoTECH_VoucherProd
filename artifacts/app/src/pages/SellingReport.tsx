@@ -372,12 +372,8 @@ export default function SellingReport() {
                   <span className="text-xs text-gray-500 tabular-nums leading-tight">
                     {orderedFiltered.length} vente{orderedFiltered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} {currency}</span>
                   </span>
-                  <span className="text-[11px] tabular-nums text-amber-700 leading-tight">
-                    {sourceCounts.localDb.toLocaleString("fr-FR")} base locale
-                  </span>
                   <span className="text-[11px] tabular-nums text-emerald-700 leading-tight">
-                    {sourceCounts.onMikrotik.toLocaleString("fr-FR")} sur MikroTik
-                    {presenceRefreshing ? " …" : ""}
+                    {sourceCounts.onMikrotik.toLocaleString("fr-FR")} alignées MikroTik (source routeur)
                   </span>
                 </div>
               )}
