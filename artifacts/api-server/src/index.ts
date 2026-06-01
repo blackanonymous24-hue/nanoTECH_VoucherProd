@@ -13,6 +13,7 @@ import { invalidateVendorPortalCache } from "./routes/vendor-portal.js";
 import { startMaintenanceScheduler } from "./lib/maintenance-scheduler.js";
 import { startAutoBypassSync } from "./lib/auto-bypass-sync.js";
 import { repairMojibakeOnce } from "./lib/repair-mojibake.js";
+import { warmGeoIpReader } from "./lib/geo-ip.js";
 // startDashboardPriorityWarmer est désactivé : le poller SSE partagé (mikrotik-poller.ts)
 // prend en charge le préchauffage des caches à la demande par routeur actif.
 // Le warmer interrogeait TOUS les routeurs toutes les 20 s même sans client connecté,
@@ -61,6 +62,8 @@ async function start() {
   await ensureRouterMikrotikSerialColumn();
   await normalizeStoredRouterHosts();
   await ensureSuperAdminPasswordPlainBackfill();
+
+  warmGeoIpReader();
 
   await new Promise<void>((resolve) => {
     app.listen(port, "0.0.0.0", () => {

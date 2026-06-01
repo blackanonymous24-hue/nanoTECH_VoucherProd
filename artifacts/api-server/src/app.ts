@@ -8,6 +8,8 @@ import { router } from "./routes/index.js";
 
 export const app = express();
 
+app.set("trust proxy", 1);
+
 app.use(express.json({ limit: "10mb" }));
 
 // pino-http v10: default export is callable at runtime but TS types declare it

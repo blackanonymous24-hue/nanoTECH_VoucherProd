@@ -263,6 +263,15 @@ export async function ensureUserSessionsTable(): Promise<void> {
     await db.execute(sql`
       ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS persistent boolean NOT NULL DEFAULT false
     `);
+    await db.execute(sql`
+      ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS country_code text
+    `);
+    await db.execute(sql`
+      ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS country_name text
+    `);
+    await db.execute(sql`
+      ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS city text
+    `);
     logger.info("DB compat: table user_sessions vérifiée / ajoutée");
   } catch (err) {
     logger.error({ err }, "DB compat: impossible de créer user_sessions");

@@ -3,10 +3,8 @@ import { eq, desc, ne, count, sql, and, gte, lt, isNotNull, isNull } from "drizz
 import { db, vendorsTable, vouchersTable, routersTable, vendorPaymentsTable, vendorDailyPaymentsTable, profilesCacheTable } from "@workspace/db";
 import { verifyPassword, hashPassword, createToken, verifyToken } from "../lib/vendor-auth.js";
 import {
-  deviceLabelFromRequest,
-  isSessionPersistentRequest,
   newSessionId,
-  registerUserSession,
+  registerUserSessionFromRequest,
 } from "../lib/user-session-store.js";
 import { syncMikrotikUsersToVendor } from "../lib/vendor-sync.js";
 import { getCachedProfilePricesSync } from "../lib/profile-cache.js";
@@ -261,12 +259,10 @@ router.post("/vendor-portal/login", async (req, res): Promise<void> => {
   }
 
   const vendorSessionId = newSessionId();
-  await registerUserSession({
+  await registerUserSessionFromRequest(req, {
     sessionId: vendorSessionId,
     userType: "vendor",
     userId: vendor.id,
-    deviceLabel: deviceLabelFromRequest(req),
-    persistent: isSessionPersistentRequest(req),
   });
   const token = createToken(vendor.id, vendor.sessionEpoch ?? 0, vendorSessionId);
 

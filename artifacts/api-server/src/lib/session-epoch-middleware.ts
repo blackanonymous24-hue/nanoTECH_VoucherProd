@@ -5,7 +5,7 @@ import { verifyAdminTokenFull } from "./admin-auth.js";
 import { verifyToken as verifyManagerToken } from "./manager-auth.js";
 import { verifyToken as verifyVendorToken } from "./vendor-auth.js";
 import { verifyToken as verifyCollaborateurToken } from "./collaborateur-auth.js";
-import { isUserSessionActive, revokeUserSessionById } from "./user-session-store.js";
+import { isUserSessionActive, revokeUserSessionById, touchUserSessionLastActive } from "./user-session-store.js";
 
 /** Réponse 401 quand cette session appareil a été révoquée (logout / idle). */
 export const SESSION_REVOKED_CODE = "SESSION_REVOKED";
@@ -40,6 +40,7 @@ async function validatePerDeviceSession(sessionId: string | undefined, res: Resp
     await sessionRevoked(res);
     return false;
   }
+  void touchUserSessionLastActive(sessionId);
   return true;
 }
 

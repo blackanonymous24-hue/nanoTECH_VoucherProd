@@ -40,6 +40,7 @@ const StockAlerts = lazy(() => import("@/pages/StockAlerts"));
 const Maintenance = lazy(() => import("@/pages/Maintenance"));
 const TicketLookup = lazy(() => import("@/pages/TicketLookup"));
 const SuperAdmins = lazy(() => import("@/pages/SuperAdmins"));
+const SuperMonitoring = lazy(() => import("@/pages/SuperMonitoring"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageSkeleton() {
@@ -216,6 +217,7 @@ function AppRoutes() {
               <Route path="/maintenance" component={role === "admin" ? Maintenance : Dashboard} />
               <Route path="/ticket-lookup" component={TicketLookup} />
               <Route path="/super/admins" component={isSuperAdmin ? SuperAdmins : Dashboard} />
+              <Route path="/super/monitoring" component={isSuperAdmin ? SuperMonitoring : Dashboard} />
               <Route component={NotFound} />
             </Switch>
           </Suspense>

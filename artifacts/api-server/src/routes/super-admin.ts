@@ -15,6 +15,11 @@ import {
   adminLoginPasswordCollisionMessage,
   findAdminLoginPasswordHashCollision,
 } from "../lib/admin-login-unique.js";
+import {
+  getMonitoringConnectionStats,
+  getMonitoringLiveSessions,
+} from "../lib/user-session-store.js";
+import { isGeoIpConfigured } from "../lib/geo-ip.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -935,6 +940,29 @@ router.post("/super/copy-vendors", async (req, res): Promise<void> => {
   }
 
   res.json({ copied: toInsert.length, skipped });
+});
+
+// GET /api/super/monitoring — sessions live + stats connexions (super-admin).
+router.get("/super/monitoring", async (req, res): Promise<void> => {
+  if (!requireSuperAdminScope(req, res)) return;
+  try {
+    const now = new Date();
+    const [live, stats] = await Promise.all([
+      getMonitoringLiveSessions(now),
+      getMonitoringConnectionStats(now),
+    ]);
+    const onlineCount = live.filter((s) => s.isOnline).length;
+    res.json({
+      generatedAt: now.toISOString(),
+      onlineCount,
+      sessionCount: live.length,
+      geoEnabled: isGeoIpConfigured(),
+      live,
+      stats,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Erreur monitoring" });
+  }
 });
 
 export default router;

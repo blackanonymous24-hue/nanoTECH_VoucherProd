@@ -641,6 +641,7 @@ function NavContent({ onNavigate, mobileDrawer }: { onNavigate?: () => void; mob
       collapsible: false,
       items: [
         { href: "/super/admins", label: "Administrateurs", icon: Crown },
+        { href: "/super/monitoring", label: "Monitoring", icon: Activity },
       ],
     }] : []),
   ];
