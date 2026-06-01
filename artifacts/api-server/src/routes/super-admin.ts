@@ -19,7 +19,6 @@ import {
   getMonitoringConnectionStats,
   getMonitoringLiveSessions,
 } from "../lib/user-session-store.js";
-import { isGeoIpConfigured } from "../lib/geo-ip.js";
 
 const router = Router();
 const BASE_ROUTER_SLOTS = 5;
@@ -956,7 +955,6 @@ router.get("/super/monitoring", async (req, res): Promise<void> => {
       generatedAt: now.toISOString(),
       onlineCount,
       sessionCount: live.length,
-      geoEnabled: isGeoIpConfigured(),
       live,
       stats,
     });

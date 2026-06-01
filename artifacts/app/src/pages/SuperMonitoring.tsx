@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, CircleDot, Loader2, MapPin, MonitorSmartphone, RefreshCw, Users } from "lucide-react";
+import { Activity, CircleDot, Loader2, MonitorSmartphone, RefreshCw, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,10 +21,6 @@ interface LiveSession {
   tenantLabel: string | null;
   deviceLabel: string | null;
   deviceShort: string;
-  countryCode: string | null;
-  countryName: string | null;
-  city: string | null;
-  locationLabel: string | null;
   createdAt: string;
   lastActiveAt: string;
   isOnline: boolean;
@@ -37,7 +33,6 @@ interface MonitoringPayload {
   sessionCount: number;
   live: LiveSession[];
   stats: { day: number; week: number; month: number; year: number };
-  geoEnabled: boolean;
 }
 
 const ROLE_LABEL: Record<UserType, string> = {
@@ -174,11 +169,6 @@ export default function SuperMonitoring() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Utilisateurs connectés à l&apos;application — réservé au super-admin.
-            {data?.geoEnabled === false && (
-              <span className="block text-amber-600 mt-1">
-                GeoLite2 non configuré : ville/pays visibles après installation de la base MaxMind.
-              </span>
-            )}
           </p>
         </div>
         <button
@@ -287,7 +277,6 @@ export default function SuperMonitoring() {
                     <th className="px-4 py-2.5 font-medium">Utilisateur</th>
                     <th className="px-4 py-2.5 font-medium">Rôle</th>
                     <th className="px-4 py-2.5 font-medium hidden md:table-cell">Tenant</th>
-                    <th className="px-4 py-2.5 font-medium hidden lg:table-cell">Localisation</th>
                     <th className="px-4 py-2.5 font-medium hidden sm:table-cell">Appareil</th>
                     <th className="px-4 py-2.5 font-medium">Statut</th>
                     <th className="px-4 py-2.5 font-medium hidden lg:table-cell">Connecté depuis</th>
@@ -299,9 +288,6 @@ export default function SuperMonitoring() {
                     <tr key={session.sessionId} className="hover:bg-gray-50/80">
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{session.displayName}</div>
-                        {session.login && session.login !== session.displayName && (
-                          <div className="text-xs text-gray-500">{session.login}</div>
-                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={cn("inline-block px-2 py-0.5 rounded-full text-xs font-medium", ROLE_BADGE[session.userType])}>
@@ -310,16 +296,6 @@ export default function SuperMonitoring() {
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell text-gray-600">
                         {session.tenantLabel ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 hidden lg:table-cell text-gray-600">
-                        {session.locationLabel ? (
-                          <span className="inline-flex items-center gap-1 max-w-[180px] truncate" title={session.locationLabel}>
-                            <MapPin className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-                            {session.locationLabel}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
                       </td>
                       <td className="px-4 py-3 hidden sm:table-cell text-gray-600 max-w-[160px] truncate" title={session.deviceLabel ?? undefined}>
                         {session.deviceShort}

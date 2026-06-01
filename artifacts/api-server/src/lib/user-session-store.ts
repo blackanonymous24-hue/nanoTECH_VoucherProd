@@ -9,8 +9,6 @@ import {
   managersTable,
   collaborateursTable,
 } from "@workspace/db";
-import { getClientIp } from "./client-ip.js";
-import { formatSessionLocation, lookupGeoFromIp } from "./geo-ip.js";
 
 export type UserSessionType = "admin" | "vendor" | "manager" | "collaborateur";
 
@@ -46,9 +44,6 @@ export async function registerUserSession(params: {
   userId: number;
   deviceLabel?: string | null;
   persistent?: boolean;
-  countryCode?: string | null;
-  countryName?: string | null;
-  city?: string | null;
 }): Promise<void> {
   await db.insert(userSessionsTable).values({
     sessionId: params.sessionId,
@@ -56,33 +51,7 @@ export async function registerUserSession(params: {
     userId: params.userId,
     deviceLabel: params.deviceLabel ?? null,
     persistent: params.persistent === true,
-    countryCode: params.countryCode ?? null,
-    countryName: params.countryName ?? null,
-    city: params.city ?? null,
   } as typeof userSessionsTable.$inferInsert);
-}
-
-/** Enregistre la session + appareil + géolocalisation (GeoLite2) à la connexion. */
-export async function registerUserSessionFromRequest(
-  req: Request,
-  params: {
-    sessionId: string;
-    userType: UserSessionType;
-    userId: number;
-  },
-): Promise<void> {
-  const ip = getClientIp(req);
-  const geo = ip ? await lookupGeoFromIp(ip) : null;
-  await registerUserSession({
-    sessionId: params.sessionId,
-    userType: params.userType,
-    userId: params.userId,
-    deviceLabel: deviceLabelFromRequest(req),
-    persistent: isSessionPersistentRequest(req),
-    countryCode: geo?.countryCode ?? null,
-    countryName: geo?.countryName ?? null,
-    city: geo?.city ?? null,
-  });
 }
 
 export async function isUserSessionActive(sessionId: string): Promise<boolean> {
@@ -193,10 +162,6 @@ export type MonitoringLiveSession = {
   tenantLabel: string | null;
   deviceLabel: string | null;
   deviceShort: string;
-  countryCode: string | null;
-  countryName: string | null;
-  city: string | null;
-  locationLabel: string | null;
   createdAt: string;
   lastActiveAt: string;
   isOnline: boolean;
@@ -334,10 +299,6 @@ export async function getMonitoringLiveSessions(now = new Date()): Promise<Monit
       tenantLabel: identity.tenantLabel,
       deviceLabel: row.deviceLabel,
       deviceShort: shortenDeviceLabel(row.deviceLabel),
-      countryCode: row.countryCode ?? null,
-      countryName: row.countryName ?? null,
-      city: row.city ?? null,
-      locationLabel: formatSessionLocation(row.countryName, row.city, row.countryCode),
       createdAt: row.createdAt.toISOString(),
       lastActiveAt: lastActiveAt.toISOString(),
       isOnline: lastActiveAt >= onlineSince,

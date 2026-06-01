@@ -22,8 +22,10 @@ import { setAdminCredentialPreview } from "../lib/admin-credential-preview.js";
 import { logger } from "../lib/logger.js";
 import { revokeSessionForToken } from "../lib/session-epoch-middleware.js";
 import {
+  deviceLabelFromRequest,
+  isSessionPersistentRequest,
   newSessionId,
-  registerUserSessionFromRequest,
+  registerUserSession,
 } from "../lib/user-session-store.js";
 import {
   adminLoginPasswordCollisionMessage,
@@ -153,10 +155,12 @@ async function postLogin(req: Request, res: Response): Promise<void> {
         }
       }
       const adminSessionId = newSessionId();
-      await registerUserSessionFromRequest(req, {
+      await registerUserSession({
         sessionId: adminSessionId,
         userType: "admin",
         userId: adminRow.id,
+        deviceLabel: deviceLabelFromRequest(req),
+        persistent: isSessionPersistentRequest(req),
       });
       res.json({
         role: "admin",
@@ -189,10 +193,12 @@ async function postLogin(req: Request, res: Response): Promise<void> {
         routerIds = [manager.routerId];
       }
       const managerSessionId = newSessionId();
-      await registerUserSessionFromRequest(req, {
+      await registerUserSession({
         sessionId: managerSessionId,
         userType: "manager",
         userId: manager.id,
+        deviceLabel: deviceLabelFromRequest(req),
+        persistent: isSessionPersistentRequest(req),
       });
       res.json({
         role: "manager",
@@ -218,10 +224,12 @@ async function postLogin(req: Request, res: Response): Promise<void> {
     const valid = await verifyVendorPassword(password, vendor.passwordHash);
     if (valid) {
       const vendorSessionId = newSessionId();
-      await registerUserSessionFromRequest(req, {
+      await registerUserSession({
         sessionId: vendorSessionId,
         userType: "vendor",
         userId: vendor.id,
+        deviceLabel: deviceLabelFromRequest(req),
+        persistent: isSessionPersistentRequest(req),
       });
       res.json({
         role: "vendor",
@@ -246,10 +254,12 @@ async function postLogin(req: Request, res: Response): Promise<void> {
         .where(eq(collaborateurRoutersTable.collaborateurId, collab.id));
       const routerIds = routerRows.map((r) => r.routerId);
       const collabSessionId = newSessionId();
-      await registerUserSessionFromRequest(req, {
+      await registerUserSession({
         sessionId: collabSessionId,
         userType: "collaborateur",
         userId: collab.id,
+        deviceLabel: deviceLabelFromRequest(req),
+        persistent: isSessionPersistentRequest(req),
       });
       res.json({
         role: "collaborateur",

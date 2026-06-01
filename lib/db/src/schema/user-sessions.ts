@@ -18,12 +18,6 @@ export const userSessionsTable = pgTable("user_sessions", {
   userId: integer("user_id").notNull(),
   /** Label de l'appareil (navigateur + OS approximatif). */
   deviceLabel: text("device_label"),
-  /** Code ISO pays (GeoLite2, à la connexion). */
-  countryCode: text("country_code"),
-  /** Nom du pays (fr/en, à la connexion). */
-  countryName: text("country_name"),
-  /** Ville approximative (GeoLite2, à la connexion). */
-  city: text("city"),
   /** Date de création de la session. */
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Dernière activité (mise à jour à chaque requête API). */
