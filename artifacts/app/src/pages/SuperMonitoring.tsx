@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, CircleDot, Loader2, MonitorSmartphone, RefreshCw, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,55 @@ import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const POLL_MS = 15_000;
+
+type MonitoringFilter =
+  | "online"
+  | "all-sessions"
+  | "period-day"
+  | "period-week"
+  | "period-month"
+  | "period-year";
+
+function startOfDay(d = new Date()): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function startOfWeekMonday(d = new Date()): Date {
+  const day = d.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  const start = startOfDay(d);
+  start.setDate(start.getDate() - diff);
+  return start;
+}
+
+function startOfMonth(d = new Date()): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function startOfYear(d = new Date()): Date {
+  return new Date(d.getFullYear(), 0, 1);
+}
+
+function sessionCreatedSince(session: LiveSession, since: Date): boolean {
+  return new Date(session.createdAt).getTime() >= since.getTime();
+}
+
+function filterSessions(live: LiveSession[], filter: MonitoringFilter): LiveSession[] {
+  switch (filter) {
+    case "online":
+      return live.filter((s) => s.isOnline);
+    case "all-sessions":
+      return live;
+    case "period-day":
+      return live.filter((s) => sessionCreatedSince(s, startOfDay()));
+    case "period-week":
+      return live.filter((s) => sessionCreatedSince(s, startOfWeekMonday()));
+    case "period-month":
+      return live.filter((s) => sessionCreatedSince(s, startOfMonth()));
+    case "period-year":
+      return live.filter((s) => sessionCreatedSince(s, startOfYear()));
+  }
+}
 
 type UserType = "admin" | "vendor" | "manager" | "collaborateur";
 
@@ -74,11 +123,15 @@ function ConnectionRing({
   value,
   maxValue,
   colorClass,
+  selected,
+  onClick,
 }: {
   label: string;
   value: number;
   maxValue: number;
   colorClass: string;
+  selected?: boolean;
+  onClick?: () => void;
 }) {
   const size = 132;
   const stroke = 10;
@@ -88,7 +141,15 @@ function ConnectionRing({
   const offset = circumference * (1 - ratio);
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center gap-2 rounded-xl p-2 transition-colors text-left",
+        "hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/60",
+        selected && "bg-orange-50 ring-2 ring-orange-400/50",
+      )}
+    >
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90">
           <circle
@@ -119,12 +180,61 @@ function ConnectionRing({
         </div>
       </div>
       <p className="text-sm font-medium text-gray-700">{label}</p>
-    </div>
+    </button>
+  );
+}
+
+function StatCard({
+  selected,
+  onClick,
+  icon,
+  iconClassName,
+  value,
+  label,
+}: {
+  selected?: boolean;
+  onClick?: () => void;
+  icon: React.ReactNode;
+  iconClassName: string;
+  value: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full text-left rounded-xl border bg-white shadow-sm transition-colors",
+        "hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/60",
+        selected ? "border-orange-300 ring-2 ring-orange-400/40 bg-orange-50/50" : "border-gray-100",
+      )}
+    >
+      <div className="pt-4 pb-4 px-4">
+        <div className="flex items-center gap-3">
+          <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center", iconClassName)}>
+            {icon}
+          </div>
+          <div>
+            <p className="text-2xl font-bold tabular-nums">{value}</p>
+            <p className="text-xs text-gray-500">{label}</p>
+          </div>
+        </div>
+      </div>
+    </button>
   );
 }
 
 export default function SuperMonitoring() {
   const { token } = useAuth();
+  const tableRef = useRef<HTMLDivElement>(null);
+  const [filter, setFilter] = useState<MonitoringFilter>("online");
+
+  const selectFilter = (next: MonitoringFilter) => {
+    setFilter(next);
+    requestAnimationFrame(() => {
+      tableRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  };
   const headers = useMemo(
     () => ({ Authorization: `Bearer ${token}` }),
     [token],
@@ -148,16 +258,15 @@ export default function SuperMonitoring() {
   const stats = data?.stats ?? { day: 0, week: 0, month: 0, year: 0 };
   const maxStat = Math.max(stats.day, stats.week, stats.month, stats.year, 1);
 
-  const rings = [
-    { label: "Aujourd'hui", value: stats.day, colorClass: "text-orange-500" },
-    { label: "Cette semaine", value: stats.week, colorClass: "text-blue-500" },
-    { label: "Ce mois", value: stats.month, colorClass: "text-emerald-500" },
-    { label: "Cette année", value: stats.year, colorClass: "text-violet-500" },
+  const rings: { id: MonitoringFilter; label: string; value: number; colorClass: string }[] = [
+    { id: "period-day", label: "Aujourd'hui", value: stats.day, colorClass: "text-orange-500" },
+    { id: "period-week", label: "Cette semaine", value: stats.week, colorClass: "text-blue-500" },
+    { id: "period-month", label: "Ce mois", value: stats.month, colorClass: "text-emerald-500" },
+    { id: "period-year", label: "Cette année", value: stats.year, colorClass: "text-violet-500" },
   ];
 
   const live = data?.live ?? [];
-  const onlineSessions = live.filter((s) => s.isOnline);
-  const idleSessions = live.filter((s) => !s.isOnline);
+  const filteredSessions = useMemo(() => filterSessions(live, filter), [live, filter]);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
@@ -182,33 +291,23 @@ export default function SuperMonitoring() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                <CircleDot className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold tabular-nums">{isLoading ? "—" : data?.onlineCount ?? 0}</p>
-                <p className="text-xs text-gray-500">En ligne (&lt; 5 min)</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Users className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold tabular-nums">{isLoading ? "—" : data?.sessionCount ?? 0}</p>
-                <p className="text-xs text-gray-500">Sessions actives</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="col-span-2">
+        <StatCard
+          selected={filter === "online"}
+          onClick={() => selectFilter("online")}
+          icon={<CircleDot className="h-5 w-5 text-emerald-600" />}
+          iconClassName="bg-emerald-100"
+          value={isLoading ? "—" : data?.onlineCount ?? 0}
+          label="En ligne (< 5 min)"
+        />
+        <StatCard
+          selected={filter === "all-sessions"}
+          onClick={() => selectFilter("all-sessions")}
+          icon={<Users className="h-5 w-5 text-blue-600" />}
+          iconClassName="bg-blue-100"
+          value={isLoading ? "—" : data?.sessionCount ?? 0}
+          label="Sessions actives"
+        />
+        <Card className="col-span-2 pointer-events-none">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-gray-500">
               Dernière mise à jour :{" "}
@@ -235,26 +334,37 @@ export default function SuperMonitoring() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 py-2 justify-items-center">
               {rings.map((ring) => (
                 <ConnectionRing
-                  key={ring.label}
+                  key={ring.id}
                   label={ring.label}
                   value={ring.value}
                   maxValue={maxStat}
                   colorClass={ring.colorClass}
+                  selected={filter === ring.id}
+                  onClick={() => selectFilter(ring.id)}
                 />
               ))}
             </div>
           )}
           <p className="text-xs text-gray-500 text-center mt-2">
-            Nombre de nouvelles connexions (sessions) ouvertes sur la période.
+            Cliquez sur une période pour filtrer la liste des utilisateurs.
           </p>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card ref={tableRef}>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <MonitorSmartphone className="h-4 w-4 text-gray-500" />
-            Utilisateurs en temps réel
+          <CardTitle className="text-base flex items-center justify-between gap-3 w-full">
+            <span className="flex items-center gap-2 min-w-0">
+              <MonitorSmartphone className="h-4 w-4 shrink-0 text-gray-500" />
+              Utilisateurs en temps réel
+            </span>
+            <span className="text-sm font-normal text-gray-500 tabular-nums shrink-0">
+              (
+              {isLoading
+                ? "…"
+                : `${data?.onlineCount ?? 0} ${(data?.onlineCount ?? 0) === 1 ? "utilisateur" : "utilisateurs"}`}
+              )
+            </span>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -267,8 +377,8 @@ export default function SuperMonitoring() {
                 </div>
               ))}
             </div>
-          ) : live.length === 0 ? (
-            <p className="px-4 py-8 text-sm text-gray-500 text-center">Aucune session active.</p>
+          ) : filteredSessions.length === 0 ? (
+            <p className="px-4 py-8 text-sm text-gray-500 text-center">Aucun utilisateur pour ce filtre.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -284,7 +394,7 @@ export default function SuperMonitoring() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {[...onlineSessions, ...idleSessions].map((session) => (
+                  {filteredSessions.map((session) => (
                     <tr key={session.sessionId} className="hover:bg-gray-50/80">
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{session.displayName}</div>
